@@ -61,6 +61,7 @@ AppController::AppController(QObject *parent)
     m_tts       = new TtsEngine(this);
     m_translationEngine = new TranslationEngine({}, this);
     m_llmEngine = new LlmChatEngine(this);
+    m_colabSession = new ColabSession(this);
     Logger::info(QStringLiteral("App"), QStringLiteral("Initializing runtime services."));
     m_runtimes  = new RuntimeManager(m_catalog, m_settings, this);
     m_alignment = new AlignmentExecutionService(m_runtimes, m_models, this);

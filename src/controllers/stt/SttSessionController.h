@@ -5,6 +5,9 @@
 #include <QVariantMap>
 #include <QVector>
 #include <QUrl>
+#include <QThread>
+#include <atomic>
+#include <memory>
 #include "core/StudioSelectionRepository.h"
 #include "SttAudioDecoder.h"
 
@@ -15,6 +18,8 @@ class AudioRecorder;
 class AudioPlayer;
 class HistoryService;
 class Settings;
+class ColabSession;
+class ColabSttRunner;
 
 struct SttJobSnapshot {
     QVector<float> samples;
@@ -41,6 +46,7 @@ class SttSessionController : public QObject {
     Q_PROPERTY(double recordingLevel READ recordingLevel NOTIFY recordingLevelChanged)
     Q_PROPERTY(QVariantList history READ history NOTIFY historyChanged)
     Q_PROPERTY(QString playbackPath READ playbackPath NOTIFY playbackPathChanged)
+    Q_PROPERTY(bool colabActive READ colabActive NOTIFY colabStateChanged)
 
     // Settings
     Q_PROPERTY(QString language READ language WRITE setLanguage NOTIFY languageChanged)
@@ -66,6 +72,7 @@ public:
     double recordingLevel() const;
     QVariantList history() const;
     QString playbackPath() const;
+    bool colabActive() const;
 
     QString language() const;
     void setLanguage(const QString &lang);
@@ -92,6 +99,8 @@ public:
     Q_INVOKABLE void clearHistory();
     Q_INVOKABLE void playHistoryFile(const QString &filePath);
     Q_INVOKABLE void stopPlayback();
+    Q_INVOKABLE bool connectColab(const QString &workerUrl, const QString &bearerToken);
+    Q_INVOKABLE void disconnectColab();
 
 signals:
     void inputPathChanged();
@@ -111,6 +120,7 @@ signals:
     void threadsChanged();
     void translateChanged();
     void dynamicSettingsChanged();
+    void colabStateChanged();
 
     // Forward the timestamped backend result so composite workflows (such as
     // Dubbing) can reuse the shared STT session without duplicating inference.
@@ -125,6 +135,9 @@ private slots:
     void onEngineTranscriptionFinished(const QString &text, const QVariantList &segments);
     void onHistoryChanged();
     void onPlaybackStateChanged();
+    void onColabProgress(int percent);
+    void onColabFinished(const QString &text, const QVariantList &segments);
+    void onColabFailed(const QString &error);
 
 private:
     void updateWaveform(const QVector<float> &samples);
@@ -134,6 +147,9 @@ private:
     AudioPlayer* m_player = nullptr;
     HistoryService* m_historyService = nullptr;
     Settings* m_settings = nullptr;
+    ColabSession* m_colabSession = nullptr;
+    ColabSttRunner* m_colabRunner = nullptr;
+    QThread m_colabThread;
     StudioSelectionRepository* m_repository = nullptr;
 
     QString m_inputPath;
@@ -148,6 +164,9 @@ private:
     SttAudioDecoder* m_activeDecoder = nullptr;
     QString m_playbackPath;
     QVariantMap m_dynamicSettings;
+    std::shared_ptr<std::atomic_bool> m_colabCancellation;
+    bool m_colabProcessing = false;
+    int m_colabProgress = 0;
 };
 
 } // namespace LAStudio

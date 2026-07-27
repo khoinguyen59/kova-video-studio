@@ -40,6 +40,7 @@
 #include "ExampleManager.h"
 #include "controllers/app/WorkflowActivityManager.h"
 #include "api/ApiServerService.h"
+#include "remote/ColabSession.h"
 
 #include "ModelSessionRegistry.h"
 
@@ -65,6 +66,7 @@ class AppController : public QObject {
     Q_PROPERTY(TranslationEngine* translationEngine READ translationEngine CONSTANT)
     Q_PROPERTY(LlmChatEngine* llmEngine READ llmEngine CONSTANT)
     Q_PROPERTY(LlmChatController* llmChat READ llmChat CONSTANT)
+    Q_PROPERTY(ColabSession* colabSession READ colabSession CONSTANT)
     Q_PROPERTY(AudioRecorder*   recorder  READ recorder  CONSTANT)
     Q_PROPERTY(AudioPlayer*     player    READ player    CONSTANT)
     Q_PROPERTY(AudioPreviewService* preview READ preview CONSTANT)
@@ -115,6 +117,7 @@ public:
     TranslationEngine* translationEngine() const { return m_translationEngine; }
     LlmChatEngine* llmEngine() const { return m_llmEngine; }
     LlmChatController* llmChat() const { return m_llmChat; }
+    ColabSession* colabSession() const { return m_colabSession; }
     AudioRecorder*   recorder()  const { return m_recorder; }
     AudioPlayer*     player()    const { return m_player; }
     AudioPreviewService* preview() const { return m_preview; }
@@ -176,6 +179,7 @@ private:
     TranslationEngine* m_translationEngine = nullptr;
     LlmChatEngine* m_llmEngine = nullptr;
     LlmChatController* m_llmChat = nullptr;
+    ColabSession* m_colabSession = nullptr;
     AudioRecorder*   m_recorder = nullptr;
     AudioPlayer*     m_player = nullptr;
     WaveformProvider* m_waveformProvider = nullptr;

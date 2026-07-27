@@ -22,6 +22,20 @@ Rectangle {
     property var studioConfig: ({})
     property bool advancedOpen: false
     readonly property bool hasLanguageInput: studioConfig && studioConfig.inputs ? studioConfig.inputs.indexOf("language") !== -1 : true
+    component ColabField: TextField {
+        Layout.fillWidth: true
+        color: Theme.textPrimary
+        placeholderTextColor: Theme.textSecondary
+        font.pixelSize: Theme.fontSmall
+        padding: Theme.paddingSmall
+        selectByMouse: true
+        background: Rectangle {
+            radius: Theme.radiusSmall
+            color: Qt.rgba(1, 1, 1, 0.035)
+            border.color: parent.activeFocus ? Theme.accent : Qt.rgba(1, 1, 1, 0.09)
+            border.width: parent.activeFocus ? 2 : 1
+        }
+    }
 
 
     signal closeRequested()
@@ -186,6 +200,38 @@ Rectangle {
                             onLanguageSelected: function(language) {
                                 if (root.sttSession && root.sttSession.language !== language) {
                                     root.sttSession.language = language
+                                }
+                            }
+                        }
+                    }
+
+                    SettingsSection {
+                        title: qsTr("Colab GPU Worker")
+                        iconName: "cloud"
+
+                        Text { Layout.fillWidth: true; text: qsTr("This direct temporary worker is independent of API Gateway."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                        Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                        ColabField {
+                            id: colabUrl
+                            text: AppController.colabSession.workerUrl
+                            placeholderText: qsTr("https://….trycloudflare.com")
+                        }
+                        Text { text: qsTr("Session token"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                        ColabField {
+                            id: colabToken
+                            echoMode: TextInput.Password
+                            placeholderText: root.sttSession && root.sttSession.colabActive ? qsTr("Connected — enter token to replace") : qsTr("Temporary token from Colab")
+                        }
+                        PrimaryButton {
+                            Layout.fillWidth: true
+                            text: root.sttSession && root.sttSession.colabActive ? qsTr("Disconnect Colab") : qsTr("Connect Colab GPU")
+                            iconName: root.sttSession && root.sttSession.colabActive ? "close" : "cloud"
+                            onClicked: {
+                                if (!root.sttSession) return
+                                if (root.sttSession.colabActive) {
+                                    root.sttSession.disconnectColab()
+                                } else if (root.sttSession.connectColab(colabUrl.text.trim(), colabToken.text)) {
+                                    colabToken.text = ""
                                 }
                             }
                         }

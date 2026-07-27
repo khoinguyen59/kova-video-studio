@@ -105,6 +105,7 @@ set(LASTUDIO_SOURCES
     src/remote/ExecutionProvider.cpp
     src/remote/ColabSession.cpp
     src/remote/GatewayClient.cpp
+    src/remote/ColabWorkerClient.cpp
     src/api/ApiServerService.cpp
     src/core/HFHubClient.cpp
     src/core/DownloadManager.cpp
@@ -128,6 +129,7 @@ set(LASTUDIO_SOURCES
     src/stt/SttEngine.cpp
     src/stt/SttEngineInstance.cpp
     src/stt/SttWorker.cpp
+    src/stt/ColabSttRunner.cpp
     src/stt/backends/SttBackendFactory.cpp
     src/stt/backends/WhisperSttBackend.cpp
     src/stt/backends/QwenSttBackend.cpp
@@ -255,6 +257,7 @@ set(LASTUDIO_HEADERS
     src/remote/ExecutionProvider.h
     src/remote/ColabSession.h
     src/remote/GatewayClient.h
+    src/remote/ColabWorkerClient.h
     src/core/HFHubClient.h
     src/core/DownloadManager.h
     src/core/ModelManager.h
@@ -286,6 +289,7 @@ set(LASTUDIO_HEADERS
     src/stt/SttEngine.h
     src/stt/SttEngineInstance.h
     src/stt/SttWorker.h
+    src/stt/ColabSttRunner.h
     src/stt/backends/SttBackend.h
     src/stt/backends/SttBackendFactory.h
     src/stt/backends/WhisperSttBackend.h

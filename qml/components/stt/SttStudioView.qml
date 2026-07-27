@@ -21,7 +21,7 @@ StudioShell {
     families: studioController ? studioController.families : []
     capability: "stt"
     studioTitle: studioController ? studioController.studioHeaderTitle : qsTr("Speech-to-Text Studio")
-    studioReady: studioController ? studioController.studioReady : false
+    studioReady: (sttSession && sttSession.colabActive) || (studioController ? studioController.studioReady : false)
     isSettingsOpen: true
     showLeftPanel: true
     isLeftPanelOpen: true

@@ -1,6 +1,11 @@
 #include "test_SttSession.h"
 #include <QtTest>
 #include <QSignalSpy>
+#include <QPointer>
+#include <QRegularExpression>
+#include <QTcpServer>
+#include <QTcpSocket>
+#include <QThread>
 #include <QThreadPool>
 #include <QUrl>
 
@@ -10,8 +15,56 @@
 #include "controllers/models/ModelLifecycleController.h"
 #include "core/StudioCapabilityRegistry.h"
 #include "stt/SttEngine.h"
+#include "stt/ColabSttRunner.h"
 
 namespace LAStudio {
+namespace {
+
+class ColabSttMock final : public QObject
+{
+public:
+    ColabSttMock()
+    {
+        connect(&m_server, &QTcpServer::newConnection, this, [this] {
+            while (QTcpSocket *socket = m_server.nextPendingConnection()) {
+                m_socket = socket;
+                connect(socket, &QTcpSocket::readyRead, this, [this] { consume(); });
+            }
+        });
+    }
+
+    bool start() { return m_server.listen(QHostAddress::LocalHost); }
+    QString baseUrl() const { return QStringLiteral("http://127.0.0.1:%1").arg(m_server.serverPort()); }
+    QByteArray request() const { return m_request; }
+
+private:
+    void consume()
+    {
+        if (!m_socket) return;
+        m_pending += m_socket->readAll();
+        const int headerEnd = m_pending.indexOf("\r\n\r\n");
+        if (headerEnd < 0) return;
+        const auto match = QRegularExpression(QStringLiteral("Content-Length: (\\d+)"),
+                                              QRegularExpression::CaseInsensitiveOption)
+                               .match(QString::fromLatin1(m_pending.left(headerEnd)));
+        if (!match.hasMatch()) return;
+        const int requestLength = headerEnd + 4 + match.captured(1).toInt();
+        if (m_pending.size() < requestLength) return;
+        m_request = m_pending.left(requestLength);
+        const QByteArray response = QByteArrayLiteral(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
+            "{\"text\":\"Hello world\",\"segments\":[{\"id\":0,\"start\":0.0,\"end\":1.5,\"text\":\"Hello world\"}]}");
+        m_socket->write(response);
+        m_socket->disconnectFromHost();
+    }
+
+    QTcpServer m_server;
+    QPointer<QTcpSocket> m_socket;
+    QByteArray m_pending;
+    QByteArray m_request;
+};
+
+} // namespace
 
 void TestSttSession::cleanupTestCase()
 {
@@ -127,6 +180,42 @@ void TestSttSession::testSttRecordingSourceSelection()
 
     session.startRecording(false);
     QVERIFY(!recorder->recordSystemAudio());
+}
+
+void TestSttSession::testColabSttRunnerPostsKovaCompatibleMultipart()
+{
+    ColabSttMock server;
+    QVERIFY(server.start());
+    qRegisterMetaType<ColabSttRequest>("ColabSttRequest");
+    QThread workerThread;
+    auto *runner = new ColabSttRunner;
+    runner->moveToThread(&workerThread);
+    connect(&workerThread, &QThread::finished, runner, &QObject::deleteLater);
+    workerThread.start();
+    QSignalSpy finished(runner, &ColabSttRunner::finished);
+    QSignalSpy failures(runner, &ColabSttRunner::failed);
+
+    ColabSttRequest request;
+    request.workerUrl = QUrl(server.baseUrl());
+    request.bearerToken = QStringLiteral("colab-test-token");
+    request.samples = {0.0F, 0.25F, -0.25F, 0.0F};
+    request.language = QStringLiteral("en");
+    request.allowInsecureLocalhost = true;
+    QVERIFY(QMetaObject::invokeMethod(runner, "transcribe", Qt::QueuedConnection,
+                                      Q_ARG(ColabSttRequest, request)));
+
+    QVERIFY2(finished.wait(5000), "Colab STT worker did not finish.");
+    QCOMPARE(failures.count(), 0);
+    QCOMPARE(finished.takeFirst().at(0).toString(), QStringLiteral("Hello world"));
+    const QByteArray body = server.request();
+    QVERIFY(body.startsWith("POST /v1/audio/transcriptions HTTP/1.1\r\n"));
+    QVERIFY(body.toLower().contains("authorization: bearer colab-test-token"));
+    QVERIFY(body.contains("name=\"response_format\""));
+    QVERIFY(body.contains("verbose_json"));
+    QVERIFY(body.contains("name=\"file\"; filename=\"audio.wav\""));
+    QVERIFY(body.contains("RIFF"));
+    workerThread.quit();
+    QVERIFY(workerThread.wait(5000));
 }
 
 } // namespace LAStudio
