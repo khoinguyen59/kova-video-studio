@@ -81,6 +81,7 @@ AppController::AppController(QObject *parent)
     m_preview   = new AudioPreviewService(m_tts, m_player, m_waveformProvider, this);
     m_history   = new HistoryService(m_tts, m_recorder, this);
     m_gatewayTts = new GatewayTtsController(m_settings, m_player, m_waveformProvider, m_history, this);
+    m_colabTts = new ColabTtsController(m_colabSession, m_player, m_waveformProvider, m_history, this);
     m_modelsMigration = new ModelsPathMigrationService(m_settings, m_models, m_downloads, m_stt, m_tts, this);
     m_files     = new FileAccessService(this);
     m_downloadInstall = new DownloadInstallService(m_downloads, m_models, m_runtimes, this);
@@ -99,6 +100,7 @@ AppController::AppController(QObject *parent)
     connect(m_player, &AudioPlayer::errorOccurred, this, &AppController::onError);
     connect(m_history, &HistoryService::errorOccurred, this, &AppController::onError);
     connect(m_gatewayTts, &GatewayTtsController::errorOccurred, this, &AppController::onError);
+    connect(m_colabTts, &ColabTtsController::errorOccurred, this, &AppController::onError);
     connect(m_downloadInstall, &DownloadInstallService::errorOccurred, this, &AppController::onError);
     connect(m_alignment, &AlignmentExecutionService::failed, this,
             [this](const QString &, const QString &message) { onError(message); });

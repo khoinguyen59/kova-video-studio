@@ -27,6 +27,7 @@
 #include "test_LlmChatEngine.h"
 #include "test_RemoteExecution.h"
 #include "test_GatewayTtsRunner.h"
+#include "test_ColabTtsRunner.h"
 
 #include <QFile>
 #include <QTextStream>
@@ -202,6 +203,11 @@ int main(int argc, char *argv[])
     {
         LAStudio::TestGatewayTtsRunner suite;
         runSuite(&suite, "TestGatewayTtsRunner");
+    }
+
+    {
+        LAStudio::TestColabTtsRunner suite;
+        runSuite(&suite, "TestColabTtsRunner");
     }
 
     std::cout << "\n==================================================\n";

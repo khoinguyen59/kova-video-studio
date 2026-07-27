@@ -4,6 +4,7 @@
 #include <QJsonObject>
 #include <QString>
 #include <QUrl>
+#include <QVariantMap>
 
 #include <atomic>
 #include <memory>
@@ -27,6 +28,10 @@ public:
     bool transcribeWav(const QByteArray &wavData, const QString &language,
                        const std::shared_ptr<std::atomic_bool> &cancelToken,
                        QJsonObject *response, QString *errorMessage);
+    bool synthesizeSpeech(const QString &text, const QString &model, const QString &voice,
+                          const QString &language, float speed, const QVariantMap &settings,
+                          const std::shared_ptr<std::atomic_bool> &cancelToken,
+                          QByteArray *wavData, QString *errorMessage);
 
 private:
     QUrl m_workerUrl;

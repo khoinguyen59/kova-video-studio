@@ -20,6 +20,7 @@ ColumnLayout {
     property string backendType: ""  // "kokoro", "vibevoice", or "" (omnivoice)
     property bool locked: false
     property bool showGatewaySettings: true
+    property bool showColabSettings: true
 
     property var capabilitySchema: []
     property var basicSchema: []
@@ -339,8 +340,68 @@ ColumnLayout {
                     text: AppController.gatewayTts.gatewayActive ? qsTr("Use local TTS") : qsTr("Use API Gateway TTS")
                     iconName: AppController.gatewayTts.gatewayActive ? "close" : "cloud"
                     onClicked: {
-                        if (AppController.gatewayTts.gatewayActive) AppController.gatewayTts.disconnectGateway()
-                        else AppController.gatewayTts.useGateway()
+                        if (AppController.gatewayTts.gatewayActive) {
+                            AppController.gatewayTts.disconnectGateway()
+                        } else {
+                            AppController.colabTts.useLocal()
+                            AppController.gatewayTts.useGateway()
+                        }
+                    }
+                }
+            }
+
+            SettingsSection {
+                title: qsTr("Colab GPU TTS")
+                iconName: "cloud"
+                visible: root.showColabSettings
+
+                Text { Layout.fillWidth: true; text: qsTr("This direct temporary worker is independent of API Gateway. Its token stays only in this desktop session."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                GatewayField {
+                    id: colabUrl
+                    text: AppController.colabSession.workerUrl
+                    placeholderText: qsTr("https://…trycloudflare.com")
+                }
+                Text { text: qsTr("Session token"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                GatewayField {
+                    id: colabToken
+                    echoMode: TextInput.Password
+                    placeholderText: AppController.colabTts.colabConnected ? qsTr("Connected — enter token to replace") : qsTr("Temporary token from Colab")
+                }
+                Text { text: qsTr("Colab model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                GatewayField {
+                    text: AppController.colabTts.colabModel
+                    placeholderText: qsTr("kokoro")
+                    onEditingFinished: AppController.colabTts.colabModel = text.trim()
+                }
+                Text { text: qsTr("Voice"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                GatewayField {
+                    text: AppController.colabTts.colabVoice
+                    placeholderText: qsTr("af_heart")
+                    onEditingFinished: AppController.colabTts.colabVoice = text.trim()
+                }
+                Text { text: qsTr("Language"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                GatewayField {
+                    text: AppController.colabTts.colabLanguage
+                    placeholderText: qsTr("en")
+                    onEditingFinished: AppController.colabTts.colabLanguage = text.trim()
+                }
+                PrimaryButton {
+                    Layout.fillWidth: true
+                    enabled: !root.locked
+                    text: AppController.colabTts.colabActive ? qsTr("Use local TTS") : (AppController.colabTts.colabConnected ? qsTr("Use Colab GPU TTS") : qsTr("Connect Colab GPU TTS"))
+                    iconName: AppController.colabTts.colabActive ? "close" : "cloud"
+                    onClicked: {
+                        if (AppController.colabTts.colabActive) {
+                            AppController.colabTts.useLocal()
+                        } else {
+                            AppController.gatewayTts.disconnectGateway()
+                            if (AppController.colabTts.colabConnected) {
+                                AppController.colabTts.useColab()
+                            } else if (AppController.colabTts.connectColab(colabUrl.text.trim(), colabToken.text)) {
+                                colabToken.text = ""
+                            }
+                        }
                     }
                 }
             }

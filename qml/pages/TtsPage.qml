@@ -18,7 +18,7 @@ StudioPageFrame {
             }
             families: studioController.families
             selectedFamilyId: studioController.selectedFamilyId
-            studioReady: studioController.studioReady || AppController.gatewayTts.gatewayActive
+            studioReady: studioController.studioReady || AppController.gatewayTts.gatewayActive || AppController.colabTts.colabActive
             studioTitle: studioController.studioHeaderTitle
             modalSelectionTitle: studioController.modalSelectionTitle
             modalSelectionValue: studioController.modalSelectionValue

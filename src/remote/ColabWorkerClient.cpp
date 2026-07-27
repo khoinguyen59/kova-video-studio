@@ -137,6 +137,81 @@ bool ColabWorkerClient::transcribeWav(const QByteArray &wavData, const QString &
     return true;
 }
 
+bool ColabWorkerClient::synthesizeSpeech(const QString &text, const QString &model, const QString &voice,
+                                         const QString &language, float speed, const QVariantMap &settings,
+                                         const std::shared_ptr<std::atomic_bool> &cancelToken,
+                                         QByteArray *wavData, QString *errorMessage)
+{
+    if (wavData) wavData->clear();
+    if (!m_workerUrl.isValid() || m_bearerToken.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab worker is not connected");
+        return false;
+    }
+    const QString normalizedText = text.trimmed();
+    const QString normalizedModel = model.trimmed();
+    const QString normalizedVoice = voice.trimmed();
+    if (normalizedText.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Text is required for speech synthesis");
+        return false;
+    }
+    if (normalizedModel.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab TTS model is required");
+        return false;
+    }
+    if (normalizedVoice.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab TTS voice is required");
+        return false;
+    }
+
+    QJsonObject payload{{QStringLiteral("model"), normalizedModel},
+                        {QStringLiteral("input"), normalizedText},
+                        {QStringLiteral("voice"), normalizedVoice},
+                        {QStringLiteral("response_format"), QStringLiteral("wav")},
+                        {QStringLiteral("speed"), qBound(0.25F, speed, 4.0F)}};
+    if (!language.trimmed().isEmpty() && language.compare(QStringLiteral("auto"), Qt::CaseInsensitive) != 0) {
+        payload.insert(QStringLiteral("language"), language.trimmed());
+    }
+    if (!settings.isEmpty()) {
+        payload.insert(QStringLiteral("settings"), QJsonObject::fromVariantMap(settings));
+    }
+
+    QNetworkAccessManager manager;
+    QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v1/audio/speech")));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
+    request.setRawHeader("Accept", "audio/wav, application/octet-stream");
+    QNetworkReply *reply = manager.post(request, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+    m_activeReply = reply;
+    QEventLoop eventLoop;
+    QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
+    eventLoop.exec();
+    const QByteArray body = reply->readAll();
+    const int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QNetworkReply::NetworkError networkError = reply->error();
+    const QString networkErrorText = reply->errorString();
+    m_activeReply = nullptr;
+    reply->deleteLater();
+
+    if (cancelToken && cancelToken->load(std::memory_order_relaxed)) return false;
+    if (networkError != QNetworkReply::NoError) {
+        if (errorMessage) {
+            *errorMessage = statusCode >= 400 ? responseError(body, statusCode)
+                                               : QStringLiteral("Colab worker request failed: %1").arg(networkErrorText);
+        }
+        return false;
+    }
+    if (statusCode < 200 || statusCode >= 300) {
+        if (errorMessage) *errorMessage = responseError(body, statusCode);
+        return false;
+    }
+    if (body.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab worker returned empty TTS audio");
+        return false;
+    }
+    if (wavData) *wavData = body;
+    return true;
+}
+
 void ColabWorkerClient::cancel()
 {
     if (m_activeReply) m_activeReply->abort();
