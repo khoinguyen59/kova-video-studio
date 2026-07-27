@@ -37,6 +37,7 @@
 #include "SubtitleVoiceController.h"
 #include "controllers/tts/GatewayTtsController.h"
 #include "controllers/tts/ColabTtsController.h"
+#include "controllers/tts/ColabVoiceCloneController.h"
 #include "VoiceIsolatorController.h"
 #include "AppUpdateService.h"
 #include "ExampleManager.h"
@@ -83,6 +84,7 @@ class AppController : public QObject {
     Q_PROPERTY(SttSessionController* sttSession READ sttSession CONSTANT)
     Q_PROPERTY(GatewayTtsController* gatewayTts READ gatewayTts CONSTANT)
     Q_PROPERTY(ColabTtsController* colabTts READ colabTts CONSTANT)
+    Q_PROPERTY(ColabVoiceCloneController* colabVoiceClone READ colabVoiceClone CONSTANT)
     Q_PROPERTY(SubtitleVoiceController* subtitleVoice READ subtitleVoice CONSTANT)
     Q_PROPERTY(DubbingController* dubbing READ dubbing CONSTANT)
     Q_PROPERTY(VoiceIsolatorController* voiceIsolator READ voiceIsolator CONSTANT)
@@ -136,6 +138,7 @@ public:
     SttSessionController* sttSession() const { return m_sttSession; }
     GatewayTtsController* gatewayTts() const { return m_gatewayTts; }
     ColabTtsController* colabTts() const { return m_colabTts; }
+    ColabVoiceCloneController* colabVoiceClone() const { return m_colabVoiceClone; }
     SubtitleVoiceController* subtitleVoice() const { return m_subtitleVoice; }
     DubbingController* dubbing() const { return m_dubbing; }
     VoiceIsolatorController* voiceIsolator() const { return m_voiceIsolator; }
@@ -201,6 +204,7 @@ private:
     SttSessionController* m_sttSession = nullptr;
     GatewayTtsController* m_gatewayTts = nullptr;
     ColabTtsController* m_colabTts = nullptr;
+    ColabVoiceCloneController* m_colabVoiceClone = nullptr;
     SubtitleVoiceController* m_subtitleVoice = nullptr;
     DubbingController* m_dubbing = nullptr;
     VoiceIsolatorController* m_voiceIsolator = nullptr;

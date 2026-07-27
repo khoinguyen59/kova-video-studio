@@ -1,4 +1,5 @@
 import QtQuick
+import LAStudio
 import "../components/shared"
 import "../components/voicecloning"
 
@@ -18,7 +19,7 @@ StudioPageFrame {
             }
             families: studioController.families
             selectedFamilyId: studioController.selectedFamilyId
-            studioReady: studioController.studioReady
+            studioReady: studioController.studioReady || AppController.colabVoiceClone.colabActive
             studioTitle: studioController.studioHeaderTitle
             modalSelectionTitle: studioController.modalSelectionTitle
             modalSelectionValue: studioController.modalSelectionValue

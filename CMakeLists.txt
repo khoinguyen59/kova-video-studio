@@ -140,6 +140,7 @@ set(LASTUDIO_SOURCES
     src/tts/TtsWorker.cpp
     src/tts/GatewayTtsRunner.cpp
     src/tts/ColabTtsRunner.cpp
+    src/tts/ColabVoiceCloneRunner.cpp
     src/tts/TextNormalizationPolicy.cpp
     src/tts/TtsTextPreprocessor.cpp
     src/tts/TtsRequestValidator.cpp
@@ -190,6 +191,7 @@ set(LASTUDIO_SOURCES
     src/controllers/stt/SttSessionController.cpp
     src/controllers/tts/GatewayTtsController.cpp
     src/controllers/tts/ColabTtsController.cpp
+    src/controllers/tts/ColabVoiceCloneController.cpp
     src/controllers/tts/SubtitleVoiceController.cpp
     src/controllers/stt/SttAudioDecoder.cpp
     src/dubbing/DubbingProject.cpp
@@ -306,6 +308,7 @@ set(LASTUDIO_HEADERS
     src/tts/TtsWorker.h
     src/tts/GatewayTtsRunner.h
     src/tts/ColabTtsRunner.h
+    src/tts/ColabVoiceCloneRunner.h
     src/tts/TextNormalizationPolicy.h
     src/tts/TtsTextPreprocessor.h
     src/tts/TtsRequestValidator.h
@@ -367,6 +370,7 @@ set(LASTUDIO_HEADERS
     src/controllers/stt/SttSessionController.h
     src/controllers/tts/GatewayTtsController.h
     src/controllers/tts/ColabTtsController.h
+    src/controllers/tts/ColabVoiceCloneController.h
     src/controllers/tts/SubtitleVoiceController.h
     src/controllers/stt/SttAudioDecoder.h
     src/dubbing/DubbingProject.h

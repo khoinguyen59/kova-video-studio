@@ -4,6 +4,8 @@
 
 #include <QBuffer>
 #include <QEventLoop>
+#include <QFile>
+#include <QFileInfo>
 #include <QHttpMultiPart>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -37,6 +39,34 @@ QHttpPart formField(const QByteArray &name, const QByteArray &value)
                    QVariant(QStringLiteral("form-data; name=\"%1\"").arg(QString::fromLatin1(name))));
     part.setBody(value);
     return part;
+}
+
+bool parseJsonResponse(QNetworkReply *reply, QByteArray *body, QJsonObject *response,
+                       QString *errorMessage, const QString &invalidResponseMessage)
+{
+    const QByteArray responseBody = reply->readAll();
+    const int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QNetworkReply::NetworkError networkError = reply->error();
+    const QString networkErrorText = reply->errorString();
+    if (body) *body = responseBody;
+    if (networkError != QNetworkReply::NoError) {
+        if (errorMessage) {
+            *errorMessage = statusCode >= 400 ? responseError(responseBody, statusCode)
+                                               : QStringLiteral("Colab worker request failed: %1").arg(networkErrorText);
+        }
+        return false;
+    }
+    if (statusCode < 200 || statusCode >= 300) {
+        if (errorMessage) *errorMessage = responseError(responseBody, statusCode);
+        return false;
+    }
+    const QJsonDocument document = QJsonDocument::fromJson(responseBody);
+    if (!document.isObject()) {
+        if (errorMessage) *errorMessage = invalidResponseMessage;
+        return false;
+    }
+    if (response) *response = document.object();
+    return true;
 }
 
 } // namespace
@@ -210,6 +240,203 @@ bool ColabWorkerClient::synthesizeSpeech(const QString &text, const QString &mod
     }
     if (wavData) *wavData = body;
     return true;
+}
+
+bool ColabWorkerClient::createVoiceProfileJob(const QString &referencePath, const QString &name,
+                                              const QString &referenceText, const QString &language,
+                                              bool separateMusic, QJsonObject *job, QString *errorMessage)
+{
+    if (job) *job = {};
+    if (!m_workerUrl.isValid() || m_bearerToken.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab worker is not connected");
+        return false;
+    }
+    QFile *reference = new QFile(referencePath);
+    if (!reference->open(QIODevice::ReadOnly) || reference->size() <= 0) {
+        delete reference;
+        if (errorMessage) *errorMessage = QStringLiteral("Reference audio could not be read");
+        return false;
+    }
+    const QString normalizedName = name.trimmed();
+    const QString normalizedText = referenceText.trimmed();
+    if (normalizedName.isEmpty() || normalizedText.isEmpty()) {
+        reference->close();
+        delete reference;
+        if (errorMessage) *errorMessage = QStringLiteral("Voice name and exact reference transcript are required");
+        return false;
+    }
+
+    QNetworkAccessManager manager;
+    QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v2/jobs/profile")));
+    request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
+    request.setRawHeader("Accept", "application/json");
+    auto *multipart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
+    multipart->append(formField("name", normalizedName.toUtf8()));
+    multipart->append(formField("consent_confirmed", "true"));
+    multipart->append(formField("ref_text", normalizedText.toUtf8()));
+    multipart->append(formField("language", language.trimmed().isEmpty() ? QByteArrayLiteral("vi") : language.trimmed().toUtf8()));
+    multipart->append(formField("separate_music", separateMusic ? QByteArrayLiteral("true") : QByteArrayLiteral("false")));
+    QHttpPart audioPart;
+    const QString sourceFilename = QFileInfo(reference->fileName()).fileName();
+    const QString filename = sourceFilename.isEmpty() ? QStringLiteral("reference.wav") : sourceFilename;
+    audioPart.setHeader(QNetworkRequest::ContentDispositionHeader,
+                        QVariant(QStringLiteral("form-data; name=\"ref_audio\"; filename=\"%1\"").arg(filename)));
+    audioPart.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QStringLiteral("application/octet-stream")));
+    reference->setParent(multipart);
+    audioPart.setBodyDevice(reference);
+    multipart->append(audioPart);
+    QNetworkReply *reply = manager.post(request, multipart);
+    multipart->setParent(reply);
+    m_activeReply = reply;
+    QEventLoop eventLoop;
+    QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
+    eventLoop.exec();
+    m_activeReply = nullptr;
+    const bool ok = parseJsonResponse(reply, nullptr, job, errorMessage,
+                                      QStringLiteral("Colab worker returned an invalid profile job"));
+    reply->deleteLater();
+    return ok;
+}
+
+bool ColabWorkerClient::createVoiceGenerationJob(const QString &profileId, const QString &text,
+                                                 const QString &language, float speed, int steps,
+                                                 QJsonObject *job, QString *errorMessage)
+{
+    if (job) *job = {};
+    if (!m_workerUrl.isValid() || m_bearerToken.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab worker is not connected");
+        return false;
+    }
+    if (profileId.trimmed().isEmpty() || text.trimmed().isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Voice profile and text are required");
+        return false;
+    }
+    const QJsonObject payload{{QStringLiteral("profile_id"), profileId.trimmed()},
+                              {QStringLiteral("text"), text.trimmed()},
+                              {QStringLiteral("language"), language.trimmed().isEmpty() ? QStringLiteral("vi") : language.trimmed()},
+                              {QStringLiteral("speed"), qBound(0.1F, speed, 2.0F)},
+                              {QStringLiteral("num_step"), qBound(1, steps, 64)}};
+    QNetworkAccessManager manager;
+    QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v2/jobs/generation")));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
+    request.setRawHeader("Accept", "application/json");
+    QNetworkReply *reply = manager.post(request, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+    m_activeReply = reply;
+    QEventLoop eventLoop;
+    QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
+    eventLoop.exec();
+    m_activeReply = nullptr;
+    const bool ok = parseJsonResponse(reply, nullptr, job, errorMessage,
+                                      QStringLiteral("Colab worker returned an invalid generation job"));
+    reply->deleteLater();
+    return ok;
+}
+
+bool ColabWorkerClient::voiceJobStatus(const QString &jobId, QJsonObject *job, QString *errorMessage)
+{
+    if (job) *job = {};
+    if (!m_workerUrl.isValid() || m_bearerToken.isEmpty() || jobId.trimmed().isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab worker job is unavailable");
+        return false;
+    }
+    QNetworkAccessManager manager;
+    QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v2/jobs/%1").arg(jobId.trimmed())));
+    request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
+    request.setRawHeader("Accept", "application/json");
+    QNetworkReply *reply = manager.get(request);
+    m_activeReply = reply;
+    QEventLoop eventLoop;
+    QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
+    eventLoop.exec();
+    m_activeReply = nullptr;
+    const bool ok = parseJsonResponse(reply, nullptr, job, errorMessage,
+                                      QStringLiteral("Colab worker returned an invalid job status"));
+    reply->deleteLater();
+    return ok;
+}
+
+bool ColabWorkerClient::cancelVoiceJob(const QString &jobId, QString *errorMessage)
+{
+    if (!m_workerUrl.isValid() || m_bearerToken.isEmpty() || jobId.trimmed().isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab worker job is unavailable");
+        return false;
+    }
+    QNetworkAccessManager manager;
+    QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v2/jobs/%1").arg(jobId.trimmed())));
+    request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
+    request.setRawHeader("Accept", "application/json");
+    QNetworkReply *reply = manager.sendCustomRequest(request, "DELETE");
+    m_activeReply = reply;
+    QEventLoop eventLoop;
+    QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
+    eventLoop.exec();
+    m_activeReply = nullptr;
+    QJsonObject ignored;
+    const bool ok = parseJsonResponse(reply, nullptr, &ignored, errorMessage,
+                                      QStringLiteral("Colab worker returned an invalid cancellation response"));
+    reply->deleteLater();
+    return ok;
+}
+
+bool ColabWorkerClient::downloadVoiceJobAudio(const QString &jobId, QByteArray *wavData, QString *errorMessage)
+{
+    if (wavData) wavData->clear();
+    if (!m_workerUrl.isValid() || m_bearerToken.isEmpty() || jobId.trimmed().isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab worker job is unavailable");
+        return false;
+    }
+    QNetworkAccessManager manager;
+    QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v2/jobs/%1/audio").arg(jobId.trimmed())));
+    request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
+    request.setRawHeader("Accept", "audio/wav, application/octet-stream");
+    QNetworkReply *reply = manager.get(request);
+    m_activeReply = reply;
+    QEventLoop eventLoop;
+    QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
+    eventLoop.exec();
+    const QByteArray body = reply->readAll();
+    const int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QNetworkReply::NetworkError networkError = reply->error();
+    const QString networkErrorText = reply->errorString();
+    m_activeReply = nullptr;
+    reply->deleteLater();
+    if (networkError != QNetworkReply::NoError || statusCode < 200 || statusCode >= 300) {
+        if (errorMessage) {
+            *errorMessage = statusCode >= 400 ? responseError(body, statusCode)
+                                               : QStringLiteral("Colab worker request failed: %1").arg(networkErrorText);
+        }
+        return false;
+    }
+    if (body.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab worker returned empty voice audio");
+        return false;
+    }
+    if (wavData) *wavData = body;
+    return true;
+}
+
+bool ColabWorkerClient::deleteVoiceProfile(const QString &profileId, QString *errorMessage)
+{
+    if (!m_workerUrl.isValid() || m_bearerToken.isEmpty() || profileId.trimmed().isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab voice profile is unavailable");
+        return false;
+    }
+    QNetworkAccessManager manager;
+    QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v1/profiles/%1").arg(profileId.trimmed())));
+    request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
+    request.setRawHeader("Accept", "application/json");
+    QNetworkReply *reply = manager.sendCustomRequest(request, "DELETE");
+    m_activeReply = reply;
+    QEventLoop eventLoop;
+    QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
+    eventLoop.exec();
+    m_activeReply = nullptr;
+    QJsonObject ignored;
+    const bool ok = parseJsonResponse(reply, nullptr, &ignored, errorMessage,
+                                      QStringLiteral("Colab worker returned an invalid profile deletion response"));
+    reply->deleteLater();
+    return ok;
 }
 
 void ColabWorkerClient::cancel()
