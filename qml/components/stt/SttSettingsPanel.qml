@@ -238,6 +238,47 @@ Rectangle {
                     }
 
                     SettingsSection {
+                        title: qsTr("API Gateway STT")
+                        iconName: "cloud"
+
+                        Text { Layout.fillWidth: true; text: qsTr("This is a separate Gateway path and never uses the Colab session."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                        Text { text: qsTr("Gateway URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                        ColabField {
+                            text: AppController.settings.gatewayUrl
+                            placeholderText: qsTr("https://gateway.example/v1")
+                            onEditingFinished: AppController.settings.gatewayUrl = text.trim()
+                        }
+                        Text { text: qsTr("API key"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                        ColabField {
+                            id: gatewayKey
+                            echoMode: TextInput.Password
+                            placeholderText: AppController.settings.gatewayApiKeyConfigured ? qsTr("API key saved — enter to replace") : qsTr("Stored encrypted on this device")
+                            onEditingFinished: {
+                                if (text.trim() !== "") {
+                                    AppController.settings.setGatewayApiKey(text)
+                                    text = ""
+                                }
+                            }
+                        }
+                        Text { text: qsTr("STT model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                        ColabField {
+                            text: root.sttSession ? root.sttSession.gatewayModel : ""
+                            placeholderText: qsTr("Gateway STT model ID")
+                            onEditingFinished: if (root.sttSession) root.sttSession.gatewayModel = text.trim()
+                        }
+                        PrimaryButton {
+                            Layout.fillWidth: true
+                            text: root.sttSession && root.sttSession.gatewayActive ? qsTr("Disconnect API Gateway") : qsTr("Use API Gateway STT")
+                            iconName: root.sttSession && root.sttSession.gatewayActive ? "close" : "cloud"
+                            onClicked: {
+                                if (!root.sttSession) return
+                                if (root.sttSession.gatewayActive) root.sttSession.disconnectGateway()
+                                else root.sttSession.useGateway()
+                            }
+                        }
+                    }
+
+                    SettingsSection {
                         title: qsTr("Model Parameters")
                         iconName: "sliders"
                         visible: root.basicSchema.length > 0

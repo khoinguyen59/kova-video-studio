@@ -16,6 +16,7 @@
 #include "core/StudioCapabilityRegistry.h"
 #include "stt/SttEngine.h"
 #include "stt/ColabSttRunner.h"
+#include "stt/GatewaySttRunner.h"
 
 namespace LAStudio {
 namespace {
@@ -214,6 +215,41 @@ void TestSttSession::testColabSttRunnerPostsKovaCompatibleMultipart()
     QVERIFY(body.contains("verbose_json"));
     QVERIFY(body.contains("name=\"file\"; filename=\"audio.wav\""));
     QVERIFY(body.contains("RIFF"));
+    workerThread.quit();
+    QVERIFY(workerThread.wait(5000));
+}
+
+void TestSttSession::testGatewaySttRunnerPostsOpenAiCompatibleMultipart()
+{
+    ColabSttMock server;
+    QVERIFY(server.start());
+    qRegisterMetaType<GatewaySttRequest>("GatewaySttRequest");
+    QThread workerThread;
+    auto *runner = new GatewaySttRunner;
+    runner->moveToThread(&workerThread);
+    connect(&workerThread, &QThread::finished, runner, &QObject::deleteLater);
+    workerThread.start();
+    QSignalSpy finished(runner, &GatewaySttRunner::finished);
+    QSignalSpy failures(runner, &GatewaySttRunner::failed);
+
+    GatewaySttRequest request;
+    request.gatewayUrl = server.baseUrl() + QStringLiteral("/v1");
+    request.apiKey = QStringLiteral("gateway-stt-test-key");
+    request.model = QStringLiteral("gateway-stt-model");
+    request.samples = {0.0F, 0.25F, -0.25F, 0.0F};
+    request.language = QStringLiteral("en");
+    request.allowInsecureLocalhost = true;
+    QVERIFY(QMetaObject::invokeMethod(runner, "transcribe", Qt::QueuedConnection,
+                                      Q_ARG(GatewaySttRequest, request)));
+
+    QVERIFY2(finished.wait(5000), "Gateway STT worker did not finish.");
+    QCOMPARE(failures.count(), 0);
+    QCOMPARE(finished.takeFirst().at(0).toString(), QStringLiteral("Hello world"));
+    const QByteArray body = server.request();
+    QVERIFY(body.startsWith("POST /v1/audio/transcriptions HTTP/1.1\r\n"));
+    QVERIFY(body.toLower().contains("authorization: bearer gateway-stt-test-key"));
+    QVERIFY(body.contains("gateway-stt-model"));
+    QVERIFY(body.contains("name=\"file\"; filename=\"audio.wav\""));
     workerThread.quit();
     QVERIFY(workerThread.wait(5000));
 }

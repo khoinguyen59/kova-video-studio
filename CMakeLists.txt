@@ -130,6 +130,7 @@ set(LASTUDIO_SOURCES
     src/stt/SttEngineInstance.cpp
     src/stt/SttWorker.cpp
     src/stt/ColabSttRunner.cpp
+    src/stt/GatewaySttRunner.cpp
     src/stt/backends/SttBackendFactory.cpp
     src/stt/backends/WhisperSttBackend.cpp
     src/stt/backends/QwenSttBackend.cpp
@@ -290,6 +291,7 @@ set(LASTUDIO_HEADERS
     src/stt/SttEngineInstance.h
     src/stt/SttWorker.h
     src/stt/ColabSttRunner.h
+    src/stt/GatewaySttRunner.h
     src/stt/backends/SttBackend.h
     src/stt/backends/SttBackendFactory.h
     src/stt/backends/WhisperSttBackend.h

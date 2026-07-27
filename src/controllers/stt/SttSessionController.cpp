@@ -9,6 +9,8 @@
 #include "core/Logger.h"
 #include "remote/ColabSession.h"
 #include "stt/ColabSttRunner.h"
+#include "stt/GatewaySttRunner.h"
+#include "remote/ExecutionProvider.h"
 #include "core/RegistryManager.h"
 #include "StudioConfigurationResolver.h"
 #include <QGuiApplication>
@@ -44,6 +46,18 @@ SttSessionController::SttSessionController(QObject *parent)
     if (m_colabSession) {
         connect(m_colabSession, &ColabSession::sessionChanged,
                 this, &SttSessionController::colabStateChanged);
+    }
+    qRegisterMetaType<GatewaySttRequest>("GatewaySttRequest");
+    m_gatewayRunner = new GatewaySttRunner;
+    m_gatewayRunner->moveToThread(&m_gatewayThread);
+    connect(&m_gatewayThread, &QThread::finished, m_gatewayRunner, &QObject::deleteLater);
+    connect(m_gatewayRunner, &GatewaySttRunner::progress, this, &SttSessionController::onGatewayProgress);
+    connect(m_gatewayRunner, &GatewaySttRunner::finished, this, &SttSessionController::onGatewayFinished);
+    connect(m_gatewayRunner, &GatewaySttRunner::failed, this, &SttSessionController::onGatewayFailed);
+    m_gatewayThread.start();
+    if (m_settings) {
+        connect(m_settings, &Settings::gatewaySttModelChanged,
+                this, &SttSessionController::gatewayModelChanged);
     }
 
     if (m_engine) {
@@ -91,6 +105,12 @@ SttSessionController::~SttSessionController()
     }
     m_colabThread.quit();
     m_colabThread.wait();
+    if (m_gatewayCancellation) m_gatewayCancellation->store(true, std::memory_order_relaxed);
+    if (m_gatewayRunner && m_gatewayThread.isRunning()) {
+        QMetaObject::invokeMethod(m_gatewayRunner, "cancel", Qt::QueuedConnection);
+    }
+    m_gatewayThread.quit();
+    m_gatewayThread.wait();
 }
 
 QString SttSessionController::transcript() const
@@ -100,12 +120,14 @@ QString SttSessionController::transcript() const
 
 bool SttSessionController::processing() const
 {
-    return m_colabProcessing || (m_engine && m_engine->isProcessing());
+    return m_colabProcessing || m_gatewayProcessing || (m_engine && m_engine->isProcessing());
 }
 
 int SttSessionController::progress() const
 {
-    return m_colabProcessing ? m_colabProgress : (m_engine ? m_engine->progress() : 0);
+    if (m_colabProcessing) return m_colabProgress;
+    if (m_gatewayProcessing) return m_gatewayProgress;
+    return m_engine ? m_engine->progress() : 0;
 }
 
 bool SttSessionController::recording() const
@@ -131,6 +153,16 @@ QString SttSessionController::playbackPath() const
 bool SttSessionController::colabActive() const
 {
     return m_colabSession && m_colabSession->isActive();
+}
+
+QString SttSessionController::gatewayModel() const
+{
+    return m_settings ? m_settings->gatewaySttModel() : QString();
+}
+
+void SttSessionController::setGatewayModel(const QString &model)
+{
+    if (m_settings) m_settings->setGatewaySttModel(model);
 }
 
 QString SttSessionController::language() const
@@ -267,8 +299,9 @@ void SttSessionController::transcribeInput()
 
     m_activeJob.samples = m_decodedSamples;
     
-    QString modelName = colabActive() ? QStringLiteral("Colab GPU STT") : QStringLiteral("Whisper");
-    if (!colabActive() && m_repository) {
+    QString modelName = m_gatewayActive ? QStringLiteral("API Gateway STT")
+                                        : (colabActive() ? QStringLiteral("Colab GPU STT") : QStringLiteral("Whisper"));
+    if (!m_gatewayActive && !colabActive() && m_repository) {
         auto selection = m_repository->selectionFor(QStringLiteral("stt"));
         auto resolved = StudioConfigurationResolver::resolve(selection);
         if (resolved.isValid) {
@@ -282,6 +315,23 @@ void SttSessionController::transcribeInput()
     m_activeJob.translate = translate();
     m_activeJob.isValid = true;
 
+    if (m_gatewayActive) {
+        m_gatewayCancellation = std::make_shared<std::atomic_bool>(false);
+        m_gatewayProcessing = true;
+        m_gatewayProgress = 0;
+        emit processingChanged();
+        emit progressChanged();
+        GatewaySttRequest request;
+        request.gatewayUrl = m_settings->gatewayUrl();
+        request.apiKey = m_settings->gatewayApiKey();
+        request.model = gatewayModel();
+        request.samples = m_activeJob.samples;
+        request.language = m_activeJob.language;
+        request.cancellation = InferenceCancellationToken(m_gatewayCancellation);
+        QMetaObject::invokeMethod(m_gatewayRunner, "transcribe", Qt::QueuedConnection,
+                                  Q_ARG(GatewaySttRequest, request));
+        return;
+    }
     if (colabActive()) {
         m_colabCancellation = std::make_shared<std::atomic_bool>(false);
         m_colabProcessing = true;
@@ -303,12 +353,15 @@ void SttSessionController::transcribeInput()
 
 bool SttSessionController::canTranscribe() const
 {
-    return colabActive() || (m_engine && m_engine->state() == SttEngine::Ready);
+    return m_gatewayActive || colabActive() || (m_engine && m_engine->state() == SttEngine::Ready);
 }
 
 void SttSessionController::cancelProcessing()
 {
-    if (m_colabProcessing) {
+    if (m_gatewayProcessing) {
+        if (m_gatewayCancellation) m_gatewayCancellation->store(true, std::memory_order_relaxed);
+        QMetaObject::invokeMethod(m_gatewayRunner, "cancel", Qt::QueuedConnection);
+    } else if (m_colabProcessing) {
         if (m_colabCancellation) m_colabCancellation->store(true, std::memory_order_relaxed);
         QMetaObject::invokeMethod(m_colabRunner, "cancel", Qt::QueuedConnection);
     } else if (m_engine) {
@@ -455,12 +508,34 @@ bool SttSessionController::connectColab(const QString &workerUrl, const QString 
         emit transcriptionFailed(error);
         return false;
     }
+    if (m_gatewayActive) {
+        m_gatewayActive = false;
+        emit gatewayStateChanged();
+    }
     return true;
 }
 
 void SttSessionController::disconnectColab()
 {
     if (!m_colabProcessing && m_colabSession) m_colabSession->clear();
+}
+
+void SttSessionController::useGateway()
+{
+    if (!m_settings) { emit transcriptionFailed(QStringLiteral("API Gateway configuration is unavailable.")); return; }
+    const RemoteEndpointValidation endpoint = validateRemoteEndpoint(m_settings->gatewayUrl(), RemoteEndpointKind::ApiGateway);
+    if (!endpoint.isValid()) { emit transcriptionFailed(endpoint.error); return; }
+    if (!m_settings->gatewayApiKeyConfigured()) { emit transcriptionFailed(QStringLiteral("API Gateway key is required.")); return; }
+    if (gatewayModel().isEmpty()) { emit transcriptionFailed(QStringLiteral("API Gateway STT model is required.")); return; }
+    if (!m_gatewayActive) { m_gatewayActive = true; emit gatewayStateChanged(); }
+}
+
+void SttSessionController::disconnectGateway()
+{
+    if (!m_gatewayProcessing && m_gatewayActive) {
+        m_gatewayActive = false;
+        emit gatewayStateChanged();
+    }
 }
 
 void SttSessionController::onColabProgress(int percent)
@@ -490,6 +565,39 @@ void SttSessionController::onColabFailed(const QString &error)
     m_colabProcessing = false;
     m_colabProgress = 0;
     m_colabCancellation.reset();
+    m_activeJob.isValid = false;
+    emit processingChanged();
+    emit progressChanged();
+    if (!cancelled) emit transcriptionFailed(error);
+}
+
+void SttSessionController::onGatewayProgress(int percent)
+{
+    if (!m_gatewayProcessing) return;
+    m_gatewayProgress = percent;
+    emit progressChanged();
+}
+
+void SttSessionController::onGatewayFinished(const QString &text, const QVariantList &segments)
+{
+    if (!m_gatewayProcessing) return;
+    m_gatewayProcessing = false;
+    m_gatewayProgress = 100;
+    m_gatewayCancellation.reset();
+    m_transcript = text;
+    emit transcriptChanged();
+    emit processingChanged();
+    emit progressChanged();
+    onEngineTranscriptionFinished(text, segments);
+}
+
+void SttSessionController::onGatewayFailed(const QString &error)
+{
+    if (!m_gatewayProcessing) return;
+    const bool cancelled = !m_gatewayCancellation || m_gatewayCancellation->load(std::memory_order_relaxed);
+    m_gatewayProcessing = false;
+    m_gatewayProgress = 0;
+    m_gatewayCancellation.reset();
     m_activeJob.isValid = false;
     emit processingChanged();
     emit progressChanged();

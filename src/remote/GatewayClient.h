@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QList>
+#include <QJsonObject>
 #include <QString>
 #include <QUrl>
 #include <QVariantMap>
@@ -35,6 +36,9 @@ public:
                     const std::shared_ptr<std::atomic_bool> &cancelToken,
                     const std::function<void(const QString &)> &tokenHandler,
                     QString *fullText, QString *errorMessage);
+    bool transcribeWav(const QByteArray &wavData, const QString &language,
+                       const std::shared_ptr<std::atomic_bool> &cancelToken,
+                       QJsonObject *response, QString *errorMessage);
     void cancel();
 
 private:

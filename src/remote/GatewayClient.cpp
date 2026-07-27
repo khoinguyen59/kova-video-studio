@@ -3,6 +3,8 @@
 #include "ExecutionProvider.h"
 
 #include <QEventLoop>
+#include <QBuffer>
+#include <QHttpMultiPart>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -41,6 +43,15 @@ QString contentFromResponse(const QJsonObject &root)
     }
     const QJsonObject message = choice.value(QStringLiteral("message")).toObject();
     return message.value(QStringLiteral("content")).toString();
+}
+
+QHttpPart multipartField(const QByteArray &name, const QByteArray &value)
+{
+    QHttpPart part;
+    part.setHeader(QNetworkRequest::ContentDispositionHeader,
+                   QVariant(QStringLiteral("form-data; name=\"%1\"").arg(QString::fromLatin1(name))));
+    part.setBody(value);
+    return part;
 }
 
 } // namespace
@@ -198,6 +209,74 @@ bool GatewayClient::streamChat(const QList<QVariantMap> &messages, const ChatOpt
     }
 
     if (fullText) *fullText = accumulated;
+    return true;
+}
+
+bool GatewayClient::transcribeWav(const QByteArray &wavData, const QString &language,
+                                  const std::shared_ptr<std::atomic_bool> &cancelToken,
+                                  QJsonObject *response, QString *errorMessage)
+{
+    if (response) *response = {};
+    if (!isConfigured()) {
+        if (errorMessage) *errorMessage = QStringLiteral("API Gateway is not configured");
+        return false;
+    }
+    if (wavData.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Audio input is empty");
+        return false;
+    }
+
+    QNetworkAccessManager manager;
+    QNetworkRequest request(appendRemotePath(m_baseUrl, QStringLiteral("audio/transcriptions")));
+    request.setRawHeader("Authorization", QByteArray("Bearer ") + m_apiKey.toUtf8());
+    request.setRawHeader("Accept", "application/json");
+    auto *multipart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
+    multipart->append(multipartField("model", m_model.toUtf8()));
+    multipart->append(multipartField("response_format", "verbose_json"));
+    if (!language.trimmed().isEmpty() && language.compare(QStringLiteral("auto"), Qt::CaseInsensitive) != 0) {
+        multipart->append(multipartField("language", language.trimmed().toUtf8()));
+    }
+    QHttpPart audioPart;
+    audioPart.setHeader(QNetworkRequest::ContentDispositionHeader,
+                        QVariant(QStringLiteral("form-data; name=\"file\"; filename=\"audio.wav\"")));
+    audioPart.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QStringLiteral("audio/wav")));
+    auto *audioBuffer = new QBuffer(multipart);
+    audioBuffer->setData(wavData);
+    audioBuffer->open(QIODevice::ReadOnly);
+    audioPart.setBodyDevice(audioBuffer);
+    multipart->append(audioPart);
+
+    QNetworkReply *reply = manager.post(request, multipart);
+    multipart->setParent(reply);
+    m_activeReply = reply;
+    QEventLoop eventLoop;
+    QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
+    eventLoop.exec();
+    const QByteArray body = reply->readAll();
+    const int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QNetworkReply::NetworkError networkError = reply->error();
+    const QString networkErrorText = reply->errorString();
+    m_activeReply = nullptr;
+    reply->deleteLater();
+
+    if (cancelToken && cancelToken->load(std::memory_order_relaxed)) return false;
+    if (networkError != QNetworkReply::NoError) {
+        if (errorMessage) {
+            *errorMessage = statusCode >= 400 ? responseErrorMessage(body, statusCode)
+                                               : QStringLiteral("API Gateway request failed: %1").arg(networkErrorText);
+        }
+        return false;
+    }
+    if (statusCode < 200 || statusCode >= 300) {
+        if (errorMessage) *errorMessage = responseErrorMessage(body, statusCode);
+        return false;
+    }
+    const QJsonDocument document = QJsonDocument::fromJson(body);
+    if (!document.isObject()) {
+        if (errorMessage) *errorMessage = QStringLiteral("API Gateway returned an invalid transcription response");
+        return false;
+    }
+    if (response) *response = document.object();
     return true;
 }
 

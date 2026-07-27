@@ -15,6 +15,7 @@ private slots:
     void testSttSessionQmlNotifications();
     void testSttRecordingSourceSelection();
     void testColabSttRunnerPostsKovaCompatibleMultipart();
+    void testGatewaySttRunnerPostsOpenAiCompatibleMultipart();
 };
 
 } // namespace LAStudio

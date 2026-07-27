@@ -149,6 +149,7 @@ set(TEST_SOURCES
     ../src/remote/GatewayClient.cpp
     ../src/remote/ColabWorkerClient.cpp
     ../src/stt/ColabSttRunner.cpp
+    ../src/stt/GatewaySttRunner.cpp
     ../src/core/LocalizationManager.cpp
     ../src/core/ModelManager.cpp
     ../src/core/CatalogManager.cpp
@@ -180,6 +181,7 @@ set(TEST_SOURCES
     ../src/remote/GatewayClient.h
     ../src/remote/ColabWorkerClient.h
     ../src/stt/ColabSttRunner.h
+    ../src/stt/GatewaySttRunner.h
     ../src/controllers/app/AppController.h
     ../src/controllers/shared/AppUpdateService.h
     ../src/controllers/shared/ExampleManager.h

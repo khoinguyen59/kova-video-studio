@@ -258,6 +258,7 @@ Settings::Settings(QObject *parent)
     }
     m_gatewayLlmModel = m_settings.value(QStringLiteral("remote/gatewayLlmModel"), QString()).toString().trimmed();
     m_gatewayTranslationModel = m_settings.value(QStringLiteral("remote/gatewayTranslationModel"), QString()).toString().trimmed();
+    m_gatewaySttModel = m_settings.value(QStringLiteral("remote/gatewaySttModel"), QString()).toString().trimmed();
     // Network activity must be an explicit choice. Existing installs without
     // this key therefore default to no automatic update request.
     m_automaticUpdateChecks = m_settings.value(QStringLiteral("updates/automaticChecks"), false).toBool();
@@ -708,6 +709,21 @@ void Settings::setGatewayTranslationModel(const QString &v)
     m_settings.setValue(QStringLiteral("remote/gatewayTranslationModel"), normalized);
     m_settings.sync();
     emit gatewayTranslationModelChanged();
+}
+
+QString Settings::gatewaySttModel() const
+{
+    return m_gatewaySttModel;
+}
+
+void Settings::setGatewaySttModel(const QString &v)
+{
+    const QString normalized = v.trimmed();
+    if (m_gatewaySttModel == normalized) return;
+    m_gatewaySttModel = normalized;
+    m_settings.setValue(QStringLiteral("remote/gatewaySttModel"), normalized);
+    m_settings.sync();
+    emit gatewaySttModelChanged();
 }
 
 bool Settings::automaticUpdateChecks() const

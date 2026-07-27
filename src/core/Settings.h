@@ -39,6 +39,7 @@ class Settings : public QObject {
     Q_PROPERTY(bool gatewayApiKeyConfigured READ gatewayApiKeyConfigured NOTIFY gatewayApiKeyChanged)
     Q_PROPERTY(QString gatewayLlmModel READ gatewayLlmModel WRITE setGatewayLlmModel NOTIFY gatewayLlmModelChanged)
     Q_PROPERTY(QString gatewayTranslationModel READ gatewayTranslationModel WRITE setGatewayTranslationModel NOTIFY gatewayTranslationModelChanged)
+    Q_PROPERTY(QString gatewaySttModel READ gatewaySttModel WRITE setGatewaySttModel NOTIFY gatewaySttModelChanged)
     Q_PROPERTY(bool automaticUpdateChecks READ automaticUpdateChecks WRITE setAutomaticUpdateChecks NOTIFY automaticUpdateChecksChanged)
     Q_PROPERTY(bool updateCheckConsentAsked READ updateCheckConsentAsked WRITE setUpdateCheckConsentAsked NOTIFY updateCheckConsentAskedChanged)
     Q_PROPERTY(bool onboardingComplete READ onboardingComplete WRITE setOnboardingComplete NOTIFY onboardingCompleteChanged)
@@ -133,6 +134,8 @@ public:
     void setGatewayLlmModel(const QString &v);
     QString gatewayTranslationModel() const;
     void setGatewayTranslationModel(const QString &v);
+    QString gatewaySttModel() const;
+    void setGatewaySttModel(const QString &v);
 
     bool automaticUpdateChecks() const;
     void setAutomaticUpdateChecks(bool v);
@@ -180,6 +183,7 @@ signals:
     void gatewayApiKeyChanged();
     void gatewayLlmModelChanged();
     void gatewayTranslationModelChanged();
+    void gatewaySttModelChanged();
     void automaticUpdateChecksChanged();
     void updateCheckConsentAskedChanged();
     void onboardingCompleteChanged();
@@ -216,6 +220,7 @@ private:
     QString m_gatewayApiKey;
     QString m_gatewayLlmModel;
     QString m_gatewayTranslationModel;
+    QString m_gatewaySttModel;
     bool m_automaticUpdateChecks;
     bool m_updateCheckConsentAsked;
     bool m_onboardingComplete = false;
