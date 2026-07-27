@@ -1,5 +1,8 @@
 #include "TranslationController.h"
 #include "TranslationModelSession.h"
+#include "core/Settings.h"
+#include "remote/ExecutionProvider.h"
+#include "translation/GatewayTranslationRunner.h"
 #include "translation/TranslationService.h"
 #include <QFile>
 #include <QFileInfo>
@@ -11,9 +14,24 @@
 #include <QStandardPaths>
 
 namespace LAStudio {
-TranslationController::TranslationController(TranslationEngine *engine, TranslationModelSession *session, QObject *parent)
-    : QObject(parent), m_engine(engine), m_session(session)
+TranslationController::TranslationController(TranslationEngine *engine, TranslationModelSession *session,
+                                             Settings *settings, QObject *parent)
+    : QObject(parent), m_engine(engine), m_session(session), m_settings(settings)
 {
+    qRegisterMetaType<TranslationInferenceRequest>("TranslationInferenceRequest");
+    m_gatewayWorker = new GatewayTranslationRunner;
+    m_gatewayWorker->moveToThread(&m_gatewayThread);
+    connect(&m_gatewayThread, &QThread::finished, m_gatewayWorker, &QObject::deleteLater);
+    connect(m_gatewayWorker, &GatewayTranslationRunner::progress, this, [this](int percent) {
+        if (!m_processing || !m_gatewayActive) return;
+        m_progress = percent;
+        emit processingChanged();
+    });
+    connect(m_gatewayWorker, &GatewayTranslationRunner::finished,
+            this, &TranslationController::completeTranslation);
+    connect(m_gatewayWorker, &GatewayTranslationRunner::failed,
+            this, &TranslationController::failTranslation);
+    m_gatewayThread.start();
     m_autosave.setSingleShot(true);
     m_autosave.setInterval(750);
     connect(&m_autosave, &QTimer::timeout, this, &TranslationController::autosave);
@@ -23,33 +41,40 @@ TranslationController::TranslationController(TranslationEngine *engine, Translat
             m_progress = m_engine->progress();
             emit processingChanged();
         });
-        connect(m_engine, &TranslationEngine::translationFinished, this, [this](const QVariantList &patches) {
-            if (!m_processing) return;
-            m_processing = false;
-            m_activeSegmentId.clear();
-            m_progress = 100;
-            m_cancelToken.reset();
-            if (m_session) m_session->clearError();
-            applyPatches(patches);
-            addHistory();
-            emit processingChanged();
-        });
-        connect(m_engine, &TranslationEngine::errorOccurred, this, [this](const QString &error) {
-            if (!m_processing) return;
-            const bool cancelled = !m_cancelToken || m_cancelToken->load(std::memory_order_relaxed);
-            m_processing = false;
-            m_activeSegmentId.clear();
-            m_progress = 0;
-            m_cancelToken.reset();
-            if (!cancelled) setError(error);
-            emit processingChanged();
+        connect(m_engine, &TranslationEngine::translationFinished,
+                this, &TranslationController::completeTranslation);
+        connect(m_engine, &TranslationEngine::errorOccurred,
+                this, &TranslationController::failTranslation);
+    }
+    if (m_session) {
+        connect(m_session, &IModelSession::activeConfigurationChanged, this, [this] {
+            if (!m_gatewayActive) return;
+            m_gatewayActive = false;
+            emit gatewayStateChanged();
         });
     }
+    if (m_settings) {
+        connect(m_settings, &Settings::gatewayTranslationModelChanged,
+                this, &TranslationController::gatewayModelChanged);
+        connect(m_settings, &Settings::gatewayLlmModelChanged,
+                this, &TranslationController::gatewayModelChanged);
+    }
     loadHistory();
+}
+TranslationController::~TranslationController()
+{
+    if (m_cancelToken) m_cancelToken->store(true, std::memory_order_relaxed);
+    if (m_gatewayWorker && m_gatewayThread.isRunning()) {
+        QMetaObject::invokeMethod(m_gatewayWorker, "cancel", Qt::QueuedConnection);
+    }
+    m_gatewayThread.quit();
+    m_gatewayThread.wait();
 }
 QString TranslationController::statusText() const { return m_processing ? QStringLiteral("Translating %1%").arg(m_progress) : (m_dirty ? QStringLiteral("Unsaved changes") : QStringLiteral("Ready")); }
 void TranslationController::setSourceLanguage(const QString &value) { if (m_project.sourceLanguage == value) return; m_project.sourceLanguage = value; markDirty(); }
 void TranslationController::setTargetLanguage(const QString &value) { if (m_project.targetLanguage == value) return; m_project.targetLanguage = value; markDirty(); }
+QString TranslationController::gatewayModel() const { return m_settings ? (m_settings->gatewayTranslationModel().isEmpty() ? m_settings->gatewayLlmModel() : m_settings->gatewayTranslationModel()) : QString(); }
+void TranslationController::setGatewayModel(const QString &value) { if (m_settings) m_settings->setGatewayTranslationModel(value); }
 void TranslationController::newProject() { if (m_processing) return; m_project = TranslationProject(); m_dirty = false; m_error.clear(); emit projectChanged(); emit errorTextChanged(); }
 bool TranslationController::openProject(const QString &path) { if (m_processing) return false; TranslationProject project; QString error; if (!TranslationProject::load(path, project, &error)) { setError(error); return false; } m_project = std::move(project); m_dirty = false; emit projectChanged(); return true; }
 bool TranslationController::importText(const QString &text) { if (m_processing) return false; QString error; if (!TranslationProject::importText(text, m_project, &error)) { setError(error); return false; } m_project.sourcePath.clear(); markDirty(); return true; }
@@ -63,7 +88,18 @@ void TranslationController::addSegment() { if (m_processing) return; m_project.s
 void TranslationController::swapLanguages() { const QString source = m_project.sourceLanguage; m_project.sourceLanguage = m_project.targetLanguage; m_project.targetLanguage = source; markDirty(); }
 void TranslationController::translateAll() { startTranslation(m_project.segments); }
 void TranslationController::translateSegment(int index) { if (index >= 0 && index < m_project.segments.size()) { const QVariantMap segment = m_project.segments.at(index).toMap(); startTranslation({segment}, segment.value(QStringLiteral("id")).toString()); } }
-void TranslationController::cancel() { if (!m_processing) return; if (m_cancelToken) m_cancelToken->store(true, std::memory_order_relaxed); if (m_engine) m_engine->cancelProcessing(); }
+void TranslationController::cancel() { if (!m_processing) return; if (m_cancelToken) m_cancelToken->store(true, std::memory_order_relaxed); if (m_gatewayActive && m_gatewayWorker) QMetaObject::invokeMethod(m_gatewayWorker, "cancel", Qt::QueuedConnection); else if (m_engine) m_engine->cancelProcessing(); }
+void TranslationController::useGateway()
+{
+    if (!m_settings) { setError(QStringLiteral("API Gateway configuration is unavailable.")); return; }
+    const RemoteEndpointValidation endpoint = validateRemoteEndpoint(m_settings->gatewayUrl(), RemoteEndpointKind::ApiGateway);
+    if (!endpoint.isValid()) { setError(endpoint.error); return; }
+    if (!m_settings->gatewayApiKeyConfigured()) { setError(QStringLiteral("API Gateway key is required.")); return; }
+    if (gatewayModel().isEmpty()) { setError(QStringLiteral("API Gateway translation model is required.")); return; }
+    if (!m_gatewayActive) { m_gatewayActive = true; emit gatewayStateChanged(); }
+    m_error.clear();
+    emit errorTextChanged();
+}
 bool TranslationController::loadHistoryItem(const QString &id) { if (id.isEmpty() || m_processing) return false; for (const QVariant &historyValue : std::as_const(m_history)) { const QVariantMap item = historyValue.toMap(); if (item.value(QStringLiteral("id")).toString() != id) continue; TranslationProject project; project.sourceLanguage = item.value(QStringLiteral("sourceLanguage"), QStringLiteral("en")).toString(); project.targetLanguage = item.value(QStringLiteral("targetLanguage"), QStringLiteral("vi")).toString(); project.sourceFormat = item.value(QStringLiteral("sourceFormat"), QStringLiteral("text")).toString(); project.segments = item.value(QStringLiteral("segments")).toList(); if (project.segments.isEmpty()) return false; m_project = std::move(project); m_dirty = true; m_error.clear(); emit projectChanged(); emit errorTextChanged(); return true; } return false; }
 bool TranslationController::deleteHistoryItem(const QString &id) { if (id.isEmpty()) return false; for (int index = 0; index < m_history.size(); ++index) { if (m_history.at(index).toMap().value(QStringLiteral("id")).toString() != id) continue; QVariantList updatedHistory = m_history; updatedHistory.removeAt(index); QSaveFile file(historyPath()); if (!file.open(QIODevice::WriteOnly)) return false; file.write(QJsonDocument::fromVariant(updatedHistory).toJson()); if (!file.commit()) return false; m_history = std::move(updatedHistory); emit historyChanged(); return true; } return false; }
 void TranslationController::clearHistory() { m_history.clear(); QFile::remove(historyPath()); emit historyChanged(); }
@@ -72,34 +108,69 @@ void TranslationController::setError(const QString &message) { m_error = message
 void TranslationController::startTranslation(const QVariantList &segments, const QString &activeSegmentId)
 {
     if (m_processing) { setError(QStringLiteral("A translation request is already running.")); return; }
-    if (!m_engine || !m_session || !m_session->activeConfiguration()) {
+    if (!m_gatewayActive && (!m_engine || !m_session || !m_session->activeConfiguration())) {
         setError(QStringLiteral("Select and load a Translation model and runtime first."));
         return;
     }
-    TranslationRequest prepared;
-    QString error;
-    if (!TranslationService::prepareConfiguration(*m_session->activeConfiguration(),
-                                                   m_project.sourceLanguage,
-                                                   m_project.targetLanguage,
-                                                   prepared, &error)) {
-        setError(error);
-        return;
+    int maxTokens = 4096;
+    if (!m_gatewayActive) {
+        TranslationRequest prepared;
+        QString error;
+        if (!TranslationService::prepareConfiguration(*m_session->activeConfiguration(),
+                                                       m_project.sourceLanguage,
+                                                       m_project.targetLanguage,
+                                                       prepared, &error)) {
+            setError(error);
+            return;
+        }
+        maxTokens = prepared.maxTokens;
     }
     m_cancelToken = std::make_shared<std::atomic_bool>(false);
     TranslationInferenceRequest request;
     request.segments = segments;
     request.sourceLanguage = m_project.sourceLanguage;
     request.targetLanguage = m_project.targetLanguage;
-    request.maxTokens = prepared.maxTokens;
+    request.maxTokens = maxTokens;
     request.cancellation = InferenceCancellationToken(m_cancelToken);
     m_error.clear();
     m_processing = true;
     m_activeSegmentId = activeSegmentId;
     m_progress = 0;
-    m_session->clearError();
+    if (m_session) m_session->clearError();
     emit errorTextChanged();
     emit processingChanged();
-    m_engine->translate(request);
+    if (m_gatewayActive) {
+        QMetaObject::invokeMethod(m_gatewayWorker, "translate", Qt::QueuedConnection,
+                                  Q_ARG(QString, m_settings->gatewayUrl()),
+                                  Q_ARG(QString, m_settings->gatewayApiKey()),
+                                  Q_ARG(QString, gatewayModel()),
+                                  Q_ARG(TranslationInferenceRequest, request), Q_ARG(bool, false));
+    } else {
+        m_engine->translate(request);
+    }
+}
+void TranslationController::completeTranslation(const QVariantList &patches)
+{
+    if (!m_processing) return;
+    m_processing = false;
+    m_activeSegmentId.clear();
+    m_progress = 100;
+    m_cancelToken.reset();
+    if (m_session) m_session->clearError();
+    applyPatches(patches);
+    addHistory();
+    emit processingChanged();
+}
+void TranslationController::failTranslation(const QString &error)
+{
+    if (!m_processing) return;
+    const bool cancelled = !m_cancelToken || m_cancelToken->load(std::memory_order_relaxed);
+    m_processing = false;
+    m_activeSegmentId.clear();
+    m_progress = 0;
+    m_cancelToken.reset();
+    if (!cancelled) setError(error);
+    emit processingChanged();
 }
 void TranslationController::applyPatches(const QVariantList &patches) { for (const QVariant &patchValue : patches) { const QVariantMap patch = patchValue.toMap(); const QString id = patch.value(QStringLiteral("id")).toString(); for (int i = 0; i < m_project.segments.size(); ++i) { QVariantMap segment = m_project.segments.at(i).toMap(); if (segment.value(QStringLiteral("id")).toString() != id) continue; for (auto it = patch.cbegin(); it != patch.cend(); ++it) segment.insert(it.key(), it.value()); m_project.segments[i] = segment; break; } } markDirty(); }
 void TranslationController::autosave() { if (m_dirty && !m_project.projectPath.isEmpty()) saveProject(); }

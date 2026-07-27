@@ -20,12 +20,26 @@ StudioShell {
             if (families[i].id === studioController.selectedFamilyId) return families[i]
         return null
     }
+    component GatewayField: TextField {
+        Layout.fillWidth: true
+        color: Theme.textPrimary
+        placeholderTextColor: Theme.textSecondary
+        font.pixelSize: Theme.fontSmall
+        padding: Theme.paddingSmall
+        selectByMouse: true
+        background: Rectangle {
+            radius: Theme.radiusSmall
+            color: Qt.rgba(1, 1, 1, 0.035)
+            border.color: parent.activeFocus ? Theme.accent : Qt.rgba(1, 1, 1, 0.09)
+            border.width: parent.activeFocus ? 2 : 1
+        }
+    }
 
     families: studioController ? studioController.families : []
     capability: "translation"
     studioTitle: qsTr("Translation Studio")
     studioIconName: "translate"
-    studioReady: studioController ? studioController.studioReady : false
+    studioReady: translation.gatewayActive || (studioController ? studioController.studioReady : false)
     selectedFamilyId: studioController ? studioController.selectedFamilyId : ""
     modalSelectionMode: true
     showSwitcher: false
@@ -371,8 +385,42 @@ StudioShell {
             LanguageSelector { Layout.fillWidth: true; family: root.family; labelText: qsTr("Source language"); language: translation.sourceLanguage; onLanguageSelected: function(language) { translation.sourceLanguage = language } }
             PrimaryButton { Layout.fillWidth: true; text: qsTr("Swap languages"); iconName: "swap"; quiet: true; onClicked: translation.swapLanguages() }
             LanguageSelector { Layout.fillWidth: true; family: root.family; labelText: qsTr("Target language"); language: translation.targetLanguage; onLanguageSelected: function(language) { translation.targetLanguage = language } }
+            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1,1,1,0.07) }
+            Text { text: qsTr("Inference source"); color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; font.bold: true }
+            Text { Layout.fillWidth: true; text: qsTr("9Router is a separate API path. It does not start or connect to Colab."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+            Text { text: qsTr("Gateway URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+            GatewayField {
+                text: AppController.settings.gatewayUrl
+                placeholderText: qsTr("https://gateway.example/v1")
+                onEditingFinished: AppController.settings.gatewayUrl = text.trim()
+            }
+            Text { text: qsTr("API key"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+            GatewayField {
+                id: translationGatewayKey
+                echoMode: TextInput.Password
+                placeholderText: AppController.settings.gatewayApiKeyConfigured ? qsTr("API key saved — enter to replace") : qsTr("Stored encrypted on this device")
+                onEditingFinished: {
+                    if (text.trim() !== "") {
+                        AppController.settings.setGatewayApiKey(text)
+                        text = ""
+                    }
+                }
+            }
+            Text { text: qsTr("Translation model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+            GatewayField {
+                text: translation.gatewayModel
+                placeholderText: qsTr("Use a 9Router model ID")
+                onEditingFinished: translation.gatewayModel = text.trim()
+            }
+            PrimaryButton {
+                Layout.fillWidth: true
+                text: translation.gatewayActive ? qsTr("Using 9Router") : qsTr("Use 9Router")
+                iconName: "cloud"
+                enabled: !translation.processing && !translation.gatewayActive
+                onClicked: translation.useGateway()
+            }
+            Text { Layout.fillWidth: true; text: translation.gatewayActive ? qsTr("Translation requests go directly to 9Router.") : qsTr("Choose a local model from the header to process on this device."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
             Item { Layout.fillHeight: true }
-            Text { Layout.fillWidth: true; text: qsTr("Model and runtime are managed from the header. Processing stays on this device."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
         }
     ]
     // This popup is reparented to Overlay.overlay, outside the StudioShell layout.

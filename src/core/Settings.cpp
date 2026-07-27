@@ -257,6 +257,7 @@ Settings::Settings(QObject *parent)
         Logger::error(QStringLiteral("Settings"), QStringLiteral("Gateway credential migration failed: %1").arg(credentialError));
     }
     m_gatewayLlmModel = m_settings.value(QStringLiteral("remote/gatewayLlmModel"), QString()).toString().trimmed();
+    m_gatewayTranslationModel = m_settings.value(QStringLiteral("remote/gatewayTranslationModel"), QString()).toString().trimmed();
     // Network activity must be an explicit choice. Existing installs without
     // this key therefore default to no automatic update request.
     m_automaticUpdateChecks = m_settings.value(QStringLiteral("updates/automaticChecks"), false).toBool();
@@ -692,6 +693,21 @@ void Settings::setGatewayLlmModel(const QString &v)
     m_settings.setValue(QStringLiteral("remote/gatewayLlmModel"), normalized);
     m_settings.sync();
     emit gatewayLlmModelChanged();
+}
+
+QString Settings::gatewayTranslationModel() const
+{
+    return m_gatewayTranslationModel;
+}
+
+void Settings::setGatewayTranslationModel(const QString &v)
+{
+    const QString normalized = v.trimmed();
+    if (m_gatewayTranslationModel == normalized) return;
+    m_gatewayTranslationModel = normalized;
+    m_settings.setValue(QStringLiteral("remote/gatewayTranslationModel"), normalized);
+    m_settings.sync();
+    emit gatewayTranslationModelChanged();
 }
 
 bool Settings::automaticUpdateChecks() const

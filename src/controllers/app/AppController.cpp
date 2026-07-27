@@ -68,7 +68,8 @@ AppController::AppController(QObject *parent)
     Logger::info(QStringLiteral("App"), QStringLiteral("Initializing model session registry."));
     m_sessionRegistry = new ModelSessionRegistry(m_stt, m_tts, m_translationEngine, m_llmEngine, m_alignment, m_voiceIsolator, this);
     m_translation = new TranslationController(m_translationEngine,
-        qobject_cast<TranslationModelSession*>(m_sessionRegistry->sessionForCapability(QStringLiteral("translation"))), this);
+        qobject_cast<TranslationModelSession*>(m_sessionRegistry->sessionForCapability(QStringLiteral("translation"))),
+        m_settings, this);
     m_llmChat = new LlmChatController(m_llmEngine,
         qobject_cast<LlmChatModelSession*>(m_sessionRegistry->sessionForCapability(QStringLiteral("llm-chat"))),
         m_settings, this);

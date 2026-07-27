@@ -67,6 +67,7 @@ set(TEST_SOURCES
     ../src/translation/TranslationEngine.cpp
     ../src/translation/TranslationEngineInstance.cpp
     ../src/translation/TranslationWorker.cpp
+    ../src/translation/GatewayTranslationRunner.cpp
     ../src/translation/backends/TranslationBackendFactory.cpp
     ../src/translation/backends/CrispTranslationBackend.cpp
     ../src/translation/backends/LlamaTranslationBackend.cpp
@@ -191,6 +192,7 @@ set(TEST_SOURCES
     ../src/translation/TranslationEngine.h
     ../src/translation/TranslationEngineInstance.h
     ../src/translation/TranslationWorker.h
+    ../src/translation/GatewayTranslationRunner.h
     ../src/translation/backends/TranslationBackend.h
     ../src/translation/backends/TranslationBackendFactory.h
     ../src/translation/backends/CrispTranslationBackend.h

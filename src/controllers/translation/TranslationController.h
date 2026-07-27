@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QThread>
 #include <QTimer>
 #include <QtQml/qqml.h>
 #include <atomic>
@@ -11,6 +12,8 @@
 
 namespace LAStudio {
 class TranslationModelSession;
+class Settings;
+class GatewayTranslationRunner;
 class TranslationController final : public QObject {
     Q_OBJECT
     QML_ELEMENT
@@ -27,13 +30,20 @@ class TranslationController final : public QObject {
     Q_PROPERTY(QString statusText READ statusText NOTIFY processingChanged)
     Q_PROPERTY(QString errorText READ errorText NOTIFY errorTextChanged)
     Q_PROPERTY(QVariantList history READ history NOTIFY historyChanged)
+    Q_PROPERTY(bool gatewayActive READ gatewayActive NOTIFY gatewayStateChanged)
+    Q_PROPERTY(QString gatewayModel READ gatewayModel WRITE setGatewayModel NOTIFY gatewayModelChanged)
 public:
-    TranslationController(TranslationEngine *engine, TranslationModelSession *session, QObject *parent = nullptr);
+    TranslationController(TranslationEngine *engine, TranslationModelSession *session,
+                          Settings *settings, QObject *parent = nullptr);
+    ~TranslationController() override;
     QVariantList segments() const { return m_project.segments; } QString sourceLanguage() const { return m_project.sourceLanguage; } QString targetLanguage() const { return m_project.targetLanguage; } QString projectPath() const { return m_project.projectPath; } QString sourceFormat() const { return m_project.sourceFormat; } bool dirty() const { return m_dirty; } bool processing() const { return m_processing; } QString activeSegmentId() const { return m_activeSegmentId; } int progress() const { return m_progress; } QString statusText() const; QString errorText() const { return m_error; } QVariantList history() const { return m_history; }
+    bool gatewayActive() const { return m_gatewayActive; }
+    QString gatewayModel() const;
     void setSourceLanguage(const QString &value); void setTargetLanguage(const QString &value);
-    Q_INVOKABLE void newProject(); Q_INVOKABLE bool openProject(const QString &path); Q_INVOKABLE bool importText(const QString &text); Q_INVOKABLE bool importFile(const QString &path); Q_INVOKABLE bool saveProject(); Q_INVOKABLE bool saveProjectAs(const QString &path); Q_INVOKABLE bool exportResult(const QString &path); Q_INVOKABLE void updateSegment(int index, const QVariantMap &patch); Q_INVOKABLE void removeSegment(int index); Q_INVOKABLE void addSegment(); Q_INVOKABLE void swapLanguages(); Q_INVOKABLE void translateAll(); Q_INVOKABLE void translateSegment(int index); Q_INVOKABLE void cancel(); Q_INVOKABLE bool loadHistoryItem(const QString &id); Q_INVOKABLE bool deleteHistoryItem(const QString &id); Q_INVOKABLE void clearHistory();
-signals: void projectChanged(); void processingChanged(); void errorTextChanged(); void historyChanged();
-private: void markDirty(); void setError(const QString &message); void startTranslation(const QVariantList &segments, const QString &activeSegmentId = QString()); void applyPatches(const QVariantList &patches); void autosave(); QString historyPath() const; void loadHistory(); void addHistory();
-    TranslationEngine *m_engine = nullptr; TranslationModelSession *m_session = nullptr; TranslationProject m_project; QTimer m_autosave; std::shared_ptr<std::atomic_bool> m_cancelToken; bool m_dirty = false; bool m_processing = false; QString m_activeSegmentId; int m_progress = 0; QString m_error; QVariantList m_history;
+    void setGatewayModel(const QString &value);
+    Q_INVOKABLE void newProject(); Q_INVOKABLE bool openProject(const QString &path); Q_INVOKABLE bool importText(const QString &text); Q_INVOKABLE bool importFile(const QString &path); Q_INVOKABLE bool saveProject(); Q_INVOKABLE bool saveProjectAs(const QString &path); Q_INVOKABLE bool exportResult(const QString &path); Q_INVOKABLE void updateSegment(int index, const QVariantMap &patch); Q_INVOKABLE void removeSegment(int index); Q_INVOKABLE void addSegment(); Q_INVOKABLE void swapLanguages(); Q_INVOKABLE void translateAll(); Q_INVOKABLE void translateSegment(int index); Q_INVOKABLE void cancel(); Q_INVOKABLE bool loadHistoryItem(const QString &id); Q_INVOKABLE bool deleteHistoryItem(const QString &id); Q_INVOKABLE void clearHistory(); Q_INVOKABLE void useGateway();
+signals: void projectChanged(); void processingChanged(); void errorTextChanged(); void historyChanged(); void gatewayStateChanged(); void gatewayModelChanged();
+private: void markDirty(); void setError(const QString &message); void startTranslation(const QVariantList &segments, const QString &activeSegmentId = QString()); void applyPatches(const QVariantList &patches); void completeTranslation(const QVariantList &patches); void failTranslation(const QString &error); void autosave(); QString historyPath() const; void loadHistory(); void addHistory();
+    TranslationEngine *m_engine = nullptr; TranslationModelSession *m_session = nullptr; Settings *m_settings = nullptr; GatewayTranslationRunner *m_gatewayWorker = nullptr; QThread m_gatewayThread; TranslationProject m_project; QTimer m_autosave; std::shared_ptr<std::atomic_bool> m_cancelToken; bool m_dirty = false; bool m_processing = false; bool m_gatewayActive = false; QString m_activeSegmentId; int m_progress = 0; QString m_error; QVariantList m_history;
 };
 } // namespace LAStudio
