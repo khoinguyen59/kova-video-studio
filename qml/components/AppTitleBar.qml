@@ -138,6 +138,13 @@ Rectangle {
         property string iconName: ""
         property color hoverColor: Qt.rgba(1, 1, 1, 0.12)
 
+        Accessible.role: Accessible.Button
+        Accessible.name: {
+            if (button.iconName === "minus") return qsTr("Minimize")
+            if (button.iconName === "close") return qsTr("Close")
+            return root.maximized ? qsTr("Restore") : qsTr("Maximize")
+        }
+
         Layout.preferredWidth: 46
         Layout.fillHeight: true
         padding: 0

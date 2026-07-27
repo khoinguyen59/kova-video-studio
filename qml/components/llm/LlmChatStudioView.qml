@@ -140,7 +140,7 @@ StudioShell {
                     }
                 }
 
-                Rectangle { Layout.fillWidth: true; height: 1; color: Qt.rgba(1, 1, 1, 0.08) }
+                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1, 1, 1, 0.08) }
 
                 Text { text: qsTr("System prompt"); color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; font.bold: true }
                 Text { Layout.fillWidth: true; text: qsTr("Optional instructions applied before the conversation."); color: Theme.textSecondary; wrapMode: Text.WordWrap; font.pixelSize: Theme.fontSmall }
@@ -178,7 +178,7 @@ StudioShell {
                     NumberField { text: chat.topK.toString(); Layout.preferredWidth: 108; inputMethodHints: Qt.ImhDigitsOnly; onEditingFinished: chat.topK = parseInt(text) || 20 }
                 }
 
-                Rectangle { Layout.fillWidth: true; height: 1; color: Qt.rgba(1, 1, 1, 0.08) }
+                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1, 1, 1, 0.08) }
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Theme.paddingSmall

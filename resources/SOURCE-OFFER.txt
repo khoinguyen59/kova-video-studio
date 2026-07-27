@@ -1,0 +1,9 @@
+LA Studio is licensed under AGPL-3.0-only.
+
+The complete corresponding source for this build is available from the matching
+GitHub Release and its source archive:
+https://github.com/dduongtrandai/LA-Studio/releases
+
+The source includes build instructions, LICENSE, notices, and the files needed
+to reproduce the released application. If you distribute a modified version,
+make the complete corresponding source available under the same license terms.

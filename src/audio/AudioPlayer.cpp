@@ -5,7 +5,10 @@
 #include <QBuffer>
 #include <QAudioSink>
 #include <QAudioFormat>
+#include <QFileInfo>
+#include <QFutureWatcher>
 #include <QMediaDevices>
+#include <QtConcurrent>
 #include <algorithm>
 
 namespace LAStudio {
@@ -93,6 +96,15 @@ private:
     qint64 m_playbackOffsetMs = 0;
 };
 
+namespace {
+
+struct AudioDecodeResult {
+    WavIO::WavData data;
+    QString error;
+};
+
+} // namespace
+
 AudioPlayer::AudioPlayer(QObject *parent)
     : QObject(parent)
 {
@@ -112,16 +124,48 @@ bool AudioPlayer::playFile(const QString &path)
     stop();
 
     const QString cleanPath = PathUtils::urlToLocalPath(path);
-    QString decodeError;
-    WavIO::WavData data = AudioFileDecoder::decode(cleanPath, &decodeError);
-    if (data.samples.isEmpty()) {
+    if (cleanPath.isEmpty() || !QFileInfo::exists(cleanPath)) {
         const QString message = QStringLiteral("Failed to load audio file for playback: %1")
-                                    .arg(decodeError.isEmpty() ? cleanPath : decodeError);
+                                    .arg(cleanPath);
         Logger::error("AudioPlayer", message);
         emit errorOccurred(message);
         return false;
     }
 
+    const quint64 requestId = ++m_decodeRequestId;
+    m_pendingSeekPositionMs = -1;
+    m_pauseWhenReady = false;
+    m_playing = true;
+    emit playingChanged();
+    setLoading(true);
+    auto *watcher = new QFutureWatcher<AudioDecodeResult>(this);
+    connect(watcher, &QFutureWatcher<AudioDecodeResult>::finished, this,
+            [this, watcher, requestId, cleanPath]() {
+        const AudioDecodeResult result = watcher->result();
+        watcher->deleteLater();
+        if (requestId != m_decodeRequestId) return;
+
+        setLoading(false);
+        if (result.data.samples.isEmpty()) {
+            const QString message = QStringLiteral("Failed to load audio file for playback: %1")
+                                        .arg(result.error.isEmpty() ? cleanPath : result.error);
+            Logger::error("AudioPlayer", message);
+            emit errorOccurred(message);
+            resetPlaybackState();
+            return;
+        }
+        startDecodedPlayback(result.data);
+    });
+    watcher->setFuture(QtConcurrent::run([cleanPath]() {
+        AudioDecodeResult result;
+        result.data = AudioFileDecoder::decode(cleanPath, &result.error);
+        return result;
+    }));
+    return true;
+}
+
+void AudioPlayer::startDecodedPlayback(const WavIO::WavData &data)
+{
     QByteArray pcmData;
     pcmData.resize(data.samples.size() * 2);
     auto *out = reinterpret_cast<int16_t *>(pcmData.data());
@@ -149,11 +193,16 @@ bool AudioPlayer::playFile(const QString &path)
         session->deleteLater();
     });
 
-    m_playing = true;
-    emit playingChanged();
     m_positionTimer.start();
     session->start();
-    return true;
+    if (m_pendingSeekPositionMs >= 0) {
+        session->seek(m_pendingSeekPositionMs);
+        m_pendingSeekPositionMs = -1;
+    }
+    if (m_pauseWhenReady) {
+        session->pause();
+        m_pauseWhenReady = false;
+    }
 }
 
 void AudioPlayer::playPcm(const QByteArray &pcm16Data, int sampleRate)
@@ -187,10 +236,14 @@ void AudioPlayer::playPcm(const QByteArray &pcm16Data, int sampleRate)
 
 void AudioPlayer::pause()
 {
-    if (!m_session || m_paused)
+    if (m_paused || (!m_session && !m_loading))
         return;
 
-    m_session->pause();
+    if (m_loading) {
+        m_pauseWhenReady = true;
+    } else {
+        m_session->pause();
+    }
     m_paused = true;
     emit pausedChanged();
     updatePlaybackPosition();
@@ -198,16 +251,24 @@ void AudioPlayer::pause()
 
 void AudioPlayer::resume()
 {
-    if (!m_session || !m_paused)
+    if (!m_paused || (!m_session && !m_loading))
         return;
 
-    m_session->resume();
+    if (m_loading) {
+        m_pauseWhenReady = false;
+    } else {
+        m_session->resume();
+    }
     m_paused = false;
     emit pausedChanged();
 }
 
 void AudioPlayer::seek(qint64 positionMs)
 {
+    if (m_loading) {
+        m_pendingSeekPositionMs = qMax<qint64>(0, positionMs);
+        return;
+    }
     if (!m_session)
         return;
 
@@ -217,6 +278,10 @@ void AudioPlayer::seek(qint64 positionMs)
 
 void AudioPlayer::stop()
 {
+    ++m_decodeRequestId;
+    setLoading(false);
+    m_pendingSeekPositionMs = -1;
+    m_pauseWhenReady = false;
     if (m_session) {
         AudioPlaybackSession *session = m_session.data();
         m_session = nullptr;
@@ -226,6 +291,13 @@ void AudioPlayer::stop()
         }
     }
     resetPlaybackState();
+}
+
+void AudioPlayer::setLoading(bool loading)
+{
+    if (m_loading == loading) return;
+    m_loading = loading;
+    emit loadingChanged();
 }
 
 void AudioPlayer::updatePlaybackPosition()
@@ -243,6 +315,8 @@ void AudioPlayer::resetPlaybackState()
     const bool hadDuration = m_playbackDurationMs > 0;
     m_playing = false;
     m_paused = false;
+    m_pendingSeekPositionMs = -1;
+    m_pauseWhenReady = false;
     m_playbackDurationMs = 0;
 
     if (wasPlaying)

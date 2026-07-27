@@ -5,6 +5,7 @@
 #include "PathUtils.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -34,6 +35,7 @@ QVariantList RegistryManager::translationFamilies() const
 namespace {
 
 constexpr const char *kRegistrySourceId = "bundled";
+constexpr int kRegistrySchemaVersion = 1;
 
 QString jsonFromVariant(const QVariant &value)
 {
@@ -206,19 +208,106 @@ bool RegistryManager::openDatabase()
     }
 
     if (!db.open()) {
+        const QString error = db.lastError().text();
         Logger::error(QStringLiteral("RegistryManager"),
-                      QStringLiteral("Failed to open registry database: %1").arg(db.lastError().text()));
+                      QStringLiteral("Failed to open registry database: %1").arg(error));
+        const QString normalizedError = error.toLower();
+        const bool appearsCorrupt = normalizedError.contains(QStringLiteral("malformed"))
+            || normalizedError.contains(QStringLiteral("not a database"))
+            || normalizedError.contains(QStringLiteral("database disk image is malformed"));
+        if (appearsCorrupt && QFileInfo::exists(m_databasePath)) {
+            db = QSqlDatabase();
+            QSqlDatabase::removeDatabase(m_connectionName);
+            return quarantineDatabase(QStringLiteral("database open failed")) && openDatabase();
+        }
         return false;
     }
 
     execStatement(db, QStringLiteral("PRAGMA foreign_keys = ON"), QStringLiteral("enable foreign keys"));
     execStatement(db, QStringLiteral("PRAGMA journal_mode = WAL"), QStringLiteral("enable WAL"));
+    if (!verifyDatabaseIntegrity()) {
+        db.close();
+        db = QSqlDatabase();
+        QSqlDatabase::removeDatabase(m_connectionName);
+        return quarantineDatabase(QStringLiteral("integrity_check failed")) && openDatabase();
+    }
     return true;
+}
+
+bool RegistryManager::verifyDatabaseIntegrity() const
+{
+    const QSqlDatabase db = QSqlDatabase::database(m_connectionName, false);
+    if (!db.isValid() || !db.isOpen()) {
+        return false;
+    }
+
+    QSqlQuery query(db);
+    if (!query.exec(QStringLiteral("PRAGMA integrity_check")) || !query.next()) {
+        Logger::error(QStringLiteral("RegistryManager"),
+                      QStringLiteral("Registry integrity check could not run: %1").arg(query.lastError().text()));
+        return false;
+    }
+    const QString result = query.value(0).toString().trimmed();
+    if (result.compare(QStringLiteral("ok"), Qt::CaseInsensitive) == 0) {
+        return true;
+    }
+
+    Logger::error(QStringLiteral("RegistryManager"),
+                  QStringLiteral("Registry integrity check failed: %1").arg(result));
+    return false;
+}
+
+bool RegistryManager::quarantineDatabase(const QString &reason)
+{
+    if (!QFileInfo::exists(m_databasePath)) {
+        return false;
+    }
+
+    const QString stamp = QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMddTHHmmsszzzZ"));
+    const QString quarantineBase = m_databasePath + QStringLiteral(".corrupt-") + stamp;
+    const QStringList sidecars = {
+        QString(), QStringLiteral("-wal"), QStringLiteral("-shm")
+    };
+    QStringList moved;
+    for (const QString &suffix : sidecars) {
+        const QString source = m_databasePath + suffix;
+        if (!QFileInfo::exists(source)) {
+            continue;
+        }
+        const QString target = quarantineBase + suffix;
+        if (!QFile::rename(source, target)) {
+            Logger::error(QStringLiteral("RegistryManager"),
+                          QStringLiteral("Failed to quarantine corrupt registry file: %1").arg(source));
+            return false;
+        }
+        moved.append(target);
+    }
+
+    Logger::warning(QStringLiteral("RegistryManager"),
+                    QStringLiteral("Quarantined corrupt registry after %1: %2")
+                        .arg(reason, moved.join(QStringLiteral(", "))));
+    emit errorOccurred(QStringLiteral("The local model registry was corrupt and has been rebuilt. "
+                                      "A backup was saved next to registry.sqlite."));
+    return !moved.isEmpty();
 }
 
 bool RegistryManager::ensureSchema()
 {
     QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    QSqlQuery versionQuery(db);
+    if (!versionQuery.exec(QStringLiteral("PRAGMA user_version")) || !versionQuery.next()) {
+        Logger::error(QStringLiteral("RegistryManager"),
+                      QStringLiteral("Could not read registry schema version: %1").arg(versionQuery.lastError().text()));
+        return false;
+    }
+    const int storedVersion = versionQuery.value(0).toInt();
+    if (storedVersion > kRegistrySchemaVersion) {
+        Logger::error(QStringLiteral("RegistryManager"),
+                      QStringLiteral("Registry schema version %1 is newer than this application supports (%2)")
+                          .arg(storedVersion).arg(kRegistrySchemaVersion));
+        return false;
+    }
+
     const QString schema = readFirstAvailableFile({
         QStringLiteral(":/LAStudio/data/registry_schema.sql"),
         QStringLiteral(":/data/registry_schema.sql"),
@@ -233,6 +322,29 @@ bool RegistryManager::ensureSchema()
 
     for (const QString &statement : splitSqlStatements(schema)) {
         if (!execStatement(db, statement, QStringLiteral("apply registry schema"))) {
+            return false;
+        }
+    }
+
+    if (storedVersion < kRegistrySchemaVersion) {
+        if (!db.transaction()) {
+            Logger::error(QStringLiteral("RegistryManager"),
+                          QStringLiteral("Could not begin registry schema migration: %1").arg(db.lastError().text()));
+            return false;
+        }
+        QSqlQuery migration(db);
+        if (!migration.exec(QStringLiteral("PRAGMA user_version = 1")) ||
+            !migration.exec(QStringLiteral(
+                "INSERT OR REPLACE INTO schema_migrations (version, name) "
+                "VALUES (1, 'baseline registry schema')"))) {
+            Logger::error(QStringLiteral("RegistryManager"),
+                          QStringLiteral("Could not record registry schema migration: %1").arg(migration.lastError().text()));
+            db.rollback();
+            return false;
+        }
+        if (!db.commit()) {
+            Logger::error(QStringLiteral("RegistryManager"),
+                          QStringLiteral("Could not commit registry schema migration: %1").arg(db.lastError().text()));
             return false;
         }
     }

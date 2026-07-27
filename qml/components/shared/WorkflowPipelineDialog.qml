@@ -120,7 +120,7 @@ Dialog {
             }
         }
 
-        Rectangle { Layout.fillWidth: true; height: 1; color: Qt.rgba(1, 1, 1, 0.08) }
+        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1, 1, 1, 0.08) }
 
         Item {
             id: canvasViewport
@@ -251,7 +251,7 @@ Dialog {
                                             border.color: Qt.rgba(1, 1, 1, 0.08)
                                             RowLayout {
                                                 anchors.fill: parent; anchors.leftMargin: Theme.paddingSmall; anchors.rightMargin: Theme.paddingSmall; spacing: 6
-                                                LineIcon { name: "cpu"; color: Theme.accentLight; width: 14; height: 14 }
+                                                LineIcon { name: "cpu"; color: Theme.accentLight; Layout.preferredWidth: 14; Layout.preferredHeight: 14 }
                                                 Text { Layout.fillWidth: true; text: stageDelegate.modelData.providerName || ""; color: Theme.textPrimary; font.pixelSize: 10; font.bold: true; elide: Text.ElideRight }
                                             }
                                         }
@@ -320,7 +320,7 @@ Dialog {
         }
 
         ProgressBar { Layout.fillWidth: true; visible: root.busy; from: 0; to: 1; value: root.progress }
-        Rectangle { Layout.fillWidth: true; height: 1; color: Qt.rgba(1, 1, 1, 0.08) }
+        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1, 1, 1, 0.08) }
 
         RowLayout {
             Layout.fillWidth: true; Layout.margins: Theme.paddingLarge; spacing: Theme.paddingSmall

@@ -106,10 +106,12 @@ laStudio:
       version: v0.8.13
       source: https://github.com/CrispStrobe/CrispASR/releases/download/
       library: bin/crispasr.dll
+      nativeDependencies: [bin/ggml-base.dll, bin/ggml-cpu.dll, bin/ggml.dll, bin/ogg.dll, bin/opus.dll]
       dependencyDownloads:
         - dependency: espeak-ng
           filename: espeak-ng.msi
           url: https://github.com/espeak-ng/espeak-ng/releases/download/1.52.0/espeak-ng.msi
+          sha256: 7f673c709ea5dd579d3b5ebb98688cc575328a6ab7438d2bc405b88cedaeafb9
       backend: kokoro
       modelVersion: Kokoro-82M GGUF
     - id: crispasr-win-x86_64-cuda
@@ -124,6 +126,7 @@ laStudio:
         - dependency: espeak-ng
           filename: espeak-ng.msi
           url: https://github.com/espeak-ng/espeak-ng/releases/download/1.52.0/espeak-ng.msi
+          sha256: 7f673c709ea5dd579d3b5ebb98688cc575328a6ab7438d2bc405b88cedaeafb9
       backend: kokoro
       modelVersion: Kokoro-82M GGUF
     - id: crispasr-win-x86_64-vulkan
@@ -138,6 +141,7 @@ laStudio:
         - dependency: espeak-ng
           filename: espeak-ng.msi
           url: https://github.com/espeak-ng/espeak-ng/releases/download/1.52.0/espeak-ng.msi
+          sha256: 7f673c709ea5dd579d3b5ebb98688cc575328a6ab7438d2bc405b88cedaeafb9
       backend: kokoro
       modelVersion: Kokoro-82M GGUF
     - id: crispasr-win-x86_64-cpu-legacy
@@ -152,6 +156,7 @@ laStudio:
         - dependency: espeak-ng
           filename: espeak-ng.msi
           url: https://github.com/espeak-ng/espeak-ng/releases/download/1.52.0/espeak-ng.msi
+          sha256: 7f673c709ea5dd579d3b5ebb98688cc575328a6ab7438d2bc405b88cedaeafb9
       backend: kokoro
       modelVersion: Kokoro-82M GGUF
   studio:

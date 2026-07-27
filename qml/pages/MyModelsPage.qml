@@ -379,7 +379,7 @@ Rectangle {
 
                     Rectangle {
                         Layout.fillWidth: true
-                        height: 1
+                        Layout.preferredHeight: 1
                         color: Qt.rgba(1, 1, 1, 0.05)
                         Layout.topMargin: Theme.paddingSmall
                         Layout.bottomMargin: Theme.paddingSmall
@@ -1461,7 +1461,7 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
-            height: 1
+            Layout.preferredHeight: 1
             color: Theme.surfaceAlt
             opacity: 0.3
             Layout.topMargin: 4

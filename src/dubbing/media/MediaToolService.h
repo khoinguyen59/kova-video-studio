@@ -29,6 +29,7 @@ signals:
 private slots:
     void onReadyReadStandardError();
     void onFinished(int exitCode, QProcess::ExitStatus status);
+    void onProcessError(QProcess::ProcessError error);
 
 private:
     QProcess m_process;

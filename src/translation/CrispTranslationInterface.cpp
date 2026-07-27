@@ -17,7 +17,6 @@ bool CrispTranslationInterface::load(const QString &libraryPath)
     }
 
     const QStringList runtimeDirs = crispRuntimeDependencyDirs(cleanPath);
-    crispPrependRuntimeDirsToPath(runtimeDirs);
 #ifdef Q_OS_WIN
     m_preloadedDlls = crispPreloadRuntimeDlls(cleanPath, runtimeDirs);
 #endif

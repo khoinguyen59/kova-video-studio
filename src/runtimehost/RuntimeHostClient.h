@@ -44,6 +44,9 @@ public:
     void cancelCurrent();
     void setProgressCallback(ProgressCallback callback) { m_progressCallback = std::move(callback); }
 
+signals:
+    void hostExited(const QString &reason);
+
 private:
     bool connectSocket(QLocalSocket *socket, QString *error);
     bool authenticate(QLocalSocket *socket, QString *error);
@@ -57,6 +60,9 @@ private:
                       RuntimeHostFrame *response,
                       QString *error);
     QString protocolError(const RuntimeHostFrame &frame) const;
+    void onProcessFinished(int exitCode, QProcess::ExitStatus exitStatus);
+    void onProcessError(QProcess::ProcessError error);
+    void reportUnexpectedExit(const QString &reason);
 
     QProcess m_process;
     QLocalSocket m_socket;
@@ -65,6 +71,10 @@ private:
     std::atomic<quint64> m_nextRequestId{1};
     std::atomic<quint64> m_currentRequestId{0};
     ProgressCallback m_progressCallback;
+    QString m_lastExitReason;
+    bool m_hostReady = false;
+    bool m_shutdownRequested = false;
+    bool m_exitNotified = false;
 };
 
 } // namespace LAStudio

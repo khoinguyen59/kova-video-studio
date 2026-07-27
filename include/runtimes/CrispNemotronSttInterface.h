@@ -57,27 +57,19 @@ public:
         }
 
         m_errorString.clear();
-        const QByteArray oldPath = qgetenv("PATH");
         const QStringList runtimeDirs = crispRuntimeDependencyDirs(cleanLibPath);
-        crispPrependRuntimeDirsToPath(runtimeDirs);
 #ifdef Q_OS_WIN
-        const QFileInfo fileInfo(cleanLibPath);
         crispReleasePreloadedRuntimeDlls(m_preloadedDlls);
         m_preloadedDlls = crispPreloadRuntimeDlls(cleanLibPath, runtimeDirs);
-        SetDllDirectoryW(reinterpret_cast<LPCWSTR>(fileInfo.absolutePath().utf16()));
 #endif
         m_lib.setFileName(cleanLibPath);
         m_lib.setLoadHints(QLibrary::ExportExternalSymbolsHint);
         const bool loaded = m_lib.load();
-#ifdef Q_OS_WIN
-        SetDllDirectoryW(nullptr);
-#endif
         if (!loaded) {
             m_errorString = m_lib.errorString();
 #ifdef Q_OS_WIN
             crispReleasePreloadedRuntimeDlls(m_preloadedDlls);
 #endif
-            qputenv("PATH", oldPath);
             return false;
         }
 

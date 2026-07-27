@@ -12,51 +12,84 @@
 
 namespace LAStudio {
 
+HostedOmnivoiceBackend::HostedOmnivoiceBackend()
+{
+    QObject::connect(&m_client, &RuntimeHostClient::hostExited, [this](const QString &) {
+        releaseHostPermit();
+    });
+}
+
+HostedOmnivoiceBackend::~HostedOmnivoiceBackend()
+{
+    unload();
+}
+
 bool HostedOmnivoiceBackend::load(const QVariantMap &config,
                                   QString &error,
                                   QVariantList &schema)
 {
+    unload();
     m_config = config;
-    const QString runtimePath = config.value(QStringLiteral("runtimePath")).toString();
-    const bool useGpu = config.value(QStringLiteral("useGpu")).toBool()
-                        || config.value(QStringLiteral("use_gpu")).toBool()
+    return startHost(error, &schema);
+}
+
+bool HostedOmnivoiceBackend::startHost(QString &error, QVariantList *schema)
+{
+    if (m_config.isEmpty()) {
+        error = QStringLiteral("OmniVoice runtime has no saved model configuration.");
+        return false;
+    }
+    releaseHostPermit();
+    const QString runtimePath = m_config.value(QStringLiteral("runtimePath")).toString();
+    const bool useGpu = m_config.value(QStringLiteral("useGpu")).toBool()
+                        || m_config.value(QStringLiteral("use_gpu")).toBool()
                         || runtimePath.contains(QStringLiteral("cuda"), Qt::CaseInsensitive);
     if (!RuntimeHostManager::instance().acquire(m_runtimeFamily, useGpu, &error)) return false;
     m_gpuPermit = useGpu;
+    m_permitAcquired = true;
     const QString hostPath = QDir(QCoreApplication::applicationDirPath())
                                  .absoluteFilePath(QStringLiteral("LAStudioRuntimeHost.exe"));
     if (!QFileInfo(hostPath).isFile()) {
         error = QStringLiteral("LAStudioRuntimeHost.exe is missing: %1").arg(hostPath);
-        RuntimeHostManager::instance().release(m_runtimeFamily, m_gpuPermit);
-        m_gpuPermit = false;
+        releaseHostPermit();
         return false;
     }
     if (!m_client.start(hostPath, &error)) {
-        RuntimeHostManager::instance().release(m_runtimeFamily, m_gpuPermit);
-        m_gpuPermit = false;
+        releaseHostPermit();
         return false;
     }
 
-    QCborMap hostConfig = QCborValue::fromVariant(config).toMap();
+    QCborMap hostConfig = QCborValue::fromVariant(m_config).toMap();
     hostConfig.insert(QStringLiteral("adapter"), QStringLiteral("omnivoice"));
     QCborValue hostSchema;
     if (!m_client.load(hostConfig, &hostSchema, &error)) {
         m_client.shutdown();
-        RuntimeHostManager::instance().release(m_runtimeFamily, m_gpuPermit);
-        m_gpuPermit = false;
+        releaseHostPermit();
         return false;
     }
-    if (hostSchema.isArray()) schema = hostSchema.toArray().toVariantList();
+    if (schema && hostSchema.isArray()) *schema = hostSchema.toArray().toVariantList();
     return true;
+}
+
+bool HostedOmnivoiceBackend::ensureHost(QString &error)
+{
+    return m_client.isRunning() || startHost(error);
 }
 
 void HostedOmnivoiceBackend::unload()
 {
     QString ignored;
     m_client.shutdown(&ignored);
-    RuntimeHostManager::instance().release(m_runtimeFamily, m_gpuPermit);
-    m_gpuPermit = false;
+    releaseHostPermit();
     m_config.clear();
+}
+
+void HostedOmnivoiceBackend::releaseHostPermit()
+{
+    if (!m_permitAcquired) return;
+    RuntimeHostManager::instance().release(m_runtimeFamily, m_gpuPermit);
+    m_permitAcquired = false;
+    m_gpuPermit = false;
 }
 
 void HostedOmnivoiceBackend::setProgressCallback(std::function<bool(int current,
@@ -123,6 +156,7 @@ bool HostedOmnivoiceBackend::infer(const QString &mode,
         error = QStringLiteral("Text input is empty.");
         return false;
     }
+    if (!ensureHost(error)) return false;
     const QCborMap request{{QStringLiteral("mode"), mode},
                            {QStringLiteral("text"), text},
                            {QStringLiteral("speed"), static_cast<double>(speed)},

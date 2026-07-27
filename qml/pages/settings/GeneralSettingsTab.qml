@@ -57,6 +57,18 @@ ScrollView {
         return 0
     }
 
+    function formatBytes(bytes) {
+        if (bytes < 1024) return qsTr("%1 B").arg(bytes)
+        const units = [qsTr("KB"), qsTr("MB"), qsTr("GB"), qsTr("TB")]
+        var value = bytes / 1024.0
+        var index = 0
+        while (value >= 1024 && index < units.length - 1) {
+            value /= 1024.0
+            index += 1
+        }
+        return qsTr("%1 %2").arg(value.toFixed(value >= 100 ? 0 : 1)).arg(units[index])
+    }
+
     ColumnLayout {
         width: Math.min(root.contentMaxWidth, Math.max(0, root.availableWidth - Theme.paddingMedium * 2))
         anchors.left: parent.left
@@ -79,6 +91,18 @@ ScrollView {
                 SettingsRow {
                     label: qsTr("Installed")
                     valueText: qsTr("%1 v%2").arg(Qt.application.name).arg(Qt.application.version)
+                }
+
+                ThinDivider {}
+
+                ToggleRow {
+                    text: qsTr("Check for updates automatically")
+                    checked: AppController.settings.automaticUpdateChecks
+                    Layout.fillWidth: true
+                    onToggled: {
+                        AppController.settings.automaticUpdateChecks = checked
+                        AppController.settings.updateCheckConsentAsked = true
+                    }
                 }
 
                 ThinDivider {}
@@ -278,6 +302,53 @@ ScrollView {
                     }
                 }
             }
+
+            SectionPanel {
+                title: qsTr("Workflow Cache")
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignTop
+
+                Text {
+                    text: qsTr("Temporary media imports, source-separation results, and alignment results. Downloaded models, projects, exports, and logs are kept.")
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSmall
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.paddingMedium
+
+                    Text {
+                        text: AppController.cache.refreshing
+                              ? qsTr("Calculating cache size…")
+                              : qsTr("%1 in use").arg(root.formatBytes(AppController.cache.cacheBytes))
+                        color: Theme.textPrimary
+                        font.pixelSize: Theme.fontSmall
+                        Layout.fillWidth: true
+                    }
+
+                    PrimaryButton {
+                        text: qsTr("Refresh")
+                        buttonColor: Theme.surfaceAlt
+                        quiet: true
+                        implicitWidth: 86
+                        implicitHeight: 32
+                        enabled: !AppController.cache.refreshing && !AppController.cache.clearing
+                        onClicked: AppController.cache.refresh()
+                    }
+
+                    PrimaryButton {
+                        text: AppController.cache.clearing ? qsTr("Clearing…") : qsTr("Clear cache")
+                        iconName: "trash"
+                        implicitWidth: 114
+                        implicitHeight: 32
+                        enabled: !AppController.cache.refreshing && !AppController.cache.clearing
+                        onClicked: clearCacheDialog.open()
+                    }
+                }
+            }
         }
 
         SectionPanel {
@@ -326,7 +397,14 @@ ScrollView {
                 actionText: qsTr("Open in browser")
                 actionIcon: "external-link"
                 actionWidth: 146
-                onActivated: Qt.openUrlExternally("https://github.com/dduongtrandai/LA-Studio/issues")
+                onActivated: {
+                    const reportPath = AppController.createProblemReport()
+                    if (reportPath) {
+                        AppController.copyToClipboard(reportPath)
+                        Qt.openUrlExternally("file:///" + reportPath)
+                    }
+                    Qt.openUrlExternally("https://github.com/dduongtrandai/LA-Studio/issues/new?template=bug_report.md&title=%5BBug%5D+&body=I+created+a+local+diagnostics+package+and+will+review+it+before+attaching+the+sanitized+log+or+dump.")
+                }
             }
         }
 
@@ -339,8 +417,8 @@ ScrollView {
             Image {
                 id: laStudioLogo
                 Layout.alignment: Qt.AlignHCenter
-                width: 32
-                height: 32
+                Layout.preferredWidth: 32
+                Layout.preferredHeight: 32
                 source: "qrc:/LAStudio/icons/app_icon_32.png"
                 fillMode: Image.PreserveAspectFit
             }
@@ -370,6 +448,15 @@ ScrollView {
         confirmText: qsTr("Install")
         cancelText: qsTr("Cancel")
         onConfirmed: AppController.updates.installDownloadedUpdate()
+    }
+
+    ConfirmationDialog {
+        id: clearCacheDialog
+        titleText: qsTr("Clear workflow cache")
+        messageText: qsTr("This removes temporary imports, source-separation results, and alignment results. Downloaded models, projects, exports, and logs will not be removed.")
+        confirmText: qsTr("Clear cache")
+        cancelText: qsTr("Cancel")
+        onConfirmed: AppController.cache.clear()
     }
 
     component SectionPanel: Rectangle {

@@ -195,7 +195,7 @@ ColumnLayout {
 
             AppToolTip {
                 text: qsTr("Hide settings")
-                visible: parent.hovered
+                visible: closeBtn.hovered
             }
 
             contentItem: LineIcon {
@@ -216,7 +216,7 @@ ColumnLayout {
         }
     }
 
-    Rectangle { Layout.fillWidth: true; height: 1; color: Qt.rgba(1, 1, 1, 0.07) }
+    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1, 1, 1, 0.07) }
 
     ScrollView {
         Layout.fillWidth: true
@@ -242,7 +242,7 @@ ColumnLayout {
                     useTextFieldFallback: false
                     language: root.selectedLanguage
                     enabled: !root.locked
-                    onLanguageChanged: {
+                    onLanguageSelected: function(language) {
                         if (root.selectedLanguage !== language) {
                             root.selectedLanguage = language
                             root.settingsChanged()
@@ -251,7 +251,7 @@ ColumnLayout {
                 }
 
                 FieldLabel { 
-                    text: (family && family.id && family.id.indexOf("qwen3") !== -1) ? qsTr("Style Instruction") : qsTr("Style & Emotion")
+                    text: (root.family && root.family.id && root.family.id.indexOf("qwen3") !== -1) ? qsTr("Style Instruction") : qsTr("Style & Emotion")
                     visible: instructInput.visible
                 }
 
@@ -259,7 +259,7 @@ ColumnLayout {
                     id: instructInput
                     Layout.fillWidth: true
                     visible: root.hasInstructInput
-                    placeholderText: (family && family.id && family.id.indexOf("qwen3") !== -1) 
+                    placeholderText: (root.family && root.family.id && root.family.id.indexOf("qwen3") !== -1)
                                      ? qsTr("e.g. Speak with excitement, whisper, or deep voice...") 
                                      : qsTr("happy, whisper, dramatic...")
                     color: Theme.textPrimary

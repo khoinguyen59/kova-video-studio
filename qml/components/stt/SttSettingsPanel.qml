@@ -66,30 +66,30 @@ Rectangle {
             var p = schema[j] || {}
             if (p.id && p["default"] !== undefined) defaults[p.id] = p["default"]
         }
-        if (sttSession) {
-            defaults["threads"] = sttSession.threads
-            defaults["translate"] = sttSession.translate
-            defaults["language"] = sttSession.language
+        if (root.sttSession) {
+            defaults["threads"] = root.sttSession.threads
+            defaults["translate"] = root.sttSession.translate
+            defaults["language"] = root.sttSession.language
         }
         dynamicSettings = defaults
-        if (sttSession) sttSession.dynamicSettings = dynamicSettings
+        if (root.sttSession) root.sttSession.dynamicSettings = dynamicSettings
     }
 
     function updateDynamicSetting(parameterId, value) {
         var settings = JSON.parse(JSON.stringify(dynamicSettings))
         settings[parameterId] = value
         dynamicSettings = settings
-        if (sttSession) sttSession.dynamicSettings = dynamicSettings
+        if (root.sttSession) root.sttSession.dynamicSettings = dynamicSettings
 
-        if (!sttSession) return
+        if (!root.sttSession) return
         if (parameterId === "threads") {
             var n = Math.max(0, Math.min(64, Math.round(Number(value))))
-            if (sttSession.threads !== n) sttSession.threads = n
+            if (root.sttSession.threads !== n) root.sttSession.threads = n
             return
         }
         if (parameterId === "translate") {
             var b = !!value
-            if (sttSession.translate !== b) sttSession.translate = b
+            if (root.sttSession.translate !== b) root.sttSession.translate = b
         }
     }
 
@@ -98,18 +98,18 @@ Rectangle {
     onFamilyChanged: refreshFromCatalog()
 
     Connections {
-        target: sttSession
+        target: root.sttSession
         ignoreUnknownSignals: true
         function onThreadsChanged() {
-            if (root.dynamicSettings["threads"] !== sttSession.threads) root.updateDynamicSetting("threads", sttSession.threads)
+            if (root.dynamicSettings["threads"] !== root.sttSession.threads) root.updateDynamicSetting("threads", root.sttSession.threads)
         }
         function onTranslateChanged() {
-            if (root.dynamicSettings["translate"] !== sttSession.translate) root.updateDynamicSetting("translate", sttSession.translate)
+            if (root.dynamicSettings["translate"] !== root.sttSession.translate) root.updateDynamicSetting("translate", root.sttSession.translate)
         }
         function onLanguageChanged() {
-            if (langSelector.language !== sttSession.language) langSelector.language = sttSession.language
-            if (root.dynamicSettings["language"] !== sttSession.language) {
-                root.updateDynamicSetting("language", sttSession.language)
+            if (langSelector.language !== root.sttSession.language) langSelector.language = root.sttSession.language
+            if (root.dynamicSettings["language"] !== root.sttSession.language) {
+                root.updateDynamicSetting("language", root.sttSession.language)
             }
         }
     }
@@ -141,7 +141,9 @@ Rectangle {
                 }
                 
                 Button {
-                    width: 32; height: 32
+                    id: closeButton
+                    Layout.preferredWidth: 32
+                    Layout.preferredHeight: 32
                     flat: true
                     onClicked: root.closeRequested()
                     contentItem: LineIcon {
@@ -152,12 +154,12 @@ Rectangle {
                     }
                     background: Rectangle {
                         radius: 16
-                        color: parent.hovered ? Qt.rgba(1,1,1,0.05) : "transparent"
+                        color: closeButton.hovered ? Qt.rgba(1,1,1,0.05) : "transparent"
                     }
                 }
             }
 
-            Rectangle { Layout.fillWidth: true; height: 1; color: Theme.surfaceAlt }
+            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.surfaceAlt }
 
             ScrollView {
                 Layout.fillWidth: true
@@ -180,10 +182,10 @@ Rectangle {
                             family: root.family
                             hasLanguageInput: root.hasLanguageInput
                             useTextFieldFallback: true
-                            language: sttSession ? sttSession.language : "auto"
-                            onLanguageChanged: {
-                                if (sttSession && sttSession.language !== language) {
-                                    sttSession.language = language
+                            language: root.sttSession ? root.sttSession.language : "auto"
+                            onLanguageSelected: function(language) {
+                                if (root.sttSession && root.sttSession.language !== language) {
+                                    root.sttSession.language = language
                                 }
                             }
                         }

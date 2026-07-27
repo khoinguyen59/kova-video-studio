@@ -2,6 +2,11 @@
 #include <QtTest>
 #include <QSignalSpy>
 #include <QThreadPool>
+#include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QDir>
 
 #include "controllers/shared/HistoryRepository.h"
 #include "controllers/shared/HistoryService.h"
@@ -41,6 +46,43 @@ void TestHistory::testHistoryRepository()
     QVERIFY(ok);
     list = HistoryRepository::loadTtsHistory(dataDir);
     QCOMPARE(list.size(), 0);
+}
+
+void TestHistory::testHistoryEnvelopeAndLegacyCompatibility()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString historyDir = directory.filePath(QStringLiteral("history"));
+    QVERIFY(QDir().mkpath(historyDir));
+    const QString historyPath = historyDir + QStringLiteral("/tts_history.json");
+
+    QJsonArray legacyEntries;
+    for (int index = 0; index < 100; ++index) {
+        legacyEntries.append(QJsonObject{
+            {QStringLiteral("id"), QString::number(index)},
+            {QStringLiteral("text"), QStringLiteral("legacy")}
+        });
+    }
+    QFile legacyFile(historyPath);
+    QVERIFY(legacyFile.open(QIODevice::WriteOnly));
+    legacyFile.write(QJsonDocument(legacyEntries).toJson());
+    legacyFile.close();
+
+    QCOMPARE(HistoryRepository::loadTtsHistory(directory.path()).size(), 100);
+
+    QString error;
+    QVERIFY(HistoryRepository::addTtsHistoryItem(directory.path(), QStringLiteral("new"),
+                                                  QStringLiteral("model"), QStringLiteral("voice"),
+                                                  {0.1f, -0.1f}, 16000, error));
+
+    QFile versionedFile(historyPath);
+    QVERIFY(versionedFile.open(QIODevice::ReadOnly));
+    const QJsonDocument versioned = QJsonDocument::fromJson(versionedFile.readAll());
+    QVERIFY(versioned.isObject());
+    QCOMPARE(versioned.object().value(QStringLiteral("schemaVersion")).toInt(), 1);
+    QCOMPARE(versioned.object().value(QStringLiteral("entries")).toArray().size(), 100);
+    QCOMPARE(HistoryRepository::loadTtsHistory(directory.path()).first().toMap()
+                 .value(QStringLiteral("text")).toString(), QStringLiteral("new"));
 }
 
 void TestHistory::testHistoryService()

@@ -67,8 +67,6 @@ public:
     Q_INVOKABLE QVariantMap findModel(const QString &id) const;
     Q_INVOKABLE QVariantList modelsForTask(const QString &task) const;
     Q_INVOKABLE QVariantList filteredSttModels(const QString &searchText = QString()) const;
-    Q_INVOKABLE QVariantList filteredVoiceCloneModels(const QString &searchText = QString(),
-                                                       const QString &runtimeId = QString());
     Q_INVOKABLE bool hasFile(const QString &modelId, const QString &filename) const;
     Q_INVOKABLE QString filePath(const QString &modelId, const QString &filename) const;
     QString firstAvailableFilePath(const QString &modelId, const QStringList &filenames) const;
@@ -90,14 +88,10 @@ signals:
     void modelsRootChanged();
 
 private:
-    void refreshVoiceCloneCache();
-
     QString registryPath() const;
     QString m_modelsRoot;
     QVector<ModelInfo> m_models;
     int m_version = 0;
-    QVariantList m_cachedVoiceCloneModels;
-    bool m_voiceCloneCacheDirty = true;
 };
 
 } // namespace LAStudio

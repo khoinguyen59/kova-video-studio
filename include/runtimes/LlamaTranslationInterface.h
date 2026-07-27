@@ -23,7 +23,8 @@ public:
     bool load(const QString &libraryPath,
               const QString &modelPath,
               QString *error = nullptr,
-              bool useGpu = false);
+              bool useGpu = false,
+              int threads = 0);
     void unload();
     void cancel();
     bool isLoaded() const;
@@ -60,6 +61,7 @@ private:
     std::unique_ptr<Api> m_api;
     QString m_modelPath;
     QString m_error;
+    int m_threadCount = 0;
     std::atomic_bool m_cancelled{false};
 };
 

@@ -89,7 +89,7 @@ The app brings together local speech-to-text, text-to-speech, voice cloning, voi
 | Translation Studio | Translate and edit plain text, SRT, and VTT projects segment by segment, with local history and multiple export formats. | M2M-100, MADLAD-400, Hy-MT2 through CrispASR or llama.cpp |
 | Video Dubbing | Transcribe, translate, synthesize, mix, and export dubbed audio or video through automatic or step-by-step local workflows. | Local STT, translation, TTS, source separation, and media processing |
 | Models Gallery | Browse curated model families, inspect required files, download assets, and manage local model availability. | Integrated catalog and Hugging Face sources |
-| Runtime Management | Install, validate, and select compatible CPU, CUDA, Vulkan, or other runtime packages. | Dynamic runtime loading |
+| Runtime Management | Install, validate, and select compatible CPU, CUDA, Vulkan, or other runtime packages from the Models Gallery. | Dynamic runtime loading |
 | Offline Privacy | Keep audio, prompts, generated speech, and model inference on the user's machine. | No cloud API required for inference |
 | Native Desktop UI | Use a responsive Qt Quick interface with audio input controls, waveform previews, history, settings, and logs. | C++17 + Qt 6/QML |
 
@@ -107,9 +107,9 @@ The app brings together local speech-to-text, text-to-speech, voice cloning, voi
 | --- | --- |
 | ![LA Studio voice cloning workflow with reference audio](docs/screenshots/la-studio-voice-cloning.PNG) | ![LA Studio voice design workflow for local AI speech models](docs/screenshots/la-studio-voice-design.PNG) |
 
-| Runtime Settings | System Logs |
-| --- | --- |
-| ![LA Studio runtime and hardware settings](docs/screenshots/la-studio-runtime-settings.PNG) | ![LA Studio system logs and diagnostics screen](docs/screenshots/la-studio-system-logs.PNG) |
+| System Logs |
+| --- |
+| ![LA Studio system logs and diagnostics screen](docs/screenshots/la-studio-system-logs.PNG) |
 
 ## Use Cases
 
@@ -288,7 +288,9 @@ Key source areas:
 
 ## Privacy and Offline Operation
 
-LA Studio is designed for local inference. Audio recordings, prompts, generated speech, transcriptions, model selections, and runtime activity stay on the local machine unless the user explicitly downloads model files or runtime packages from external sources.
+LA Studio is designed for local inference. Audio recordings, prompts, generated speech, transcriptions, model selections, and runtime activity stay on the local machine by default.
+
+Network access occurs only for features that need it: browsing or downloading model and runtime assets; an optional automatic update check (disabled until the user chooses to allow it, and configurable in Settings); and any external translation provider that the user configures. The optional local API server stays on the local machine unless the user explicitly enables LAN access. No update is downloaded or installed automatically.
 
 ## Documentation
 
@@ -343,6 +345,8 @@ LA Studio is free and open-source software under the **GNU Affero General Public
 You may use LA Studio for personal, educational, research, internal business, and commercial creative work, including selling audio, voiceovers, dubbing, audiobooks, or other media produced with the app.
 
 AGPL-3.0 is a network copyleft license. If you modify LA Studio and make that modified version available to others, including over a network, you must make the complete corresponding source code of your modified version available under the same AGPL-3.0 terms.
+
+For every released installer, the matching source archive, build instructions, license, notices, and source-offer information are available from the [corresponding GitHub Release](https://github.com/dduongtrandai/LA-Studio/releases).
 
 A commercial license will be available for organizations that want to embed LA Studio, its code, or derivative work in a closed-source or proprietary product or service without the AGPL-3.0 copyleft obligations.
 

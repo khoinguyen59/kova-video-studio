@@ -5,7 +5,9 @@
 #include "core/PathUtils.h"
 
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -14,6 +16,8 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QProcess>
+#include <QRegularExpression>
+#include <QStringList>
 #include <QTimer>
 #include <QVersionNumber>
 
@@ -54,9 +58,96 @@ bool isInstallerAssetName(const QString &name)
         && lower.contains(QStringLiteral("x64"));
 }
 
-QVersionNumber parsedVersion(const QString &version)
+QString parsePublishedSha256(const QByteArray &contents, const QString &expectedFileName)
 {
-    return QVersionNumber::fromString(cleanVersion(version));
+    const QRegularExpression linePattern(
+        QStringLiteral(R"(^\s*([A-Fa-f0-9]{64})\s+\*?(.+?)\s*$)"));
+    const QStringList lines = QString::fromUtf8(contents).split(QLatin1Char('\n'));
+    for (const QString &line : lines) {
+        const QRegularExpressionMatch match = linePattern.match(line);
+        if (!match.hasMatch()) {
+            continue;
+        }
+        const QString publishedName = QFileInfo(match.captured(2).trimmed()).fileName();
+        if (publishedName == expectedFileName) {
+            return match.captured(1).toLower();
+        }
+    }
+    return QString();
+}
+
+struct ParsedUpdateVersion {
+    QVersionNumber core;
+    QStringList prerelease;
+    bool valid = false;
+};
+
+ParsedUpdateVersion parseUpdateVersion(const QString &version)
+{
+    const QRegularExpression pattern(
+        QStringLiteral(R"(^(\d+\.\d+\.\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$)"));
+    const QRegularExpressionMatch match = pattern.match(cleanVersion(version));
+    if (!match.hasMatch()) {
+        return {};
+    }
+
+    const QStringList coreParts = match.captured(1).split(QLatin1Char('.'));
+    for (const QString &part : coreParts) {
+        if (part.size() > 1 && part.startsWith(QLatin1Char('0'))) {
+            return {};
+        }
+    }
+
+    ParsedUpdateVersion parsed;
+    parsed.core = QVersionNumber::fromString(match.captured(1));
+    parsed.prerelease = match.captured(2).split(QLatin1Char('.'), Qt::SkipEmptyParts);
+    for (const QString &identifier : parsed.prerelease) {
+        const bool numeric = QRegularExpression(QStringLiteral("^[0-9]+$")).match(identifier).hasMatch();
+        if (numeric && identifier.size() > 1 && identifier.startsWith(QLatin1Char('0'))) {
+            return {};
+        }
+    }
+    parsed.valid = !parsed.core.isNull();
+    return parsed;
+}
+
+int comparePrereleaseIdentifier(const QString &left, const QString &right)
+{
+    const QRegularExpression numericPattern(QStringLiteral("^[0-9]+$"));
+    const bool leftNumeric = numericPattern.match(left).hasMatch();
+    const bool rightNumeric = numericPattern.match(right).hasMatch();
+    if (leftNumeric && rightNumeric) {
+        if (left.size() != right.size()) {
+            return left.size() < right.size() ? -1 : 1;
+        }
+        return QString::compare(left, right, Qt::CaseSensitive);
+    }
+    if (leftNumeric != rightNumeric) {
+        return leftNumeric ? -1 : 1;
+    }
+    return QString::compare(left, right, Qt::CaseSensitive);
+}
+
+int compareUpdateVersions(const ParsedUpdateVersion &left, const ParsedUpdateVersion &right)
+{
+    const int coreComparison = QVersionNumber::compare(left.core, right.core);
+    if (coreComparison != 0) {
+        return coreComparison;
+    }
+    if (left.prerelease.isEmpty() != right.prerelease.isEmpty()) {
+        return left.prerelease.isEmpty() ? 1 : -1;
+    }
+    const int commonCount = qMin(left.prerelease.size(), right.prerelease.size());
+    for (int index = 0; index < commonCount; ++index) {
+        const int comparison = comparePrereleaseIdentifier(left.prerelease.at(index), right.prerelease.at(index));
+        if (comparison != 0) {
+            return comparison;
+        }
+    }
+    if (left.prerelease.size() == right.prerelease.size()) {
+        return 0;
+    }
+    return left.prerelease.size() < right.prerelease.size() ? -1 : 1;
 }
 
 #ifdef Q_OS_WIN
@@ -123,6 +214,14 @@ AppUpdateService::AppUpdateService(DownloadManager *downloads, QObject *parent)
                 this, &AppUpdateService::updateDownloadProgress);
     }
 
+}
+
+bool AppUpdateService::isUpdateVersionNewer(const QString &candidate, const QString &installed)
+{
+    const ParsedUpdateVersion candidateVersion = parseUpdateVersion(candidate);
+    const ParsedUpdateVersion installedVersion = parseUpdateVersion(installed);
+    return candidateVersion.valid && installedVersion.valid
+        && compareUpdateVersions(candidateVersion, installedVersion) > 0;
 }
 
 QString AppUpdateService::currentVersion() const
@@ -222,6 +321,18 @@ void AppUpdateService::onDownloadFinished(const QString &identifier, const QStri
     if (metadata.value(QStringLiteral("type")).toString() != QString::fromLatin1(UpdateMetadataType)) return;
     if (filename != m_installerFileName) return;
 
+    QString checksumError;
+    if (!verifyInstallerChecksum(localPath, &checksumError)) {
+        QFile::remove(localPath);
+        m_downloading = false;
+        m_downloadProgress = 0.0;
+        m_downloadedInstallerPath.clear();
+        setStatusMessage(tr("Downloaded update was rejected."));
+        setErrorMessage(checksumError);
+        emit downloadStateChanged();
+        return;
+    }
+
     m_downloading = false;
     m_downloadProgress = 1.0;
     m_downloadedInstallerPath = localPath;
@@ -270,6 +381,7 @@ void AppUpdateService::resetUpdateInfo()
 {
     m_latestVersion.clear();
     m_installerFileName.clear();
+    m_expectedInstallerSha256.clear();
     m_installerUrl = QUrl();
     m_releaseUrl = QUrl();
     m_downloading = false;
@@ -281,9 +393,8 @@ void AppUpdateService::resetUpdateInfo()
 
 void AppUpdateService::handleReleaseReply(QNetworkReply *reply, const QString &channel)
 {
-    setChecking(false);
-
     if (reply->error() != QNetworkReply::NoError) {
+        setChecking(false);
         setStatusMessage(tr("Update check failed."));
         setErrorMessage(reply->errorString());
         return;
@@ -292,6 +403,7 @@ void AppUpdateService::handleReleaseReply(QNetworkReply *reply, const QString &c
     QJsonParseError parseError;
     const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll(), &parseError);
     if (parseError.error != QJsonParseError::NoError || !doc.isArray()) {
+        setChecking(false);
         setStatusMessage(tr("Update check failed."));
         setErrorMessage(tr("GitHub returned an invalid releases response."));
         return;
@@ -299,10 +411,10 @@ void AppUpdateService::handleReleaseReply(QNetworkReply *reply, const QString &c
 
     const bool includePrereleases = channel.compare(QStringLiteral("beta"), Qt::CaseInsensitive) == 0
         || channel.compare(QStringLiteral("Beta"), Qt::CaseInsensitive) == 0;
-    const QVersionNumber current = parsedVersion(currentVersion());
-    QVersionNumber bestVersion;
+    QString bestVersionText;
     QJsonObject bestRelease;
     QJsonObject bestAsset;
+    QJsonObject bestChecksumAsset;
 
     const QJsonArray releases = doc.array();
     for (const QJsonValue &releaseValue : releases) {
@@ -311,26 +423,41 @@ void AppUpdateService::handleReleaseReply(QNetworkReply *reply, const QString &c
         if (!includePrereleases && release.value(QStringLiteral("prerelease")).toBool()) continue;
 
         const QString versionText = cleanVersion(release.value(QStringLiteral("tag_name")).toString());
-        const QVersionNumber version = QVersionNumber::fromString(versionText);
-        if (version.isNull() || version <= current || version <= bestVersion) continue;
+        if (!isUpdateVersionNewer(versionText, currentVersion())
+            || (!bestVersionText.isEmpty() && !isUpdateVersionNewer(versionText, bestVersionText))) {
+            continue;
+        }
 
         QJsonObject installerAsset;
+        QJsonObject checksumAsset;
         const QJsonArray assets = release.value(QStringLiteral("assets")).toArray();
         for (const QJsonValue &assetValue : assets) {
             const QJsonObject asset = assetValue.toObject();
             if (isInstallerAssetName(asset.value(QStringLiteral("name")).toString())) {
                 installerAsset = asset;
-                break;
             }
         }
         if (installerAsset.isEmpty()) continue;
 
-        bestVersion = version;
+        const QString checksumName = installerAsset.value(QStringLiteral("name")).toString()
+            + QStringLiteral(".sha256");
+        for (const QJsonValue &assetValue : assets) {
+            const QJsonObject asset = assetValue.toObject();
+            if (asset.value(QStringLiteral("name")).toString() == checksumName) {
+                checksumAsset = asset;
+                break;
+            }
+        }
+        if (checksumAsset.isEmpty()) continue;
+
+        bestVersionText = versionText;
         bestRelease = release;
         bestAsset = installerAsset;
+        bestChecksumAsset = checksumAsset;
     }
 
     if (bestRelease.isEmpty()) {
+        setChecking(false);
         Logger::info(QStringLiteral("Updater"),
                      QStringLiteral("No app update found. Current version: %1").arg(currentVersion()));
         setStatusMessage(tr("LA Studio is up to date."));
@@ -338,24 +465,116 @@ void AppUpdateService::handleReleaseReply(QNetworkReply *reply, const QString &c
         return;
     }
 
-    m_latestVersion = bestVersion.toString();
-    m_installerFileName = bestAsset.value(QStringLiteral("name")).toString();
-    m_installerUrl = QUrl(bestAsset.value(QStringLiteral("browser_download_url")).toString());
-    m_releaseUrl = QUrl(bestRelease.value(QStringLiteral("html_url")).toString());
+    fetchInstallerChecksum(
+        QUrl(bestChecksumAsset.value(QStringLiteral("browser_download_url")).toString()),
+        bestVersionText,
+        QUrl(bestRelease.value(QStringLiteral("html_url")).toString()),
+        QUrl(bestAsset.value(QStringLiteral("browser_download_url")).toString()),
+        bestAsset.value(QStringLiteral("name")).toString());
+}
 
-    Logger::info(QStringLiteral("Updater"),
-                 QStringLiteral("Update available: %1 (%2)").arg(m_latestVersion, m_installerUrl.toString()));
-
-    const QString existingInstaller = existingDownloadedInstallerPath(m_latestVersion, m_installerFileName);
-    if (!existingInstaller.isEmpty()) {
-        m_downloadedInstallerPath = existingInstaller;
-        m_downloadProgress = 1.0;
-        setStatusMessage(tr("LA Studio v%1 is ready to install.").arg(m_latestVersion));
-        emit downloadStateChanged();
-    } else {
-        setStatusMessage(tr("LA Studio v%1 is available.").arg(m_latestVersion));
+void AppUpdateService::fetchInstallerChecksum(const QUrl &checksumUrl, const QString &version,
+                                              const QUrl &releaseUrl, const QUrl &installerUrl,
+                                              const QString &installerFileName)
+{
+    if (!checksumUrl.isValid() || checksumUrl.scheme() != QStringLiteral("https")
+        || !installerUrl.isValid() || installerUrl.scheme() != QStringLiteral("https")
+        || installerFileName.isEmpty()) {
+        setChecking(false);
+        setStatusMessage(tr("Update check failed."));
+        setErrorMessage(tr("Published update metadata contains an invalid URL or installer name."));
+        return;
     }
-    emit updateInfoChanged();
+
+    QNetworkRequest request(checksumUrl);
+    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("LA-Studio-Updater"));
+    QNetworkReply *reply = m_network->get(request);
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply, version, releaseUrl, installerUrl, installerFileName]() {
+        setChecking(false);
+        if (reply->error() != QNetworkReply::NoError) {
+            setStatusMessage(tr("Update check failed."));
+            setErrorMessage(tr("Could not retrieve the published update checksum: %1")
+                                .arg(reply->errorString()));
+            reply->deleteLater();
+            return;
+        }
+
+        const QString checksum = parsePublishedSha256(reply->readAll(), installerFileName);
+        reply->deleteLater();
+        if (checksum.isEmpty()) {
+            setStatusMessage(tr("Update check failed."));
+            setErrorMessage(tr("Published update checksum is invalid or does not match the installer name."));
+            return;
+        }
+
+        m_latestVersion = version;
+        m_installerFileName = installerFileName;
+        m_installerUrl = installerUrl;
+        m_releaseUrl = releaseUrl;
+        m_expectedInstallerSha256 = checksum;
+
+        Logger::info(QStringLiteral("Updater"),
+                     QStringLiteral("Verified update metadata for: %1 (%2)")
+                         .arg(m_latestVersion, m_installerUrl.toString()));
+
+        const QString existingInstaller = existingDownloadedInstallerPath(m_latestVersion, m_installerFileName);
+        QString checksumError;
+        if (!existingInstaller.isEmpty() && verifyInstallerChecksum(existingInstaller, &checksumError)) {
+            m_downloadedInstallerPath = existingInstaller;
+            m_downloadProgress = 1.0;
+            setStatusMessage(tr("LA Studio v%1 is ready to install.").arg(m_latestVersion));
+            emit downloadStateChanged();
+        } else {
+            if (!existingInstaller.isEmpty()) {
+                Logger::warning(QStringLiteral("Updater"),
+                                QStringLiteral("Discarding cached installer with invalid checksum: %1")
+                                    .arg(checksumError));
+                QFile::remove(existingInstaller);
+            }
+            setStatusMessage(tr("LA Studio v%1 is available.").arg(m_latestVersion));
+        }
+        emit updateInfoChanged();
+    });
+}
+
+bool AppUpdateService::verifyInstallerChecksum(const QString &installerPath, QString *errorMessage) const
+{
+    if (!QRegularExpression(QStringLiteral("^[a-f0-9]{64}$")).match(m_expectedInstallerSha256).hasMatch()) {
+        if (errorMessage) {
+            *errorMessage = tr("No valid published checksum is available for this update.");
+        }
+        return false;
+    }
+
+    QFile installer(installerPath);
+    if (!installer.open(QIODevice::ReadOnly)) {
+        if (errorMessage) {
+            *errorMessage = tr("Downloaded installer could not be opened for verification.");
+        }
+        return false;
+    }
+
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    while (!installer.atEnd()) {
+        const QByteArray chunk = installer.read(1024 * 1024);
+        if (chunk.isEmpty() && installer.error() != QFile::NoError) {
+            if (errorMessage) {
+                *errorMessage = tr("Downloaded installer could not be read for verification.");
+            }
+            return false;
+        }
+        hash.addData(chunk);
+    }
+
+    const QString actual = QString::fromLatin1(hash.result().toHex());
+    if (actual != m_expectedInstallerSha256) {
+        if (errorMessage) {
+            *errorMessage = tr("Downloaded installer SHA-256 did not match the published release checksum.");
+        }
+        return false;
+    }
+    return true;
 }
 
 void AppUpdateService::updateDownloadProgress()

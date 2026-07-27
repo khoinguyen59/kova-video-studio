@@ -3,6 +3,7 @@
 #include "backends/TtsBackendFactory.h"
 #include "core/Logger.h"
 #include <QFileInfo>
+#include <QStringList>
 
 namespace LAStudio {
 
@@ -65,20 +66,17 @@ void TtsWorker::synthesize(const QString &text, int speakerId, float speed, cons
         return;
     }
 
-    QStringList settingsLogList;
-    for (auto it = settings.constBegin(); it != settings.constEnd(); ++it) {
-        settingsLogList.append(QStringLiteral("%1: %2").arg(it.key(), it.value().toString()));
-    }
-    QString settingsStr = settingsLogList.isEmpty() ? QStringLiteral("None") : settingsLogList.join(QStringLiteral(", "));
-    QString preview = text.length() > 60 ? text.left(60) + QStringLiteral("...") : text;
+    QStringList settingsKeyList;
+    for (auto it = settings.cbegin(); it != settings.cend(); ++it) settingsKeyList.append(it.key());
+    const QString settingsKeys = settingsKeyList.isEmpty() ? QStringLiteral("None")
+                                                            : settingsKeyList.join(QStringLiteral(", "));
     QString modelName = QFileInfo(m_activeModelPath).fileName();
 
-    Logger::info("TtsWorker", QStringLiteral("Synthesizing: model=\"%1\", textLength=%2, preview=\"%3\", speed=%4, settings={%5}")
+    Logger::info("TtsWorker", QStringLiteral("Synthesizing: model=\"%1\", textLength=%2, speed=%3, settingsKeys={%4}")
         .arg(modelName)
         .arg(text.length())
-        .arg(preview)
         .arg(speed)
-        .arg(settingsStr));
+        .arg(settingsKeys));
 
     QVector<float> samples;
     int sampleRate = 24000;
@@ -103,20 +101,16 @@ void TtsWorker::cloneVoice(const QString &text, const QString &referencePath, co
         return;
     }
 
-    QStringList settingsLogList;
-    for (auto it = settings.constBegin(); it != settings.constEnd(); ++it) {
-        settingsLogList.append(QStringLiteral("%1: %2").arg(it.key(), it.value().toString()));
-    }
-    QString settingsStr = settingsLogList.isEmpty() ? QStringLiteral("None") : settingsLogList.join(QStringLiteral(", "));
-    QString preview = text.length() > 60 ? text.left(60) + QStringLiteral("...") : text;
+    QStringList settingsKeyList;
+    for (auto it = settings.cbegin(); it != settings.cend(); ++it) settingsKeyList.append(it.key());
+    const QString settingsKeys = settingsKeyList.isEmpty() ? QStringLiteral("None")
+                                                            : settingsKeyList.join(QStringLiteral(", "));
     QString modelName = QFileInfo(m_activeModelPath).fileName();
 
-    Logger::info("TtsWorker", QStringLiteral("Cloning voice: model=\"%1\", textLength=%2, preview=\"%3\", referencePath=\"%4\", settings={%5}")
+    Logger::info("TtsWorker", QStringLiteral("Cloning voice: model=\"%1\", textLength=%2, settingsKeys={%3}")
         .arg(modelName)
         .arg(text.length())
-        .arg(preview)
-        .arg(referencePath)
-        .arg(settingsStr));
+        .arg(settingsKeys));
 
     QVector<float> samples;
     int sampleRate = 24000;

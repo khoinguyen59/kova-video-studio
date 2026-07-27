@@ -55,25 +55,16 @@ public:
         m_errorString.clear();
         Logger::info("CrispVoxCPM2", "Loading library: " + cleanLibPath);
 
-        QFileInfo fi(cleanLibPath);
-        QString dir = QDir::toNativeSeparators(fi.absolutePath());
-        QByteArray oldPath = qgetenv("PATH");
         const QStringList runtimeDirs = crispRuntimeDependencyDirs(cleanLibPath);
-        crispPrependRuntimeDirsToPath(runtimeDirs);
 
 #ifdef Q_OS_WIN
         crispReleasePreloadedRuntimeDlls(m_preloadedDlls);
         m_preloadedDlls = crispPreloadRuntimeDlls(cleanLibPath, runtimeDirs);
-        SetDllDirectoryW((LPCWSTR)dir.utf16());
 #endif
 
         m_lib.setFileName(cleanLibPath);
         m_lib.setLoadHints(QLibrary::ExportExternalSymbolsHint);
         bool ok = m_lib.load();
-
-#ifdef Q_OS_WIN
-        SetDllDirectoryW(NULL);
-#endif
 
         if (!ok) {
             m_errorString = m_lib.errorString();
@@ -81,7 +72,6 @@ public:
 #ifdef Q_OS_WIN
             crispReleasePreloadedRuntimeDlls(m_preloadedDlls);
 #endif
-            qputenv("PATH", oldPath);
             return false;
         }
 

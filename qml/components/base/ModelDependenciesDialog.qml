@@ -89,7 +89,7 @@ Dialog {
 
         Rectangle {
             Layout.fillWidth: true
-            height: 1
+            Layout.preferredHeight: 1
             color: Theme.surfaceAlt
         }
 
@@ -215,8 +215,8 @@ Dialog {
                     // Format Badge
                     Rectangle {
                         visible: root.format !== ""
-                        width: formatText.implicitWidth + 10
-                        height: 18
+                        Layout.preferredWidth: formatText.implicitWidth + 10
+                        Layout.preferredHeight: 18
                         radius: 4
                         color: Qt.rgba(0.49, 0.30, 1.0, 0.12)
                         border.color: Qt.rgba(0.49, 0.30, 1.0, 0.3)

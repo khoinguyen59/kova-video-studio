@@ -368,20 +368,22 @@ StudioShell {
                 }
             }
             Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1,1,1,0.07) }
-            LanguageSelector { Layout.fillWidth: true; family: root.family; labelText: qsTr("Source language"); language: translation.sourceLanguage; onLanguageChanged: translation.sourceLanguage = language }
+            LanguageSelector { Layout.fillWidth: true; family: root.family; labelText: qsTr("Source language"); language: translation.sourceLanguage; onLanguageSelected: function(language) { translation.sourceLanguage = language } }
             PrimaryButton { Layout.fillWidth: true; text: qsTr("Swap languages"); iconName: "swap"; quiet: true; onClicked: translation.swapLanguages() }
-            LanguageSelector { Layout.fillWidth: true; family: root.family; labelText: qsTr("Target language"); language: translation.targetLanguage; onLanguageChanged: translation.targetLanguage = language }
+            LanguageSelector { Layout.fillWidth: true; family: root.family; labelText: qsTr("Target language"); language: translation.targetLanguage; onLanguageSelected: function(language) { translation.targetLanguage = language } }
             Item { Layout.fillHeight: true }
             Text { Layout.fillWidth: true; text: qsTr("Model and runtime are managed from the header. Processing stays on this device."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
         }
     ]
-
+    // This popup is reparented to Overlay.overlay, outside the StudioShell layout.
+    // qmllint disable Quick.layout-positioning
     Dialog {
         id: textDialog; modal: true; title: qsTr("New text"); width: Math.min(680, root.width - 80); height: Math.min(540, root.height - 80); anchors.centerIn: Overlay.overlay
         standardButtons: Dialog.Ok | Dialog.Cancel
         onAccepted: translation.importText(textInput.text)
         contentItem: AppTextArea { id: textInput; placeholderText: qsTr("Paste text. Empty lines create separate translation segments.") }
     }
+    // qmllint enable Quick.layout-positioning
     FileDialog { id: openProjectDialog; title: qsTr("Open Translation project"); nameFilters: [qsTr("Translation projects (*.lastudio-translation.json)"), qsTr("JSON files (*.json)")]; onAccepted: translation.openProject(AppController.files.urlToLocalPath(selectedFile.toString())) }
     FileDialog { id: importDialog; title: qsTr("Import text or subtitles"); nameFilters: [qsTr("Text and subtitles (*.txt *.srt *.vtt)"), qsTr("All files (*)")]; onAccepted: translation.importFile(AppController.files.urlToLocalPath(selectedFile.toString())) }
     FileDialog { id: saveProjectDialog; title: qsTr("Save Translation project"); fileMode: FileDialog.SaveFile; defaultSuffix: "lastudio-translation.json"; nameFilters: [qsTr("Translation projects (*.lastudio-translation.json)")]; onAccepted: translation.saveProjectAs(AppController.files.urlToLocalPath(selectedFile.toString())) }

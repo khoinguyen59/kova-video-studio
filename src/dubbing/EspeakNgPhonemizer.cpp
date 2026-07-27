@@ -1,14 +1,14 @@
 #include "dubbing/EspeakNgPhonemizer.h"
 #include "core/Logger.h"
+#include "core/PathUtils.h"
 
 #include <QCoreApplication>
 #include <QDir>
-#include <QDirIterator>
+#include <QFileInfo>
 #include <QLibrary>
 #include <QMutex>
 #include <QMutexLocker>
 #include <QRegularExpression>
-#include <QStandardPaths>
 
 namespace LAStudio {
 namespace {
@@ -34,12 +34,43 @@ QMutex &apiMutex()
     return mutex;
 }
 
+QString findFileInTree(const QDir &root, const QStringList &names, int remainingDepth)
+{
+    for (const QString &name : names) {
+        const QString path = root.absoluteFilePath(name);
+        if (QFileInfo(path).isFile()) return path;
+    }
+    if (remainingDepth <= 0) return {};
+    const QFileInfoList children = root.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot | QDir::Readable);
+    for (const QFileInfo &child : children) {
+        const QString result = findFileInTree(QDir(child.absoluteFilePath()), names, remainingDepth - 1);
+        if (!result.isEmpty()) return result;
+    }
+    return {};
+}
+
+QString findDataRootInTree(const QDir &root, int remainingDepth)
+{
+    if (root.exists(QStringLiteral("espeak-ng-data"))) return root.absolutePath();
+    if (root.exists(QStringLiteral("data")) &&
+        QDir(root.absoluteFilePath(QStringLiteral("data"))).exists(QStringLiteral("voices"))) {
+        return root.absolutePath();
+    }
+    if (remainingDepth <= 0) return {};
+    const QFileInfoList children = root.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot | QDir::Readable);
+    for (const QFileInfo &child : children) {
+        const QString result = findDataRootInTree(QDir(child.absoluteFilePath()), remainingDepth - 1);
+        if (!result.isEmpty()) return result;
+    }
+    return {};
+}
+
 QString findDependencyFile(const QStringList &names)
 {
     const QString appDir = QCoreApplication::applicationDirPath();
     QStringList roots{appDir, QDir(appDir).absoluteFilePath(QStringLiteral("espeak-ng"))};
-    const QString executable = QStandardPaths::findExecutable(QStringLiteral("espeak-ng"));
-    if (!executable.isEmpty()) roots.append(QFileInfo(executable).absolutePath());
+    const QDir backendsDir(PathUtils::backendsDir());
+    if (backendsDir.exists()) roots.append(backendsDir.absolutePath());
     for (const QString &root : roots) {
         for (const QString &name : names) {
             const QString path = QDir(root).absoluteFilePath(name);
@@ -47,10 +78,9 @@ QString findDependencyFile(const QStringList &names)
         }
     }
 
-    // The Windows MSI is extracted with an extra "Program Files/eSpeak NG"
-    // level. Search only below the application directory, once, on demand.
-    QDirIterator it(appDir, names, QDir::Files, QDirIterator::Subdirectories);
-    if (it.hasNext()) return it.next();
+    // Catalog-installed runtimes are nested beneath backends/<engine>/<runtime>/<version>.
+    // Search only this bounded layout; never fall back to the process PATH.
+    if (backendsDir.exists()) return findFileInTree(backendsDir, names, 5);
     return {};
 }
 
@@ -58,29 +88,36 @@ QString findDataRoot()
 {
     const QString appDir = QCoreApplication::applicationDirPath();
     QStringList roots{appDir, QDir(appDir).absoluteFilePath(QStringLiteral("espeak-ng"))};
-    const QString executable = QStandardPaths::findExecutable(QStringLiteral("espeak-ng"));
-    if (!executable.isEmpty()) roots.append(QFileInfo(executable).absolutePath());
+    const QDir backendsDir(PathUtils::backendsDir());
+    if (backendsDir.exists()) roots.append(backendsDir.absolutePath());
     for (const QString &root : roots) {
         if (QDir(root).exists(QStringLiteral("espeak-ng-data"))) return root;
         if (QDir(root).exists(QStringLiteral("data"))
             && QDir(root + QStringLiteral("/data")).exists(QStringLiteral("voices")))
             return root;
     }
-    QDirIterator it(appDir, QStringList{QStringLiteral("espeak-ng-data")},
-                    QDir::Dirs | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
-    if (it.hasNext()) return QFileInfo(it.next()).absolutePath();
+    if (backendsDir.exists()) return findDataRootInTree(backendsDir, 5);
     return {};
 }
 
 Api &api()
 {
     static Api value;
-    if (value.initialized || !value.error.isEmpty()) return value;
+    if (value.initialized) return value;
+    if (!value.error.isEmpty()) {
+        value.error.clear();
+        value.library.unload();
+    }
 
     const QString dll = findDependencyFile({QStringLiteral("libespeak-ng.dll"),
                                              QStringLiteral("espeak-ng.dll"),
                                              QStringLiteral("espeak.dll")});
-    value.library.setFileName(dll.isEmpty() ? QStringLiteral("libespeak-ng") : dll);
+    if (dll.isEmpty()) {
+        value.error = QStringLiteral("libespeak-ng is unavailable in the LA Studio runtime locations.");
+        Logger::error(QStringLiteral("EspeakNgPhonemizer"), value.error);
+        return value;
+    }
+    value.library.setFileName(dll);
     if (!value.library.load()) {
         value.error = QStringLiteral("libespeak-ng is unavailable: %1").arg(value.library.errorString());
         Logger::error(QStringLiteral("EspeakNgPhonemizer"), value.error);

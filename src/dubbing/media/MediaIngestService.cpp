@@ -20,6 +20,8 @@ MediaIngestService::MediaIngestService(QObject *parent)
 {
     connect(&m_process, qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
             this, &MediaIngestService::onProcessFinished);
+    connect(&m_process, &QProcess::errorOccurred,
+            this, &MediaIngestService::onProcessError);
     connect(&m_process, &QProcess::readyReadStandardError,
             this, &MediaIngestService::onReadyReadStandardError);
     connect(&m_process, &QProcess::readyReadStandardOutput, this, [this]() {
@@ -59,6 +61,7 @@ bool MediaIngestService::available() const
 void MediaIngestService::ingest(const QString &path)
 {
     cancel();
+    m_terminal = false;
     const QFileInfo info(path);
     if (!info.exists() || !info.isFile()) {
         fail(QStringLiteral("Media file does not exist: %1").arg(path));
@@ -103,7 +106,6 @@ void MediaIngestService::startProbe()
                             QStringLiteral("-show_format"), QStringLiteral("-show_streams"), m_inputPath});
     m_process.setProcessChannelMode(QProcess::SeparateChannels);
     m_process.start();
-    if (!m_process.waitForStarted(5000)) fail(QStringLiteral("Could not start FFprobe: %1").arg(m_process.errorString()));
     emit progress(5);
 }
 
@@ -117,7 +119,6 @@ void MediaIngestService::startMaster()
                             QStringLiteral("-vn"), QStringLiteral("-ac"), QStringLiteral("2"), QStringLiteral("-ar"), QStringLiteral("48000"),
                             QStringLiteral("-c:a"), QStringLiteral("pcm_f32le"), m_masterPath});
     m_process.start();
-    if (!m_process.waitForStarted(5000)) fail(QStringLiteral("Could not start FFmpeg: %1").arg(m_process.errorString()));
     emit progress(35);
 }
 
@@ -131,12 +132,12 @@ void MediaIngestService::startAnalysis()
                             QStringLiteral("-vn"), QStringLiteral("-ac"), QStringLiteral("1"), QStringLiteral("-ar"), QStringLiteral("16000"),
                             QStringLiteral("-c:a"), QStringLiteral("pcm_s16le"), m_analysisPath});
     m_process.start();
-    if (!m_process.waitForStarted(5000)) fail(QStringLiteral("Could not start FFmpeg: %1").arg(m_process.errorString()));
     emit progress(65);
 }
 
 void MediaIngestService::onProcessFinished(int exitCode, QProcess::ExitStatus status)
 {
+    if (m_terminal || m_stage == Stage::None) return;
     const bool ok = status == QProcess::NormalExit && exitCode == 0;
     if (!ok) {
         fail(QStringLiteral("Media import failed during %1: %2")
@@ -190,9 +191,10 @@ void MediaIngestService::onProcessFinished(int exitCode, QProcess::ExitStatus st
                 fail(QStringLiteral("Cannot write normalized media manifest."));
                 return;
             }
+            m_terminal = true;
+            m_stage = Stage::None;
             emit progress(100);
             emit finished(true, m_manifest, QString());
-            m_stage = Stage::None;
         };
         if (QFileInfo::exists(m_masterPath) && QFileInfo::exists(m_analysisPath)) {
             m_manifest.insert(QStringLiteral("masterAudioPath"), m_masterPath);
@@ -215,10 +217,18 @@ void MediaIngestService::onProcessFinished(int exitCode, QProcess::ExitStatus st
             fail(QStringLiteral("Cannot write normalized media manifest."));
             return;
         }
+        m_terminal = true;
+        m_stage = Stage::None;
         emit progress(100);
         emit finished(true, m_manifest, QString());
-        m_stage = Stage::None;
     }
+}
+
+void MediaIngestService::onProcessError(QProcess::ProcessError error)
+{
+    if (m_terminal || m_stage == Stage::None || error == QProcess::UnknownError) return;
+    const QString tool = m_stage == Stage::Probe ? QStringLiteral("FFprobe") : QStringLiteral("FFmpeg");
+    fail(QStringLiteral("Could not run %1: %2").arg(tool, m_process.errorString()));
 }
 
 void MediaIngestService::onReadyReadStandardError()
@@ -229,6 +239,8 @@ void MediaIngestService::onReadyReadStandardError()
 
 void MediaIngestService::fail(const QString &error)
 {
+    if (m_terminal) return;
+    m_terminal = true;
     if (m_process.state() != QProcess::NotRunning) m_process.kill();
     m_stage = Stage::None;
     emit progress(0);
@@ -237,6 +249,7 @@ void MediaIngestService::fail(const QString &error)
 
 void MediaIngestService::cancel()
 {
+    m_terminal = true;
     if (m_process.state() != QProcess::NotRunning) m_process.kill();
     m_stage = Stage::None;
 }

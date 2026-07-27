@@ -4,6 +4,7 @@
 
 #include <QCoreApplication>
 #include <QQmlEngine>
+#include <QSignalBlocker>
 #include <QVariantMap>
 #include <QDebug>
 
@@ -83,6 +84,13 @@ void LocalizationManager::loadLanguage(const QString &lang)
     } else {
         Logger::error(QStringLiteral("Localization"), QStringLiteral("Failed to load translation for %1").arg(lang));
         m_currentLanguage = QStringLiteral("en");
+        // Keep persisted settings aligned with the language actually in use.
+        // Blocking this signal prevents the fallback write from re-entering
+        // loadLanguage() and emitting a duplicate revision notification.
+        if (m_settings && m_settings->uiLanguage() != m_currentLanguage) {
+            const QSignalBlocker blockSettings(m_settings);
+            m_settings->setUiLanguage(m_currentLanguage);
+        }
     }
 
     ++m_revision;

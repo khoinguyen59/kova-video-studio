@@ -25,6 +25,7 @@ signals:
 
 private slots:
     void onProcessFinished(int exitCode, QProcess::ExitStatus status);
+    void onProcessError(QProcess::ProcessError error);
     void onReadyReadStandardError();
 
 private:
@@ -46,6 +47,7 @@ private:
     QByteArray m_probeOutput;
     QVariantMap m_manifest;
     Stage m_stage = Stage::None;
+    bool m_terminal = true;
 };
 
 } // namespace LAStudio

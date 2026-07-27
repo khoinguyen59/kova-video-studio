@@ -1,0 +1,9 @@
+# Review ownership for security-sensitive and release-critical surfaces.
+* @dduongtrandai
+/.github/ @dduongtrandai
+/scripts/ @dduongtrandai
+/cmake/ @dduongtrandai
+/data/ @dduongtrandai
+/catalog-src/ @dduongtrandai
+/licenses/ @dduongtrandai
+/THIRD-PARTY-NOTICES.md @dduongtrandai

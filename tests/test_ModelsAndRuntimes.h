@@ -16,7 +16,9 @@ private slots:
     void testVoiceIsolationRuntimeCatalogEntry();
     void testProcessRuntimeManifest();
     void testProcessRuntimeRejectsMissingEntrypoint();
+    void testLlamaRuntimeManifestRejectsIncompatibleAbi();
     void testOptionalLlamaTranslationRuntimeLoad();
+    void testLlamaTranslationRejectsIncompatibleRuntimeAbi();
     void testLlamaContextTranslationParser();
     void testLlamaCatalogIncludesAllWindowsX64Runtimes();
     void testStudioSelectionRepositoryRemembersFilesPerFamily();
@@ -25,9 +27,12 @@ private slots:
     void testQwen3TtsUsesAutomaticFrameLimit();
     void testQwen3TtsDoesNotExposeUnsupportedLengthScale();
     void testLogViewServicePending();
+    void testLogSanitization();
     void testStudioConfigurationResolver();
     void testTranslationRecommendationUsesCompatibleRuntime();
     void testCapabilitySettingsSchemaPreservesRuntimeVoiceChoices();
+    void testUpdateChecksRequireExplicitConsent();
+    void testRuntimeManifestPreservesNativeDependencies();
 };
 
 } // namespace LAStudio

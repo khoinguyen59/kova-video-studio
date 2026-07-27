@@ -19,11 +19,20 @@
 #include <QCryptographicHash>
 #include <QVersionNumber>
 #include <QCoreApplication>
-#include <QStandardPaths>
 #include <QDirIterator>
+#include <QRegularExpression>
+#include <QStorageInfo>
 #include <QUrl>
 
+#include <limits>
+
 #include <curl/curl.h>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <softpub.h>
+#include <wintrust.h>
+#endif
 
 namespace LAStudio {
 
@@ -94,8 +103,49 @@ QString archiveExtractor(const QString &name)
 {
     const QString appDir = QCoreApplication::applicationDirPath();
     const QString bundled = QDir(appDir).absoluteFilePath(name);
-    if (QFileInfo(bundled).isExecutable()) return bundled;
-    return QStandardPaths::findExecutable(name);
+    return QFileInfo(bundled).isExecutable() ? bundled : QString();
+}
+
+QString systemMsiexecPath()
+{
+#ifdef Q_OS_WIN
+    wchar_t systemDirectory[MAX_PATH] = {};
+    const UINT length = GetSystemDirectoryW(systemDirectory, MAX_PATH);
+    if (length == 0 || length >= MAX_PATH) {
+        return {};
+    }
+    const QString path = QDir(QString::fromWCharArray(systemDirectory))
+                             .absoluteFilePath(QStringLiteral("msiexec.exe"));
+    return QFileInfo::exists(path) ? path : QString();
+#else
+    return {};
+#endif
+}
+
+bool hasTrustedAuthenticodeSignature(const QString &path)
+{
+#ifdef Q_OS_WIN
+    WINTRUST_FILE_INFO fileInfo = {};
+    fileInfo.cbStruct = sizeof(fileInfo);
+    fileInfo.pcwszFilePath = reinterpret_cast<LPCWSTR>(path.utf16());
+
+    WINTRUST_DATA trustData = {};
+    trustData.cbStruct = sizeof(trustData);
+    trustData.dwUIChoice = WTD_UI_NONE;
+    trustData.fdwRevocationChecks = WTD_REVOKE_WHOLECHAIN;
+    trustData.dwUnionChoice = WTD_CHOICE_FILE;
+    trustData.pFile = &fileInfo;
+    trustData.dwStateAction = WTD_STATEACTION_VERIFY;
+
+    GUID policy = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+    const LONG verification = WinVerifyTrust(nullptr, &policy, &trustData);
+    trustData.dwStateAction = WTD_STATEACTION_CLOSE;
+    WinVerifyTrust(nullptr, &policy, &trustData);
+    return verification == ERROR_SUCCESS;
+#else
+    Q_UNUSED(path);
+    return false;
+#endif
 }
 
 QString fileFingerprint(const QVariantMap &metadata)
@@ -384,7 +434,10 @@ QString normalizedSha256(const QVariantMap &metadata)
 bool fileMatchesSha256(const QString &path, const QString &expectedSha256, QString *actualSha256)
 {
     if (expectedSha256.isEmpty()) {
-        return true;
+        if (actualSha256) {
+            actualSha256->clear();
+        }
+        return false;
     }
 
     QFile file(path);
@@ -467,7 +520,180 @@ DownloadInstallService::DownloadInstallService(DownloadManager *downloads,
 {
     if (m_downloads) {
         connect(m_downloads, &DownloadManager::finished, this, &DownloadInstallService::onDownloadFinished);
+        connect(m_downloads, &DownloadManager::error, this,
+                [this](const QString &, const QString &, const QString &message) {
+                    emit errorOccurred(message);
+                });
     }
+}
+
+bool DownloadInstallService::isSafeArchiveMemberPath(const QString &memberPath)
+{
+    QString normalized = memberPath.trimmed();
+    normalized.replace(QLatin1Char('\\'), QLatin1Char('/'));
+    normalized = QDir::cleanPath(normalized);
+    return !normalized.isEmpty() && normalized != QStringLiteral(".") &&
+           !QDir::isAbsolutePath(normalized) &&
+           !QRegularExpression(QStringLiteral("^[A-Za-z]:")).match(normalized).hasMatch() &&
+           normalized != QStringLiteral("..") &&
+           !normalized.startsWith(QStringLiteral("../"));
+}
+
+bool DownloadInstallService::archiveContainsOnlySafeMembers(const QString &extractor,
+                                                             const QString &archivePath,
+                                                             qint64 *unpackedBytes,
+                                                             QString *errorMessage)
+{
+    QProcess listing;
+    listing.setProgram(extractor);
+    listing.setArguments({QStringLiteral("-tf"), archivePath});
+    listing.setProcessChannelMode(QProcess::MergedChannels);
+    listing.start();
+    if (!listing.waitForStarted(10000) || !listing.waitForFinished(30000) ||
+        listing.exitStatus() != QProcess::NormalExit || listing.exitCode() != 0) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("Could not inspect archive members with %1: %2")
+                .arg(extractor, QString::fromLocal8Bit(listing.readAll()).trimmed());
+        }
+        return false;
+    }
+
+    const QStringList members = QString::fromLocal8Bit(listing.readAll())
+                                    .split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    for (const QString &member : members) {
+        if (!isSafeArchiveMemberPath(member)) {
+            if (errorMessage) {
+                *errorMessage = QStringLiteral("Archive member escapes extraction directory: %1")
+                    .arg(member.trimmed());
+            }
+            return false;
+        }
+    }
+
+    // A safe-looking member name is insufficient when an archive also carries
+    // symlinks or hardlinks: a later entry could be written through that link.
+    // Runtime/model archives do not need links, so reject them rather than
+    // depending on extractor-specific link semantics.
+    QProcess verboseListing;
+    verboseListing.setProgram(extractor);
+    verboseListing.setArguments({QStringLiteral("-tvf"), archivePath});
+    verboseListing.setProcessChannelMode(QProcess::MergedChannels);
+    verboseListing.start();
+    if (!verboseListing.waitForStarted(10000) || !verboseListing.waitForFinished(30000) ||
+        verboseListing.exitStatus() != QProcess::NormalExit || verboseListing.exitCode() != 0) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("Could not inspect archive link entries with %1: %2")
+                .arg(extractor, QString::fromLocal8Bit(verboseListing.readAll()).trimmed());
+        }
+        return false;
+    }
+    const QStringList verboseEntries = QString::fromLocal8Bit(verboseListing.readAll())
+                                          .split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    qint64 totalUnpackedBytes = 0;
+    const QRegularExpression verboseSizePattern(
+        QStringLiteral(R"(^\S+\s+\d+\s+\S+\s+\S+\s+(\d+)\s+)")
+    );
+    for (const QString &entry : verboseEntries) {
+        const QString line = entry.trimmed();
+        if (line.startsWith(QLatin1Char('l')) || line.startsWith(QLatin1Char('h'))) {
+            if (errorMessage) {
+                *errorMessage = QStringLiteral("Archive links are not permitted: %1").arg(line);
+            }
+            return false;
+        }
+        if (!line.startsWith(QLatin1Char('-')) && !line.startsWith(QLatin1Char('d'))) {
+            if (errorMessage) {
+                *errorMessage = QStringLiteral("Archive contains an unsupported special entry: %1").arg(line);
+            }
+            return false;
+        }
+        if (line.startsWith(QLatin1Char('-'))) {
+            const QRegularExpressionMatch sizeMatch = verboseSizePattern.match(line);
+            bool sizeOk = false;
+            const qint64 memberSize = sizeMatch.hasMatch()
+                ? sizeMatch.captured(1).toLongLong(&sizeOk) : -1;
+            if (!sizeOk || memberSize < 0 ||
+                totalUnpackedBytes > std::numeric_limits<qint64>::max() - memberSize) {
+                if (errorMessage) {
+                    *errorMessage = QStringLiteral("Could not safely determine archive member size: %1")
+                        .arg(line);
+                }
+                return false;
+            }
+            totalUnpackedBytes += memberSize;
+        }
+    }
+    if (unpackedBytes) {
+        *unpackedBytes = totalUnpackedBytes;
+    }
+    return true;
+}
+
+bool DownloadInstallService::hasSpaceForExtraction(const QString &extractDir,
+                                                    qint64 unpackedBytes,
+                                                    QString *errorMessage)
+{
+    constexpr qint64 kExtractionSafetyMarginBytes = 64LL * 1024 * 1024;
+    if (unpackedBytes < 0 ||
+        unpackedBytes > std::numeric_limits<qint64>::max() - kExtractionSafetyMarginBytes) {
+        if (errorMessage) *errorMessage = QStringLiteral("Archive unpacked size is invalid or too large.");
+        return false;
+    }
+
+    QString probePath = QDir(extractDir).absolutePath();
+    while (!QFileInfo::exists(probePath)) {
+        QDir parent(probePath);
+        if (!parent.cdUp()) break;
+        const QString nextPath = parent.absolutePath();
+        if (nextPath == probePath) break;
+        probePath = nextPath;
+    }
+    const QStorageInfo storage(probePath);
+    const qint64 requiredBytes = unpackedBytes + kExtractionSafetyMarginBytes;
+    if (!storage.isReady() || storage.bytesAvailable() < 0) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("Could not determine free disk space for archive extraction: %1")
+                .arg(extractDir);
+        }
+        return false;
+    }
+    if (storage.bytesAvailable() < requiredBytes) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("Not enough free disk space to extract this archive. Need %1 MiB, but only %2 MiB is available.")
+                .arg((requiredBytes + 1024 * 1024 - 1) / (1024 * 1024))
+                .arg(storage.bytesAvailable() / (1024 * 1024));
+        }
+        return false;
+    }
+    return true;
+}
+
+bool DownloadInstallService::extractedTreeIsContained(const QString &extractDir, QString *errorMessage)
+{
+    const QString canonicalRoot = QFileInfo(extractDir).canonicalFilePath();
+    if (canonicalRoot.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Extraction directory cannot be canonicalized");
+        return false;
+    }
+
+    const QDir root(canonicalRoot);
+    QDirIterator it(canonicalRoot, QDir::AllEntries | QDir::NoDotAndDotDot,
+                    QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        const QFileInfo entry(it.next());
+        const QString canonicalEntry = entry.canonicalFilePath();
+        const QString relative = canonicalEntry.isEmpty()
+            ? QStringLiteral("..") : QDir::cleanPath(root.relativeFilePath(canonicalEntry));
+        if (relative == QStringLiteral("..") || relative.startsWith(QStringLiteral("../")) ||
+            QDir::isAbsolutePath(relative)) {
+            if (errorMessage) {
+                *errorMessage = QStringLiteral("Extracted path resolves outside extraction directory: %1")
+                    .arg(entry.absoluteFilePath());
+            }
+            return false;
+        }
+    }
+    return true;
 }
 
 bool DownloadInstallService::writeVirtualModelFiles(const QVariantMap &metadata)
@@ -511,6 +737,8 @@ bool DownloadInstallService::enqueueModelFile(const QVariantMap &family, const Q
 
     metadata.insert(QStringLiteral("sourceModelId"), sourceModelId);
     metadata.insert(QStringLiteral("filename"), selectedFile);
+    metadata.insert(QStringLiteral("expectedSize"), requirement.value(QStringLiteral("size")));
+    metadata.insert(QStringLiteral("expectedBytes"), requirement.value(QStringLiteral("sizeBytes")));
 
     const QVariantList sources = requirement.value(QStringLiteral("sources")).toList();
     for (const QVariant &sourceValue : sources) {
@@ -526,6 +754,8 @@ bool DownloadInstallService::enqueueModelFile(const QVariantMap &family, const Q
             }
         }
         if (!url.isEmpty() && containsFile) {
+            metadata.insert(QStringLiteral("sha256"), source.value(QStringLiteral("sha256")).toString());
+            metadata.insert(QStringLiteral("checksum"), source.value(QStringLiteral("checksum")).toString());
             const QString archiveName = QFileInfo(QUrl(url).path()).fileName();
             const bool archive = archiveName.endsWith(QStringLiteral(".zip"), Qt::CaseInsensitive) ||
                 archiveName.endsWith(QStringLiteral(".tar.gz"), Qt::CaseInsensitive) ||
@@ -535,20 +765,20 @@ bool DownloadInstallService::enqueueModelFile(const QVariantMap &family, const Q
                 metadata.insert(QStringLiteral("archiveMember"), selectedFile);
                 metadata.insert(QStringLiteral("requestedFilename"), selectedFile);
                 m_updateAvailable.remove(sourceModelId + QStringLiteral("::") + selectedFile);
-                m_downloads->enqueueUrl(url, archiveName, m_models->concreteModelDir(sourceModelId), metadata);
-                return true;
+                return m_downloads->enqueueUrl(url, archiveName,
+                                               m_models->concreteModelDir(sourceModelId), metadata);
             }
             metadata.insert(QStringLiteral("sourceUrl"), url);
             m_updateAvailable.remove(sourceModelId + QStringLiteral("::") + selectedFile);
-            m_downloads->enqueueUrl(url, selectedFile, m_models->concreteModelDir(sourceModelId), metadata);
-            return true;
+            return m_downloads->enqueueUrl(url, selectedFile,
+                                           m_models->concreteModelDir(sourceModelId), metadata);
         }
     }
 
     const QString key = sourceModelId + QStringLiteral("::") + selectedFile;
     m_updateAvailable.remove(key);
-    m_downloads->enqueue(sourceModelId, selectedFile, m_models->concreteModelDir(sourceModelId), metadata);
-    return true;
+    return m_downloads->enqueue(sourceModelId, selectedFile,
+                                m_models->concreteModelDir(sourceModelId), metadata);
 }
 
 bool DownloadInstallService::enqueueRuntime(const QVariantMap &family,
@@ -601,12 +831,14 @@ bool DownloadInstallService::enqueueRuntime(const QVariantMap &family,
     metadata.insert(QStringLiteral("kind"), runtime.value(QStringLiteral("kind"), QStringLiteral("dynamic-library")).toString());
     metadata.insert(QStringLiteral("entrypoint"), runtime.value(QStringLiteral("entrypoint")).toString());
     metadata.insert(QStringLiteral("protocolVersion"), runtime.value(QStringLiteral("protocolVersion")).toString());
+    metadata.insert(QStringLiteral("nativeDependencies"), runtime.value(QStringLiteral("nativeDependencies")).toList());
     metadata.insert(QStringLiteral("capabilities"), runtime.value(QStringLiteral("capabilities")).toList());
     metadata.insert(QStringLiteral("modelFormats"), runtime.value(QStringLiteral("modelFormats")).toList());
     metadata.insert(QStringLiteral("dependencyDownloads"), runtime.value(QStringLiteral("dependencyDownloads")).toList());
     metadata.insert(QStringLiteral("sha256"), runtime.value(QStringLiteral("sha256")).toString());
     metadata.insert(QStringLiteral("checksum"), runtime.value(QStringLiteral("checksum")).toString());
     metadata.insert(QStringLiteral("expectedSize"), runtime.value(QStringLiteral("size")));
+    metadata.insert(QStringLiteral("expectedBytes"), runtime.value(QStringLiteral("sizeBytes")));
 
     QVariantMap runtimeMetadata;
     runtimeMetadata.insert(QStringLiteral("backend"), runtime.value(QStringLiteral("backend")).toString());
@@ -618,8 +850,7 @@ bool DownloadInstallService::enqueueRuntime(const QVariantMap &family,
     runtimeMetadata.insert(QStringLiteral("source"), baseUrl + asset);
     metadata.insert(QStringLiteral("metadata"), runtimeMetadata);
 
-    m_downloads->enqueueUrl(baseUrl + asset, asset, m_runtimes->backendsPath(), metadata);
-    return true;
+    return m_downloads->enqueueUrl(baseUrl + asset, asset, m_runtimes->backendsPath(), metadata);
 }
 
 bool DownloadInstallService::enqueueRecommendedSetup(const QVariantMap &familyItem)
@@ -767,6 +998,32 @@ void DownloadInstallService::onDownloadFinished(const QString &modelId,
     const bool isRuntimeDependency =
         metadata.value(QStringLiteral("kind")).toString() == QStringLiteral("runtimeDependency");
     const QString dependencyRuntimeDir = metadata.value(QStringLiteral("runtimeDir")).toString();
+    const QString expectedSha256 = normalizedSha256(metadata);
+
+    // Runtime code and its dependencies are executable content. They must be
+    // authenticated before an installer, extractor, or runtime scanner can see them.
+    if (expectedSha256.isEmpty()) {
+        if (isRuntime || isRuntimeDependency) {
+            QFile::remove(localPath);
+            Logger::error(QStringLiteral("DownloadInstallService"),
+                          QStringLiteral("Refusing runtime download without a SHA-256: %1").arg(filename));
+            emit errorOccurred(QStringLiteral("Runtime download is missing a SHA-256: ") + filename);
+            return;
+        }
+    } else {
+        QString actualSha256;
+        if (!fileMatchesSha256(localPath, expectedSha256, &actualSha256)) {
+            QFile::remove(localPath);
+            const QString detail = actualSha256.isEmpty()
+                ? QStringLiteral("Could not calculate SHA-256")
+                : QStringLiteral("Expected %1 but got %2").arg(expectedSha256, actualSha256);
+            Logger::error(QStringLiteral("DownloadInstallService"),
+                          QStringLiteral("Refusing download with checksum mismatch: %1 (%2)")
+                              .arg(filename, detail));
+            emit errorOccurred(QStringLiteral("Download checksum does not match: ") + filename);
+            return;
+        }
+    }
 
     if (isRuntimeDependency) {
         const QString dependency = metadata.value(QStringLiteral("dependency")).toString();
@@ -774,11 +1031,29 @@ void DownloadInstallService::onDownloadFinished(const QString &modelId,
         if (dependency == QStringLiteral("espeak-ng") &&
             filename.endsWith(QStringLiteral(".msi"), Qt::CaseInsensitive) &&
             !runtimeDir.isEmpty()) {
+            if (!hasTrustedAuthenticodeSignature(localPath)) {
+                QFile::remove(localPath);
+                Logger::error(QStringLiteral("DownloadInstallService"),
+                              QStringLiteral("Refusing eSpeak NG MSI without a trusted Authenticode signature: %1")
+                                  .arg(filename));
+                emit errorOccurred(QStringLiteral("eSpeak NG MSI signature verification failed: ") + filename);
+                return;
+            }
+
+            const QString msiexec = systemMsiexecPath();
+            if (msiexec.isEmpty()) {
+                QFile::remove(localPath);
+                Logger::error(QStringLiteral("DownloadInstallService"),
+                              QStringLiteral("Windows Installer executable was not found in the system directory"));
+                emit errorOccurred(QStringLiteral("Windows Installer is unavailable"));
+                return;
+            }
+
             const QString targetDir = QDir(runtimeDir).absoluteFilePath(QStringLiteral("espeak-ng"));
             QDir().mkpath(targetDir);
 
             QProcess *process = new QProcess(this);
-            process->setProgram(QStringLiteral("msiexec"));
+            process->setProgram(msiexec);
             process->setArguments({
                 QStringLiteral("/a"),
                 QDir::toNativeSeparators(localPath),
@@ -813,21 +1088,6 @@ void DownloadInstallService::onDownloadFinished(const QString &modelId,
         filename.endsWith(QStringLiteral(".tgz"), Qt::CaseInsensitive) ||
         filename.endsWith(QStringLiteral(".tar.bz2"), Qt::CaseInsensitive) ||
         filename.endsWith(QStringLiteral(".tbz2"), Qt::CaseInsensitive)) {
-        const QString expectedSha256 = normalizedSha256(metadata);
-        if (!expectedSha256.isEmpty()) {
-            QString actualSha256;
-            if (!fileMatchesSha256(localPath, expectedSha256, &actualSha256)) {
-                QFile::remove(localPath);
-                const QString detail = actualSha256.isEmpty()
-                    ? QStringLiteral("Could not calculate SHA-256")
-                    : QStringLiteral("Expected %1 but got %2").arg(expectedSha256, actualSha256);
-                Logger::error(QStringLiteral("DownloadInstallService"),
-                              QStringLiteral("Refusing to extract archive with checksum mismatch: %1 (%2)")
-                                  .arg(filename, detail));
-                emit errorOccurred(QStringLiteral("Downloaded runtime checksum does not match: ") + filename);
-                return;
-            }
-        }
         if (QFileInfo(localPath).size() == 0) {
             QFile::remove(localPath);
             Logger::error(QStringLiteral("DownloadInstallService"),
@@ -876,6 +1136,30 @@ void DownloadInstallService::onDownloadFinished(const QString &modelId,
             dirPath = familyDir;
         }
         QString extractDir = dirPath + QStringLiteral("/") + extractName;
+
+        const QString bsdtar = archiveExtractor(QStringLiteral("bsdtar.exe"));
+        if (bsdtar.isEmpty()) {
+            QFile::remove(localPath);
+            Logger::error(QStringLiteral("DownloadInstallService"),
+                          QStringLiteral("Refusing archive extraction because bundled bsdtar.exe is missing"));
+            emit errorOccurred(QStringLiteral("Bundled archive extractor is missing. Reinstall LA Studio."));
+            return;
+        }
+        QString archiveInspectionError;
+        qint64 unpackedBytes = 0;
+        if (!archiveContainsOnlySafeMembers(bsdtar, localPath, &unpackedBytes, &archiveInspectionError)) {
+            QFile::remove(localPath);
+            Logger::error(QStringLiteral("DownloadInstallService"),
+                          QStringLiteral("Refusing unsafe archive %1: %2").arg(filename, archiveInspectionError));
+            emit errorOccurred(QStringLiteral("Refusing unsafe archive: ") + filename);
+            return;
+        }
+        if (!hasSpaceForExtraction(extractDir, unpackedBytes, &archiveInspectionError)) {
+            Logger::error(QStringLiteral("DownloadInstallService"),
+                          QStringLiteral("Refusing extraction of %1: %2").arg(filename, archiveInspectionError));
+            emit errorOccurred(archiveInspectionError);
+            return;
+        }
         QDir().mkpath(extractDir);
 
         if (isRuntime) {
@@ -888,31 +1172,8 @@ void DownloadInstallService::onDownloadFinished(const QString &modelId,
         }
 
         QProcess *process = new QProcess(this);
-        QProcess *decompressor = nullptr;
-        const bool isBzipTar = filename.endsWith(QStringLiteral(".tar.bz2"), Qt::CaseInsensitive) ||
-            filename.endsWith(QStringLiteral(".tbz2"), Qt::CaseInsensitive);
-        const QString bsdtar = archiveExtractor(QStringLiteral("bsdtar.exe"));
-        const QString sevenZip = archiveExtractor(QStringLiteral("7z.exe"));
-        const QString tarProgram = !bsdtar.isEmpty() ? bsdtar : QStringLiteral("tar");
-        process->setProgram(tarProgram);
-        if (isBzipTar && bsdtar.isEmpty() && !sevenZip.isEmpty()) {
-            // Windows 10's inbox tar can hang on some GitHub .tar.bz2 archives.
-            // Let 7-Zip decode bzip2 and feed the plain tar stream to tar.
-            process->setArguments({QStringLiteral("-xf"), QStringLiteral("-"), QStringLiteral("-C"), extractDir});
-            decompressor = new QProcess(this);
-            decompressor->setProgram(sevenZip);
-            decompressor->setArguments({QStringLiteral("x"), localPath, QStringLiteral("-so")});
-            connect(decompressor, &QProcess::readyReadStandardOutput, this, [decompressor, process]() {
-                process->write(decompressor->readAllStandardOutput());
-            });
-            connect(decompressor, &QProcess::finished, this, [decompressor, process]() {
-                process->write(decompressor->readAllStandardOutput());
-                process->closeWriteChannel();
-                decompressor->deleteLater();
-            });
-        } else {
-            process->setArguments({QStringLiteral("-xf"), localPath, QStringLiteral("-C"), extractDir});
-        }
+        process->setProgram(bsdtar);
+        process->setArguments({QStringLiteral("-xf"), localPath, QStringLiteral("-C"), extractDir});
         process->setProcessChannelMode(QProcess::MergedChannels);
         
         QPointer<DownloadInstallService> weakThis(this);
@@ -932,6 +1193,16 @@ void DownloadInstallService::onDownloadFinished(const QString &modelId,
 
             if (exitCode == 0 && status == QProcess::NormalExit) {
                 Logger::info(QStringLiteral("DownloadInstallService"), QStringLiteral("Extracted %1 to %2").arg(filename, extractDir));
+
+                QString containmentError;
+                if (!extractedTreeIsContained(extractDir, &containmentError)) {
+                    QDir(extractDir).removeRecursively();
+                    QFile::remove(localPath);
+                    Logger::error(QStringLiteral("DownloadInstallService"),
+                                  QStringLiteral("Rejected extracted archive %1: %2").arg(filename, containmentError));
+                    emit weakThis->errorOccurred(QStringLiteral("Extracted archive contains an unsafe path: ") + filename);
+                    return;
+                }
                 
                 QFile::remove(localPath);
 
@@ -1026,7 +1297,7 @@ void DownloadInstallService::onDownloadFinished(const QString &modelId,
                             manifest[field] = metadata.value(field).toString();
                         }
                     }
-                    for (const QString &field : {QStringLiteral("capabilities"), QStringLiteral("modelFormats")}) {
+                    for (const QString &field : {QStringLiteral("nativeDependencies"), QStringLiteral("capabilities"), QStringLiteral("modelFormats")}) {
                         if (metadata.contains(field)) {
                             manifest[field] = QJsonArray::fromVariantList(metadata.value(field).toList());
                         }
@@ -1179,7 +1450,6 @@ void DownloadInstallService::onDownloadFinished(const QString &modelId,
         });
         
         process->start();
-        if (decompressor) decompressor->start();
         return;
     }
 

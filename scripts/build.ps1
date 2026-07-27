@@ -14,9 +14,12 @@ param(
     [string] $Preset = "windows-msvc-release",
     [string] $QtRoot,
     [string] $VcpkgRoot,
+    [string] $LlamaCppSourceDir,
     [string] $Version,
+    [string] $ReleaseSuffix,
     [switch] $Clean,
-    [switch] $SkipDeploy
+    [switch] $SkipDeploy,
+    [switch] $AllowUnsignedEspeakForInternalBuild
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,6 +28,7 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $RepoRoot
 
 . (Join-Path $PSScriptRoot "cmake_helpers.ps1")
+. (Join-Path $PSScriptRoot "runtime_helpers.ps1")
 
 function Test-Command {
     param([string] $Name)
@@ -119,6 +123,26 @@ function Get-QtKitName {
     return "msvc2022_64"
 }
 
+function Resolve-LlamaCppSourceDir {
+    param([string] $Candidate)
+
+    $candidates = @(
+        $Candidate,
+        $env:LLAMA_CPP_SOURCE_DIR,
+        (Join-Path $RepoRoot ".deps\llama.cpp"),
+        (Join-Path (Split-Path -Parent $RepoRoot) "llama.cpp")
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
+
+    foreach ($root in $candidates) {
+        $normalizedRoot = $root.Trim('"')
+        if ((Test-Path -LiteralPath (Join-Path $normalizedRoot "include\llama.h")) -and
+            (Test-Path -LiteralPath (Join-Path $normalizedRoot "ggml\include\ggml.h"))) {
+            return $normalizedRoot
+        }
+    }
+    return $null
+}
+
 function Get-SourceAppVersion {
     $cmakePath = Join-Path $RepoRoot "CMakeLists.txt"
     $match = Select-String -LiteralPath $cmakePath -Pattern 'set\(LASTUDIO_VERSION\s+"([^"]+)"' | Select-Object -First 1
@@ -141,6 +165,19 @@ function Normalize-AppVersion {
     }
     if ($Value -notmatch '^\d+\.\d+\.\d+$') {
         throw "Version must use MAJOR.MINOR.PATCH format; got '$Value'."
+    }
+    return $Value
+}
+
+function Normalize-ReleaseSuffix {
+    param([string] $Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return ""
+    }
+    $Value = $Value.Trim()
+    if ($Value -notmatch '^-(alpha|beta|rc)\.[1-9][0-9]*$') {
+        throw "Release suffix must be empty or -alpha.N, -beta.N, or -rc.N; got '$Value'."
     }
     return $Value
 }
@@ -242,6 +279,19 @@ function Ensure-ArchiveExtractor {
     }
 
     if ([string]::IsNullOrWhiteSpace($source)) {
+        $installedCandidates = @(
+            (Join-Path $env:ProgramFiles "7-Zip\7z.exe"),
+            (Join-Path ${env:ProgramFiles(x86)} "7-Zip\7z.exe")
+        )
+        foreach ($candidate in $installedCandidates) {
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+                $source = $candidate
+                break
+            }
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($source)) {
         $toolRoots = @(
             (Join-Path $VcpkgRoot "downloads\tools"),
             (Join-Path $RepoRoot ".deps\vcpkg\downloads\tools")
@@ -269,79 +319,6 @@ function Ensure-ArchiveExtractor {
     }
 }
 
-function Ensure-EspeakNgRuntime {
-    param(
-        [string] $DeployRoot
-    )
-
-    $version = "1.52.0"
-    $runtimeRoot = Join-Path $DeployRoot "espeak-ng"
-    $dllTarget = Join-Path $runtimeRoot "libespeak-ng.dll"
-    $exeTarget = Join-Path $runtimeRoot "espeak-ng.exe"
-    $dataTarget = Join-Path $runtimeRoot "espeak-ng-data"
-
-    if ((Test-Path -LiteralPath $dllTarget) -and
-        (Test-Path -LiteralPath $exeTarget) -and
-        (Test-Path -LiteralPath (Join-Path $dataTarget "voices"))) {
-        Write-Host ">> eSpeak NG runtime already staged: $runtimeRoot" -ForegroundColor DarkGray
-        return
-    }
-
-    $cacheRoot = Join-Path $RepoRoot ".deps\espeak-ng"
-    $msiPath = Join-Path $cacheRoot "espeak-ng-$version.msi"
-    $url = "https://github.com/espeak-ng/espeak-ng/releases/download/$version/espeak-ng.msi"
-    New-Item -ItemType Directory -Path $cacheRoot -Force | Out-Null
-
-    if (-not (Test-Path -LiteralPath $msiPath)) {
-        Write-Host ">> Downloading eSpeak NG $version" -ForegroundColor Cyan
-        Invoke-WebRequest -Uri $url -OutFile $msiPath -UseBasicParsing
-    } else {
-        Write-Host ">> Using cached eSpeak NG MSI: $msiPath" -ForegroundColor DarkGray
-    }
-
-    $extractRoot = Join-Path $DeployRoot ".espeak-ng-extract"
-    if (Test-Path -LiteralPath $extractRoot) {
-        Remove-Item -LiteralPath $extractRoot -Recurse -Force
-    }
-    New-Item -ItemType Directory -Path $extractRoot -Force | Out-Null
-
-    Write-Host ">> Extracting eSpeak NG runtime" -ForegroundColor Cyan
-    $installer = Start-Process -FilePath "msiexec.exe" -ArgumentList @(
-        "/a", $msiPath, "/qn", "TARGETDIR=$extractRoot"
-    ) -Wait -PassThru
-    if ($installer.ExitCode -ne 0) {
-        throw "Failed to extract eSpeak NG MSI (exit code $($installer.ExitCode)): $msiPath"
-    }
-
-    $dllSource = Get-ChildItem -Path $extractRoot -Filter "libespeak-ng.dll" -Recurse -File |
-        Select-Object -First 1
-    $exeSource = Get-ChildItem -Path $extractRoot -Filter "espeak-ng.exe" -Recurse -File |
-        Select-Object -First 1
-    $dataSource = Get-ChildItem -Path $extractRoot -Directory -Recurse |
-        Where-Object { $_.Name -eq "espeak-ng-data" } |
-        Select-Object -First 1
-
-    if ($null -eq $dllSource -or $null -eq $exeSource -or $null -eq $dataSource) {
-        Remove-Item -LiteralPath $extractRoot -Recurse -Force -ErrorAction SilentlyContinue
-        throw "eSpeak NG MSI did not contain libespeak-ng.dll, espeak-ng.exe, and espeak-ng-data."
-    }
-
-    New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
-    Copy-Item -LiteralPath $dllSource.FullName -Destination $dllTarget -Force
-    Copy-Item -LiteralPath $exeSource.FullName -Destination $exeTarget -Force
-    if (Test-Path -LiteralPath $dataTarget) {
-        Remove-Item -LiteralPath $dataTarget -Recurse -Force
-    }
-    Copy-Item -LiteralPath $dataSource.FullName -Destination $dataTarget -Recurse -Force
-    Remove-Item -LiteralPath $extractRoot -Recurse -Force
-
-    if (-not (Test-Path -LiteralPath $dllTarget) -or
-        -not (Test-Path -LiteralPath (Join-Path $dataTarget "voices"))) {
-        throw "eSpeak NG runtime staging was incomplete: $runtimeRoot"
-    }
-    Write-Host ">> Staged eSpeak NG runtime: $runtimeRoot" -ForegroundColor Green
-}
-
 Ensure-Command -Name "cmake" -FallbackPaths @(
     "C:\Qt\Tools\CMake_64\bin",
     "C:\Program Files\CMake\bin"
@@ -358,7 +335,9 @@ if ($Preset -like "*mingw*") {
 
 $QtRoot = Resolve-QtRoot -Candidate $QtRoot
 $VcpkgRoot = Resolve-VcpkgRoot -Candidate $VcpkgRoot
+$LlamaCppSourceDir = Resolve-LlamaCppSourceDir -Candidate $LlamaCppSourceDir
 $Version = Normalize-AppVersion -Value $Version
+$ReleaseSuffix = Normalize-ReleaseSuffix -Value $ReleaseSuffix
 
 $cmakeArgs = @()
 $kitName = Get-QtKitName -BuildPreset $Preset
@@ -378,6 +357,11 @@ $cmakeArgs += "-DCMAKE_PREFIX_PATH=$($qtPrefixPath.Replace('\', '/'))"
 if ([string]::IsNullOrWhiteSpace($VcpkgRoot)) {
     throw "vcpkg root not found. Pass -VcpkgRoot or set VCPKG_ROOT environment variable."
 }
+if ([string]::IsNullOrWhiteSpace($LlamaCppSourceDir)) {
+    throw "llama.cpp b10036 headers not found. Run scripts\\bootstrap.ps1 or pass -LlamaCppSourceDir."
+}
+
+& (Join-Path $PSScriptRoot "verify_runtime_abi.ps1")
 
 $toolchainFile = Join-Path $VcpkgRoot "scripts\buildsystems\vcpkg.cmake"
 if (-not (Test-Path $toolchainFile)) {
@@ -397,7 +381,10 @@ $env:VCPKG_DEFAULT_TRIPLET = ""
 
 $cmakeArgs += "-DCMAKE_TOOLCHAIN_FILE=$($toolchainFile.Replace('\', '/'))"
 $cmakeArgs += "-DVCPKG_ROOT=$($VcpkgRoot.Replace('\', '/'))"
+$cmakeArgs += "-DLLAMA_CPP_SOURCE_DIR=$($LlamaCppSourceDir.Replace('\', '/'))"
 $cmakeArgs += "-DLASTUDIO_VERSION=$Version"
+$cmakeArgs += "-DLASTUDIO_RELEASE_SUFFIX=$ReleaseSuffix"
+$cmakeArgs += "-DBUILD_TESTING=ON"
 
 if ($Preset -like "*mingw*") {
     $cmakeArgs += "-DVCPKG_TARGET_TRIPLET=x64-mingw-dynamic"
@@ -436,7 +423,10 @@ if (-not $SkipDeploy) {
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         Ensure-WebpImageFormatPlugin -QtPrefixPath $qtPrefixPath -DeployRoot $buildDir
         Ensure-ArchiveExtractor -DeployRoot $buildDir -VcpkgRoot $VcpkgRoot
-        Ensure-EspeakNgRuntime -DeployRoot $buildDir
+        if ($AllowUnsignedEspeakForInternalBuild) {
+            Write-Warning "INTERNAL BUILD ONLY: permitting the SHA-256-verified but unsigned eSpeak NG MSI. Do not distribute this deployed build or promote it to a release."
+        }
+        Ensure-EspeakNgRuntime -RepositoryRoot $RepoRoot -DeployRoot $buildDir -AllowUnsignedEspeakForInternalBuild:$AllowUnsignedEspeakForInternalBuild
     } else {
         Write-Warning "windeployqt not found at $windeployqt. Skipping deployment."
     }

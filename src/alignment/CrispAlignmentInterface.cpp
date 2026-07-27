@@ -16,7 +16,6 @@ bool CrispAlignmentInterface::load(const QString &libraryPath)
         return false;
     }
     const QStringList runtimeDirs = crispRuntimeDependencyDirs(cleanPath);
-    crispPrependRuntimeDirsToPath(runtimeDirs);
 #ifdef Q_OS_WIN
     m_preloadedDlls = crispPreloadRuntimeDlls(cleanPath, runtimeDirs);
 #endif

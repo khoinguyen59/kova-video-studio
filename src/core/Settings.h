@@ -35,6 +35,14 @@ class Settings : public QObject {
     Q_PROPERTY(bool apiServerAllowLan READ apiServerAllowLan WRITE setApiServerAllowLan NOTIFY apiServerAllowLanChanged)
     Q_PROPERTY(int apiServerPort READ apiServerPort WRITE setApiServerPort NOTIFY apiServerPortChanged)
     Q_PROPERTY(QString apiServerApiKey READ apiServerApiKey WRITE setApiServerApiKey NOTIFY apiServerApiKeyChanged)
+    Q_PROPERTY(bool automaticUpdateChecks READ automaticUpdateChecks WRITE setAutomaticUpdateChecks NOTIFY automaticUpdateChecksChanged)
+    Q_PROPERTY(bool updateCheckConsentAsked READ updateCheckConsentAsked WRITE setUpdateCheckConsentAsked NOTIFY updateCheckConsentAskedChanged)
+    Q_PROPERTY(bool onboardingComplete READ onboardingComplete WRITE setOnboardingComplete NOTIFY onboardingCompleteChanged)
+    Q_PROPERTY(int windowX READ windowX NOTIFY windowPlacementChanged)
+    Q_PROPERTY(int windowY READ windowY NOTIFY windowPlacementChanged)
+    Q_PROPERTY(int windowWidth READ windowWidth NOTIFY windowPlacementChanged)
+    Q_PROPERTY(int windowHeight READ windowHeight NOTIFY windowPlacementChanged)
+    Q_PROPERTY(bool windowMaximized READ windowMaximized NOTIFY windowPlacementChanged)
 
 
 public:
@@ -112,6 +120,22 @@ public:
     QString apiServerApiKey() const;
     void setApiServerApiKey(const QString &v);
 
+    bool automaticUpdateChecks() const;
+    void setAutomaticUpdateChecks(bool v);
+
+    bool updateCheckConsentAsked() const;
+    void setUpdateCheckConsentAsked(bool v);
+    bool onboardingComplete() const { return m_onboardingComplete; }
+    void setOnboardingComplete(bool v);
+    int windowX() const { return m_windowX; }
+    int windowY() const { return m_windowY; }
+    int windowWidth() const { return m_windowWidth; }
+    int windowHeight() const { return m_windowHeight; }
+    bool windowMaximized() const { return m_windowMaximized; }
+    Q_INVOKABLE void saveWindowPlacement(int x, int y, int width, int height, bool maximized);
+    Q_INVOKABLE qint64 modelsPathAvailableBytes() const;
+    Q_INVOKABLE bool externalMediaToolsAvailable() const;
+
 
 signals:
     void deviceChanged();
@@ -138,6 +162,10 @@ signals:
     void apiServerAllowLanChanged();
     void apiServerPortChanged();
     void apiServerApiKeyChanged();
+    void automaticUpdateChecksChanged();
+    void updateCheckConsentAskedChanged();
+    void onboardingCompleteChanged();
+    void windowPlacementChanged();
 
 
 private:
@@ -166,6 +194,14 @@ private:
     bool m_apiServerAllowLan;
     int m_apiServerPort;
     QString m_apiServerApiKey;
+    bool m_automaticUpdateChecks;
+    bool m_updateCheckConsentAsked;
+    bool m_onboardingComplete = false;
+    int m_windowX = 80;
+    int m_windowY = 80;
+    int m_windowWidth = 1280;
+    int m_windowHeight = 800;
+    bool m_windowMaximized = true;
 };
 
 

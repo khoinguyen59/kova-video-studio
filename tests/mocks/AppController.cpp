@@ -19,6 +19,7 @@ AppController::AppController(QObject *parent)
     m_registry->initializeFromCatalog(m_catalog);
     m_runtimes = new RuntimeManager(nullptr, m_settings, this);
     m_logs = new LogViewService(this);
+    m_cache = new CacheLifecycleService(this);
     m_stt = new SttEngine(this);
     m_tts = new TtsEngine(this);
     m_recorder = new AudioRecorder(this);
@@ -62,6 +63,8 @@ void AppController::clearError() {}
 void AppController::copyToClipboard(const QString &) {}
 QString AppController::logsDir() const { return PathUtils::logsDir(); }
 QString AppController::dataDir() const { return PathUtils::dataDir(); }
+QString AppController::licensesDir() const { return PathUtils::dataDir(); }
+QString AppController::createProblemReport() { return QString(); }
 void AppController::onError(const QString &) {}
 
 } // namespace LAStudio

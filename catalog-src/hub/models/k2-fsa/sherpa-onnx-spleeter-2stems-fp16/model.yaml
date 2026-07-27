@@ -8,6 +8,7 @@ base:
     sources:
       - type: url
         url: https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/sherpa-onnx-spleeter-2stems-fp16.tar.bz2
+        sha256: d54561979bd2e08a51e7dbd99ac36bb47564e089eefd403636dbca93e811bba2
         files:
           - name: vocals.fp16.onnx
   - key: k2-fsa/sherpa-onnx-spleeter-2stems-fp16-accompaniment
@@ -18,6 +19,7 @@ base:
     sources:
       - type: url
         url: https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/sherpa-onnx-spleeter-2stems-fp16.tar.bz2
+        sha256: d54561979bd2e08a51e7dbd99ac36bb47564e089eefd403636dbca93e811bba2
         files:
           - name: accompaniment.fp16.onnx
 metadataOverrides:

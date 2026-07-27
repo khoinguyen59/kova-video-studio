@@ -20,6 +20,8 @@ private slots:
     void pausesAndResumesReviewGate();
     void persistsReviewRequestsAtomically();
     void appendsOrderedRunJournalEvents();
+    void resumesInterruptedRunFromJournalSnapshot();
+    void recordsCancellationSeparatelyFromFailure();
 };
 
 } // namespace LAStudio

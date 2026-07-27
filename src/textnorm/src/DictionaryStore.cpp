@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0 AND MIT
+// SPDX-FileCopyrightText: 2024 Vietnamese Normalizer Contributors
+
 #include "DictionaryStore.h"
 
 #include <QFile>

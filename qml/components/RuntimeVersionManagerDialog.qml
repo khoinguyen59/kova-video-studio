@@ -212,7 +212,7 @@ Dialog {
             }
         }
 
-        Rectangle { Layout.fillWidth: true; height: 1; color: Theme.surfaceAlt }
+        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.surfaceAlt }
 
         ScrollView {
             Layout.fillWidth: true
@@ -276,7 +276,7 @@ Dialog {
             }
         }
 
-        Rectangle { Layout.fillWidth: true; height: 1; color: Theme.surfaceAlt }
+        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.surfaceAlt }
 
         RowLayout {
             Layout.fillWidth: true

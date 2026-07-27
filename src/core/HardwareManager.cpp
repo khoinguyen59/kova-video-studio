@@ -3,6 +3,7 @@
 #include <QDebug>
 #include <QSysInfo>
 #include <QStringList>
+#include <QSet>
 #include <algorithm>
 
 #ifdef Q_OS_WIN
@@ -15,6 +16,87 @@
 #endif
 
 namespace LAStudio {
+
+namespace {
+
+QStringList requiredCpuFeatures(const QVariantMap &runtime)
+{
+    QStringList values;
+    const QVariant raw = runtime.value(QStringLiteral("requiredCpuFeatures"));
+    for (const QVariant &value : raw.toList()) {
+        const QString feature = value.toString().trimmed().toUpper();
+        if (!feature.isEmpty()) values.append(feature);
+    }
+    if (values.isEmpty() && raw.metaType().id() == QMetaType::QString) {
+        for (const QString &value : raw.toString().split(u',', Qt::SkipEmptyParts)) {
+            const QString feature = value.trimmed().toUpper();
+            if (!feature.isEmpty()) values.append(feature);
+        }
+    }
+    values.removeDuplicates();
+    return values;
+}
+
+QSet<QString> detectedCpuFeatures(const QString &flags)
+{
+    QSet<QString> features;
+    for (const QString &flag : flags.split(u' ', Qt::SkipEmptyParts)) {
+        features.insert(flag.trimmed().toUpper());
+    }
+    return features;
+}
+
+bool versionAtLeast(const QString &actual, const QString &minimum)
+{
+    const auto parse = [](QString value, QList<int> *parts) {
+        value = value.trimmed();
+        if (value.startsWith(u'v', Qt::CaseInsensitive)) value.remove(0, 1);
+        const QStringList rawParts = value.split(u'.', Qt::KeepEmptyParts);
+        if (rawParts.isEmpty() || rawParts.size() > 4) return false;
+        for (const QString &part : rawParts) {
+            bool ok = false;
+            const int number = part.toInt(&ok);
+            if (!ok || number < 0) return false;
+            parts->append(number);
+        }
+        while (parts->size() < 4) parts->append(0);
+        return true;
+    };
+
+    QList<int> actualParts;
+    QList<int> minimumParts;
+    if (!parse(actual, &actualParts) || !parse(minimum, &minimumParts)) return false;
+    for (int i = 0; i < actualParts.size(); ++i) {
+        if (actualParts.at(i) != minimumParts.at(i)) return actualParts.at(i) > minimumParts.at(i);
+    }
+    return true;
+}
+
+#ifdef Q_OS_WIN
+bool osEnablesAvxState()
+{
+    int cpuInfo[4] = {0};
+    __cpuidex(cpuInfo, 1, 0);
+    const bool hasOsXsave = (static_cast<unsigned int>(cpuInfo[2]) & (1u << 27)) != 0;
+    const bool hasAvx = (static_cast<unsigned int>(cpuInfo[2]) & (1u << 28)) != 0;
+    return hasOsXsave && hasAvx && (_xgetbv(0) & 0x6) == 0x6;
+}
+
+bool osEnablesAvx512State()
+{
+    return osEnablesAvxState() && (_xgetbv(0) & 0xe6) == 0xe6;
+}
+
+QString driverVersionString(const LARGE_INTEGER &version)
+{
+    const quint32 high = static_cast<quint32>(version.HighPart);
+    const quint32 low = version.LowPart;
+    return QStringLiteral("%1.%2.%3.%4")
+        .arg(HIWORD(high)).arg(LOWORD(high)).arg(HIWORD(low)).arg(LOWORD(low));
+}
+#endif
+
+} // namespace
 
 static HardwareManager* s_instance = nullptr;
 
@@ -44,6 +126,12 @@ QVariantMap HardwareManager::runtimeCompatibility(const QVariantMap &runtime) co
     const QString label = runtime.value(QStringLiteral("label")).toString().toLower();
     const QString asset = runtime.value(QStringLiteral("asset")).toString().toLower();
     const QString haystack = QStringList{id, name, label, asset}.join(QStringLiteral(" "));
+    const QStringList requiredFeatures = requiredCpuFeatures(runtime);
+    const QSet<QString> detectedFeatures = detectedCpuFeatures(m_cpuFlags);
+    QStringList missingFeatures;
+    for (const QString &feature : requiredFeatures) {
+        if (!detectedFeatures.contains(feature)) missingFeatures.append(feature);
+    }
 
     QVariantMap result;
     result.insert(QStringLiteral("compatible"), true);
@@ -59,24 +147,50 @@ QVariantMap HardwareManager::runtimeCompatibility(const QVariantMap &runtime) co
         return result;
     }
 
+    if (!missingFeatures.isEmpty()) {
+        result.insert(QStringLiteral("compatible"), false);
+        result.insert(QStringLiteral("title"), QStringLiteral("Unavailable"));
+        result.insert(QStringLiteral("detail"),
+                      QStringLiteral("Requires CPU feature(s): %1.").arg(missingFeatures.join(QStringLiteral(", "))));
+        return result;
+    }
+
+    const QString minimumDriver = runtime.value(QStringLiteral("minDriverVersion")).toString().trimmed();
+    const auto hasMinimumDriver = [this, &minimumDriver](const auto &matchesGpu) {
+        if (minimumDriver.isEmpty()) return true;
+        for (const QVariant &gpuValue : m_gpus) {
+            const QVariantMap gpu = gpuValue.toMap();
+            if (!matchesGpu(gpu)) continue;
+            const QString driver = gpu.value(QStringLiteral("driverVersion")).toString();
+            if (versionAtLeast(driver, minimumDriver)) return true;
+        }
+        return false;
+    };
+
     if (haystack.contains(QStringLiteral("cuda"))) {
         const bool hasNvidiaGpu = std::any_of(m_gpus.cbegin(), m_gpus.cend(), [](const QVariant &gpuValue) {
             const QVariantMap gpu = gpuValue.toMap();
             return gpu.value(QStringLiteral("name")).toString().contains(QStringLiteral("NVIDIA"), Qt::CaseInsensitive);
         });
+        const bool driverCompatible = hasMinimumDriver([](const QVariantMap &gpu) {
+            return gpu.value(QStringLiteral("name")).toString().contains(QStringLiteral("NVIDIA"), Qt::CaseInsensitive);
+        });
 
         result.insert(QStringLiteral("kind"), QStringLiteral("cuda"));
-        result.insert(QStringLiteral("compatible"), hasNvidiaGpu);
-        result.insert(QStringLiteral("title"), hasNvidiaGpu ? QStringLiteral("Compatible") : QStringLiteral("Unavailable"));
-        result.insert(QStringLiteral("detail"), hasNvidiaGpu
-            ? QStringLiteral("NVIDIA GPU detected.")
-            : QStringLiteral("Requires an NVIDIA CUDA-capable GPU."));
+        result.insert(QStringLiteral("compatible"), hasNvidiaGpu && driverCompatible);
+        result.insert(QStringLiteral("title"), hasNvidiaGpu && driverCompatible ? QStringLiteral("Compatible") : QStringLiteral("Unavailable"));
+        result.insert(QStringLiteral("detail"), !hasNvidiaGpu
+            ? QStringLiteral("Requires an NVIDIA CUDA-capable GPU.")
+            : !driverCompatible
+            ? QStringLiteral("Requires NVIDIA driver version %1 or newer.").arg(minimumDriver)
+            : QStringLiteral("NVIDIA GPU detected."));
         return result;
     }
 
     if (haystack.contains(QStringLiteral("vulkan"))) {
         const bool hasHardwareGpu = !m_gpus.isEmpty();
-        bool isCompatible = hasHardwareGpu;
+        const bool driverCompatible = hasMinimumDriver([](const QVariantMap &) { return true; });
+        bool isCompatible = hasHardwareGpu && driverCompatible;
         QString detail = QStringLiteral("Hardware GPU detected.");
 
         // Intel integrated GPUs have driver bugs/limitations that crash the Omnivoice Vulkan backend
@@ -89,6 +203,10 @@ QVariantMap HardwareManager::runtimeCompatibility(const QVariantMap &runtime) co
                 isCompatible = false;
                 detail = QStringLiteral("OmniVoice Vulkan backend is unstable and disabled on Intel integrated GPUs.");
             }
+        }
+
+        if (hasHardwareGpu && !driverCompatible) {
+            detail = QStringLiteral("Requires a GPU driver version %1 or newer.").arg(minimumDriver);
         }
 
         result.insert(QStringLiteral("kind"), QStringLiteral("vulkan"));
@@ -104,12 +222,19 @@ QVariantMap HardwareManager::runtimeCompatibility(const QVariantMap &runtime) co
             return gpuName.contains(QStringLiteral("AMD"), Qt::CaseInsensitive) ||
                 gpuName.contains(QStringLiteral("Radeon"), Qt::CaseInsensitive);
         });
+        const bool driverCompatible = hasMinimumDriver([](const QVariantMap &gpu) {
+            const QString name = gpu.value(QStringLiteral("name")).toString();
+            return name.contains(QStringLiteral("AMD"), Qt::CaseInsensitive)
+                || name.contains(QStringLiteral("Radeon"), Qt::CaseInsensitive);
+        });
         result.insert(QStringLiteral("kind"), QStringLiteral("hip"));
-        result.insert(QStringLiteral("compatible"), hasAmdGpu);
-        result.insert(QStringLiteral("title"), hasAmdGpu ? QStringLiteral("Compatible") : QStringLiteral("Unavailable"));
-        result.insert(QStringLiteral("detail"), hasAmdGpu
-            ? QStringLiteral("AMD Radeon GPU detected.")
-            : QStringLiteral("Requires a supported AMD Radeon GPU."));
+        result.insert(QStringLiteral("compatible"), hasAmdGpu && driverCompatible);
+        result.insert(QStringLiteral("title"), hasAmdGpu && driverCompatible ? QStringLiteral("Compatible") : QStringLiteral("Unavailable"));
+        result.insert(QStringLiteral("detail"), !hasAmdGpu
+            ? QStringLiteral("Requires a supported AMD Radeon GPU.")
+            : !driverCompatible
+            ? QStringLiteral("Requires AMD driver version %1 or newer.").arg(minimumDriver)
+            : QStringLiteral("AMD Radeon GPU detected."));
         return result;
     }
 
@@ -178,14 +303,17 @@ void HardwareManager::detectHardware() {
     else
         m_cpuArchitecture = "Unknown";
 
-    // CPU Flags (AVX, AVX2)
+    // AVX-family instructions need both CPU support and OS-enabled extended
+    // register state. Advertising them from CPUID alone can select a runtime
+    // that faults on a system where XMM/YMM/ZMM state is not enabled.
     QStringList flags;
-    __cpuid(cpuInfo, 1);
-    if (cpuInfo[2] & (1 << 28)) flags << "AVX";
-    
-    __cpuid(cpuInfo, 7);
-    if (cpuInfo[1] & (1 << 5)) flags << "AVX2";
-    if (cpuInfo[1] & (1 << 16)) flags << "AVX512";
+    const bool avxEnabled = osEnablesAvxState();
+    __cpuidex(cpuInfo, 1, 0);
+    if (avxEnabled && (static_cast<unsigned int>(cpuInfo[2]) & (1u << 28))) flags << "AVX";
+
+    __cpuidex(cpuInfo, 7, 0);
+    if (avxEnabled && (static_cast<unsigned int>(cpuInfo[1]) & (1u << 5))) flags << "AVX2";
+    if (osEnablesAvx512State() && (static_cast<unsigned int>(cpuInfo[1]) & (1u << 16))) flags << "AVX512";
     
     m_cpuFlags = flags.join(" ");
 
@@ -216,6 +344,10 @@ void HardwareManager::detectHardware() {
             QVariantMap gpu;
             gpu["name"] = QString::fromWCharArray(desc.Description);
             gpu["vram"] = static_cast<double>(desc.DedicatedVideoMemory) / (1024.0 * 1024.0 * 1024.0);
+            LARGE_INTEGER driverVersion{};
+            if (SUCCEEDED(pAdapter->CheckInterfaceSupport(__uuidof(IDXGIDevice), &driverVersion))) {
+                gpu["driverVersion"] = driverVersionString(driverVersion);
+            }
             m_gpus.append(gpu);
             
             m_vramTotal += gpu["vram"].toDouble();

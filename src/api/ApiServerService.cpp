@@ -9,6 +9,7 @@
 #include "tts/TtsEngineInstance.h"
 
 #include <QDir>
+#include <QCoreApplication>
 #include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
@@ -21,9 +22,9 @@
 #include <QTemporaryFile>
 #include <QTimer>
 #include <QUrl>
-#include <QUrlQuery>
 #include <QUuid>
 #include <QtConcurrent>
+#include <algorithm>
 #include <cstring>
 #include <ctime>
 
@@ -42,6 +43,7 @@ QString statusText(int status)
     case 201: return QStringLiteral("Created");
     case 400: return QStringLiteral("Bad Request");
     case 401: return QStringLiteral("Unauthorized");
+    case 403: return QStringLiteral("Forbidden");
     case 404: return QStringLiteral("Not Found");
     case 409: return QStringLiteral("Conflict");
     case 415: return QStringLiteral("Unsupported Media Type");
@@ -90,6 +92,48 @@ QString pathFromTarget(const QString &target)
 {
     const QUrl url(QStringLiteral("http://localhost") + target);
     return url.path().isEmpty() ? QStringLiteral("/") : url.path();
+}
+
+QString hostFromHeader(const QString &value)
+{
+    const QUrl url(QStringLiteral("http://") + value.trimmed());
+    return url.isValid() ? url.host().toLower() : QString();
+}
+
+bool isAllowedApiHost(const QString &host, bool allowLan)
+{
+    if (host == QStringLiteral("localhost") || host == QStringLiteral("127.0.0.1")
+        || host == QStringLiteral("::1")) {
+        return true;
+    }
+    if (!allowLan) return false;
+
+    QHostAddress address;
+    if (!address.setAddress(host)) return false;
+    const auto interfaces = QNetworkInterface::allInterfaces();
+    for (const QNetworkInterface &interface : interfaces) {
+        for (const QNetworkAddressEntry &entry : interface.addressEntries()) {
+            if (entry.ip() == address) return true;
+        }
+    }
+    return false;
+}
+
+bool constantTimeEquals(const QString &left, const QString &right)
+{
+    const QByteArray leftBytes = left.toUtf8();
+    const QByteArray rightBytes = right.toUtf8();
+    const qsizetype largest = std::max(leftBytes.size(), rightBytes.size());
+    quint64 difference = static_cast<quint64>(leftBytes.size())
+                       ^ static_cast<quint64>(rightBytes.size());
+    for (qsizetype i = 0; i < largest; ++i) {
+        const unsigned char leftByte = i < leftBytes.size()
+            ? static_cast<unsigned char>(leftBytes.at(i)) : 0;
+        const unsigned char rightByte = i < rightBytes.size()
+            ? static_cast<unsigned char>(rightBytes.at(i)) : 0;
+        difference |= static_cast<quint64>(leftByte ^ rightByte);
+    }
+    return difference == 0;
 }
 
 QString multipartBoundary(const QString &contentType)
@@ -329,7 +373,7 @@ void ApiServerService::syncFromSettings()
     const bool nextAllowLan = m_settings->apiServerAllowLan();
     const int nextPort = qBound(1, m_settings->apiServerPort(), 65535);
     QString nextKey = m_settings->apiServerApiKey().trimmed();
-    if (nextAllowLan && nextKey.isEmpty()) {
+    if (nextEnabled && nextKey.isEmpty()) {
         nextKey = randomApiKey();
         m_settings->setApiServerApiKey(nextKey);
     }
@@ -382,7 +426,19 @@ void ApiServerService::onSocketReadyRead()
 
     const QByteArray headerBlock = buffer.left(headerEnd);
     const QHash<QString, QString> headers = parseHeaders(headerBlock);
-    const int contentLength = headers.value(QStringLiteral("content-length")).toInt();
+    qint64 contentLength = 0;
+    const QString contentLengthHeader = headers.value(QStringLiteral("content-length"));
+    if (!contentLengthHeader.isEmpty()) {
+        bool ok = false;
+        contentLength = contentLengthHeader.toLongLong(&ok);
+        if (!ok || contentLength < 0 || contentLength > kMaxBodyBytes) {
+            HttpResponse response;
+            response.status = 400;
+            response.body = toJsonBytes(jsonErrorObject(QStringLiteral("Invalid Content-Length.")));
+            writeResponse(socket, response);
+            return;
+        }
+    }
     if (buffer.size() < headerEnd + 4 + contentLength) {
         return;
     }
@@ -403,7 +459,7 @@ void ApiServerService::onSocketReadyRead()
     request.path = pathFromTarget(request.target);
     request.peerAddress = socket->peerAddress();
     request.headers = headers;
-    request.body = buffer.mid(headerEnd + 4, contentLength);
+    request.body = buffer.mid(headerEnd + 4, static_cast<qsizetype>(contentLength));
 
     if (headerValue(headers, QStringLiteral("content-type")).startsWith(QStringLiteral("application/json"), Qt::CaseInsensitive)) {
         QJsonParseError parseError;
@@ -508,7 +564,8 @@ QJsonObject ApiServerService::buildHealthDocument() const
     doc.insert(QStringLiteral("bind_address"), bindAddress());
     doc.insert(QStringLiteral("base_url"), baseUrl());
     doc.insert(QStringLiteral("port"), m_port);
-    doc.insert(QStringLiteral("api_key_required"), m_allowLan && !m_apiKey.isEmpty());
+    doc.insert(QStringLiteral("api_key_required"), !m_apiKey.isEmpty());
+    doc.insert(QStringLiteral("source"), QStringLiteral("/source"));
     if (m_tts) {
         doc.insert(QStringLiteral("tts_loaded"), m_tts->isModelLoaded());
         doc.insert(QStringLiteral("tts_state"), static_cast<int>(m_tts->state()));
@@ -522,6 +579,15 @@ QJsonObject ApiServerService::buildHealthDocument() const
         doc.insert(QStringLiteral("stt_family"), m_settings->selectedSttFamily());
     }
     return doc;
+}
+
+QJsonObject ApiServerService::buildSourceDocument() const
+{
+    return QJsonObject{
+        {QStringLiteral("license"), QStringLiteral("AGPL-3.0-only")},
+        {QStringLiteral("version"), QCoreApplication::applicationVersion()},
+        {QStringLiteral("repository"), QStringLiteral("https://github.com/dduongtrandai/LA-Studio")}
+    };
 }
 
 QJsonObject ApiServerService::buildModelsDocument() const
@@ -631,24 +697,25 @@ QJsonObject ApiServerService::buildVoicesDocument() const
 bool ApiServerService::checkAuthorization(const HttpRequest &request) const
 {
     if (m_apiKey.isEmpty()) {
-        return true;
-    }
-    if (!m_allowLan || request.peerAddress.isLoopback() || request.peerAddress == QHostAddress::LocalHost || request.peerAddress == QHostAddress::LocalHostIPv6) {
-        return true;
+        return false;
     }
 
     const QString auth = headerValue(request.headers, QStringLiteral("authorization"));
-    if (auth.startsWith(QStringLiteral("Bearer "), Qt::CaseInsensitive) && auth.mid(7).trimmed() == m_apiKey) {
-        return true;
-    }
+    return auth.startsWith(QStringLiteral("Bearer "), Qt::CaseInsensitive)
+        && constantTimeEquals(auth.mid(7).trimmed(), m_apiKey);
+}
 
-    const QUrl url(QStringLiteral("http://localhost") + request.target);
-    const QUrlQuery query(url);
-    if (query.queryItemValue(QStringLiteral("api_key")) == m_apiKey) {
-        return true;
-    }
+bool ApiServerService::isTrustedRequestOrigin(const HttpRequest &request) const
+{
+    const QString host = hostFromHeader(headerValue(request.headers, QStringLiteral("host")));
+    if (host.isEmpty() || !isAllowedApiHost(host, m_allowLan)) return false;
 
-    return false;
+    const QString originValue = headerValue(request.headers, QStringLiteral("origin"));
+    if (originValue.isEmpty()) return true;
+    const QUrl origin(originValue);
+    return origin.isValid() && origin.scheme().compare(QStringLiteral("http"), Qt::CaseInsensitive) == 0
+        && origin.host().compare(host, Qt::CaseInsensitive) == 0
+        && origin.port() == m_port;
 }
 
 QVariantMap ApiServerService::extraSettingsFromJson(const QJsonObject &json) const
@@ -1012,12 +1079,20 @@ void ApiServerService::processRequestAsync(const QPointer<QTcpSocket> &socket, c
 
 ApiServerService::HttpResponse ApiServerService::handleRequest(const HttpRequest &request)
 {
-    if (request.method == QStringLiteral("GET") && request.path == QStringLiteral("/health")) {
-        return jsonResponse(buildHealthDocument());
+    if (!isTrustedRequestOrigin(request)) {
+        return errorResponse(403, QStringLiteral("Request Host or Origin is not permitted."),
+                             QStringLiteral("forbidden"));
     }
 
     if (!checkAuthorization(request)) {
         return unauthorizedResponse();
+    }
+
+    if (request.method == QStringLiteral("GET") && request.path == QStringLiteral("/health")) {
+        return jsonResponse(buildHealthDocument());
+    }
+    if (request.method == QStringLiteral("GET") && request.path == QStringLiteral("/source")) {
+        return jsonResponse(buildSourceDocument());
     }
 
     if (request.method == QStringLiteral("GET") && request.path == QStringLiteral("/v1/models")) {

@@ -12,6 +12,8 @@ set(TEST_SOURCES
     test_SttSession.cpp
     test_SubtitleVoice.cpp
     test_TtsTextPreprocessor.cpp
+    test_TtsRequestValidator.cpp
+    test_LlmChatEngine.cpp
     test_StudioCapabilities.cpp
     test_AlignmentTranscriptMatcher.cpp
     test_AlignmentWorkflow.cpp
@@ -20,6 +22,9 @@ set(TEST_SOURCES
     test_WorkflowGraph.cpp
     test_SourceSeparation.cpp
     test_RuntimeHostProtocol.cpp
+    test_MediaIngestService.cpp
+    test_MediaToolService.cpp
+    test_HardwareManager.cpp
     mocks/SttEngine.cpp
     mocks/SttEngineInstance.cpp
     mocks/TtsEngine.cpp
@@ -79,6 +84,7 @@ set(TEST_SOURCES
     ../src/tts/SubtitleSmartFitPlanner.cpp
     ../src/tts/TextNormalizationPolicy.cpp
     ../src/tts/TtsTextPreprocessor.cpp
+    ../src/tts/TtsRequestValidator.cpp
     ../src/tts/TimedSpeechPipeline.cpp
     ../src/audio/AudioTimelineRenderer.cpp
     ../src/controllers/stt/SttAudioDecoder.cpp
@@ -125,6 +131,7 @@ set(TEST_SOURCES
     ../src/workflows/WorkflowGraphRunner.cpp
     ../src/alignment/AlignmentWorkflowResolver.cpp
     ../src/core/LogViewService.cpp
+    ../src/core/CacheLifecycleService.cpp
     ../src/core/PathUtils.cpp
     ../src/core/Logger.cpp
     ../src/core/InferenceThreadPolicy.cpp
@@ -134,6 +141,7 @@ set(TEST_SOURCES
     ../src/core/StudioCapabilityRegistry.cpp
     ../src/core/StudioSelectionRepository.cpp
     ../src/core/Settings.cpp
+    ../src/core/SecureCredentialStore.cpp
     ../src/core/LocalizationManager.cpp
     ../src/core/ModelManager.cpp
     ../src/core/CatalogManager.cpp
@@ -156,6 +164,7 @@ set(TEST_SOURCES
     ../src/stt/SttEngineInstance.h
     ../src/tts/TtsEngine.h
     ../src/tts/TtsEngineInstance.h
+    ../src/tts/TtsRequestValidator.h
     ../src/audio/AudioRecorder.h
     ../src/audio/AudioPlayer.h
     ../src/audio/AudioFileDecoder.h
@@ -215,11 +224,22 @@ set(TEST_SOURCES
     ../src/separation/backends/sherpa/SherpaOnnxSeparationBackend.h
     test_SourceSeparation.h
     test_RuntimeHostProtocol.h
+    test_MediaIngestService.h
+    test_MediaToolService.h
+    test_LlmChatEngine.h
+    test_HardwareManager.h
     test_TranslationProject.h
     ../src/controllers/separation/VoiceIsolatorController.h
 )
 
 add_executable(LAStudioUnitTests ${TEST_SOURCES})
+
+add_custom_command(TARGET LAStudioUnitTests POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_SOURCE_DIR}/data"
+        "$<TARGET_FILE_DIR:LAStudioUnitTests>/data"
+    VERBATIM
+)
 
 target_compile_definitions(LAStudioUnitTests PRIVATE
     NOMINMAX
@@ -228,6 +248,7 @@ target_compile_definitions(LAStudioUnitTests PRIVATE
 )
 
 target_include_directories(LAStudioUnitTests PRIVATE
+    ${LASTUDIO_GENERATED_DIR}
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/core
     ${CMAKE_SOURCE_DIR}/src/audio
@@ -266,10 +287,8 @@ target_link_libraries(LAStudioUnitTests PRIVATE
 )
 
 if(WIN32)
-    target_link_libraries(LAStudioUnitTests PRIVATE shell32)
+    target_link_libraries(LAStudioUnitTests PRIVATE shell32 wintrust crypt32)
 endif()
-
-add_test(NAME LAStudioUnitTests COMMAND LAStudioUnitTests)
 
 get_target_property(QT6_CORE_DLL Qt6::Core IMPORTED_LOCATION_RELEASE)
 if(NOT QT6_CORE_DLL)
@@ -279,8 +298,44 @@ get_filename_component(QT_BIN_DIR "${QT6_CORE_DLL}" DIRECTORY)
 get_filename_component(QT_ROOT_DIR "${QT_BIN_DIR}" DIRECTORY)
 set(QT_PLUGIN_DIR "${QT_ROOT_DIR}/plugins")
 
-set_tests_properties(LAStudioUnitTests PROPERTIES
+set(LASTUDIO_TEST_SUITES
+    TestFileAccessService
+    TestModelsPathMigration
+    TestHistory
+    TestDownloadInstallService
+    TestAudioPreviewService
+    TestModelsAndRuntimes
+    TestSttSession
+    TestStudioCapabilities
+    TestAlignmentTranscriptMatcher
+    TestAlignmentWorkflow
+    TestDubbingProject
+    TestTranslationProject
+    TestWorkflowGraph
+    TestSourceSeparation
+    TestSubtitleVoice
+    TestRuntimeHostProtocol
+    TestMediaIngestService
+    TestMediaToolService
+    TestHardwareManager
+    TestTtsTextPreprocessor
+    TestTtsRequestValidator
+    TestLlmChatEngine
+)
+
+foreach(LASTUDIO_TEST_SUITE IN LISTS LASTUDIO_TEST_SUITES)
+    add_test(NAME ${LASTUDIO_TEST_SUITE} COMMAND LAStudioUnitTests)
+    set_tests_properties(${LASTUDIO_TEST_SUITE} PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+        ENVIRONMENT "LASTUDIO_TEST_SUITE=${LASTUDIO_TEST_SUITE};QT_PLUGIN_PATH=${QT_PLUGIN_DIR};QT_QPA_PLATFORM=offscreen"
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${QT_BIN_DIR}"
+    )
+endforeach()
+
+add_test(NAME QmlRouteSmoke COMMAND $<TARGET_FILE:LAStudio>)
+set_tests_properties(QmlRouteSmoke PROPERTIES
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
-    ENVIRONMENT "QT_PLUGIN_PATH=${QT_PLUGIN_DIR};QT_QPA_PLATFORM=offscreen"
+    ENVIRONMENT "LASTUDIO_DATA_DIR=${CMAKE_BINARY_DIR}/qml-smoke-data;LASTUDIO_QML_SMOKE=1;QT_QPA_PLATFORM=offscreen;QT_PLUGIN_PATH=${QT_PLUGIN_DIR}"
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${QT_BIN_DIR}"
+    TIMEOUT 75
 )

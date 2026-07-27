@@ -51,3 +51,4 @@ install(TARGETS vietnorm
 )
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(DIRECTORY data/ DESTINATION ${CMAKE_INSTALL_DATADIR}/vietnorm)
+install(FILES LICENSE NOTICE DESTINATION licenses/vietnorm)

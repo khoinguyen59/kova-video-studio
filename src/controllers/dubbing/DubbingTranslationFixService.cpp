@@ -2,6 +2,7 @@
 
 #include "core/Logger.h"
 #include "core/PathUtils.h"
+#include "core/SecureCredentialStore.h"
 #include "dubbing/DubbingDuration.h"
 #include "dubbing/EspeakNgPhonemizer.h"
 
@@ -277,6 +278,7 @@ DubbingTranslationFixService::DubbingTranslationFixService(QObject *parent)
     : QObject(parent), m_network(new QNetworkAccessManager(this))
 {
     QSettings settings(settingsPath(), QSettings::IniFormat);
+    QString credentialError;
     m_configuration = normalizedConfiguration({
         {QStringLiteral("serverUrl"),
          settings.value(QStringLiteral("dubbing/translationFixServerUrl"),
@@ -301,13 +303,17 @@ DubbingTranslationFixService::DubbingTranslationFixService(QObject *parent)
         {QStringLiteral("selectedFiles"),
          settings.value(QStringLiteral("dubbing/adaptiveSelectedFiles")).toMap()},
         {QStringLiteral("apiKey"),
-         settings.value(QStringLiteral("dubbing/translationFixApiKey"),
-                        QString()).toString()},
+         SecureCredentialStore::migrateLegacy(settings, QStringLiteral("dubbing-translation-fix"),
+                                               QStringLiteral("dubbing/translationFixApiKey"), &credentialError)},
         {QStringLiteral("maxAttempts"),
          settings.value(QStringLiteral("dubbing/translationFixMaxAttempts"), 4).toInt()},
         {QStringLiteral("temperature"),
          settings.value(QStringLiteral("dubbing/translationFixTemperature"), 0.35).toDouble()}
     });
+    if (!credentialError.isEmpty()) {
+        Logger::error(QStringLiteral("DubbingTranslationFixService"),
+                      QStringLiteral("Translation API credential migration failed: %1").arg(credentialError));
+    }
 }
 
 QVariantMap DubbingTranslationFixService::normalizedConfiguration(
@@ -664,8 +670,14 @@ void DubbingTranslationFixService::saveConfiguration()
                       m_configuration.value(QStringLiteral("runtimeVersion")));
     settings.setValue(QStringLiteral("dubbing/adaptiveSelectedFiles"),
                       m_configuration.value(QStringLiteral("selectedFiles")));
-    settings.setValue(QStringLiteral("dubbing/translationFixApiKey"),
-                      m_configuration.value(QStringLiteral("apiKey")));
+    QString credentialError;
+    if (!SecureCredentialStore::write(settings, QStringLiteral("dubbing-translation-fix"),
+                                      m_configuration.value(QStringLiteral("apiKey")).toString(),
+                                      &credentialError)) {
+        Logger::error(QStringLiteral("DubbingTranslationFixService"),
+                      QStringLiteral("Translation API credential was not persisted: %1").arg(credentialError));
+    }
+    settings.remove(QStringLiteral("dubbing/translationFixApiKey"));
     settings.setValue(QStringLiteral("dubbing/translationFixMaxAttempts"),
                       m_configuration.value(QStringLiteral("maxAttempts")));
     settings.setValue(QStringLiteral("dubbing/translationFixTemperature"),
@@ -857,20 +869,22 @@ void DubbingTranslationFixService::testConnection(
                                                : QStringLiteral("false"),
                      invocation.diagnosticLogPath.isEmpty()
                          ? QStringLiteral("disabled") : QStringLiteral("enabled")));
-        process->start(invocation.program, invocation.arguments);
-        if (!process->waitForStarted(5000)) {
+        connect(process, &QProcess::errorOccurred, this,
+                [this, process, invocation, exePath](QProcess::ProcessError processError) {
+            if (processError != QProcess::FailedToStart || m_cliProcess != process) return;
             takeCliDiagnosticLog(invocation.diagnosticLogPath);
             m_cliProcess = nullptr;
             m_testing = false;
             process->deleteLater();
             emit stateChanged();
-            emit connectionTested(
-                false, QStringLiteral("Failed to launch %1 at %2.")
-                           .arg(invocation.displayName, exePath));
-            return;
-        }
-        if (invocation.promptViaStdin) process->write(prompt.toUtf8());
-        process->closeWriteChannel();
+            emit connectionTested(false, QStringLiteral("Failed to launch %1 at %2.")
+                                           .arg(invocation.displayName, exePath));
+        });
+        connect(process, &QProcess::started, this, [process, prompt, invocation]() {
+            if (invocation.promptViaStdin) process->write(prompt.toUtf8());
+            process->closeWriteChannel();
+        });
+        process->start(invocation.program, invocation.arguments);
 
         QTimer::singleShot(45000, process, [this, process, invocation]() {
             if (m_cliProcess != process || !m_testing) return;
@@ -1175,20 +1189,20 @@ void DubbingTranslationFixService::executeCliAttempt()
                                            : QStringLiteral("false"),
                  invocation.diagnosticLogPath.isEmpty()
                      ? QStringLiteral("disabled") : QStringLiteral("enabled")));
-    process->start(invocation.program, invocation.arguments);
-    if (!process->waitForStarted(5000)) {
+    connect(process, &QProcess::errorOccurred, this,
+            [this, process, invocation](QProcess::ProcessError processError) {
+        if (processError != QProcess::FailedToStart || m_cliProcess != process) return;
         takeCliDiagnosticLog(invocation.diagnosticLogPath);
         process->deleteLater();
         m_cliProcess = nullptr;
         setError(QStringLiteral("Failed to launch CLI Agent binary '%1'.")
                      .arg(invocation.binaryName));
-        return;
-    }
-
-    if (invocation.promptViaStdin) {
-        process->write(fullPrompt.toUtf8());
+    });
+    connect(process, &QProcess::started, this, [process, fullPrompt, invocation]() {
+        if (invocation.promptViaStdin) process->write(fullPrompt.toUtf8());
         process->closeWriteChannel();
-    }
+    });
+    process->start(invocation.program, invocation.arguments);
 
     QTimer::singleShot(180000, process, [this, process]() {
         if (m_cliProcess != process || !m_busy || !process->state()) return;

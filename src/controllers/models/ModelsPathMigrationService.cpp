@@ -16,6 +16,8 @@
 #include <QPointer>
 #include <QCoreApplication>
 
+#include <limits>
+
 namespace LAStudio {
 
 ModelsPathMigrationService::ModelsPathMigrationService(Settings *settings,
@@ -115,8 +117,18 @@ void ModelsPathMigrationService::changeDirectory(const QString &pathUrl)
         bool cleanupSuccess = true;
 
         if (QDir(oldPath).exists()) {
+            constexpr qint64 kMigrationSafetyMarginBytes = 64LL * 1024 * 1024;
+            const qint64 sourceBytes = ModelsPathMigrator::directorySize(oldPath, errorMsg);
+            if (sourceBytes < 0 ||
+                sourceBytes > std::numeric_limits<qint64>::max() - kMigrationSafetyMarginBytes ||
+                !ModelsPathMigrator::hasAvailableSpace(newPath,
+                                                        sourceBytes + kMigrationSafetyMarginBytes,
+                                                        errorMsg)) {
+                copySuccess = false;
+            }
+
             QCoreApplication* app = QCoreApplication::instance();
-            if (app) {
+            if (copySuccess && app) {
                 QMetaObject::invokeMethod(app, [weakThis]() {
                     if (!weakThis) return;
                     weakThis->m_message = QStringLiteral("Copying models...");
@@ -124,7 +136,9 @@ void ModelsPathMigrationService::changeDirectory(const QString &pathUrl)
                 });
             }
 
-            copySuccess = ModelsPathMigrator::copyDirectoryMerge(oldPath, newPath, errorMsg);
+            if (copySuccess) {
+                copySuccess = ModelsPathMigrator::copyDirectoryMerge(oldPath, newPath, errorMsg);
+            }
             if (copySuccess && QDir(oldPath).exists()) {
                 cleanupSuccess = ModelsPathMigrator::removeDirectory(oldPath);
             }

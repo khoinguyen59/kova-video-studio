@@ -1,0 +1,187 @@
+name: Windows CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # A maintainer can rehearse the complete staging path from main without
+  # creating a tag, installer, or GitHub Release.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build, test, and lint
+    runs-on: windows-2022
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Verify Developer Certificate of Origin sign-offs
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "pull_request") {
+            $base = "${{ github.event.pull_request.base.sha }}"
+            $commits = git rev-list "$base..HEAD"
+          } else {
+            $commits = @(git rev-parse HEAD)
+          }
+          foreach ($commit in $commits) {
+            $message = git log -1 --format=%B $commit
+            if ($message -notmatch '(?mi)^Signed-off-by:\s+.+\s+<[^>]+>\s*$') {
+              throw "Commit $commit is missing a valid Signed-off-by trailer. Use git commit -s."
+            }
+          }
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@d325aaf2a8baeeda41ad0b5d39f84a6af9bcf005 # v4.3.1
+        with:
+          version: "6.9.3"
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          dir: C:\\Qt
+          modules: qtmultimedia qtimageformats
+
+      - name: Verify generated model catalog is current
+        shell: pwsh
+        run: |
+          python scripts/generate_catalog.py
+          git diff --exit-code -- data/catalog.json
+
+      - name: Verify runtime release checksums
+        shell: pwsh
+        run: python scripts/verify_catalog_checksums.py
+
+      - name: Verify translation catalogs are current
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:QT_ROOT_DIR)) {
+            throw "QT_ROOT_DIR was not exported by install-qt-action."
+          }
+          $lupdate = Join-Path $env:QT_ROOT_DIR "bin\lupdate.exe"
+          if (-not (Test-Path -LiteralPath $lupdate)) {
+            throw "lupdate.exe was not installed with the selected Qt kit."
+          }
+          & $lupdate qml src -recursive -no-obsolete -locations relative -ts i18n\lastudio_en.ts i18n\lastudio_vi.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code -- i18n/lastudio_en.ts i18n/lastudio_vi.ts
+
+      - name: Configure and build
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:QT_ROOT_DIR)) {
+            throw "QT_ROOT_DIR was not exported by install-qt-action."
+          }
+          $qtRoot = Split-Path -Parent $env:QT_ROOT_DIR
+          .\scripts\bootstrap.ps1 -Preset windows-msvc-release -QtRoot $qtRoot -SkipDeploy
+
+      - name: Run CTest suite
+        shell: pwsh
+        run: ctest --test-dir out\build\windows-msvc-release --output-on-failure
+
+      - name: Lint QML
+        shell: pwsh
+        run: |
+          $qmllint = Join-Path $env:QT_ROOT_DIR "bin\qmllint.exe"
+          if (-not (Test-Path -LiteralPath $qmllint)) {
+            throw "qmllint.exe was not installed with the selected Qt kit."
+          }
+          # Bootstrap emits the generated module metadata below the build
+          # directory. Supplying it lets qmllint resolve LAStudio and catches
+          # broken QML imports rather than producing false positives for every
+          # in-tree component.
+          $qmlImportPath = Join-Path (Get-Location) 'out\build\windows-msvc-release'
+          if (-not (Test-Path -LiteralPath (Join-Path $qmlImportPath 'LAStudio\qmldir'))) {
+            throw "Generated LAStudio QML module metadata is missing: $qmlImportPath"
+          }
+          $qmlFiles = Get-ChildItem -LiteralPath qml -Recurse -Filter *.qml -File | ForEach-Object FullName
+          $report = Join-Path $env:RUNNER_TEMP 'qmllint.json'
+          & $qmllint --qmldirs $qmlImportPath --json $report --max-warnings 0 `
+              --unqualified info --unresolved-type info --missing-property info `
+              --Quick.layout-positioning info --duplicate-property-binding info `
+              --use-proper-function info $qmlFiles | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content -LiteralPath $report
+            exit $LASTEXITCODE
+          }
+
+  package-dry-run:
+    name: Manual packaging rehearsal
+    if: github.event_name == 'workflow_dispatch'
+    needs: build-and-test
+    runs-on: windows-2022
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Require main branch
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -ne 'refs/heads/main') {
+            throw "Packaging rehearsal must be dispatched from main; got $env:GITHUB_REF."
+          }
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@d325aaf2a8baeeda41ad0b5d39f84a6af9bcf005 # v4.3.1
+        with:
+          version: "6.9.3"
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          dir: C:\\Qt
+          modules: qtmultimedia qtimageformats
+
+      - name: Install 7-Zip
+        shell: pwsh
+        run: choco install 7zip --version 26.2.0 --yes --no-progress
+
+      - name: Bootstrap pinned build dependencies
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:QT_ROOT_DIR)) {
+            throw "QT_ROOT_DIR was not exported by install-qt-action."
+          }
+          $qtRoot = Split-Path -Parent $env:QT_ROOT_DIR
+          .\scripts\bootstrap.ps1 -Preset windows-msvc-release -QtRoot $qtRoot -SkipDeploy
+
+      - name: Stage release payload without publishing
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:QT_ROOT_DIR)) {
+            throw "QT_ROOT_DIR was not exported by install-qt-action."
+          }
+          $qtRoot = Split-Path -Parent $env:QT_ROOT_DIR
+          .\scripts\package.ps1 -Preset windows-msvc-release -QtRoot $qtRoot -VcpkgRoot .deps\vcpkg -LlamaCppSourceDir .deps\llama.cpp -SkipInstaller
+
+      - name: Verify staged payload
+        shell: pwsh
+        run: |
+          $required = @(
+            'out\stage\bin\LA Studio.exe',
+            'out\stage\licenses',
+            'out\stage\licenses\SOURCE-OFFER.txt'
+          )
+          $missing = $required | Where-Object { -not (Test-Path -LiteralPath $_) }
+          if ($missing) {
+            throw "Packaging rehearsal is missing staged payload paths: $($missing -join ', ')"
+          }

@@ -1,6 +1,7 @@
 #include "WorkflowGraphRunner.h"
 
 #include <QUuid>
+#include <algorithm>
 
 namespace LAStudio {
 
@@ -66,7 +67,6 @@ bool WorkflowGraphRunner::run(const WorkflowGraph &graph, const QVariantMap &ini
     m_runIdentity.runId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     m_runIdentity.workflowId = graph.id;
     m_runIdentity.workflowVersion = graph.version;
-    journalEvent(QStringLiteral("run.queued"));
     m_order = graph.topologicalOrder();
     m_orderIndex = 0;
     m_initialInputs = initialInputs;
@@ -78,9 +78,94 @@ bool WorkflowGraphRunner::run(const WorkflowGraph &graph, const QVariantMap &ini
     m_runIdentity.nodeRunId.clear();
     m_running = true;
     emit stateChanged();
-    journalEvent(QStringLiteral("run.started"));
+    const QJsonObject runSnapshot{{QStringLiteral("workflowId"), graph.id},
+                                  {QStringLiteral("workflowVersion"), graph.version},
+                                  {QStringLiteral("graph"), graph.toJson()},
+                                  {QStringLiteral("initialInputs"), QJsonObject::fromVariantMap(initialInputs)}};
+    // The queued event also carries the snapshot: a process may stop in the
+    // tiny interval before run.started is appended.
+    journalEvent(QStringLiteral("run.queued"), runSnapshot);
+    journalEvent(QStringLiteral("run.started"), runSnapshot);
     startNextNode();
     return true;
+}
+
+bool WorkflowGraphRunner::resumeInterrupted(const QString &runId)
+{
+    if (m_running || !m_journal || runId.trimmed().isEmpty()) return false;
+    QString journalError;
+    const QList<WorkflowRunEvent> events = m_journal->read(runId, &journalError);
+    if (!journalError.isEmpty() || events.isEmpty()) { m_error = journalError; emit stateChanged(); return false; }
+    const QString lastEvent = events.constLast().eventType;
+    if (lastEvent == QStringLiteral("run.completed") || lastEvent == QStringLiteral("run.failed")
+        || lastEvent == QStringLiteral("run.cancelled") || lastEvent == QStringLiteral("run.discarded")) return false;
+
+    WorkflowGraph restoredGraph;
+    QVariantMap restoredInputs;
+    bool foundStart = false;
+    for (const WorkflowRunEvent &event : events) {
+        if (event.eventType != QStringLiteral("run.started")
+            && event.eventType != QStringLiteral("run.queued")) continue;
+        QStringList graphErrors;
+        restoredGraph = WorkflowGraph::fromJson(event.payload.value(QStringLiteral("graph")).toObject(), &graphErrors);
+        restoredInputs = event.payload.value(QStringLiteral("initialInputs")).toObject().toVariantMap();
+        foundStart = graphErrors.isEmpty() && !restoredGraph.id.isEmpty();
+        break;
+    }
+    if (!foundStart) { m_error = QStringLiteral("Workflow journal does not contain a recoverable graph snapshot."); emit stateChanged(); return false; }
+    const QStringList validationErrors = validate(restoredGraph);
+    if (!validationErrors.isEmpty()) { m_error = validationErrors.join(QStringLiteral("\n")); emit stateChanged(); return false; }
+
+    const QStringList restoredOrder = restoredGraph.topologicalOrder();
+    QVariantMap restoredArtifacts;
+    int completedCount = 0;
+    for (const WorkflowRunEvent &event : events) {
+        if (event.eventType != QStringLiteral("node.completed")) continue;
+        const QString nodeId = event.payload.value(QStringLiteral("nodeId")).toString();
+        if (completedCount >= restoredOrder.size() || restoredOrder.at(completedCount) != nodeId) {
+            m_error = QStringLiteral("Workflow journal has an invalid completed-node sequence.");
+            emit stateChanged();
+            return false;
+        }
+        const QVariantMap outputs = event.payload.value(QStringLiteral("outputs")).toObject().toVariantMap();
+        for (auto it = outputs.cbegin(); it != outputs.cend(); ++it)
+            restoredArtifacts.insert(nodeId + QLatin1Char('.') + it.key(), it.value());
+        ++completedCount;
+    }
+    m_graph = restoredGraph;
+    m_order = restoredOrder;
+    m_orderIndex = completedCount;
+    m_initialInputs = restoredInputs;
+    m_artifacts = restoredArtifacts;
+    m_runIdentity = {};
+    m_runIdentity.runId = runId;
+    m_runIdentity.workflowId = restoredGraph.id;
+    m_runIdentity.workflowVersion = restoredGraph.version;
+    m_running = true;
+    m_waitingForInput = false;
+    m_activeNodeId.clear();
+    m_error.clear();
+    m_progress = m_order.isEmpty() ? 0 : 100 * m_orderIndex / m_order.size();
+    journalEvent(QStringLiteral("run.resumed"), QJsonObject{{QStringLiteral("resumedAfter"), lastEvent},
+                                                              {QStringLiteral("completedNodeCount"), completedCount}});
+    emit stateChanged();
+    startNextNode();
+    return true;
+}
+
+bool WorkflowGraphRunner::discardInterrupted(const QString &runId)
+{
+    if (m_running || !m_journal || runId.trimmed().isEmpty()) return false;
+    const QList<WorkflowInterruptedRun> interrupted = m_journal->interruptedRuns();
+    const bool found = std::any_of(interrupted.cbegin(), interrupted.cend(), [&runId](const WorkflowInterruptedRun &run) {
+        return run.runId == runId;
+    });
+    if (!found) return false;
+    WorkflowRunEvent event;
+    event.runId = runId;
+    event.eventType = QStringLiteral("run.discarded");
+    event.payload = QJsonObject{{QStringLiteral("reason"), QStringLiteral("discarded_by_user")}};
+    return m_journal->append(event);
 }
 
 void WorkflowGraphRunner::cancel()
@@ -88,7 +173,7 @@ void WorkflowGraphRunner::cancel()
     if (!m_running) return;
     journalEvent(QStringLiteral("run.cancel_requested"));
     if (m_executor) m_executor->cancel();
-    fail(QStringLiteral("Workflow run was canceled."));
+    finishCancelled();
 }
 
 bool WorkflowGraphRunner::resume(const QVariantMap &decision)
@@ -153,7 +238,8 @@ void WorkflowGraphRunner::startNextNode()
     m_progress = m_order.isEmpty() ? 0 : (100 * m_orderIndex / m_order.size());
     emit stateChanged(); emit nodeStarted(node->id); emit nodeRunStarted(node->id, m_runIdentity.nodeRunId);
     journalEvent(QStringLiteral("node.started"), QJsonObject{{QStringLiteral("nodeId"), node->id},
-                                                              {QStringLiteral("nodeType"), node->typeId}});
+                                                              {QStringLiteral("nodeType"), node->typeId},
+                                                              {QStringLiteral("orderIndex"), m_orderIndex}});
     m_executor->start(inputs, node->parameters);
 }
 
@@ -170,7 +256,8 @@ void WorkflowGraphRunner::onExecutorCompleted(const QVariantMap &outputs)
 {
     if (!m_running || !m_executor || sender() != m_executor.data()) return;
     const QString nodeId = m_activeNodeId;
-    journalEvent(QStringLiteral("node.completed"), QJsonObject{{QStringLiteral("nodeId"), nodeId}});
+    journalEvent(QStringLiteral("node.completed"), QJsonObject{{QStringLiteral("nodeId"), nodeId},
+                                                                {QStringLiteral("outputs"), QJsonObject::fromVariantMap(outputs)}});
     for (auto it = outputs.cbegin(); it != outputs.cend(); ++it) m_artifacts.insert(nodeId + QLatin1Char('.') + it.key(), it.value());
     emit nodeCompleted(nodeId, outputs);
     m_executor->deleteLater(); m_executor = nullptr; m_runIdentity.nodeRunId.clear(); ++m_orderIndex; startNextNode();
@@ -199,6 +286,19 @@ void WorkflowGraphRunner::fail(const QString &message)
     if (m_executor) { m_executor->deleteLater(); m_executor = nullptr; }
     journalEvent(QStringLiteral("run.failed"), QJsonObject{{QStringLiteral("error"), message}});
     m_running = false; m_waitingForInput = false; m_error = message; m_activeNodeId.clear(); m_runIdentity.nodeRunId.clear(); emit stateChanged(); emit failed(message);
+}
+
+void WorkflowGraphRunner::finishCancelled()
+{
+    if (m_executor) { m_executor->deleteLater(); m_executor = nullptr; }
+    journalEvent(QStringLiteral("run.cancelled"));
+    m_running = false;
+    m_waitingForInput = false;
+    m_error.clear();
+    m_activeNodeId.clear();
+    m_runIdentity.nodeRunId.clear();
+    emit stateChanged();
+    emit cancelled();
 }
 
 void WorkflowGraphRunner::journalEvent(const QString &eventType, const QJsonObject &payload)

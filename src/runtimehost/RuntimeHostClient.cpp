@@ -1,6 +1,8 @@
 #include "RuntimeHostClient.h"
 
 #include <QCoreApplication>
+#include <QElapsedTimer>
+#include <QProcessEnvironment>
 #include <QRandomGenerator>
 #include <QThread>
 
@@ -9,6 +11,11 @@ namespace LAStudio {
 RuntimeHostClient::RuntimeHostClient(QObject *parent)
     : QObject(parent)
 {
+    connect(&m_process,
+            static_cast<void (QProcess::*)(int, QProcess::ExitStatus)>(&QProcess::finished),
+            this, &RuntimeHostClient::onProcessFinished);
+    connect(&m_process, &QProcess::errorOccurred,
+            this, &RuntimeHostClient::onProcessError);
 }
 
 RuntimeHostClient::~RuntimeHostClient()
@@ -29,15 +36,23 @@ bool RuntimeHostClient::start(const QString &hostExecutable, QString *error)
         return false;
     }
 
-    // A previous host may have exited unexpectedly.  Reset the old socket
-    // state before reusing this client for a reload; otherwise QLocalSocket
-    // can remain in ClosingState and reject the new endpoint connection.
+    // A previous host may have left its process alive while the local socket
+    // became unusable. Terminate that orphan before a supervised restart: a
+    // QProcess cannot be started again while it still owns the old child.
+    if (m_process.state() != QProcess::NotRunning) {
+        m_shutdownRequested = true;
+        m_process.kill();
+        m_process.waitForFinished(2000);
+    }
+
+    // Reset the old socket state before reusing this client; otherwise
+    // QLocalSocket can remain in ClosingState and reject the new endpoint.
     if (m_socket.state() != QLocalSocket::UnconnectedState) {
         m_socket.abort();
     }
     m_socket.close();
 
-    const quint32 nonce = QRandomGenerator::global()->generate();
+    const quint32 nonce = QRandomGenerator::system()->generate();
     // Windows named-pipe names reject the dash-separated form on some Qt
     // builds; keep the endpoint to a conservative alphanumeric/underscore
     // name that is valid on Windows and Unix.
@@ -45,12 +60,18 @@ bool RuntimeHostClient::start(const QString &hostExecutable, QString *error)
                        .arg(QCoreApplication::applicationPid())
                        .arg(nonce, 8, 16, QLatin1Char('0'));
     m_token = QStringLiteral("%1-%2")
-                  .arg(QRandomGenerator::global()->generate64(), 16, 16, QLatin1Char('0'))
-                  .arg(QRandomGenerator::global()->generate64(), 16, 16, QLatin1Char('0'));
+                  .arg(QRandomGenerator::system()->generate64(), 16, 16, QLatin1Char('0'))
+                  .arg(QRandomGenerator::system()->generate64(), 16, 16, QLatin1Char('0'));
 
+    m_shutdownRequested = false;
+    m_hostReady = false;
+    m_exitNotified = false;
+    m_lastExitReason.clear();
     m_process.setProgram(hostExecutable);
-    m_process.setArguments({QStringLiteral("--socket"), m_socketName,
-                             QStringLiteral("--token"), m_token});
+    m_process.setArguments({QStringLiteral("--socket"), m_socketName});
+    QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+    environment.insert(QStringLiteral("LASTUDIO_RUNTIME_HOST_TOKEN"), m_token);
+    m_process.setProcessEnvironment(environment);
     m_process.setProcessChannelMode(QProcess::SeparateChannels);
     m_process.start();
     if (!m_process.waitForStarted(10000)) {
@@ -58,10 +79,12 @@ bool RuntimeHostClient::start(const QString &hostExecutable, QString *error)
         return false;
     }
     if (!connectSocket(&m_socket, error) || !authenticate(&m_socket, error)) {
+        m_shutdownRequested = true;
         m_process.kill();
         m_process.waitForFinished(2000);
         return false;
     }
+    m_hostReady = true;
     return true;
 }
 
@@ -80,16 +103,19 @@ bool RuntimeHostClient::ping(QString *error)
 bool RuntimeHostClient::shutdown(QString *error)
 {
     if (m_process.state() == QProcess::NotRunning) {
+        m_hostReady = false;
         m_socket.abort();
         m_socket.close();
         return true;
     }
+    m_shutdownRequested = true;
     RuntimeHostFrame response;
     const bool ok = request(RuntimeHostMessage::Shutdown, QCborMap{}, &response, error);
     m_socket.disconnectFromServer();
     if (m_process.state() != QProcess::NotRunning) {
         m_process.waitForFinished(2000);
     }
+    m_hostReady = false;
     return ok;
 }
 
@@ -180,7 +206,11 @@ bool RuntimeHostClient::request(RuntimeHostMessage message,
         return false;
     }
     if (!isRunning()) {
-        if (error) *error = QStringLiteral("RuntimeHost is not running.");
+        if (error) {
+            *error = m_lastExitReason.isEmpty()
+                ? QStringLiteral("RuntimeHost is not running. It will restart automatically on the next request; retry the operation.")
+                : m_lastExitReason;
+        }
         return false;
     }
 
@@ -271,7 +301,10 @@ bool RuntimeHostClient::readResponse(QLocalSocket *socket,
                                      RuntimeHostFrame *response,
                                      QString *error)
 {
+    constexpr int kInactivityTimeoutMs = 60000;
     RuntimeHostFrameParser parser;
+    QElapsedTimer inactivity;
+    inactivity.start();
     while (true) {
         QString parseError;
         while (const auto frame = parser.takeNext(&parseError)) {
@@ -281,6 +314,7 @@ bool RuntimeHostClient::readResponse(QLocalSocket *socket,
                     && m_progressCallback) {
                     m_progressCallback(progress);
                 }
+                inactivity.restart();
                 continue;
             }
             if (!parseError.isEmpty()) {
@@ -299,18 +333,71 @@ bool RuntimeHostClient::readResponse(QLocalSocket *socket,
             if (error) *error = parseError;
             return false;
         }
-        if (!socket->waitForReadyRead(10000)) {
+        const int remaining = kInactivityTimeoutMs - static_cast<int>(inactivity.elapsed());
+        if (remaining <= 0) {
             if (error) {
                 if (m_process.state() == QProcess::NotRunning) {
-                    *error = QStringLiteral("RuntimeHost exited unexpectedly (code %1). Reload the model to restart its isolated runtime.")
-                                  .arg(m_process.exitCode());
+                    *error = m_lastExitReason.isEmpty()
+                        ? QStringLiteral("RuntimeHost exited unexpectedly. It will restart automatically on the next request; retry the operation.")
+                        : m_lastExitReason;
                 } else {
-                    *error = QStringLiteral("RuntimeHost response timed out: %1").arg(socket->errorString());
+                    *error = QStringLiteral("RuntimeHost made no progress or response for %1 seconds. "
+                                            "Cancel or reload the model and retry.")
+                                 .arg(kInactivityTimeoutMs / 1000);
                 }
             }
             return false;
         }
-        parser.append(socket->readAll());
+        if (!socket->waitForReadyRead(qMin(1000, remaining))) {
+            if (m_process.state() == QProcess::NotRunning) {
+                if (error) {
+                    *error = m_lastExitReason.isEmpty()
+                        ? QStringLiteral("RuntimeHost exited unexpectedly. It will restart automatically on the next request; retry the operation.")
+                        : m_lastExitReason;
+                }
+                return false;
+            }
+            continue;
+        }
+        const QByteArray data = socket->readAll();
+        if (!data.isEmpty()) {
+            inactivity.restart();
+            parser.append(data);
+        }
+    }
+}
+
+void RuntimeHostClient::onProcessFinished(int exitCode, QProcess::ExitStatus exitStatus)
+{
+    const QString reason = exitStatus == QProcess::CrashExit
+        ? QStringLiteral("RuntimeHost crashed (code %1). It will restart automatically on the next request; retry the operation.").arg(exitCode)
+        : QStringLiteral("RuntimeHost exited unexpectedly (code %1). It will restart automatically on the next request; retry the operation.").arg(exitCode);
+    reportUnexpectedExit(reason);
+}
+
+void RuntimeHostClient::onProcessError(QProcess::ProcessError error)
+{
+    if (error == QProcess::UnknownError || m_shutdownRequested) return;
+    reportUnexpectedExit(QStringLiteral("RuntimeHost process error: %1. It will restart automatically on the next request; retry the operation.")
+                             .arg(m_process.errorString()));
+}
+
+void RuntimeHostClient::reportUnexpectedExit(const QString &reason)
+{
+    if (m_shutdownRequested) {
+        m_hostReady = false;
+        m_socket.abort();
+        m_socket.close();
+        return;
+    }
+    const bool unexpected = m_hostReady && !m_exitNotified;
+    m_hostReady = false;
+    m_socket.abort();
+    m_socket.close();
+    m_lastExitReason = reason;
+    if (unexpected) {
+        m_exitNotified = true;
+        emit hostExited(m_lastExitReason);
     }
 }
 

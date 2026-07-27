@@ -1043,7 +1043,9 @@ WorkflowStudioShell {
         onNodeConfigureRequested: function(nodeId) { root.openNodeModel(nodeId) }
     }
 
-
+    // This popup is explicitly reparented to Overlay.overlay and is not managed
+    // by the WorkflowStudioShell layout.
+    // qmllint disable Quick.layout-positioning
     Dialog {
         id: sttConfigurationDialog
         parent: Overlay.overlay
@@ -1077,6 +1079,7 @@ WorkflowStudioShell {
             }
         }
     }
+    // qmllint enable Quick.layout-positioning
 
     FileDialog {
         id: audioFileDialog

@@ -120,7 +120,7 @@ Rectangle {
                 id: statusRow
                 anchors.centerIn: parent
                 spacing: 5
-                Rectangle { width: 6; height: 6; radius: 3; color: root.dubbing.processing ? Theme.warning : Theme.success }
+                Rectangle { Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: root.dubbing.processing ? Theme.warning : Theme.success }
                 Text { text: root.statusText; color: root.dubbing.processing ? Theme.warning : Theme.success; font.pixelSize: Theme.fontSmall; font.bold: true }
             }
         }

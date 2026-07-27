@@ -38,6 +38,8 @@ signals:
 private:
     bool openDatabase();
     bool ensureSchema();
+    bool verifyDatabaseIntegrity() const;
+    bool quarantineDatabase(const QString &reason);
     bool importCatalog(const QVariantList &modelCategories,
                        const QVariantList &ttsFamilies,
                        const QVariantList &sttFamilies,

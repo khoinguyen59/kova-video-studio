@@ -39,8 +39,8 @@ Rectangle {
 
             // Small glowing icon container
             Rectangle {
-                width: 32
-                height: 32
+                Layout.preferredWidth: 32
+                Layout.preferredHeight: 32
                 radius: Theme.radiusSmall
                 color: Qt.rgba(124, 77, 255, 0.1)
                 border.color: Qt.rgba(124, 77, 255, 0.25)
@@ -82,7 +82,7 @@ Rectangle {
         // Divider
         Rectangle {
             Layout.fillWidth: true
-            height: 1
+            Layout.preferredHeight: 1
             color: Theme.surfaceAlt
             opacity: 0.3
             visible: root.title !== "" && contentLayout.children.length > 0

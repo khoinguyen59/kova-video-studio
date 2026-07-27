@@ -9,6 +9,8 @@
 #include <QDir>
 #include <QFile>
 #include <QTemporaryDir>
+#include <QtConcurrent>
+#include <QFutureWatcher>
 #include <QtMath>
 
 namespace LAStudio {
@@ -33,6 +35,107 @@ QVariantList buildWaveformPreview(const QVector<float> &samples, int maximumPoin
     return preview;
 }
 
+struct FitAndAssembleResult {
+    QVector<QVariantMap> cuePatches;
+    QString outputPath;
+    QVariantMap summary;
+    QString error;
+    bool cancelled = false;
+};
+
+FitAndAssembleResult fitAndAssembleInBackground(const QVector<TimedTextCue> &cues,
+                                                const QVector<qint64> &naturalDurationsMs,
+                                                const QVector<QString> &naturalPaths,
+                                                const QString &jobDirectory,
+                                                int sampleRate,
+                                                const std::shared_ptr<std::atomic_bool> &cancelled)
+{
+    FitAndAssembleResult result;
+    result.cuePatches.resize(cues.size());
+    const QVector<SubtitleFit> fits = SubtitleSmartFitPlanner::plan(cues, naturalDurationsMs);
+    QVector<QString> fittedPaths(cues.size());
+    int slowed = 0, stretched = 0, trimmed = 0, failed = 0, dropped = 0;
+
+    for (int i = 0; i < cues.size(); ++i) {
+        if (cancelled && cancelled->load(std::memory_order_relaxed)) {
+            result.cancelled = true;
+            return result;
+        }
+        const SubtitleFit &fit = fits.at(i);
+        QVariantMap patch{{QStringLiteral("scheduledStartMs"), fit.scheduledStartMs},
+                          {QStringLiteral("effectiveEndMs"), fit.effectiveEndMs},
+                          {QStringLiteral("slotDurationMs"), fit.slotMs},
+                          {QStringLiteral("audioRate"), fit.audioRate},
+                          {QStringLiteral("outputDurationMs"), fit.outputMs},
+                          {QStringLiteral("overflowMs"), fit.overflowMs},
+                          {QStringLiteral("fitStatus"), fit.status}};
+        if (fit.droppedOverlap) {
+            patch.insert(QStringLiteral("state"), QStringLiteral("dropped_overlap"));
+            ++dropped;
+        } else if (naturalPaths.at(i).isEmpty()) {
+            patch.insert(QStringLiteral("state"), QStringLiteral("failed_silence"));
+            ++failed;
+        } else {
+            const QString output = QDir(jobDirectory).filePath(QStringLiteral("fitted-%1.wav").arg(i));
+            AudioRenderResult renderResult;
+            QString renderError;
+            const bool ok = AudioTimelineRenderer::renderClip(
+                naturalPaths.at(i), output, sampleRate,
+                qMax(1, qRound64(fit.outputMs * sampleRate / 1000.0)), fit.audioRate,
+                &renderResult, &renderError);
+            if (!ok) {
+                patch.insert(QStringLiteral("state"), QStringLiteral("failed_silence"));
+                patch.insert(QStringLiteral("error"), renderError);
+                ++failed;
+            } else {
+                fittedPaths[i] = output;
+                patch.insert(QStringLiteral("audioPath"), output);
+                patch.insert(QStringLiteral("state"), QStringLiteral("ready"));
+                const WavIO::WavData fittedAudio = WavIO::loadAsFloat(output);
+                patch.insert(QStringLiteral("waveformSamples"), buildWaveformPreview(fittedAudio.samples));
+                patch.insert(QStringLiteral("sampleRate"), fittedAudio.sampleRate);
+                if (renderResult.usedFallback)
+                    patch.insert(QStringLiteral("warning"), QStringLiteral("FFmpeg atempo unavailable; linear fallback used."));
+                if (fit.status == QStringLiteral("audio_slowed")) ++slowed;
+                if (fit.status == QStringLiteral("audio_stretched")) ++stretched;
+                if (fit.overflowMs > 0) ++trimmed;
+            }
+        }
+        result.cuePatches[i] = patch;
+    }
+
+    if (cancelled && cancelled->load(std::memory_order_relaxed)) {
+        result.cancelled = true;
+        return result;
+    }
+
+    QVector<AudioTimelinePlacement> placements;
+    placements.reserve(fits.size());
+    for (const SubtitleFit &fit : fits)
+        placements.append({fit.scheduledStartMs, fit.effectiveEndMs, !fit.droppedOverlap});
+    result.outputPath = QDir(jobDirectory).filePath(QStringLiteral("subtitle-voice.wav"));
+    QString assembleError;
+    if (!AudioTimelineRenderer::assemble(fittedPaths, placements, result.outputPath, sampleRate, &assembleError)) {
+        result.error = assembleError.isEmpty() ? QStringLiteral("Could not assemble final WAV.") : assembleError;
+        return result;
+    }
+
+    qint64 durationMs = 0;
+    for (const SubtitleFit &fit : fits) durationMs = qMax(durationMs, fit.effectiveEndMs);
+    const WavIO::WavData outputAudio = WavIO::loadAsFloat(result.outputPath);
+    result.summary = {{QStringLiteral("totalCues"), cues.size()},
+                      {QStringLiteral("slowedCues"), slowed},
+                      {QStringLiteral("stretchedCues"), stretched},
+                      {QStringLiteral("trimmedCues"), trimmed},
+                      {QStringLiteral("failedCues"), failed},
+                      {QStringLiteral("droppedOverlaps"), dropped},
+                      {QStringLiteral("durationMs"), durationMs},
+                      {QStringLiteral("sampleRate"), outputAudio.sampleRate},
+                      {QStringLiteral("sampleCount"), outputAudio.samples.size()},
+                      {QStringLiteral("waveformSamples"), buildWaveformPreview(outputAudio.samples)}};
+    return result;
+}
+
 } // namespace
 
 TimedSpeechPipeline::TimedSpeechPipeline(TtsEngine *tts, QObject *parent)
@@ -55,7 +158,7 @@ void TimedSpeechPipeline::setPhase(const QString &phase)
 
 void TimedSpeechPipeline::resetJobDirectory()
 {
-    m_jobDirectory = std::make_unique<QTemporaryDir>(
+    m_jobDirectory = std::make_shared<QTemporaryDir>(
         PathUtils::cacheDir() + QStringLiteral("/subtitle-voice-XXXXXX"));
     if (!m_jobDirectory->isValid()) m_jobDirectory.reset();
 }
@@ -63,6 +166,9 @@ void TimedSpeechPipeline::resetJobDirectory()
 bool TimedSpeechPipeline::start(const QVector<TimedTextCue> &cues, const QVariantMap &settings)
 {
     if (m_processing || cues.isEmpty() || !m_tts || !m_tts->isModelLoaded()) return false;
+    ++m_fitRequestId;
+    if (m_fitCancelled) m_fitCancelled->store(true, std::memory_order_relaxed);
+    m_fitCancelled.reset();
     resetJobDirectory();
     if (!m_jobDirectory) {
         emit errorOccurred(QStringLiteral("Cannot create temporary subtitle voice directory."));
@@ -171,96 +277,51 @@ void TimedSpeechPipeline::fitAndAssemble()
     if (m_sampleRate <= 0) m_sampleRate = m_tts ? m_tts->sampleRate() : 22050;
     if (m_sampleRate <= 0) m_sampleRate = 22050;
     setPhase(QStringLiteral("fitting"));
-    const QVector<SubtitleFit> fits = SubtitleSmartFitPlanner::plan(m_cues, m_naturalDurationsMs);
-    QVector<QString> fittedPaths(m_cues.size());
-    int slowed = 0, stretched = 0, trimmed = 0, failed = 0, dropped = 0;
+    const quint64 requestId = ++m_fitRequestId;
+    const auto cancelled = std::make_shared<std::atomic_bool>(false);
+    m_fitCancelled = cancelled;
+    const auto jobDirectory = m_jobDirectory;
+    const QVector<TimedTextCue> cues = m_cues;
+    const QVector<qint64> naturalDurationsMs = m_naturalDurationsMs;
+    const QVector<QString> naturalPaths = m_naturalPaths;
+    const int sampleRate = m_sampleRate;
 
-    for (int i = 0; i < m_cues.size(); ++i) {
-        if (m_cancelRequested) return;
-        const SubtitleFit &fit = fits.at(i);
-        QVariantMap patch{{QStringLiteral("scheduledStartMs"), fit.scheduledStartMs},
-                          {QStringLiteral("effectiveEndMs"), fit.effectiveEndMs},
-                          {QStringLiteral("slotDurationMs"), fit.slotMs},
-                          {QStringLiteral("audioRate"), fit.audioRate},
-                          {QStringLiteral("outputDurationMs"), fit.outputMs},
-                          {QStringLiteral("overflowMs"), fit.overflowMs},
-                          {QStringLiteral("fitStatus"), fit.status}};
-        if (fit.droppedOverlap) {
-            patch.insert(QStringLiteral("state"), QStringLiteral("dropped_overlap"));
-            ++dropped;
-        } else if (m_naturalPaths.at(i).isEmpty()) {
-            patch.insert(QStringLiteral("state"), QStringLiteral("failed_silence"));
-            ++failed;
-        } else {
-            const QString output = QDir(m_jobDirectory->path()).filePath(
-                QStringLiteral("fitted-%1.wav").arg(i));
-            AudioRenderResult renderResult;
-            QString renderError;
-            const bool ok = AudioTimelineRenderer::renderClip(
-                m_naturalPaths.at(i), output, m_sampleRate,
-                qMax(1, qRound64(fit.outputMs * m_sampleRate / 1000.0)), fit.audioRate,
-                &renderResult, &renderError);
-            if (!ok) {
-                patch.insert(QStringLiteral("state"), QStringLiteral("failed_silence"));
-                patch.insert(QStringLiteral("error"), renderError);
-                ++failed;
-            } else {
-                fittedPaths[i] = output;
-                patch.insert(QStringLiteral("audioPath"), output);
-                patch.insert(QStringLiteral("state"), QStringLiteral("ready"));
-                const WavIO::WavData fittedAudio = WavIO::loadAsFloat(output);
-                patch.insert(QStringLiteral("waveformSamples"),
-                             buildWaveformPreview(fittedAudio.samples));
-                patch.insert(QStringLiteral("sampleRate"), fittedAudio.sampleRate);
-                if (renderResult.usedFallback)
-                    patch.insert(QStringLiteral("warning"), QStringLiteral("FFmpeg atempo unavailable; linear fallback used."));
-                if (fit.status == QStringLiteral("audio_slowed")) ++slowed;
-                if (fit.status == QStringLiteral("audio_stretched")) ++stretched;
-                if (fit.overflowMs > 0) ++trimmed;
-            }
+    auto *watcher = new QFutureWatcher<FitAndAssembleResult>(this);
+    connect(watcher, &QFutureWatcher<FitAndAssembleResult>::finished, this,
+            [this, watcher, requestId]() {
+        const FitAndAssembleResult result = watcher->result();
+        watcher->deleteLater();
+        if (requestId != m_fitRequestId || m_cancelRequested || !m_processing || result.cancelled) return;
+
+        for (int i = 0; i < result.cuePatches.size(); ++i) {
+            updateCue(i, result.cuePatches.at(i));
+            emit progressChanged(70 + qRound(20.0 * (i + 1) / qMax(1, result.cuePatches.size())));
         }
-        updateCue(i, patch);
-        emit progressChanged(70 + qRound(20.0 * (i + 1) / qMax(1, m_cues.size())));
-    }
+        if (!result.error.isEmpty()) {
+            m_processing = false;
+            setPhase(QStringLiteral("error"));
+            emit errorOccurred(result.error);
+            return;
+        }
 
-    setPhase(QStringLiteral("assembling"));
-    const QString output = QDir(m_jobDirectory->path()).filePath(QStringLiteral("subtitle-voice.wav"));
-    QVector<AudioTimelinePlacement> placements;
-    placements.reserve(fits.size());
-    for (const SubtitleFit &fit : fits)
-        placements.append({fit.scheduledStartMs, fit.effectiveEndMs, !fit.droppedOverlap});
-    QString assembleError;
-    if (!AudioTimelineRenderer::assemble(fittedPaths, placements, output, m_sampleRate, &assembleError)) {
         m_processing = false;
-        setPhase(QStringLiteral("error"));
-        emit errorOccurred(assembleError.isEmpty() ? QStringLiteral("Could not assemble final WAV.") : assembleError);
-        return;
-    }
-
-    qint64 durationMs = 0;
-    for (const SubtitleFit &fit : fits) durationMs = qMax(durationMs, fit.effectiveEndMs);
-    const WavIO::WavData outputAudio = WavIO::loadAsFloat(output);
-    const QVariantMap summary{{QStringLiteral("totalCues"), m_cues.size()},
-                              {QStringLiteral("slowedCues"), slowed},
-                              {QStringLiteral("stretchedCues"), stretched},
-                              {QStringLiteral("trimmedCues"), trimmed},
-                              {QStringLiteral("failedCues"), failed},
-                              {QStringLiteral("droppedOverlaps"), dropped},
-                              {QStringLiteral("durationMs"), durationMs},
-                              {QStringLiteral("sampleRate"), outputAudio.sampleRate},
-                              {QStringLiteral("sampleCount"), outputAudio.samples.size()},
-                              {QStringLiteral("waveformSamples"),
-                               buildWaveformPreview(outputAudio.samples)}};
-    m_processing = false;
-    setPhase(QStringLiteral("ready"));
-    emit progressChanged(100);
-    emit finished(output, summary);
+        setPhase(QStringLiteral("ready"));
+        emit progressChanged(100);
+        emit finished(result.outputPath, result.summary);
+    });
+    watcher->setFuture(QtConcurrent::run([cues, naturalDurationsMs, naturalPaths, jobDirectory,
+                                           sampleRate, cancelled]() {
+        return fitAndAssembleInBackground(cues, naturalDurationsMs, naturalPaths,
+                                          jobDirectory->path(), sampleRate, cancelled);
+    }));
 }
 
 void TimedSpeechPipeline::cancel()
 {
     if (!m_processing) return;
     m_cancelRequested = true;
+    ++m_fitRequestId;
+    if (m_fitCancelled) m_fitCancelled->store(true, std::memory_order_relaxed);
     if (m_tts) m_tts->cancelProcessing();
     m_processing = false;
     setPhase(QStringLiteral("cancelled"));

@@ -57,7 +57,7 @@ Rectangle {
         Rectangle {
             Layout.alignment: Qt.AlignHCenter
             Layout.preferredWidth: 28
-            height: 1
+            Layout.preferredHeight: 1
             color: Qt.rgba(1, 1, 1, 0.07)
         }
 
@@ -86,6 +86,14 @@ Rectangle {
 
                         Layout.fillWidth: true
                         Layout.preferredHeight: 46
+                        activeFocusOnTab: true
+                        Accessible.role: Accessible.Button
+                        Accessible.name: modelData.label
+                        Accessible.description: isCurrent ? qsTr("Current page") : qsTr("Open %1").arg(modelData.label)
+                        Accessible.onPressAction: root.navigated(modelData.id)
+
+                        Keys.onReturnPressed: root.navigated(modelData.id)
+                        Keys.onSpacePressed: root.navigated(modelData.id)
 
                         Rectangle {
                             anchors.verticalCenter: parent.verticalCenter
@@ -148,6 +156,16 @@ Rectangle {
             id: workflowsItem
             Layout.fillWidth: true
             Layout.preferredHeight: 46
+            activeFocusOnTab: true
+            Accessible.role: Accessible.Button
+            Accessible.name: qsTr("Activity")
+            Accessible.description: activeCount > 0
+                                    ? qsTr("Open activity. %1 active workflows.").arg(activeCount)
+                                    : qsTr("Open activity")
+            Accessible.onPressAction: root.workflowsClicked()
+
+            Keys.onReturnPressed: root.workflowsClicked()
+            Keys.onSpacePressed: root.workflowsClicked()
 
             readonly property bool isActive: root.activitiesActive
             readonly property int activeCount: AppController.workflows.sessionCount + AppController.workflows.runningCount
@@ -237,15 +255,26 @@ Rectangle {
             id: communityItem
             Layout.fillWidth: true
             Layout.preferredHeight: 46
+            activeFocusOnTab: true
+            Accessible.role: Accessible.Button
+            Accessible.name: qsTr("Community and feedback")
+            Accessible.description: qsTr("Open the community and feedback page")
+            Accessible.onPressAction: root.communityClicked()
+
+            Keys.onReturnPressed: root.communityClicked()
+            Keys.onSpacePressed: root.communityClicked()
 
             readonly property bool isActive: root.communityActive
             readonly property bool spotlight: !isActive && !communityMouse.containsMouse
-            property real pulseOpacity: 0.18
-            property real pulseScale: 0.92
-            property real buttonScale: 1.0
-            property real buttonRotation: 0
-            property real badgeLift: 0
-            property real orbitRotation: 0
+            // These values are driven by the animations below. Do not create
+            // initial bindings here: a PropertyAnimation is also a value
+            // source, and binding both causes undefined animation behaviour.
+            property real pulseOpacity
+            property real pulseScale
+            property real buttonScale
+            property real buttonRotation
+            property real badgeLift
+            property real orbitRotation
 
             Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
@@ -360,6 +389,7 @@ Rectangle {
             SequentialAnimation on pulseOpacity {
                 running: communityItem.spotlight
                 loops: Animation.Infinite
+                NumberAnimation { from: 0.18; to: 0.18; duration: 0 }
                 NumberAnimation { to: 0.48; duration: 900; easing.type: Easing.InOutQuad }
                 NumberAnimation { to: 0.18; duration: 900; easing.type: Easing.InOutQuad }
             }
@@ -367,6 +397,7 @@ Rectangle {
             SequentialAnimation on pulseScale {
                 running: communityItem.spotlight
                 loops: Animation.Infinite
+                NumberAnimation { from: 0.92; to: 0.92; duration: 0 }
                 NumberAnimation { to: 1.07; duration: 900; easing.type: Easing.InOutQuad }
                 NumberAnimation { to: 0.92; duration: 900; easing.type: Easing.InOutQuad }
             }
@@ -374,6 +405,7 @@ Rectangle {
             SequentialAnimation on buttonScale {
                 running: communityItem.spotlight
                 loops: Animation.Infinite
+                NumberAnimation { from: 1.0; to: 1.0; duration: 0 }
                 PauseAnimation { duration: 450 }
                 NumberAnimation { to: 1.14; duration: 180; easing.type: Easing.OutCubic }
                 NumberAnimation { to: 0.96; duration: 120; easing.type: Easing.InOutQuad }
@@ -385,6 +417,7 @@ Rectangle {
             SequentialAnimation on buttonRotation {
                 running: communityItem.spotlight
                 loops: Animation.Infinite
+                NumberAnimation { from: 0; to: 0; duration: 0 }
                 PauseAnimation { duration: 360 }
                 NumberAnimation { to: -13; duration: 80; easing.type: Easing.OutCubic }
                 NumberAnimation { to: 13; duration: 95; easing.type: Easing.InOutQuad }
@@ -398,6 +431,7 @@ Rectangle {
             SequentialAnimation on badgeLift {
                 running: communityItem.spotlight
                 loops: Animation.Infinite
+                NumberAnimation { from: 0; to: 0; duration: 0 }
                 PauseAnimation { duration: 520 }
                 NumberAnimation { to: -5; duration: 150; easing.type: Easing.OutCubic }
                 NumberAnimation { to: 1; duration: 130; easing.type: Easing.InOutQuad }
@@ -433,6 +467,14 @@ Rectangle {
             id: downloadsItem
             Layout.fillWidth: true
             Layout.preferredHeight: 46
+            activeFocusOnTab: true
+            Accessible.role: Accessible.Button
+            Accessible.name: qsTr("Downloads")
+            Accessible.description: qsTr("Open downloads")
+            Accessible.onPressAction: root.downloadsClicked()
+
+            Keys.onReturnPressed: root.downloadsClicked()
+            Keys.onSpacePressed: root.downloadsClicked()
 
             readonly property bool isActive: root.downloadsActive
 
@@ -494,6 +536,16 @@ Rectangle {
             id: settingsItem
             Layout.fillWidth: true
             Layout.preferredHeight: 46
+            activeFocusOnTab: true
+            Accessible.role: Accessible.Button
+            Accessible.name: settingsItem.modelData.label
+            Accessible.description: settingsItem.isCurrent
+                                    ? qsTr("Current page")
+                                    : qsTr("Open %1").arg(settingsItem.modelData.label)
+            Accessible.onPressAction: root.navigated(settingsItem.modelData.id)
+
+            Keys.onReturnPressed: root.navigated(settingsItem.modelData.id)
+            Keys.onSpacePressed: root.navigated(settingsItem.modelData.id)
 
             readonly property var modelData: {
                 for (var i = 0; i < StudioRouteRegistry.routes.length; i++) {

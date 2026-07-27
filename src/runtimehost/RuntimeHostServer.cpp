@@ -5,10 +5,32 @@
 #include <QCborArray>
 #include <QLocalSocket>
 
+#include <algorithm>
 #include <utility>
 #include <QMetaObject>
 
 namespace LAStudio {
+
+namespace {
+
+bool constantTimeEquals(const QString &left, const QString &right)
+{
+    const QByteArray leftBytes = left.toUtf8();
+    const QByteArray rightBytes = right.toUtf8();
+    const qsizetype largest = std::max(leftBytes.size(), rightBytes.size());
+    quint64 difference = static_cast<quint64>(leftBytes.size())
+                       ^ static_cast<quint64>(rightBytes.size());
+    for (qsizetype i = 0; i < largest; ++i) {
+        const unsigned char leftByte = i < leftBytes.size()
+            ? static_cast<unsigned char>(leftBytes.at(i)) : 0;
+        const unsigned char rightByte = i < rightBytes.size()
+            ? static_cast<unsigned char>(rightBytes.at(i)) : 0;
+        difference |= static_cast<quint64>(leftByte ^ rightByte);
+    }
+    return difference == 0;
+}
+
+} // namespace
 
 RuntimeHostServer::RuntimeHostServer(QString socketName, QString token, QObject *parent)
     : QObject(parent)
@@ -100,7 +122,7 @@ void RuntimeHostServer::handleFrame(QLocalSocket *socket, const RuntimeHostFrame
 
     if (frame.message == RuntimeHostMessage::Hello) {
         const QString token = payload.value(QStringLiteral("token")).toString();
-        if (token != m_token) {
+        if (!constantTimeEquals(token, m_token)) {
             reject(socket, frame.requestId, QStringLiteral("RuntimeHost authentication failed."));
             socket->disconnectFromServer();
             return;

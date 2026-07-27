@@ -7,6 +7,10 @@ namespace LAStudio {
 
 QString PathUtils::dataDir()
 {
+    const QString overrideDir = qEnvironmentVariable("LASTUDIO_DATA_DIR").trimmed();
+    if (!overrideDir.isEmpty()) {
+        return QDir::cleanPath(overrideDir);
+    }
     return QDir::homePath() + QStringLiteral("/.lastudio");
 }
 

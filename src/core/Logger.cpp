@@ -8,6 +8,7 @@
 #include <QThread>
 #include <QSysInfo>
 #include <QCoreApplication>
+#include <QRegularExpression>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -26,6 +27,35 @@ Q_LOGGING_CATEGORY(logUI, "lastudio.ui")
 static QFile *s_logFile = nullptr;
 static QMutex s_logMutex;
 static qint64 s_sessionStartOffset = 0;
+
+QString Logger::sanitizeDiagnostics(const QString &text)
+{
+    QString sanitized = text;
+    const QString home = QDir::homePath();
+    if (!home.isEmpty()) {
+        sanitized.replace(home, QStringLiteral("<HOME>"), Qt::CaseInsensitive);
+        sanitized.replace(QDir::toNativeSeparators(home), QStringLiteral("<HOME>"), Qt::CaseInsensitive);
+        sanitized.replace(QDir::fromNativeSeparators(home), QStringLiteral("<HOME>"), Qt::CaseInsensitive);
+    }
+    sanitized.replace(QRegularExpression(
+        QStringLiteral(R"(([A-Za-z]:[\\/]+Users[\\/]+[^\\/\r\n"]+))"),
+        QRegularExpression::CaseInsensitiveOption), QStringLiteral("<HOME>"));
+    sanitized.replace(QRegularExpression(QStringLiteral(R"((/home/[^/\s]+))")),
+                      QStringLiteral("<HOME>"));
+    sanitized.replace(QRegularExpression(
+        QStringLiteral(R"((/Users/[^/\s]+))"), QRegularExpression::CaseInsensitiveOption),
+        QStringLiteral("<HOME>"));
+    sanitized.replace(QRegularExpression(
+        QStringLiteral(R"RE(((?:"?(?:preview|text|prompt|transcript|referencePath|sourceText|targetText)"?)\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^,\r\n]*))RE"),
+        QRegularExpression::CaseInsensitiveOption), QStringLiteral("\\1<redacted>"));
+    sanitized.replace(QRegularExpression(
+        QStringLiteral(R"((Authorization:\s*Bearer\s+)[^\s\"]+)"),
+        QRegularExpression::CaseInsensitiveOption), QStringLiteral("\\1<redacted>"));
+    sanitized.replace(QRegularExpression(
+        QStringLiteral(R"(((?:api[_-]?key|token|password)\s*[=:]\s*)[^\s,&\r\n]+)"),
+        QRegularExpression::CaseInsensitiveOption), QStringLiteral("<redacted>"));
+    return sanitized;
+}
 
 void messageHandler(QtMsgType type, const QMessageLogContext &context, const QString &msg)
 {
@@ -62,7 +92,7 @@ void messageHandler(QtMsgType type, const QMessageLogContext &context, const QSt
 
     const QString ts = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss.zzz");
     QString catStr = context.category ? QString::fromUtf8(context.category) : QStringLiteral("default");
-    QString finalMsg = msg;
+    QString finalMsg = Logger::sanitizeDiagnostics(msg);
     
     // Dynamically parse category prefixes like "[TtsWorker] Loaded" from legacy string logs
     if ((catStr == QStringLiteral("default") || catStr == QStringLiteral("qml")) && msg.startsWith('[')) {
@@ -70,7 +100,7 @@ void messageHandler(QtMsgType type, const QMessageLogContext &context, const QSt
         if (closeBracket > 1) {
             QString extractedCat = msg.mid(1, closeBracket - 1).trimmed();
             catStr = QStringLiteral("lastudio.%1").arg(extractedCat.toLower());
-            finalMsg = msg.mid(closeBracket + 1).trimmed();
+            finalMsg = Logger::sanitizeDiagnostics(msg.mid(closeBracket + 1).trimmed());
         }
     }
     

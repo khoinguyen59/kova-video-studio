@@ -12,6 +12,10 @@ private slots:
     void testForcedAlignmentFamilyMatching();
     void testVoiceIsolationSessionRegistered();
     void testTranslationDescriptorAndSession();
+    void testLocalApiRequiresBearerAuthentication();
+    void testCredentialStoreMigratesPlaintext();
+    void testUpdateVersionPrecedence();
+    void testUnsupportedLocalizationFallsBackAndPersists();
 };
 
 } // namespace LAStudio

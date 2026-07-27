@@ -111,6 +111,7 @@ private:
     void clearLastError();
 
     QJsonObject buildHealthDocument() const;
+    QJsonObject buildSourceDocument() const;
     QJsonObject buildModelsDocument() const;
     QJsonObject buildVoicesDocument() const;
 
@@ -135,6 +136,7 @@ private:
     static QString randomObjectId(const QString &prefix);
 
     bool checkAuthorization(const HttpRequest &request) const;
+    bool isTrustedRequestOrigin(const HttpRequest &request) const;
     HttpResponse runTtsGeneration(const QString &input,
                                   const QString &format,
                                   const QVariantMap &settings,

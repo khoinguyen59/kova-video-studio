@@ -169,14 +169,15 @@ WavIO::WavData decodeWithFfmpeg(const QString &path, QString *error)
                           QStringLiteral("-c:a"), QStringLiteral("pcm_f32le"),
                           outputPath});
     process.start();
-    if (!process.waitForStarted(5000)) {
-        setError(error, QStringLiteral("Could not start FFmpeg."));
-        return {};
-    }
     if (!process.waitForFinished(kDecodeTimeoutMs)) {
-        process.kill();
-        process.waitForFinished();
-        setError(error, QStringLiteral("FFmpeg audio decode timed out."));
+        const bool failedToStart = process.error() == QProcess::FailedToStart;
+        if (process.state() != QProcess::NotRunning) {
+            process.kill();
+            process.waitForFinished();
+        }
+        setError(error, failedToStart
+                            ? QStringLiteral("Could not start FFmpeg.")
+                            : QStringLiteral("FFmpeg audio decode timed out."));
         return {};
     }
     if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {

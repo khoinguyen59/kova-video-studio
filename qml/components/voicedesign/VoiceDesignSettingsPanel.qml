@@ -247,7 +247,7 @@ ColumnLayout {
         }
     }
 
-    Rectangle { Layout.fillWidth: true; height: 1; color: Qt.rgba(1, 1, 1, 0.07) }
+    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1, 1, 1, 0.07) }
 
     ScrollView {
         Layout.fillWidth: true
@@ -273,7 +273,7 @@ ColumnLayout {
                     useTextFieldFallback: false
                     language: root.selectedLanguage
                     enabled: !root.locked
-                    onLanguageChanged: {
+                    onLanguageSelected: function(language) {
                         if (root.selectedLanguage !== language) {
                             root.selectedLanguage = language
                             root.settingsChanged()

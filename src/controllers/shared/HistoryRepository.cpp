@@ -1,33 +1,136 @@
 #include "HistoryRepository.h"
 
+#include "core/Logger.h"
 #include "core/PathUtils.h"
 #include "audio/WavIO.h"
 
 #include <QFile>
+#include <QSaveFile>
 #include <QDir>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QDateTime>
+#include <QStringList>
+#include <QSet>
 #include <QUrl>
 #include <algorithm>
 
 namespace LAStudio {
 
+namespace {
+
+constexpr int kHistorySchemaVersion = 1;
+constexpr int kMaximumHistoryEntries = 100;
+
+QJsonArray readHistoryArray(const QString &path, bool *readable = nullptr)
+{
+    if (readable) {
+        *readable = true;
+    }
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        if (readable && QFileInfo::exists(path)) {
+            *readable = false;
+        }
+        return {};
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError) {
+        Logger::warning(QStringLiteral("HistoryRepository"),
+                        QStringLiteral("Ignoring malformed history file %1: %2").arg(path, parseError.errorString()));
+        if (readable) *readable = false;
+        return {};
+    }
+    // Version 0 was the legacy bare-array format.  Preserve read compatibility
+    // and migrate it into the envelope on the next successful write.
+    if (document.isArray()) {
+        return document.array();
+    }
+    if (!document.isObject()) {
+        if (readable) *readable = false;
+        return {};
+    }
+    const QJsonObject root = document.object();
+    const int version = root.value(QStringLiteral("schemaVersion")).toInt();
+    if (version > kHistorySchemaVersion) {
+        Logger::warning(QStringLiteral("HistoryRepository"),
+                        QStringLiteral("History file %1 uses unsupported schema version %2")
+                            .arg(path).arg(version));
+        if (readable) *readable = false;
+        return {};
+    }
+    return root.value(QStringLiteral("entries")).toArray();
+}
+
+bool writeHistoryArrayAtomically(const QString &path, const QJsonArray &entries, QString &errorMsg)
+{
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        errorMsg = QStringLiteral("Failed to open history JSON for safe write: ") + path;
+        return false;
+    }
+    QJsonObject root;
+    root.insert(QStringLiteral("schemaVersion"), kHistorySchemaVersion);
+    root.insert(QStringLiteral("entries"), entries);
+    const QByteArray payload = QJsonDocument(root).toJson();
+    if (file.write(payload) != payload.size() || !file.commit()) {
+        errorMsg = QStringLiteral("Failed to safely commit history JSON: ") + path;
+        return false;
+    }
+    return true;
+}
+
+QStringList trimHistoryEntries(QJsonArray &entries)
+{
+    QStringList removedFiles;
+    while (entries.size() > kMaximumHistoryEntries) {
+        const QJsonObject removed = entries.at(entries.size() - 1).toObject();
+        entries.removeLast();
+        const QString path = PathUtils::urlToLocalPath(removed.value(QStringLiteral("filePath")).toString());
+        if (!path.isEmpty()) {
+            removedFiles.append(path);
+        }
+    }
+    return removedFiles;
+}
+
+void removeFiles(const QStringList &paths)
+{
+    for (const QString &path : paths) {
+        QFile::remove(path);
+    }
+}
+
+void pruneOrphanedAudio(const QString &audioDir, const QJsonArray &entries)
+{
+    QSet<QString> referenced;
+    for (const QJsonValue &entryValue : entries) {
+        const QString path = PathUtils::urlToLocalPath(entryValue.toObject().value(QStringLiteral("filePath")).toString());
+        if (!path.isEmpty()) {
+            referenced.insert(QFileInfo(path).absoluteFilePath());
+        }
+    }
+
+    const QDir dir(audioDir);
+    const QFileInfoList files = dir.entryInfoList({QStringLiteral("*.wav")}, QDir::Files);
+    for (const QFileInfo &file : files) {
+        if (!referenced.contains(file.absoluteFilePath())) {
+            QFile::remove(file.absoluteFilePath());
+        }
+    }
+}
+
+} // namespace
+
 QVariantList HistoryRepository::loadTtsHistory(const QString &dataDir)
 {
     QVariantList list;
     QString historyPath = dataDir + QStringLiteral("/history/tts_history.json");
-    QFile file(historyPath);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        return list;
-    }
-    QByteArray data = file.readAll();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    if (!doc.isArray()) {
-        return list;
-    }
-    QJsonArray arr = doc.array();
+    const QJsonArray arr = readHistoryArray(historyPath);
     list.reserve(arr.size());
     for (const QJsonValue &val : arr) {
         if (val.isObject()) {
@@ -80,28 +183,24 @@ bool HistoryRepository::addTtsHistoryItem(const QString &dataDir,
     item[QStringLiteral("sampleRate")] = sampleRate;
 
     // Read current JSON list, prepend item
-    QJsonArray arr;
     QString historyPath = historyDir + QStringLiteral("/tts_history.json");
-    QFile file(historyPath);
-    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        QByteArray data = file.readAll();
-        QJsonDocument doc = QJsonDocument::fromJson(data);
-        if (doc.isArray()) {
-            arr = doc.array();
-        }
-        file.close();
+    bool readable = false;
+    QJsonArray arr = readHistoryArray(historyPath, &readable);
+    if (!readable) {
+        QFile::remove(filePath);
+        errorMsg = QStringLiteral("History file cannot be safely migrated: ") + historyPath;
+        return false;
     }
 
     arr.prepend(item);
+    const QStringList evictedFiles = trimHistoryEntries(arr);
 
-    // Save back to JSON file
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        errorMsg = QStringLiteral("Failed to write TTS history JSON");
+    if (!writeHistoryArrayAtomically(historyPath, arr, errorMsg)) {
+        QFile::remove(filePath);
         return false;
     }
-    QJsonDocument doc(arr);
-    file.write(doc.toJson());
-    file.close();
+    removeFiles(evictedFiles);
+    pruneOrphanedAudio(audioDir, arr);
     return true;
 }
 
@@ -110,36 +209,30 @@ bool HistoryRepository::deleteTtsHistoryItem(const QString &dataDir, const QStri
     QString historyDir = dataDir + QStringLiteral("/history");
     QString historyPath = historyDir + QStringLiteral("/tts_history.json");
 
-    QJsonArray arr;
-    QFile file(historyPath);
-    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        QByteArray data = file.readAll();
-        QJsonDocument doc = QJsonDocument::fromJson(data);
-        if (doc.isArray()) {
-            arr = doc.array();
-        }
-        file.close();
+    bool readable = false;
+    QJsonArray arr = readHistoryArray(historyPath, &readable);
+    if (!readable) {
+        errorMsg = QStringLiteral("History file cannot be safely migrated: ") + historyPath;
+        return false;
     }
 
     QJsonArray newArr;
+    QStringList filesToRemove;
     for (int i = 0; i < arr.size(); ++i) {
         QJsonObject obj = arr[i].toObject();
         if (obj[QStringLiteral("id")].toString() == id) {
             QString pathUrl = obj[QStringLiteral("filePath")].toString();
-            QString localPath = PathUtils::urlToLocalPath(pathUrl);
-            QFile::remove(localPath);
+            filesToRemove.append(PathUtils::urlToLocalPath(pathUrl));
         } else {
             newArr.append(obj);
         }
     }
 
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        errorMsg = QStringLiteral("Failed to write TTS history JSON during deletion");
+    if (!writeHistoryArrayAtomically(historyPath, newArr, errorMsg)) {
         return false;
     }
-    QJsonDocument doc(newArr);
-    file.write(doc.toJson());
-    file.close();
+    removeFiles(filesToRemove);
+    pruneOrphanedAudio(historyDir + QStringLiteral("/audio"), newArr);
     return true;
 }
 
@@ -148,31 +241,25 @@ bool HistoryRepository::clearTtsHistory(const QString &dataDir, QString &errorMs
     QString historyDir = dataDir + QStringLiteral("/history");
     QString historyPath = historyDir + QStringLiteral("/tts_history.json");
 
-    QJsonArray arr;
-    QFile file(historyPath);
-    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        QByteArray data = file.readAll();
-        QJsonDocument doc = QJsonDocument::fromJson(data);
-        if (doc.isArray()) {
-            arr = doc.array();
-        }
-        file.close();
+    bool readable = false;
+    QJsonArray arr = readHistoryArray(historyPath, &readable);
+    if (!readable) {
+        errorMsg = QStringLiteral("History file cannot be safely migrated: ") + historyPath;
+        return false;
     }
 
+    QStringList filesToRemove;
     for (int i = 0; i < arr.size(); ++i) {
         QJsonObject obj = arr[i].toObject();
         QString pathUrl = obj[QStringLiteral("filePath")].toString();
-        QString localPath = PathUtils::urlToLocalPath(pathUrl);
-        QFile::remove(localPath);
+        filesToRemove.append(PathUtils::urlToLocalPath(pathUrl));
     }
 
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        errorMsg = QStringLiteral("Failed to write TTS history JSON during clear");
+    if (!writeHistoryArrayAtomically(historyPath, QJsonArray(), errorMsg)) {
         return false;
     }
-    QJsonDocument doc((QJsonArray()));
-    file.write(doc.toJson());
-    file.close();
+    removeFiles(filesToRemove);
+    pruneOrphanedAudio(historyDir + QStringLiteral("/audio"), QJsonArray());
     return true;
 }
 
@@ -180,16 +267,7 @@ QVariantList HistoryRepository::loadSttHistory(const QString &dataDir)
 {
     QVariantList list;
     QString historyPath = dataDir + QStringLiteral("/history/stt_history.json");
-    QFile file(historyPath);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        return list;
-    }
-    QByteArray data = file.readAll();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    if (!doc.isArray()) {
-        return list;
-    }
-    QJsonArray arr = doc.array();
+    const QJsonArray arr = readHistoryArray(historyPath);
     list.reserve(arr.size());
     for (const QJsonValue &val : arr) {
         if (val.isObject()) {
@@ -238,27 +316,24 @@ bool HistoryRepository::addSttHistoryItem(const QString &dataDir,
     item[QStringLiteral("modelName")] = modelName;
     item[QStringLiteral("durationText")] = durationText;
 
-    QJsonArray arr;
     QString historyPath = historyDir + QStringLiteral("/stt_history.json");
-    QFile file(historyPath);
-    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        QByteArray data = file.readAll();
-        QJsonDocument doc = QJsonDocument::fromJson(data);
-        if (doc.isArray()) {
-            arr = doc.array();
-        }
-        file.close();
+    bool readable = false;
+    QJsonArray arr = readHistoryArray(historyPath, &readable);
+    if (!readable) {
+        QFile::remove(filePath);
+        errorMsg = QStringLiteral("History file cannot be safely migrated: ") + historyPath;
+        return false;
     }
 
     arr.prepend(item);
+    const QStringList evictedFiles = trimHistoryEntries(arr);
 
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        errorMsg = QStringLiteral("Failed to write STT history JSON");
+    if (!writeHistoryArrayAtomically(historyPath, arr, errorMsg)) {
+        QFile::remove(filePath);
         return false;
     }
-    QJsonDocument doc(arr);
-    file.write(doc.toJson());
-    file.close();
+    removeFiles(evictedFiles);
+    pruneOrphanedAudio(audioDir, arr);
     return true;
 }
 
@@ -267,36 +342,30 @@ bool HistoryRepository::deleteSttHistoryItem(const QString &dataDir, const QStri
     QString historyDir = dataDir + QStringLiteral("/history");
     QString historyPath = historyDir + QStringLiteral("/stt_history.json");
 
-    QJsonArray arr;
-    QFile file(historyPath);
-    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        QByteArray data = file.readAll();
-        QJsonDocument doc = QJsonDocument::fromJson(data);
-        if (doc.isArray()) {
-            arr = doc.array();
-        }
-        file.close();
+    bool readable = false;
+    QJsonArray arr = readHistoryArray(historyPath, &readable);
+    if (!readable) {
+        errorMsg = QStringLiteral("History file cannot be safely migrated: ") + historyPath;
+        return false;
     }
 
     QJsonArray newArr;
+    QStringList filesToRemove;
     for (int i = 0; i < arr.size(); ++i) {
         QJsonObject obj = arr[i].toObject();
         if (obj[QStringLiteral("id")].toString() == id) {
             QString pathUrl = obj[QStringLiteral("filePath")].toString();
-            QString localPath = PathUtils::urlToLocalPath(pathUrl);
-            QFile::remove(localPath);
+            filesToRemove.append(PathUtils::urlToLocalPath(pathUrl));
         } else {
             newArr.append(obj);
         }
     }
 
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        errorMsg = QStringLiteral("Failed to write STT history JSON during deletion");
+    if (!writeHistoryArrayAtomically(historyPath, newArr, errorMsg)) {
         return false;
     }
-    QJsonDocument doc(newArr);
-    file.write(doc.toJson());
-    file.close();
+    removeFiles(filesToRemove);
+    pruneOrphanedAudio(historyDir + QStringLiteral("/stt_audio"), newArr);
     return true;
 }
 
@@ -305,31 +374,25 @@ bool HistoryRepository::clearSttHistory(const QString &dataDir, QString &errorMs
     QString historyDir = dataDir + QStringLiteral("/history");
     QString historyPath = historyDir + QStringLiteral("/stt_history.json");
 
-    QJsonArray arr;
-    QFile file(historyPath);
-    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        QByteArray data = file.readAll();
-        QJsonDocument doc = QJsonDocument::fromJson(data);
-        if (doc.isArray()) {
-            arr = doc.array();
-        }
-        file.close();
+    bool readable = false;
+    QJsonArray arr = readHistoryArray(historyPath, &readable);
+    if (!readable) {
+        errorMsg = QStringLiteral("History file cannot be safely migrated: ") + historyPath;
+        return false;
     }
 
+    QStringList filesToRemove;
     for (int i = 0; i < arr.size(); ++i) {
         QJsonObject obj = arr[i].toObject();
         QString pathUrl = obj[QStringLiteral("filePath")].toString();
-        QString localPath = PathUtils::urlToLocalPath(pathUrl);
-        QFile::remove(localPath);
+        filesToRemove.append(PathUtils::urlToLocalPath(pathUrl));
     }
 
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        errorMsg = QStringLiteral("Failed to write STT history JSON during clear");
+    if (!writeHistoryArrayAtomically(historyPath, QJsonArray(), errorMsg)) {
         return false;
     }
-    QJsonDocument doc((QJsonArray()));
-    file.write(doc.toJson());
-    file.close();
+    removeFiles(filesToRemove);
+    pruneOrphanedAudio(historyDir + QStringLiteral("/stt_audio"), QJsonArray());
     return true;
 }
 
@@ -337,16 +400,7 @@ QVariantList HistoryRepository::loadVoiceDesignHistory(const QString &dataDir)
 {
     QVariantList list;
     QString historyPath = dataDir + QStringLiteral("/history/voice_design_history.json");
-    QFile file(historyPath);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        return list;
-    }
-    QByteArray data = file.readAll();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    if (!doc.isArray()) {
-        return list;
-    }
-    QJsonArray arr = doc.array();
+    const QJsonArray arr = readHistoryArray(historyPath);
     list.reserve(arr.size());
     for (const QJsonValue &val : arr) {
         if (val.isObject()) {
@@ -403,28 +457,24 @@ bool HistoryRepository::addVoiceDesignHistoryItem(const QString &dataDir,
     item[QStringLiteral("timestamp")] = timestamp;
 
     // Read current JSON list, prepend item
-    QJsonArray arr;
     QString historyPath = historyDir + QStringLiteral("/voice_design_history.json");
-    QFile file(historyPath);
-    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        QByteArray data = file.readAll();
-        QJsonDocument doc = QJsonDocument::fromJson(data);
-        if (doc.isArray()) {
-            arr = doc.array();
-        }
-        file.close();
+    bool readable = false;
+    QJsonArray arr = readHistoryArray(historyPath, &readable);
+    if (!readable) {
+        QFile::remove(filePath);
+        errorMsg = QStringLiteral("History file cannot be safely migrated: ") + historyPath;
+        return false;
     }
 
     arr.prepend(item);
+    const QStringList evictedFiles = trimHistoryEntries(arr);
 
-    // Save back to JSON file
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        errorMsg = QStringLiteral("Failed to write Voice Design history JSON");
+    if (!writeHistoryArrayAtomically(historyPath, arr, errorMsg)) {
+        QFile::remove(filePath);
         return false;
     }
-    QJsonDocument doc(arr);
-    file.write(doc.toJson());
-    file.close();
+    removeFiles(evictedFiles);
+    pruneOrphanedAudio(audioDir, arr);
     return true;
 }
 
@@ -433,36 +483,30 @@ bool HistoryRepository::deleteVoiceDesignHistoryItem(const QString &dataDir, con
     QString historyDir = dataDir + QStringLiteral("/history");
     QString historyPath = historyDir + QStringLiteral("/voice_design_history.json");
 
-    QJsonArray arr;
-    QFile file(historyPath);
-    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        QByteArray data = file.readAll();
-        QJsonDocument doc = QJsonDocument::fromJson(data);
-        if (doc.isArray()) {
-            arr = doc.array();
-        }
-        file.close();
+    bool readable = false;
+    QJsonArray arr = readHistoryArray(historyPath, &readable);
+    if (!readable) {
+        errorMsg = QStringLiteral("History file cannot be safely migrated: ") + historyPath;
+        return false;
     }
 
     QJsonArray newArr;
+    QStringList filesToRemove;
     for (int i = 0; i < arr.size(); ++i) {
         QJsonObject obj = arr[i].toObject();
         if (obj[QStringLiteral("id")].toString() == id) {
             QString pathUrl = obj[QStringLiteral("filePath")].toString();
-            QString localPath = PathUtils::urlToLocalPath(pathUrl);
-            QFile::remove(localPath);
+            filesToRemove.append(PathUtils::urlToLocalPath(pathUrl));
         } else {
             newArr.append(obj);
         }
     }
 
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        errorMsg = QStringLiteral("Failed to write Voice Design history JSON during deletion");
+    if (!writeHistoryArrayAtomically(historyPath, newArr, errorMsg)) {
         return false;
     }
-    QJsonDocument doc(newArr);
-    file.write(doc.toJson());
-    file.close();
+    removeFiles(filesToRemove);
+    pruneOrphanedAudio(historyDir + QStringLiteral("/voice_design_audio"), newArr);
     return true;
 }
 
@@ -471,31 +515,25 @@ bool HistoryRepository::clearVoiceDesignHistory(const QString &dataDir, QString 
     QString historyDir = dataDir + QStringLiteral("/history");
     QString historyPath = historyDir + QStringLiteral("/voice_design_history.json");
 
-    QJsonArray arr;
-    QFile file(historyPath);
-    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        QByteArray data = file.readAll();
-        QJsonDocument doc = QJsonDocument::fromJson(data);
-        if (doc.isArray()) {
-            arr = doc.array();
-        }
-        file.close();
+    bool readable = false;
+    QJsonArray arr = readHistoryArray(historyPath, &readable);
+    if (!readable) {
+        errorMsg = QStringLiteral("History file cannot be safely migrated: ") + historyPath;
+        return false;
     }
 
+    QStringList filesToRemove;
     for (int i = 0; i < arr.size(); ++i) {
         QJsonObject obj = arr[i].toObject();
         QString pathUrl = obj[QStringLiteral("filePath")].toString();
-        QString localPath = PathUtils::urlToLocalPath(pathUrl);
-        QFile::remove(localPath);
+        filesToRemove.append(PathUtils::urlToLocalPath(pathUrl));
     }
 
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        errorMsg = QStringLiteral("Failed to write Voice Design history JSON during clear");
+    if (!writeHistoryArrayAtomically(historyPath, QJsonArray(), errorMsg)) {
         return false;
     }
-    QJsonDocument doc((QJsonArray()));
-    file.write(doc.toJson());
-    file.close();
+    removeFiles(filesToRemove);
+    pruneOrphanedAudio(historyDir + QStringLiteral("/voice_design_audio"), QJsonArray());
     return true;
 }
 

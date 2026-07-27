@@ -8,6 +8,7 @@ namespace LAStudio {
 
 class HostedLlamaTranslationBackend final : public TranslationBackend {
 public:
+    HostedLlamaTranslationBackend();
     ~HostedLlamaTranslationBackend() override;
     bool loadModel(const TranslationBackendConfiguration &configuration, QString &error) override;
     void unloadModel() override;
@@ -19,9 +20,15 @@ public:
                    QString &error) override;
 
 private:
+    bool startHost(QString &error);
+    bool ensureHost(QString &error);
+    void releaseHostPermit();
     RuntimeHostClient m_client;
     bool m_loaded = false;
+    bool m_hasConfiguration = false;
+    TranslationBackendConfiguration m_configuration;
     bool m_gpuPermit = false;
+    bool m_permitAcquired = false;
     QString m_runtimeFamily = QStringLiteral("llama");
 };
 

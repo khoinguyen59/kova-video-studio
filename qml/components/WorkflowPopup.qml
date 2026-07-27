@@ -109,7 +109,7 @@ Popup {
 
         Rectangle {
             Layout.fillWidth: true
-            height: 1
+            Layout.preferredHeight: 1
             color: Theme.surfaceAlt
         }
 
@@ -459,8 +459,8 @@ Popup {
                     name: "activity"
                     color: Theme.textSecondary
                     Layout.alignment: Qt.AlignHCenter
-                    width: 30
-                    height: 30
+                    Layout.preferredWidth: 30
+                    Layout.preferredHeight: 30
                     opacity: 0.55
                 }
 

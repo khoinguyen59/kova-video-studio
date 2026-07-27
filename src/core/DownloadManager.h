@@ -25,9 +25,9 @@ public:
     QVariantList allDownloads() const;
     Q_INVOKABLE bool isDownloading(const QString &identifier, const QString &filename) const;
 
-    Q_INVOKABLE void enqueue(const QString &modelId, const QString &filename,
+    Q_INVOKABLE bool enqueue(const QString &modelId, const QString &filename,
                              const QString &destDir, const QVariantMap &metadata = {});
-    Q_INVOKABLE void enqueueUrl(const QString &url, const QString &filename,
+    Q_INVOKABLE bool enqueueUrl(const QString &url, const QString &filename,
                                 const QString &destDir, const QVariantMap &metadata = {});
     Q_INVOKABLE void cancelAll();
     Q_INVOKABLE void clearCompleted();
@@ -66,6 +66,10 @@ private:
     void saveHistory() const;
     QString historyFilePath() const;
     QString makeKey(const QString &modelId, const QString &filename) const;
+    static qint64 expectedDownloadBytes(const QVariantMap &metadata);
+    static bool hasSpaceForDownload(const QString &destDir, const QString &filename,
+                                    qint64 expectedBytes, QString *errorMessage);
+    bool rejectForDiskSpace(const QString &key, const DownloadEntry &entry, const QString &errorMessage);
 
     HFHubClient *m_hub;
     QMap<QString, DownloadEntry> m_downloads;

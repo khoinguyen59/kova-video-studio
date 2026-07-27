@@ -2,9 +2,13 @@
 
 #include "core/Logger.h"
 #include "core/PathUtils.h"
+#include "lastudio/RuntimeAbi.h"
 
 #include <QDir>
 #include <QFileInfo>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLibrary>
 #include <QLocale>
 #include <QRegularExpression>
@@ -20,6 +24,31 @@
 
 namespace LAStudio {
 namespace {
+
+constexpr auto kExpectedLlamaProtocolVersion = LASTUDIO_LLAMA_PROTOCOL_VERSION;
+
+bool hasCompatibleLlamaProtocol(const QString &libraryPath, QString *error)
+{
+    const QString manifestPath = QDir(QFileInfo(libraryPath).absolutePath())
+                                     .absoluteFilePath(QStringLiteral("backend-manifest.json"));
+    QFile manifest(manifestPath);
+    if (!manifest.open(QIODevice::ReadOnly)) {
+        if (error) *error = QStringLiteral("llama.cpp runtime manifest is missing: %1").arg(manifestPath);
+        return false;
+    }
+    const QJsonDocument document = QJsonDocument::fromJson(manifest.readAll());
+    const QString protocol = document.isObject()
+        ? document.object().value(QStringLiteral("protocolVersion")).toString() : QString();
+    if (protocol != QLatin1String(kExpectedLlamaProtocolVersion)) {
+        if (error) {
+            *error = QStringLiteral("llama.cpp runtime ABI '%1' is incompatible; LA Studio requires '%2'.")
+                         .arg(protocol.isEmpty() ? QStringLiteral("missing") : protocol,
+                              QLatin1String(kExpectedLlamaProtocolVersion));
+        }
+        return false;
+    }
+    return true;
+}
 
 template<typename T>
 bool resolve(QLibrary &library, const char *name, T &function)
@@ -156,7 +185,8 @@ void LlamaTranslationInterface::setError(const QString &message, QString *error)
 bool LlamaTranslationInterface::load(const QString &libraryPath,
                                      const QString &modelPath,
                                      QString *error,
-                                     bool useGpu)
+                                     bool useGpu,
+                                     int threads)
 {
     unload();
     if (!QFileInfo(libraryPath).isFile()) {
@@ -165,6 +195,11 @@ bool LlamaTranslationInterface::load(const QString &libraryPath,
     }
     if (!QFileInfo(modelPath).isFile()) {
         setError(QStringLiteral("The translation model file is missing."), error);
+        return false;
+    }
+    QString protocolError;
+    if (!hasCompatibleLlamaProtocol(libraryPath, &protocolError)) {
+        setError(protocolError, error);
         return false;
     }
 
@@ -213,6 +248,7 @@ bool LlamaTranslationInterface::load(const QString &libraryPath,
         return false;
     }
     m_modelPath = QFileInfo(modelPath).absoluteFilePath();
+    m_threadCount = qMax(0, threads);
     m_cancelled.store(false, std::memory_order_relaxed);
     return true;
 }
@@ -228,6 +264,7 @@ void LlamaTranslationInterface::unload()
     if (m_api->ggml.isLoaded()) m_api->ggml.unload();
     m_api.reset();
     m_modelPath.clear();
+    m_threadCount = 0;
 }
 
 void LlamaTranslationInterface::cancel() { m_cancelled.store(true, std::memory_order_relaxed); }
@@ -313,7 +350,7 @@ QStringList LlamaTranslationInterface::translateBatch(
         llama_context_params contextParams = m_api->contextDefaultParams();
         contextParams.n_ctx = static_cast<uint32_t>(qMax(512, tokenCount + outputLimit + 8));
         contextParams.n_batch = static_cast<uint32_t>(qMax(512, tokenCount));
-        contextParams.n_threads = qMax(1, QThread::idealThreadCount());
+        contextParams.n_threads = qMax(1, m_threadCount > 0 ? m_threadCount : QThread::idealThreadCount());
         contextParams.n_threads_batch = contextParams.n_threads;
         llama_context *context = m_api->contextInit(m_api->model, contextParams);
         if (!context) return false;
@@ -488,7 +525,7 @@ bool LlamaTranslationInterface::generateChat(const QList<QVariantMap> &messages,
     llama_context_params contextParams = m_api->contextDefaultParams();
     contextParams.n_ctx = static_cast<uint32_t>(qMax(contextTokens, tokenCount + maxTokens + 16));
     contextParams.n_batch = static_cast<uint32_t>(qMax(512, tokenCount));
-    contextParams.n_threads = qMax(1, QThread::idealThreadCount());
+    contextParams.n_threads = qMax(1, m_threadCount > 0 ? m_threadCount : QThread::idealThreadCount());
     contextParams.n_threads_batch = contextParams.n_threads;
     llama_context *context = m_api->contextInit(m_api->model, contextParams);
     if (!context) {

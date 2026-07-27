@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QVariantList>
 #include <QtQml/qqml.h>
 
 #include "core/Settings.h"
@@ -13,6 +14,7 @@
 #include "core/RegistryManager.h"
 #include "core/RuntimeManager.h"
 #include "core/LogViewService.h"
+#include "core/CacheLifecycleService.h"
 #include "stt/SttEngine.h"
 #include "tts/TtsEngine.h"
 #include "translation/TranslationEngine.h"
@@ -57,6 +59,7 @@ class AppController : public QObject {
     Q_PROPERTY(RegistryManager* registry  READ registry  CONSTANT)
     Q_PROPERTY(RuntimeManager*  runtimes  READ runtimes  CONSTANT)
     Q_PROPERTY(LogViewService*  logs      READ logs      CONSTANT)
+    Q_PROPERTY(CacheLifecycleService* cache READ cache CONSTANT)
     Q_PROPERTY(SttEngine*       stt       READ stt       CONSTANT)
     Q_PROPERTY(TtsEngine*       tts       READ tts       CONSTANT)
     Q_PROPERTY(TranslationEngine* translationEngine READ translationEngine CONSTANT)
@@ -84,8 +87,11 @@ class AppController : public QObject {
     Q_PROPERTY(ApiServerService* apiServer READ apiServer CONSTANT)
 
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
+    Q_PROPERTY(int pendingErrorCount READ pendingErrorCount NOTIFY errorNotificationsChanged)
+    Q_PROPERTY(QVariantList errorNotifications READ errorNotifications NOTIFY errorNotificationsChanged)
     Q_PROPERTY(QString logsDir READ logsDir CONSTANT)
     Q_PROPERTY(QString dataDir READ dataDir CONSTANT)
+    Q_PROPERTY(QString licensesDir READ licensesDir CONSTANT)
 
 public:
     explicit AppController(QObject *parent = nullptr);
@@ -103,6 +109,7 @@ public:
     RegistryManager* registry()  const { return m_registry; }
     RuntimeManager*  runtimes()  const { return m_runtimes; }
     LogViewService*  logs()      const { return m_logs; }
+    CacheLifecycleService* cache() const { return m_cache; }
     SttEngine*       stt()       const { return m_stt; }
     TtsEngine*       tts()       const { return m_tts; }
     TranslationEngine* translationEngine() const { return m_translationEngine; }
@@ -132,19 +139,26 @@ public:
     WaveformProvider* waveformProvider() const { return m_waveformProvider; }
 
     QString errorMessage() const { return m_errorMessage; }
+    int pendingErrorCount() const { return m_errorNotifications.size(); }
+    QVariantList errorNotifications() const { return m_errorNotifications; }
     QString logsDir() const;
     QString dataDir() const;
+    QString licensesDir() const;
 
     Q_INVOKABLE void clearError();
     Q_INVOKABLE void copyToClipboard(const QString &text);
+    Q_INVOKABLE QString createProblemReport();
 
 signals:
     void errorMessageChanged();
+    void errorNotificationsChanged();
 
 private slots:
     void onError(const QString &msg);
 
 private:
+    void enqueueError(const QString &message, const QString &source = {});
+
     static AppController *s_instance;
 
     Settings*        m_settings = nullptr;
@@ -156,6 +170,7 @@ private:
     RegistryManager* m_registry = nullptr;
     RuntimeManager*  m_runtimes = nullptr;
     LogViewService*  m_logs = nullptr;
+    CacheLifecycleService* m_cache = nullptr;
     SttEngine*       m_stt = nullptr;
     TtsEngine*       m_tts = nullptr;
     TranslationEngine* m_translationEngine = nullptr;
@@ -184,6 +199,8 @@ private:
     ApiServerService* m_apiServer = nullptr;
 
     QString m_errorMessage;
+    QVariantList m_errorNotifications;
+    quint64 m_nextErrorNotificationId = 1;
 };
 
 } // namespace LAStudio

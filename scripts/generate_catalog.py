@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import base64
 import argparse
+from decimal import Decimal, InvalidOperation, ROUND_CEILING
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -16,6 +18,112 @@ try:
     import yaml
 except ImportError:
     yaml = None
+
+
+_SIZE_PATTERN = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*(B|KB|KiB|MB|MiB|GB|GiB)\s*$", re.IGNORECASE)
+_SIZE_MULTIPLIERS = {
+    "B": 1,
+    "KB": 1000,
+    "KIB": 1024,
+    "MB": 1000 * 1000,
+    "MIB": 1024 * 1024,
+    "GB": 1000 * 1000 * 1000,
+    "GIB": 1024 * 1024 * 1024,
+}
+
+# Keep licence policy intentionally conservative.  A missing or non-standard
+# upstream licence is not an implicit commercial grant: it must be surfaced to
+# the user and acknowledged before the application starts a download.
+_LICENSE_POLICIES = {
+    "apache-2.0": {
+        "licenseUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+        "commercialUse": "allowed",
+        "attributionRequired": False,
+        "gated": False,
+    },
+    "mit": {
+        "licenseUrl": "https://opensource.org/license/mit",
+        "commercialUse": "allowed",
+        "attributionRequired": False,
+        "gated": False,
+    },
+    "cc-by-4.0": {
+        "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+        "commercialUse": "allowed",
+        "attributionRequired": True,
+        "gated": True,
+    },
+    "cc-by-nc-4.0": {
+        "licenseUrl": "https://creativecommons.org/licenses/by-nc/4.0/",
+        "commercialUse": "non-commercial",
+        "attributionRequired": True,
+        "gated": True,
+    },
+}
+
+
+def apply_license_policy(family):
+    """Make the downloadable model's licence terms explicit in the catalog."""
+    manifest = family.get("hubFiles", {}).get("manifest", {})
+    license_id = str(family.get("license") or manifest.get("license") or "unknown").strip().lower()
+    if not license_id:
+        license_id = "unknown"
+
+    # A model card is the safe reference when the licence is unknown or is a
+    # publisher-specific agreement for which this repository does not bundle a
+    # canonical text.
+    fallback_url = (manifest.get("source") or family.get("modelCardUrl") or
+                    (f"https://huggingface.co/{family['modelId']}" if family.get("modelId") else ""))
+    policy = _LICENSE_POLICIES.get(license_id, {})
+    family["license"] = license_id
+    family["licenseUrl"] = family.get("licenseUrl") or policy.get("licenseUrl") or fallback_url
+    family["commercialUse"] = family.get("commercialUse") or policy.get("commercialUse") \
+        or ("unknown" if license_id == "unknown" else "conditional")
+    family["attributionRequired"] = bool(family.get("attributionRequired", policy.get("attributionRequired", False)))
+    family["gated"] = bool(family.get("gated", policy.get("gated", True)))
+
+    # modelYaml is included in generated catalog entries.  Duplicating these
+    # required fields there makes the contract available to tooling that reads
+    # the model.yaml representation rather than the normalized family fields.
+    model_yaml = family.get("modelYaml")
+    if isinstance(model_yaml, dict):
+        for key in ("license", "licenseUrl", "commercialUse", "attributionRequired", "gated"):
+            model_yaml[key] = family[key]
+
+    required = ("license", "licenseUrl", "commercialUse", "attributionRequired", "gated")
+    missing = [key for key in required if family.get(key) in (None, "")]
+    if missing:
+        raise ValueError(f"{family.get('id', 'unknown family')} has incomplete licence policy: {', '.join(missing)}")
+
+
+def parse_size_bytes(value):
+    """Return an exact non-zero byte count for an unambiguous catalog size."""
+    if isinstance(value, int) and value > 0:
+        return value
+    if not isinstance(value, str):
+        return None
+    match = _SIZE_PATTERN.match(value)
+    if not match:
+        return None
+    try:
+        bytes_value = (Decimal(match.group(1)) * _SIZE_MULTIPLIERS[match.group(2).upper()]) \
+            .to_integral_value(rounding=ROUND_CEILING)
+    except (InvalidOperation, KeyError):
+        return None
+    return int(bytes_value) if bytes_value > 0 else None
+
+
+def add_size_bytes(value):
+    """Annotate every exact human-readable `size` with machine-safe `sizeBytes`."""
+    if isinstance(value, list):
+        for item in value:
+            add_size_bytes(item)
+    elif isinstance(value, dict):
+        size_bytes = parse_size_bytes(value.get("size"))
+        if size_bytes is not None:
+            value["sizeBytes"] = size_bytes
+        for child in value.values():
+            add_size_bytes(child)
 
 
 def strip_yaml_comment(line):
@@ -401,12 +509,14 @@ def load_family_file(path):
         with open(path, "r", encoding="utf-8") as f:
             family = json.load(f)
         attach_hub_sidecar_files(family, path.parent)
+        apply_license_policy(family)
         normalize_family_stats(family)
         return family
     if path.suffix in (".yaml", ".yml"):
         raw = load_yaml_file(path)
         family = normalize_model_yaml_family(raw, path)
         attach_hub_sidecar_files(family, path.parent)
+        apply_license_policy(family)
         return family
     raise ValueError(f"Unsupported family file extension: {path}")
 
@@ -593,6 +703,7 @@ def generate_catalog(fetch_hf_stats=False):
         "sttFamilies": stt_families,
         "llmFamilies": llm_families
     }
+    add_size_bytes(catalog)
     
     # Write output
     with open(output_file, "w", encoding="utf-8") as f:

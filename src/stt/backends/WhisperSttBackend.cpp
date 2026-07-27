@@ -62,6 +62,11 @@ void WhisperSttBackend::cancelProcessing()
     m_abort = true;
 }
 
+void WhisperSttBackend::setProgressCallback(std::function<void(int percent)> callback)
+{
+    m_progressCallback = std::move(callback);
+}
+
 bool WhisperSttBackend::transcribe(const QVector<float> &samples,
                                    const QString &language,
                                    int threads,
@@ -164,6 +169,11 @@ bool WhisperSttBackend::transcribe(const QVector<float> &samples,
         return static_cast<WhisperSttBackend*>(data)->m_abort.load();
     };
     params.abort_callback_user_data = this;
+    params.progress_callback = [](whisper_context *, whisper_state *, int percent, void *data) {
+        auto *backend = static_cast<WhisperSttBackend *>(data);
+        if (backend->m_progressCallback) backend->m_progressCallback(percent);
+    };
+    params.progress_callback_user_data = this;
 
     QByteArray promptBytes;
     const QString initialPrompt = readString("initial_prompt", QString());

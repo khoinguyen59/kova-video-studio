@@ -23,12 +23,14 @@ bool DownloadManager::isDownloading(const QString &, const QString &) const
     return false;
 }
 
-void DownloadManager::enqueue(const QString &, const QString &, const QString &, const QVariantMap &)
+bool DownloadManager::enqueue(const QString &, const QString &, const QString &, const QVariantMap &)
 {
+    return true;
 }
 
-void DownloadManager::enqueueUrl(const QString &, const QString &, const QString &, const QVariantMap &)
+bool DownloadManager::enqueueUrl(const QString &, const QString &, const QString &, const QVariantMap &)
 {
+    return true;
 }
 
 void DownloadManager::cancelAll()

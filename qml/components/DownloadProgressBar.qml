@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import LAStudio
 
@@ -45,7 +44,7 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
-            height: 6
+            Layout.preferredHeight: 6
             radius: 3
             color: Theme.surface
 

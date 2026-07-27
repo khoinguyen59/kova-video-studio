@@ -59,6 +59,14 @@ private slots:
 
 private:
     static QVariantMap latestSupportedRuntime(const QVariantMap &runtimeOption);
+    static bool isSafeArchiveMemberPath(const QString &memberPath);
+    static bool archiveContainsOnlySafeMembers(const QString &extractor,
+                                               const QString &archivePath,
+                                               qint64 *unpackedBytes,
+                                               QString *errorMessage);
+    static bool hasSpaceForExtraction(const QString &extractDir, qint64 unpackedBytes,
+                                      QString *errorMessage);
+    static bool extractedTreeIsContained(const QString &extractDir, QString *errorMessage);
     void scheduleModelFileUpdateCheck(const QString &modelId, const QString &filename, bool acceptRemoteAsBaseline = false) const;
 
     friend class TestDownloadInstallService;

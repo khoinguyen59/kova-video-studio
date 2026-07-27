@@ -85,7 +85,9 @@ Menu {
             }
 
             onTriggered: {
+                // qmllint disable use-proper-function
                 if (controlItem.itemAction) controlItem.itemAction()
+                // qmllint enable use-proper-function
             }
         }
     }

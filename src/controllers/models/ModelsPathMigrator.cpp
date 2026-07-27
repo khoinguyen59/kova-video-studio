@@ -1,8 +1,12 @@
 #include "ModelsPathMigrator.h"
 
 #include <QDir>
+#include <QDirIterator>
 #include <QFileInfo>
 #include <QFile>
+#include <QStorageInfo>
+
+#include <limits>
 
 namespace LAStudio {
 
@@ -30,6 +34,54 @@ bool ModelsPathMigrator::filesAreIdentical(const QString &srcPath, const QString
         if (srcChunk != dstChunk) {
             return false;
         }
+    }
+    return true;
+}
+
+qint64 ModelsPathMigrator::directorySize(const QString &dirPath, QString &errorMsg)
+{
+    const QDir root(dirPath);
+    if (!root.exists()) {
+        errorMsg = QStringLiteral("Models directory does not exist: ") + dirPath;
+        return -1;
+    }
+
+    qint64 total = 0;
+    QDirIterator iterator(dirPath,
+                          QDir::Files | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot,
+                          QDirIterator::Subdirectories);
+    while (iterator.hasNext()) {
+        iterator.next();
+        const qint64 size = iterator.fileInfo().size();
+        if (size < 0 || total > std::numeric_limits<qint64>::max() - size) {
+            errorMsg = QStringLiteral("Could not calculate the size of the models directory safely.");
+            return -1;
+        }
+        total += size;
+    }
+    return total;
+}
+
+bool ModelsPathMigrator::hasAvailableSpace(const QString &targetPath,
+                                            qint64 requiredBytes,
+                                            QString &errorMsg)
+{
+    if (requiredBytes < 0) {
+        errorMsg = QStringLiteral("The required disk space is invalid.");
+        return false;
+    }
+
+    const QStorageInfo storage(QDir(targetPath).absolutePath());
+    const qint64 availableBytes = storage.bytesAvailable();
+    if (!storage.isReady() || availableBytes < 0) {
+        errorMsg = QStringLiteral("Could not determine free disk space for: ") + targetPath;
+        return false;
+    }
+    if (availableBytes < requiredBytes) {
+        errorMsg = QStringLiteral("Not enough free disk space at the destination. Need %1 MiB, but only %2 MiB is available.")
+            .arg((requiredBytes + (1024 * 1024 - 1)) / (1024 * 1024))
+            .arg(availableBytes / (1024 * 1024));
+        return false;
     }
     return true;
 }

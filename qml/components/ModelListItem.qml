@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import LAStudio
 
@@ -24,8 +23,8 @@ Rectangle {
 
         // Icon/Emoji
         Rectangle {
-            width: 40
-            height: 40
+            Layout.preferredWidth: 40
+            Layout.preferredHeight: 40
             radius: 20
             color: root.selected ? Qt.rgba(1,1,1,0.2) : Theme.surface
             Text {

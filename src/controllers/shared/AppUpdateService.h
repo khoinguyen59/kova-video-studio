@@ -32,6 +32,10 @@ class AppUpdateService : public QObject {
 public:
     explicit AppUpdateService(DownloadManager *downloads, QObject *parent = nullptr);
 
+    // Compares strict SemVer release labels, including prerelease precedence.
+    // Kept public for deterministic unit tests without network access.
+    static bool isUpdateVersionNewer(const QString &candidate, const QString &installed);
+
     bool checking() const { return m_checking; }
     bool updateAvailable() const { return !m_latestVersion.isEmpty(); }
     bool downloading() const { return m_downloading; }
@@ -68,6 +72,10 @@ private:
     void setErrorMessage(const QString &message);
     void resetUpdateInfo();
     void handleReleaseReply(QNetworkReply *reply, const QString &channel);
+    void fetchInstallerChecksum(const QUrl &checksumUrl, const QString &version,
+                                const QUrl &releaseUrl, const QUrl &installerUrl,
+                                const QString &installerFileName);
+    bool verifyInstallerChecksum(const QString &installerPath, QString *errorMessage) const;
     void updateDownloadProgress();
     QString installerDownloadDir() const;
     QString existingDownloadedInstallerPath(const QString &version, const QString &filename) const;
@@ -81,6 +89,7 @@ private:
     QString m_latestVersion;
     QString m_installerFileName;
     QString m_downloadedInstallerPath;
+    QString m_expectedInstallerSha256;
     QString m_statusMessage;
     QString m_errorMessage;
     QUrl m_installerUrl;

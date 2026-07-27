@@ -48,7 +48,7 @@ bool AudioTimelineRenderer::renderClip(const QString &inputPath, const QString &
                                QStringLiteral("atempo=%1").arg(rate, 0, 'f', 6),
                                QStringLiteral("-ar"), QString::number(sampleRate), QStringLiteral("-ac"), QStringLiteral("1"),
                                QStringLiteral("-c:a"), QStringLiteral("pcm_s16le"), processedPath});
-        ffmpegOk = process.waitForStarted(5000) && process.waitForFinished(-1)
+        ffmpegOk = process.waitForFinished(-1)
             && process.exitStatus() == QProcess::NormalExit && process.exitCode() == 0;
     }
 

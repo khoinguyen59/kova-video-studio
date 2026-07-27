@@ -89,6 +89,22 @@ void TestRuntimeHostProtocol::roundTripsSharedAudioBuffer()
     owner.detach();
 }
 
+void TestRuntimeHostProtocol::rejectsSharedAudioDescriptorLargerThanMapping()
+{
+    RuntimeHostSharedBuffer owner;
+    QCborMap descriptor;
+    QString error;
+    QVERIFY2(owner.createFromSamples(QVector<float>{0.0f, 1.0f}, 16000, 1,
+                                      &descriptor, &error), qPrintable(error));
+
+    descriptor.insert(QStringLiteral("bytes"), qint64(12));
+    descriptor.insert(QStringLiteral("samples"), qint64(3));
+    RuntimeHostSharedBuffer peer;
+    QVERIFY(!peer.attach(descriptor, &error));
+    QVERIFY(error.contains(QStringLiteral("smaller"), Qt::CaseInsensitive));
+    owner.detach();
+}
+
 void TestRuntimeHostProtocol::startsAndPingsHostProcess()
 {
     const QString hostPath = QDir(QCoreApplication::applicationDirPath())

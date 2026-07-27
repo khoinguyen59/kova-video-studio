@@ -13,6 +13,9 @@ MediaToolService::MediaToolService(QObject *parent)
             this, &MediaToolService::onReadyReadStandardError);
     connect(&m_process, qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
             this, &MediaToolService::onFinished);
+    connect(&m_process, &QProcess::errorOccurred,
+            this, &MediaToolService::onProcessError);
+    connect(&m_process, &QProcess::started, this, [this]() { emit progress(5); });
 }
 
 QString MediaToolService::executablePath() const
@@ -81,11 +84,7 @@ void MediaToolService::muxVideoWithAudio(const QString &videoPath,
     }
     arguments.append(outputPath);
     m_process.setArguments(arguments);
-    connect(&m_process, &QProcess::started, this, [this]() { emit progress(5); });
     m_process.start();
-    if (!m_process.waitForStarted(5000)) {
-        emit finished(false, outputPath, QStringLiteral("FFmpeg could not be started: %1").arg(m_process.errorString()));
-    }
 }
 
 void MediaToolService::cancel()
@@ -104,6 +103,7 @@ void MediaToolService::onReadyReadStandardError()
 
 void MediaToolService::onFinished(int exitCode, QProcess::ExitStatus status)
 {
+    if (m_outputPath.isEmpty()) return;
     const bool ok = status == QProcess::NormalExit && exitCode == 0 && QFileInfo(m_outputPath).isFile();
     const QString error = ok ? QString() : QStringLiteral("FFmpeg export failed: %1")
         .arg(QString::fromLocal8Bit(m_stderr).trimmed());
@@ -111,6 +111,17 @@ void MediaToolService::onFinished(int exitCode, QProcess::ExitStatus status)
     emit finished(ok, m_outputPath, error);
     m_outputPath.clear();
     m_stderr.clear();
+}
+
+void MediaToolService::onProcessError(QProcess::ProcessError error)
+{
+    if (error != QProcess::FailedToStart || m_outputPath.isEmpty()) return;
+    const QString outputPath = m_outputPath;
+    m_outputPath.clear();
+    m_stderr.clear();
+    emit progress(0);
+    emit finished(false, outputPath,
+                  QStringLiteral("FFmpeg could not be started: %1").arg(m_process.errorString()));
 }
 
 } // namespace LAStudio

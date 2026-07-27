@@ -15,6 +15,18 @@ Rectangle {
 
     readonly property bool compact: width < 980
     readonly property int pageMargin: compact ? Theme.paddingLarge : 40
+
+    function displayBytes(bytes) {
+        if (bytes < 0) return qsTr("Space could not be determined")
+        var units = ["B", "KB", "MB", "GB", "TB"]
+        var value = bytes
+        var index = 0
+        while (value >= 1024 && index < units.length - 1) {
+            value /= 1024
+            ++index
+        }
+        return Number(value).toLocaleString(Qt.locale(), 'f', index === 0 ? 0 : 1) + " " + units[index]
+    }
     readonly property var studioCards: [
         {
             title: qsTr("Speech to Text"),
@@ -81,6 +93,74 @@ Rectangle {
             accent: Theme.accentLight
         }
     ]
+
+    Component.onCompleted: {
+        if (!AppController.settings.onboardingComplete) firstRunDialog.open()
+    }
+
+    Dialog {
+        id: firstRunDialog
+        parent: Overlay.overlay
+        modal: true
+        title: qsTr("Welcome to LA Studio")
+        width: Math.min(500, parent ? parent.width - 32 : 500)
+        x: parent ? Math.round((parent.width - width) / 2) : 0
+        y: parent ? Math.round((parent.height - height) / 2) : 0
+        standardButtons: Dialog.NoButton
+
+        contentItem: ColumnLayout {
+            spacing: Theme.paddingMedium
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("LA Studio runs models locally. Choose a storage location with enough free space before downloading your first model.")
+                color: Theme.textSecondary
+                wrapMode: Text.WordWrap
+            }
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("Models directory: %1").arg(AppController.settings.modelsPath)
+                color: Theme.textPrimary
+                wrapMode: Text.WrapAnywhere
+            }
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("Available space: %1").arg(root.displayBytes(AppController.settings.modelsPathAvailableBytes()))
+                color: AppController.settings.modelsPathAvailableBytes() >= 0 ? Theme.success : Theme.warning
+                wrapMode: Text.WordWrap
+            }
+            Text {
+                Layout.fillWidth: true
+                text: AppController.settings.externalMediaToolsAvailable()
+                      ? qsTr("Media tools: FFmpeg and FFprobe are ready.")
+                      : qsTr("Media tools: FFmpeg and FFprobe will be required before importing media.")
+                color: AppController.settings.externalMediaToolsAvailable() ? Theme.success : Theme.warning
+                wrapMode: Text.WordWrap
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.paddingSmall
+                PrimaryButton {
+                    text: qsTr("Choose models directory")
+                    quiet: true
+                    Layout.fillWidth: true
+                    onClicked: {
+                        AppController.settings.onboardingComplete = true
+                        firstRunDialog.close()
+                        root.pageRequested("settings")
+                    }
+                }
+                PrimaryButton {
+                    text: qsTr("Find a model")
+                    Layout.fillWidth: true
+                    onClicked: {
+                        AppController.settings.onboardingComplete = true
+                        firstRunDialog.close()
+                        root.pageRequested("models")
+                    }
+                }
+            }
+        }
+    }
 
     Rectangle {
         anchors.fill: parent

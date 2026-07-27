@@ -29,7 +29,7 @@ ColumnLayout {
 
             AppToolTip {
                 text: qsTr("Hide history")
-                visible: parent.hovered
+                visible: closeBtn.hovered
             }
 
             contentItem: LineIcon {
@@ -66,7 +66,7 @@ ColumnLayout {
 
         Button {
             id: clearAllBtn
-            visible: sttSession ? (sttSession.history.length > 0) : false
+            visible: root.sttSession ? (root.sttSession.history.length > 0) : false
             implicitWidth: 64
             implicitHeight: 28
             flat: true
@@ -86,15 +86,15 @@ ColumnLayout {
                 radius: 5
             }
             onClicked: {
-                if (sttSession) {
-                    sttSession.clearHistory()
+                if (root.sttSession) {
+                    root.sttSession.clearHistory()
                 }
             }
             HoverHandler { cursorShape: Qt.PointingHandCursor }
         }
     }
 
-    Rectangle { Layout.fillWidth: true; height: 1; color: Qt.rgba(1, 1, 1, 0.07) }
+    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1, 1, 1, 0.07) }
 
     Item {
         Layout.fillWidth: true
@@ -103,7 +103,7 @@ ColumnLayout {
         ColumnLayout {
             anchors.centerIn: parent
             width: parent.width - Theme.paddingLarge * 2
-            visible: sttSession ? (sttSession.history.length === 0) : true
+            visible: root.sttSession ? (root.sttSession.history.length === 0) : true
             spacing: Theme.paddingMedium
 
             LineIcon {
@@ -137,8 +137,8 @@ ColumnLayout {
         ListView {
             id: historyList
             anchors.fill: parent
-            visible: sttSession ? (sttSession.history.length > 0) : false
-            model: sttSession ? sttSession.history : []
+            visible: root.sttSession ? (root.sttSession.history.length > 0) : false
+            model: root.sttSession ? root.sttSession.history : []
             spacing: Theme.paddingSmall
             clip: true
 
@@ -151,7 +151,7 @@ ColumnLayout {
                 border.color: mouseArea.containsMouse ? Qt.rgba(0.49, 0.30, 1.0, 0.25) : Qt.rgba(1, 1, 1, 0.06)
                 border.width: 1
 
-                property bool isCurrentlyPlaying: sttSession ? (sttSession.playbackPath === modelData.filePath) : false
+                property bool isCurrentlyPlaying: root.sttSession ? (root.sttSession.playbackPath === modelData.filePath) : false
 
                 MouseArea {
                     id: mouseArea
@@ -242,11 +242,11 @@ ColumnLayout {
                                 radius: 6
                             }
                             onClicked: {
-                                if (sttSession) {
+                                if (root.sttSession) {
                                     if (itemRect.isCurrentlyPlaying) {
-                                        sttSession.stopPlayback()
+                                        root.sttSession.stopPlayback()
                                     } else {
-                                        sttSession.playHistoryFile(modelData.filePath)
+                                        root.sttSession.playHistoryFile(modelData.filePath)
                                     }
                                 }
                             }
@@ -273,8 +273,8 @@ ColumnLayout {
                                 radius: 6
                             }
                             onClicked: {
-                                if (sttSession) {
-                                    sttSession.deleteHistoryItem(modelData.id)
+                                if (root.sttSession) {
+                                    root.sttSession.deleteHistoryItem(modelData.id)
                                 }
                             }
                             HoverHandler { cursorShape: Qt.PointingHandCursor }

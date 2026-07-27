@@ -401,8 +401,8 @@ ScrollView {
         }
 
         Rectangle {
-            width: 16
-            height: 16
+            Layout.preferredWidth: 16
+            Layout.preferredHeight: 16
             radius: 8
             color: "transparent"
             border.color: Qt.rgba(255, 255, 255, 0.18)

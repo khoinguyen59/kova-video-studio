@@ -1,6 +1,7 @@
 #include "RuntimeManager.h"
 #include "PathUtils.h"
 #include "Logger.h"
+#include "lastudio/RuntimeAbi.h"
 #include <runtimes/WhisperInterface.h>
 #include <runtimes/CrispKokoroInterface.h>
 #include <runtimes/KokoroVietnameseInterface.h>
@@ -433,8 +434,22 @@ RuntimeInfo RuntimeManager::processRuntimeDir(const QDir &dir,
         obj[QStringLiteral("kind")] = info.kind;
         obj[QStringLiteral("type")] = info.type;
         obj[QStringLiteral("library")] = QStringLiteral("llama.dll");
-        obj[QStringLiteral("protocolVersion")] = QStringLiteral("llama-c-api-b10036");
         obj.remove(QStringLiteral("entrypoint"));
+    }
+
+    // Do not repair a declared ABI version. A mismatched manifest can point to
+    // a DLL with the same symbols but incompatible struct layouts, so it must
+    // stay visible as incompatible and be refused before QLibrary loads it.
+    if (info.engineFamily == QStringLiteral("llama") &&
+        info.protocolVersion != QLatin1String(LASTUDIO_LLAMA_PROTOCOL_VERSION)) {
+        info.protocolCompatible = false;
+        info.protocolCompatibilityError = QStringLiteral(
+            "llama.cpp runtime ABI '%1' is incompatible; LA Studio requires '%2'.")
+            .arg(info.protocolVersion.isEmpty() ? QStringLiteral("missing") : info.protocolVersion,
+                 QLatin1String(LASTUDIO_LLAMA_PROTOCOL_VERSION));
+        Logger::error(QStringLiteral("RuntimeManager"),
+                      QStringLiteral("Skipping DLL load for %1: %2")
+                          .arg(dir.dirName(), info.protocolCompatibilityError));
     }
 
     // Ensure the ID conforms to: {engineFamily}-{variant}
@@ -634,6 +649,8 @@ QVariantList RuntimeManager::runtimeVersions(const QString &id) const
         m["kind"] = info.kind;
         m["executablePath"] = info.executablePath;
         m["protocolVersion"] = info.protocolVersion;
+        m["protocolCompatible"] = info.protocolCompatible;
+        m["protocolCompatibilityError"] = info.protocolCompatibilityError;
         m["capabilities"] = info.capabilities;
         m["modelFormats"] = info.modelFormats;
         m["metadata"] = info.metadata;
@@ -745,6 +762,8 @@ QVariantList RuntimeManager::allRuntimes() const
         m["kind"] = info.kind;
         m["executablePath"] = info.executablePath;
         m["protocolVersion"] = info.protocolVersion;
+        m["protocolCompatible"] = info.protocolCompatible;
+        m["protocolCompatibilityError"] = info.protocolCompatibilityError;
         m["capabilities"] = info.capabilities;
         m["modelFormats"] = info.modelFormats;
         m["metadata"] = info.metadata;

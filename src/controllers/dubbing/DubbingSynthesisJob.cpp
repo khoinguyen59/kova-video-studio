@@ -11,7 +11,9 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QFutureWatcher>
 #include <QUuid>
+#include <QtConcurrent>
 #include <QtMath>
 
 namespace LAStudio {
@@ -55,6 +57,11 @@ bool needsSynthesis(const QVariantMap &segment, const QString &signature,
         || !QFileInfo::exists(segment.value(QStringLiteral("clipPath")).toString())
         || segment.value(QStringLiteral("cacheFingerprint")).toString() != fingerprint(segment, signature, settings);
 }
+
+struct DubbingTimingResult {
+    QVariantList segments;
+    QString error;
+};
 }
 
 DubbingSynthesisJob::DubbingSynthesisJob(TtsEngine *tts, QObject *parent)
@@ -106,6 +113,9 @@ bool DubbingSynthesisJob::start(const QVariantList &segments, const QString &pro
         fail(QStringLiteral("Load a TTS model before generating dubbing audio."));
         return false;
     }
+    ++m_timingRequestId;
+    if (m_timingCancelled) m_timingCancelled->storeRelease(true);
+    m_timingCancelled.reset();
     m_segments = segments;
     m_projectPath = projectPath;
     m_settings = settings;
@@ -161,6 +171,8 @@ bool DubbingSynthesisJob::start(const QVariantList &segments, const QString &pro
 void DubbingSynthesisJob::cancel()
 {
     if (!m_running) return;
+    ++m_timingRequestId;
+    if (m_timingCancelled) m_timingCancelled->storeRelease(true);
     if (m_tts && m_tts->isProcessing()) m_tts->cancelProcessing();
     m_running = false;
     m_waitingForModel = false;
@@ -277,13 +289,30 @@ void DubbingSynthesisJob::onSynthesisFinished(const QByteArray &pcm16, int sampl
 
 void DubbingSynthesisJob::fitGeneratedSegments()
 {
-    QString error;
-    const QVariantList fitted = DubbingTimingService::fitSegments(m_segments, nullptr, &error);
-    if (!error.isEmpty()) { fail(error); return; }
-    m_segments = fitted;
-    m_running = false;
-    emit progressChanged(100);
-    emit completed(m_segments);
+    if (!m_running) return;
+    const quint64 requestId = ++m_timingRequestId;
+    const auto cancelled = std::make_shared<QAtomicInteger<bool>>(false);
+    m_timingCancelled = cancelled;
+    const QVariantList segments = m_segments;
+    emit progressChanged(95);
+
+    auto *watcher = new QFutureWatcher<DubbingTimingResult>(this);
+    connect(watcher, &QFutureWatcher<DubbingTimingResult>::finished, this,
+            [this, watcher, requestId]() {
+        const DubbingTimingResult result = watcher->result();
+        watcher->deleteLater();
+        if (requestId != m_timingRequestId || !m_running) return;
+        if (!result.error.isEmpty()) { fail(result.error); return; }
+        m_segments = result.segments;
+        m_running = false;
+        emit progressChanged(100);
+        emit completed(m_segments);
+    });
+    watcher->setFuture(QtConcurrent::run([segments, cancelled]() {
+        DubbingTimingResult result;
+        result.segments = DubbingTimingService::fitSegments(segments, cancelled.get(), &result.error);
+        return result;
+    }));
 }
 
 void DubbingSynthesisJob::onTtsError(const QString &message)

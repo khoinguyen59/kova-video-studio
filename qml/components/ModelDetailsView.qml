@@ -34,7 +34,7 @@ Rectangle {
                 spacing: Theme.paddingMedium
 
                 Rectangle {
-                    width: 32; height: 32; radius: 16
+                    Layout.preferredWidth: 32; Layout.preferredHeight: 32; radius: 16
                     color: Theme.surfaceAlt
                     Text { anchors.centerIn: parent; text: "🤖"; font.pixelSize: 18 }
                 }
@@ -73,7 +73,7 @@ Rectangle {
                 RowLayout {
                     spacing: 4
                     Rectangle {
-                        width: 80; height: 32; radius: 6; color: Theme.surfaceAlt
+                        Layout.preferredWidth: 80; Layout.preferredHeight: 32; radius: 6; color: Theme.surfaceAlt
                         RowLayout {
                             anchors.centerIn: parent; spacing: 6
                             Text { text: "⬇"; color: Theme.textSecondary; font.pixelSize: 12 }
@@ -88,7 +88,7 @@ Rectangle {
                 RowLayout {
                     spacing: 4
                     Rectangle {
-                        width: 60; height: 32; radius: 6; color: Theme.surfaceAlt
+                        Layout.preferredWidth: 60; Layout.preferredHeight: 32; radius: 6; color: Theme.surfaceAlt
                         RowLayout {
                             anchors.centerIn: parent; spacing: 6
                             Text { text: "❤"; color: Theme.textSecondary; font.pixelSize: 12 }

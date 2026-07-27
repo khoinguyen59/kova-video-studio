@@ -11,6 +11,7 @@ private slots:
     void initTestCase();
     void cleanupTestCase();
     void testHistoryRepository();
+    void testHistoryEnvelopeAndLegacyCompatibility();
     void testHistoryService();
     void testSttHistory();
 

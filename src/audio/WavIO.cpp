@@ -5,6 +5,7 @@
 #include <cstring>
 #include <cmath>
 #include <algorithm>
+#include <limits>
 
 namespace LAStudio {
 
@@ -40,61 +41,101 @@ WavIO::WavData WavIO::loadAsFloat(const QString &path)
     }
 
     QByteArray raw = file.readAll();
-    if (raw.size() < static_cast<qsizetype>(sizeof(RiffHeader) + sizeof(FmtChunk) + sizeof(DataChunkHeader))) {
+    if (raw.size() < static_cast<qsizetype>(sizeof(RiffHeader))) {
         Logger::error("WavIO", "File too small: " + path);
         return result;
     }
 
-    auto *riff = reinterpret_cast<const RiffHeader *>(raw.constData());
-    if (std::memcmp(riff->riff, "RIFF", 4) != 0 || std::memcmp(riff->wave, "WAVE", 4) != 0) {
+    RiffHeader riff{};
+    std::memcpy(&riff, raw.constData(), sizeof(riff));
+    if (std::memcmp(riff.riff, "RIFF", 4) != 0 || std::memcmp(riff.wave, "WAVE", 4) != 0) {
         Logger::error("WavIO", "Not a WAV file: " + path);
         return result;
     }
 
     const char *ptr = raw.constData() + sizeof(RiffHeader);
     const char *end = raw.constData() + raw.size();
-    const FmtChunk *fmt = nullptr;
+    FmtChunk fmt{};
+    bool hasFmt = false;
     const char *dataPtr = nullptr;
     uint32_t dataSize = 0;
 
     while (ptr + 8 <= end) {
-        auto chunkId = ptr;
-        uint32_t chunkSize;
+        const char *chunkId = ptr;
+        uint32_t chunkSize = 0;
         std::memcpy(&chunkSize, ptr + 4, 4);
+        ptr += 8;
+        const qsizetype available = end - ptr;
+        if (chunkSize > static_cast<uint32_t>(available)) {
+            Logger::error("WavIO", "Truncated chunk: " + path);
+            return result;
+        }
 
         if (std::memcmp(chunkId, "fmt ", 4) == 0) {
-            fmt = reinterpret_cast<const FmtChunk *>(ptr);
+            if (chunkSize < 16) {
+                Logger::error("WavIO", "Invalid fmt chunk: " + path);
+                return result;
+            }
+            std::memcpy(&fmt, chunkId, sizeof(FmtChunk));
+            hasFmt = true;
         } else if (std::memcmp(chunkId, "data", 4) == 0) {
-            dataPtr = ptr + 8;
+            dataPtr = ptr;
             dataSize = chunkSize;
         }
 
-        ptr += 8 + chunkSize;
-        if (chunkSize % 2 != 0) ptr++; // padding byte
+        ptr += chunkSize;
+        if (chunkSize % 2 != 0) {
+            if (ptr == end) {
+                Logger::error("WavIO", "Missing chunk padding: " + path);
+                return result;
+            }
+            ++ptr;
+        }
     }
 
-    if (!fmt || !dataPtr) {
+    if (!hasFmt || !dataPtr) {
         Logger::error("WavIO", "Missing fmt or data chunk: " + path);
         return result;
     }
 
-    result.sampleRate = static_cast<int>(fmt->sampleRate);
-    result.channels   = fmt->numChannels;
+    const int bps = fmt.bitsPerSample;
+    const int bytesPerSample = bps / 8;
+    if (fmt.numChannels == 0 || fmt.sampleRate == 0 || fmt.blockAlign == 0 ||
+        bps == 0 || bps % 8 != 0 || bytesPerSample == 0 ||
+        dataSize % fmt.blockAlign != 0 ||
+        (bps == 16 && fmt.audioFormat != 1) ||
+        (bps == 32 && fmt.audioFormat != 3) ||
+        (bps != 16 && bps != 32)) {
+        Logger::error("WavIO", QString("Invalid or unsupported WAV format bps %1 format %2")
+            .arg(bps).arg(fmt.audioFormat));
+        return result;
+    }
+    if (fmt.blockAlign != fmt.numChannels * bytesPerSample) {
+        Logger::error("WavIO", "Invalid block alignment: " + path);
+        return result;
+    }
 
-    int bps = fmt->bitsPerSample;
-    size_t numTotalSamples = dataSize / (bps / 8);
-    result.samples.resize(static_cast<int>(numTotalSamples));
+    const quint64 sampleCount = dataSize / static_cast<quint32>(bytesPerSample);
+    if (sampleCount > static_cast<quint64>(std::numeric_limits<int>::max())) {
+        Logger::error("WavIO", "WAV sample count is too large: " + path);
+        return result;
+    }
+    result.sampleRate = static_cast<int>(fmt.sampleRate);
+    result.channels = fmt.numChannels;
+    result.samples.resize(static_cast<int>(sampleCount));
 
     if (bps == 16) {
-        auto *src = reinterpret_cast<const int16_t *>(dataPtr);
-        for (size_t i = 0; i < numTotalSamples; ++i)
-            result.samples[static_cast<int>(i)] = static_cast<float>(src[i]) / 32768.0f;
-    } else if (bps == 32 && fmt->audioFormat == 3) { // IEEE float
-        auto *src = reinterpret_cast<const float *>(dataPtr);
-        for (size_t i = 0; i < numTotalSamples; ++i)
-            result.samples[static_cast<int>(i)] = src[i];
-    } else {
-        Logger::error("WavIO", QString("Unsupported bps %1 format %2").arg(bps).arg(fmt->audioFormat));
+        for (quint64 i = 0; i < sampleCount; ++i) {
+            int16_t sample = 0;
+            std::memcpy(&sample, dataPtr + i * sizeof(sample), sizeof(sample));
+            result.samples[static_cast<int>(i)] = static_cast<float>(sample) / 32768.0f;
+        }
+    } else { // IEEE 32-bit float
+        for (quint64 i = 0; i < sampleCount; ++i) {
+            float sample = 0.0f;
+            std::memcpy(&sample, dataPtr + i * sizeof(sample), sizeof(sample));
+            result.samples[static_cast<int>(i)] = sample;
+        }
     }
 
     return result;

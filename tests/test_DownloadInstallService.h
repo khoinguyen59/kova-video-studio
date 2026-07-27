@@ -12,6 +12,7 @@ private slots:
     void cleanupTestCase();
     void testDownloadInstallService();
     void testQuickInstallSelectsLatestCatalogRuntime();
+    void testArchiveMemberPathsCannotEscapeExtractionDir();
 
 private:
     QTemporaryDir m_tempDir;

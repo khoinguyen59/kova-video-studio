@@ -6,15 +6,22 @@ import LAStudio
 ApplicationWindow {
     id: root
 
-    width: 1280
-    height: 800
+    width: AppController.settings.windowWidth
+    height: AppController.settings.windowHeight
+    x: AppController.settings.windowX
+    y: AppController.settings.windowY
     minimumWidth: 960
     minimumHeight: 600
-    visibility: ApplicationWindow.Maximized
-    flags: Qt.Window | Qt.FramelessWindowHint
+    visibility: AppController.settings.windowMaximized ? ApplicationWindow.Maximized : ApplicationWindow.Windowed
+    // A QML-only frameless window cannot participate fully in Windows' non-client
+    // area behaviour (snap layouts, Aero Snap and the system shadow).  Keep the
+    // custom chrome on other platforms, but let Windows own the frame instead.
+    readonly property bool usesNativeWindowFrame: Qt.platform.os === "windows"
+    flags: Qt.Window | (usesNativeWindowFrame ? 0 : Qt.FramelessWindowHint)
     readonly property string appName: Qt.application.name && Qt.application.name.length > 0 ? Qt.application.name : "LA Studio"
     readonly property string appVersion: Qt.application.version
     property string dismissedUpdateVersion: ""
+    property bool restoringWindowPlacement: true
     title: appName + " - " + appVersion
     color: Theme.background
 
@@ -54,7 +61,9 @@ ApplicationWindow {
             spacing: Theme.paddingMedium
 
             Text {
-                text: qsTr("Error")
+                text: AppController.pendingErrorCount > 1
+                      ? qsTr("Error (%1 pending)").arg(AppController.pendingErrorCount)
+                      : qsTr("Error")
                 color: Theme.danger
                 font.pixelSize: Theme.fontLarge
                 font.bold: true
@@ -70,8 +79,8 @@ ApplicationWindow {
                 text: qsTr("Dismiss")
                 Layout.alignment: Qt.AlignRight
                 onClicked: {
-                    AppController.clearError()
                     errorPopup.close()
+                    AppController.clearError()
                 }
             }
         }
@@ -127,6 +136,110 @@ ApplicationWindow {
         onConfirmed: AppController.updates.installDownloadedUpdate()
     }
 
+    function persistWindowPlacement() {
+        if (restoringWindowPlacement || visibility === ApplicationWindow.Minimized)
+            return
+        const maximized = visibility === ApplicationWindow.Maximized
+        // Maximizing changes the window dimensions to the monitor bounds. Keep
+        // the last normal geometry so restoring the window remains predictable.
+        AppController.settings.saveWindowPlacement(
+            maximized ? AppController.settings.windowX : x,
+            maximized ? AppController.settings.windowY : y,
+            maximized ? AppController.settings.windowWidth : width,
+            maximized ? AppController.settings.windowHeight : height,
+            maximized)
+    }
+
+    ConfirmationDialog {
+        id: updateConsentDialog
+        titleText: qsTr("Automatic update checks")
+        messageText: qsTr("LA Studio can periodically contact GitHub to check whether a new version is available. No update is downloaded or installed automatically. You can change this later in Settings.")
+        confirmText: qsTr("Allow")
+        cancelText: qsTr("Not now")
+        onConfirmed: {
+            AppController.settings.automaticUpdateChecks = true
+            AppController.settings.updateCheckConsentAsked = true
+        }
+        onCancelled: AppController.settings.updateCheckConsentAsked = true
+    }
+
+    Component.onCompleted: {
+        restoringWindowPlacement = false
+        if (!AppController.settings.updateCheckConsentAsked)
+            updateConsentDialog.open()
+    }
+
+    function startQmlRouteSmoke() {
+        qmlSmokeTimer.routeIndex = 0
+        qmlSmokeTimer.waitTicks = 0
+        qmlSmokeTimer.start()
+    }
+
+    function qmlSmokeRouteLoaded(routeIndex) {
+        switch (routeIndex) {
+        case 0: return true
+        case 1: return sttLoader.status === Loader.Ready
+        case 2: return ttsLoader.status === Loader.Ready
+        case 3: return voiceCloningLoader.status === Loader.Ready
+        case 4: return voiceDesignLoader.status === Loader.Ready
+        case 5: return voiceIsolatorLoader.status === Loader.Ready
+        case 6: return alignmentLoader.status === Loader.Ready
+        case 7: return translationLoader.status === Loader.Ready
+        case 8: return dubbingLoader.status === Loader.Ready
+        case 9: return llmLoader.status === Loader.Ready
+        case 10: return modelsLoader.status === Loader.Ready
+        case 11: return myModelsLoader.status === Loader.Ready
+        case 12: return developerLoader.status === Loader.Ready
+        case 13: return settingsLoader.status === Loader.Ready
+        default: return false
+        }
+    }
+
+    Timer {
+        id: qmlSmokeTimer
+        interval: 100
+        repeat: true
+        running: false
+        property int routeIndex: 0
+        property int waitTicks: 0
+
+        onTriggered: {
+            if (routeIndex >= StudioRouteRegistry.routes.length) {
+                running = false
+                Qt.quit()
+                return
+            }
+            var route = StudioRouteRegistry.routes[routeIndex]
+            if (!route || StudioRouteRegistry.getIndex(route.id) !== routeIndex) {
+                console.warn("Route registry is inconsistent for index " + routeIndex)
+                running = false
+                return
+            }
+            if (waitTicks === 0) {
+                stack.currentIndex = routeIndex
+                waitTicks = 1
+                return
+            }
+            if (root.qmlSmokeRouteLoaded(routeIndex)) {
+                ++routeIndex
+                waitTicks = 0
+                return
+            }
+            ++waitTicks
+            if (waitTicks > 100) {
+                console.warn("Route did not finish loading: " + route.id)
+                running = false
+            }
+        }
+    }
+
+    onXChanged: persistWindowPlacement()
+    onYChanged: persistWindowPlacement()
+    onWidthChanged: persistWindowPlacement()
+    onHeightChanged: persistWindowPlacement()
+    onVisibilityChanged: persistWindowPlacement()
+    onClosing: persistWindowPlacement()
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
@@ -135,6 +248,8 @@ ApplicationWindow {
             window: root
             appName: root.appName
             appVersion: root.appVersion
+            visible: !root.usesNativeWindowFrame
+            Layout.preferredHeight: root.usesNativeWindowFrame ? 0 : 34
         }
 
         Rectangle {
@@ -276,7 +391,7 @@ ApplicationWindow {
             }
 
             Rectangle {
-                width: 1
+                Layout.preferredWidth: 1
                 Layout.fillHeight: true
                 color: Theme.surfaceAlt
             }
@@ -447,7 +562,13 @@ ApplicationWindow {
                     onLoaded: if (pendingFamilyId !== "") { item.openConfiguration(pendingFamilyId); pendingFamilyId = "" }
                     function openConfig(familyId) { if (item) item.openConfiguration(familyId); else pendingFamilyId = familyId }
                 }
-                ModelsPage {
+                Loader {
+                    id: modelsLoader
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    asynchronous: true
+                    active: stack.currentIndex === 10
+                    sourceComponent: ModelsPage {
                     onOpenStudioRequested: function(capability, familyId) {
                         var routeId = StudioRouteRegistry.routeForCapability(capability)
                         stack.currentIndex = StudioRouteRegistry.getIndex(routeId)
@@ -467,8 +588,15 @@ ApplicationWindow {
                             llmLoader.openConfig(familyId)
                         }
                     }
+                    }
                 }
-                MyModelsPage {
+                Loader {
+                    id: myModelsLoader
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    asynchronous: true
+                    active: stack.currentIndex === 11
+                    sourceComponent: MyModelsPage {
                     onOpenStudioRequested: function(capability, familyId) {
                         var routeId = StudioRouteRegistry.routeForCapability(capability)
                         stack.currentIndex = StudioRouteRegistry.getIndex(routeId)
@@ -487,6 +615,7 @@ ApplicationWindow {
                         } else if (routeId === "studio-llm") {
                             llmLoader.openConfig(familyId)
                         }
+                    }
                     }
                 }
                 Loader {
@@ -596,7 +725,9 @@ ApplicationWindow {
         readonly property int edgeWidth: 6
         readonly property int cornerWidth: 14
 
-        visible: root.visibility !== Window.Maximized && root.visibility !== Window.FullScreen
+        visible: !root.usesNativeWindowFrame
+                 && root.visibility !== Window.Maximized
+                 && root.visibility !== Window.FullScreen
         enabled: visible
         z: 1000
         hoverEnabled: true

@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include <cstring>
 #include "core/Logger.h"
+#include "runtimes/WindowsDllSearch.h"
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -182,29 +183,22 @@ public:
              Logger::info("CrispKokoro", "Found ggml directory: " + ggmlDir);
         }
 
-        QByteArray oldPath = qgetenv("PATH");
         const QStringList runtimeDirs = crispRuntimeDependencyDirs(cleanLibPath);
-        crispPrependRuntimeDirsToPath(runtimeDirs);
         configureKokoroPhonemizer(cleanLibPath);
+        ScopedTrustedDllDirectories trustedDirectories(runtimeDirs);
 
         #ifdef Q_OS_WIN
         crispReleasePreloadedRuntimeDlls(m_preloadedDlls);
         m_preloadedDlls = crispPreloadRuntimeDlls(cleanLibPath, runtimeDirs);
-        SetDllDirectoryW((LPCWSTR)dir.utf16());
         #endif
 
         m_lib.setFileName(cleanLibPath);
         m_lib.setLoadHints(QLibrary::ExportExternalSymbolsHint);
         bool ok = m_lib.load();
 
-        #ifdef Q_OS_WIN
-        SetDllDirectoryW(NULL);
-        #endif
-
         if (!ok) {
             m_errorString = m_lib.errorString();
             Logger::error("CrispKokoro", "Failed to load library: " + m_errorString);
-            qputenv("PATH", oldPath);
         #ifdef Q_OS_WIN
             crispReleasePreloadedRuntimeDlls(m_preloadedDlls);
         #endif
@@ -339,17 +333,6 @@ public:
 private:
     CrispKokoroInterface() = default;
 
-    static bool containsPath(const QStringList& entries, const QString& path) {
-        return entries.contains(QDir::toNativeSeparators(QDir::cleanPath(path)), Qt::CaseInsensitive);
-    }
-
-    static void prependPath(QStringList& entries, const QString& path) {
-        const QString cleanPath = QDir::toNativeSeparators(QDir::cleanPath(path));
-        if (!cleanPath.isEmpty() && QDir(cleanPath).exists() && !containsPath(entries, cleanPath)) {
-            entries.prepend(cleanPath);
-        }
-    }
-
     void configureKokoroPhonemizer(const QString& libPath) {
         const QFileInfo fi(libPath);
         const QDir runtimeRoot(QDir::cleanPath(fi.absolutePath() + QStringLiteral("/..")));
@@ -374,10 +357,6 @@ private:
             << QStringLiteral("C:/Program Files/eSpeak NG")
             << QStringLiteral("C:/Program Files (x86)/eSpeak NG");
 
-        const QByteArray oldPath = qgetenv("PATH");
-        QStringList pathEntries = QString::fromLocal8Bit(oldPath).split(QDir::listSeparator(), Qt::SkipEmptyParts);
-        candidateDirs.append(pathEntries);
-
 #ifdef Q_OS_WIN
         const QString executableName = QStringLiteral("espeak-ng.exe");
 #else
@@ -389,7 +368,6 @@ private:
             const QString exe = QDir(candidateDir).absoluteFilePath(executableName);
             if (QFileInfo::exists(exe)) {
                 foundExe = QDir::toNativeSeparators(QDir::cleanPath(exe));
-                prependPath(pathEntries, QFileInfo(foundExe).absolutePath());
                 break;
             }
         }
@@ -401,13 +379,11 @@ private:
                             QDirIterator::Subdirectories);
             while (it.hasNext()) {
                 foundExe = QDir::toNativeSeparators(QDir::cleanPath(it.next()));
-                prependPath(pathEntries, QFileInfo(foundExe).absolutePath());
                 break;
             }
         }
 
         if (!foundExe.isEmpty()) {
-            qputenv("PATH", pathEntries.join(QDir::listSeparator()).toLocal8Bit());
             m_kokoroPhonemizerAvailable = configureEspeakDataPath(QFileInfo(foundExe).absolutePath());
             m_kokoroPhonemizerPath = foundExe;
             Logger::info("CrispKokoro", "Found Kokoro phonemizer: " + foundExe);

@@ -3,7 +3,7 @@
 This project is standardized around a single primary build flow on Windows:
 
 1. MSVC 2022 toolchain
-2. Qt 6.x (`msvc2022_64` kit)
+2. Qt 6.9.x (`msvc2022_64` kit)
 3. CMake + Ninja
 4. vcpkg manifest mode
 
@@ -24,10 +24,15 @@ After a successful build, executable output is:
 Install these before running bootstrap:
 
 1. Visual Studio 2022 (or Build Tools) with MSVC x64 toolchain
-2. Qt 6.5+ with `msvc2022_64` kit
+2. Qt 6.9.x with the `msvc2022_64` kit and the Qt Multimedia, Qt Image Formats, and Qt Tools modules
 3. CMake 3.21+
 4. Ninja
-5. Git
+5. Git (used to provision the pinned vcpkg baseline and llama.cpp b10036 headers automatically)
+6. FFmpeg and FFprobe on `PATH` (required by Video Dubbing, source separation, and audio decoding fallback)
+7. Internet access for the first non-`-SkipDeploy` build, unless the eSpeak NG MSI is already cached in `.deps/espeak-ng`
+
+Packaging only additionally requires 7-Zip and Inno Setup 6. eSpeak NG is downloaded and staged next
+to the application by a normal deploy build; it is not a separate manual prerequisite.
 
 ## Bootstrap Behavior
 
@@ -35,9 +40,11 @@ Install these before running bootstrap:
 
 1. Tool checks (`git`, `cmake`, `ninja`)
 2. Qt detection from `-QtRoot`, `LA_QT`, or common `C:\Qt\...` paths
-3. vcpkg detection from `-VcpkgRoot`, `VCPKG_ROOT`, common paths, or local clone to `.deps/vcpkg`
-4. Build execution via `scripts/build.ps1`
-5. Normal deploy builds cache eSpeak NG 1.52.0 in `.deps/espeak-ng` and stage it under
+3. vcpkg resolution from `-VcpkgRoot`, `VCPKG_ROOT`, common paths, or a managed clone pinned to the
+   `vcpkg.json` baseline at `.deps/vcpkg`
+4. Automatic provisioning of llama.cpp b10036 public headers at `.deps/llama.cpp`
+5. Build execution via `scripts/build.ps1` with the resolved llama.cpp path
+6. Normal deploy builds cache eSpeak NG 1.52.0 in `.deps/espeak-ng` and stage it under
    `out/build/<preset>/espeak-ng` with `libespeak-ng.dll` and `espeak-ng-data`.
 
 ## Common Commands
@@ -69,10 +76,37 @@ Explicit Qt path:
 .\scripts\bootstrap.bat -QtRoot C:\Qt\6.9.3
 ```
 
-Use MinGW preset (advanced path):
+MinGW is experimental only: it is not covered by CI or release validation. Use it only for local
+investigation; official binaries are built with MSVC.
 
 ```powershell
 .\scripts\bootstrap.bat -Preset windows-mingw-release -QtRoot C:\Qt\6.9.3
+```
+
+Internal staged package only:
+
+```powershell
+.\scripts\package.ps1 -Preset windows-msvc-release -QtRoot .tools\Qt\6.9.3 -VcpkgRoot .deps\vcpkg -LlamaCppSourceDir .deps\llama.cpp -SkipInstaller -AllowUnsignedEspeakForInternalBuild
+```
+
+This explicit opt-in permits the currently pinned eSpeak NG MSI for internal testing even though
+the upstream file is not Authenticode-signed. Its SHA-256 is still verified. Do not distribute or
+promote this output to a release. Without the switch, packaging remains fail-closed and requires a
+valid Authenticode signature as well as the pinned SHA-256.
+
+For a deployed developer build (without creating `out/stage`), pass the same explicit flag through
+bootstrap:
+
+```powershell
+.\scripts\bootstrap.bat -QtRoot .tools\Qt\6.9.3 -AllowUnsignedEspeakForInternalBuild
+```
+
+This flag is intentionally opt-in and must never be used by a release build or CI release job.
+
+Actionable QML lint gate (run after a preset has been configured):
+
+```powershell
+.\scripts\lint_qml.ps1 -QtRoot C:\Qt\6.9.3
 ```
 
 ## CMake Presets

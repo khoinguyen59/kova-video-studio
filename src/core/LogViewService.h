@@ -25,6 +25,7 @@ public:
     Q_INVOKABLE QString readNewLogs();
     Q_INVOKABLE void resetLogPosition();
     Q_INVOKABLE QString readLogFile() const;
+    Q_INVOKABLE QString readSanitizedLogFile() const;
 
 signals:
     void loadingChanged();

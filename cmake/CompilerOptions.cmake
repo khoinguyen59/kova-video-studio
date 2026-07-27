@@ -10,7 +10,10 @@ endif()
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     if(MSVC)
-        add_compile_options(/O2)
+        # Keep optimized release binaries while retaining symbols for the private
+        # release artifact. /DEBUG causes the linker to write a matching PDB.
+        add_compile_options(/O2 /Zi)
+        add_link_options(/DEBUG)
     else()
         add_compile_options(-O3)
     endif()

@@ -11,7 +11,13 @@ AppUpdatesURL=https://github.com/dduongtrandai/LA-Studio/releases
 DefaultDirName={autopf}\LA Studio
 DefaultGroupName=LA Studio
 DisableProgramGroupPage=yes
-; LicenseFile=../LICENSE
+LicenseFile=@LASTUDIO_LICENSE_FILE@
+InfoAfterFile=@LASTUDIO_SOURCE_OFFER_FILE@
+AppId={{3B8F304A-C0E0-46E1-A4EE-8DB07B5DE423}
+AppMutex=LAStudio-3B8F304A-C0E0-46E1-A4EE-8DB07B5DE423
+CloseApplications=force
+PrivilegesRequired=admin
+VersionInfoVersion=@PROJECT_VERSION@
 OutputDir=@LASTUDIO_INSTALLER_OUTPUT_DIR@
 OutputBaseFilename=LA-Studio-Setup
 Compression=lzma2
@@ -29,12 +35,42 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "@LASTUDIO_INSTALLER_STAGE_DIR@\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
+Source: "@LASTUDIO_INSTALLER_STAGE_DIR@\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\LA Studio"; Filename: "{app}\bin\LA Studio.exe"
 Name: "{autodesktop}\LA Studio"; Filename: "{app}\bin\LA Studio.exe"; Tasks: desktopicon
 
 [Run]
+Filename: "{app}\bin\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing Microsoft Visual C++ Runtime..."; Flags: waituntilterminated runhidden; Check: VcRedistIsStaged
 Filename: "{app}\bin\LA Studio.exe"; Description: "{cm:LaunchProgram,LA Studio}"; Flags: nowait postinstall skipifsilent
 Filename: "{app}\bin\LA Studio.exe"; Flags: nowait skipifnotsilent
+
+[Code]
+var
+  RemoveUserData: Boolean;
+
+function VcRedistIsStaged(): Boolean;
+begin
+  Result := FileExists(ExpandConstant('{app}\bin\vc_redist.x64.exe'));
+end;
+
+function InitializeUninstall(): Boolean;
+begin
+  Result := True;
+  RemoveUserData := False;
+
+  { Silent uninstall must preserve user data. Interactive uninstall requires an explicit opt-in. }
+  if not WizardSilent() then
+    RemoveUserData := MsgBox(
+      'Also remove downloaded models, logs, history, and settings from the default local data folder?' + #13#10 + #13#10 +
+      'This permanently deletes: {userprofile}\\.lastudio' + #13#10 +
+      'Data stored in a custom models folder is not removed.',
+      mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if (CurUninstallStep = usPostUninstall) and RemoveUserData then
+    DelTree(ExpandConstant('{userprofile}\\.lastudio'), True, True, True);
+end;

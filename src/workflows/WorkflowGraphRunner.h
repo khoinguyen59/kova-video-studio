@@ -33,6 +33,8 @@ public:
 
     QStringList validate(const WorkflowGraph &graph) const;
     bool run(const WorkflowGraph &graph, const QVariantMap &initialInputs = QVariantMap());
+    bool resumeInterrupted(const QString &runId);
+    bool discardInterrupted(const QString &runId);
     void cancel();
     bool resume(const QVariantMap &decision);
     void setJournal(WorkflowRunJournal *journal) { m_journal = journal; }
@@ -45,6 +47,7 @@ signals:
     void nodeCompleted(const QString &nodeId, const QVariantMap &outputs);
     void completed(const QVariantMap &outputs);
     void failed(const QString &error);
+    void cancelled();
 
 private slots:
     void onExecutorProgress(int percent, const QString &status);
@@ -55,6 +58,7 @@ private slots:
 private:
     void startNextNode();
     void fail(const QString &message);
+    void finishCancelled();
     QVariantMap inputsForNode(const WorkflowGraphNode &node, QString *error) const;
     const WorkflowGraphEdge *incomingEdge(const QString &nodeId, const QString &portId) const;
 

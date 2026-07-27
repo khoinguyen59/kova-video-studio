@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
-import QtMultimedia
 import "../components/base"
 import "../components/alignment"
 import "../components/dubbing"
@@ -512,7 +511,7 @@ Item {
                         Field { Layout.fillWidth: true; placeholderText: qsTr("Search segments...") }
                         Text { text: qsTr("%1 / %1").arg(dubbing.segments.length); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                     }
-                    Rectangle { Layout.fillWidth: true; height: 30; color: Qt.rgba(1, 1, 1, 0.035); radius: Theme.radiusSmall
+                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 30; color: Qt.rgba(1, 1, 1, 0.035); radius: Theme.radiusSmall
                         RowLayout { anchors.fill: parent; anchors.leftMargin: Theme.paddingSmall; anchors.rightMargin: Theme.paddingSmall; spacing: Theme.paddingSmall
                             Text { text: qsTr("TIME"); Layout.preferredWidth: 88; color: Theme.textSecondary; font.pixelSize: 10; font.bold: true }
                             Text { text: qsTr("SOURCE / TARGET TEXT"); Layout.fillWidth: true; color: Theme.textSecondary; font.pixelSize: 10; font.bold: true }
@@ -845,6 +844,67 @@ Item {
         confirmText: qsTr("Clear all")
         isDestructive: true
         onConfirmed: dubbing.clearHistory()
+    }
+
+    Dialog {
+        id: interruptedWorkflowDialog
+        parent: Overlay.overlay
+        modal: true
+        title: qsTr("Interrupted workflow")
+        width: Math.min(440, parent ? parent.width - 32 : 440)
+        x: parent ? Math.round((parent.width - width) / 2) : 0
+        y: parent ? Math.round((parent.height - height) / 2) : 0
+        standardButtons: Dialog.NoButton
+
+        contentItem: ColumnLayout {
+            spacing: Theme.paddingMedium
+
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("A previous dubbing workflow stopped unexpectedly. You can continue from the last completed node or discard that interrupted run.")
+                color: Theme.textSecondary
+                wrapMode: Text.WordWrap
+            }
+
+            Text {
+                Layout.fillWidth: true
+                visible: dubbing.workflowRecovery.activeNodeId !== ""
+                text: qsTr("Last active node: %1").arg(dubbing.workflowRecovery.activeNodeId)
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fontSmall
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.paddingSmall
+                spacing: Theme.paddingSmall
+
+                PrimaryButton {
+                    text: qsTr("Discard run")
+                    quiet: true
+                    Layout.fillWidth: true
+                    onClicked: {
+                        if (dubbing.discardInterruptedWorkflow()) interruptedWorkflowDialog.close()
+                    }
+                }
+
+                PrimaryButton {
+                    text: qsTr("Resume")
+                    Layout.fillWidth: true
+                    onClicked: {
+                        if (dubbing.resumeInterruptedWorkflow()) interruptedWorkflowDialog.close()
+                    }
+                }
+            }
+        }
+    }
+
+    Connections {
+        target: dubbing
+        function onWorkflowChanged() {
+            if (dubbing.workflowRecoveryAvailable && !interruptedWorkflowDialog.visible)
+                interruptedWorkflowDialog.open()
+        }
     }
 
     WorkflowPipelineDialog {

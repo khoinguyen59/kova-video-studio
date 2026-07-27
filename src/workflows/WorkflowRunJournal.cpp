@@ -5,6 +5,7 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QRegularExpression>
+#include <algorithm>
 
 namespace LAStudio {
 
@@ -15,6 +16,14 @@ QString safeId(const QString &value)
     QString result = value.trimmed();
     result.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9_-]")), QStringLiteral("_"));
     return result.isEmpty() ? QStringLiteral("unknown") : result;
+}
+
+bool isTerminalEvent(const QString &eventType)
+{
+    return eventType == QStringLiteral("run.completed")
+        || eventType == QStringLiteral("run.failed")
+        || eventType == QStringLiteral("run.cancelled")
+        || eventType == QStringLiteral("run.discarded");
 }
 }
 
@@ -96,6 +105,46 @@ QList<WorkflowRunEvent> WorkflowRunJournal::read(const QString &runId, QString *
         }
         result.append(WorkflowRunEvent::fromJson(document.object()));
     }
+    return result;
+}
+
+QList<WorkflowInterruptedRun> WorkflowRunJournal::interruptedRuns(QString *error) const
+{
+    QList<WorkflowInterruptedRun> result;
+    const QDir runsDirectory(QDir(m_rootPath).filePath(QStringLiteral("runs")));
+    if (!runsDirectory.exists()) return result;
+    const QFileInfoList files = runsDirectory.entryInfoList(
+        {QStringLiteral("*.jsonl")}, QDir::Files | QDir::Readable, QDir::Time);
+    for (const QFileInfo &file : files) {
+        const QString runId = file.completeBaseName();
+        QString readError;
+        const QList<WorkflowRunEvent> events = read(runId, &readError);
+        if (!readError.isEmpty()) {
+            setError(error, QStringLiteral("Cannot read workflow journal %1: %2")
+                               .arg(file.fileName(), readError));
+            continue;
+        }
+        if (events.isEmpty() || isTerminalEvent(events.constLast().eventType)) continue;
+        WorkflowInterruptedRun interrupted;
+        interrupted.runId = events.constFirst().runId.isEmpty() ? runId : events.constFirst().runId;
+        interrupted.lastEventType = events.constLast().eventType;
+        interrupted.lastUpdated = events.constLast().timestamp;
+        for (const WorkflowRunEvent &event : events) {
+            if ((event.eventType == QStringLiteral("run.started")
+                 || event.eventType == QStringLiteral("run.queued"))
+                && interrupted.workflowId.isEmpty()) {
+                interrupted.workflowId = event.payload.value(QStringLiteral("workflowId")).toString();
+                interrupted.workflowVersion = event.payload.value(QStringLiteral("workflowVersion")).toInt();
+            }
+            if (event.eventType == QStringLiteral("node.started"))
+                interrupted.activeNodeId = event.payload.value(QStringLiteral("nodeId")).toString();
+        }
+        result.append(interrupted);
+    }
+    std::sort(result.begin(), result.end(), [](const WorkflowInterruptedRun &left,
+                                               const WorkflowInterruptedRun &right) {
+        return left.lastUpdated > right.lastUpdated;
+    });
     return result;
 }
 

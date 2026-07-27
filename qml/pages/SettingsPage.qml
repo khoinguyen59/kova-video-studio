@@ -1,7 +1,5 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
-import QtQuick.Dialogs
 import LAStudio
 import "../components/base"
 import "./settings"
@@ -17,6 +15,7 @@ Rectangle {
         switch(index) {
             case 0: return qsTr("General Settings")
             case 1: return qsTr("Hardware")
+            case 2: return qsTr("About & Licenses")
             default: return qsTr("Settings")
         }
     }
@@ -26,6 +25,7 @@ Rectangle {
         switch(index) {
             case 0: return qsTr("Configure general options, download path, and view application metadata.")
             case 1: return qsTr("CPU, memory, GPU, and model loading limits.")
+            case 2: return qsTr("License obligations, third-party notices, and source availability.")
             default: return ""
         }
     }
@@ -33,7 +33,8 @@ Rectangle {
     function settingsRoutes() {
         root.translationRevision
         return [
-            { label: qsTr("General"), iconName: "settings", index: 0 }
+            { label: qsTr("General"), iconName: "settings", index: 0 },
+            { label: qsTr("About & Licenses"), iconName: "file", index: 2 }
         ]
     }
 
@@ -134,7 +135,7 @@ Rectangle {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    height: 1
+                    Layout.preferredHeight: 1
                     color: Theme.surfaceAlt
                     opacity: 0.3
                     Layout.bottomMargin: Theme.paddingSmall
@@ -148,6 +149,7 @@ Rectangle {
 
                     GeneralSettingsTab {}
                     HardwareSettingsTab {}
+                    AboutLicensesTab {}
                 }
             }
         }

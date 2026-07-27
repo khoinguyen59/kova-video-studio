@@ -13,6 +13,7 @@ Button {
     property string iconName: ""
     property bool iconOnly: false
     property string toolTip: ""
+    property string accessibleName: ""
     property color borderColor: Qt.rgba(1, 1, 1, 0.08)
     property bool quiet: false
     readonly property real requiredContentWidth:
@@ -26,6 +27,10 @@ Button {
     implicitWidth: root.iconOnly ? 38 : Math.max(120, root.requiredContentWidth)
     implicitHeight: 38
     Layout.minimumWidth: root.requiredContentWidth
+
+    Accessible.role: Accessible.Button
+    Accessible.name: root.accessibleName !== "" ? root.accessibleName : root.text
+    Accessible.description: root.iconOnly ? root.toolTip : ""
 
     AppToolTip {
         text: root.toolTip

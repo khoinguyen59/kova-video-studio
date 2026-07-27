@@ -107,6 +107,58 @@ Rectangle {
         return familyItem && familyItem.selectedFiles ? familyItem.selectedFiles : ({})
     }
 
+    function licenseInfo(familyItem) {
+        var metadata = familyItem ? (familyItem.rawMetadata || familyItem) : ({})
+        return {
+            id: metadata.license || qsTr("Unknown"),
+            url: metadata.licenseUrl || metadata.modelCardUrl || "",
+            commercialUse: metadata.commercialUse || "unknown",
+            attributionRequired: metadata.attributionRequired === true,
+            gated: metadata.gated === true
+        }
+    }
+
+    function licenseSummary(familyItem) {
+        var info = root.licenseInfo(familyItem)
+        if (info.commercialUse === "non-commercial")
+            return qsTr("Non-commercial use only")
+        if (info.commercialUse === "conditional")
+            return qsTr("Review publisher terms")
+        if (info.commercialUse === "unknown")
+            return qsTr("License not verified")
+        if (info.attributionRequired)
+            return qsTr("Attribution required")
+        return qsTr("Commercial use allowed")
+    }
+
+    function requiresLicenseConsent(familyItem) {
+        var info = root.licenseInfo(familyItem)
+        return info.gated || info.attributionRequired || info.commercialUse !== "allowed"
+    }
+
+    function licenseConsentMessage(familyItem) {
+        var info = root.licenseInfo(familyItem)
+        var message = qsTr("This model is licensed as %1. %2.").arg(info.id).arg(root.licenseSummary(familyItem))
+        if (info.commercialUse === "non-commercial") {
+            message += "\n\n" + qsTr("Do not use this model for commercial work unless you have obtained separate permission from the rightsholder.")
+        } else if (info.attributionRequired) {
+            message += "\n\n" + qsTr("You are responsible for providing the attribution required by the upstream license when distributing resulting work.")
+        } else {
+            message += "\n\n" + qsTr("The upstream license is not verified as a general commercial grant. Review the publisher terms before use or distribution.")
+        }
+        return message
+    }
+
+    function runWithLicenseConsent(familyItem, action) {
+        if (!root.requiresLicenseConsent(familyItem)) {
+            action()
+            return
+        }
+        licenseConsentDialog.pendingAction = action
+        licenseConsentDialog.familyItem = familyItem
+        licenseConsentDialog.open()
+    }
+
     function activeDownload(fileName, runtimeId, version) {
         var downloads = AppController.downloads.activeDownloads
         for (var i = 0; i < downloads.length; i++) {
@@ -247,9 +299,11 @@ Rectangle {
                 familyItem.preferredRuntimeVersion || "",
                 root.selectedFilesForFamily(familyItem))
         }
-        if (AppController.downloadInstall.enqueueRecommendedSetup(familyItem)) {
-            Theme.requestShowDownloads()
-        }
+        root.runWithLicenseConsent(familyItem, function() {
+            if (AppController.downloadInstall.enqueueRecommendedSetup(familyItem)) {
+                Theme.requestShowDownloads()
+            }
+        })
     }
 
     function runPrimaryAction() {
@@ -887,8 +941,8 @@ Rectangle {
                         spacing: Theme.paddingMedium
 
                         Rectangle {
-                            width: 54
-                            height: 54
+                            Layout.preferredWidth: 54
+                            Layout.preferredHeight: 54
                             radius: 8
                             color: Theme.background
                             border.color: detailPanel.f ? (detailPanel.f.accent || Theme.accent) : Theme.accent
@@ -1162,6 +1216,50 @@ Rectangle {
                         wrapMode: Text.WordWrap
                     }
 
+                    Rectangle {
+                        Layout.fillWidth: true
+                        implicitHeight: licenseLayout.implicitHeight + Theme.paddingMedium * 2
+                        radius: 7
+                        color: Qt.rgba(1, 1, 1, 0.025)
+                        border.color: detailPanel.f && root.requiresLicenseConsent(detailPanel.f) ? Theme.warning : Theme.surfaceAlt
+                        border.width: 1
+                        visible: detailPanel.f
+
+                        RowLayout {
+                            id: licenseLayout
+                            anchors.fill: parent
+                            anchors.margins: Theme.paddingMedium
+                            spacing: Theme.paddingSmall
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+                                Text {
+                                    text: qsTr("License: %1").arg(root.licenseInfo(detailPanel.f).id)
+                                    color: Theme.textPrimary
+                                    font.pixelSize: Theme.fontSmall
+                                    font.bold: true
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: root.licenseSummary(detailPanel.f)
+                                    color: detailPanel.f && root.requiresLicenseConsent(detailPanel.f) ? Theme.warning : Theme.textSecondary
+                                    font.pixelSize: 11
+                                    wrapMode: Text.WordWrap
+                                }
+                            }
+
+                            PrimaryButton {
+                                text: qsTr("Terms")
+                                quiet: true
+                                implicitWidth: 82
+                                implicitHeight: 30
+                                visible: root.licenseInfo(detailPanel.f).url !== ""
+                                onClicked: Qt.openUrlExternally(root.licenseInfo(detailPanel.f).url)
+                            }
+                        }
+                    }
+
                     // Required files
                     Text {
                         text: qsTr("Required Files")
@@ -1297,7 +1395,9 @@ Rectangle {
                                             if (installState === 1) {
                                                 Theme.requestShowDownloads()
                                             } else {
-                                                AppController.downloadInstall.enqueueModelFile(familyMetadata, modelData)
+                                                root.runWithLicenseConsent(family, function() {
+                                                    AppController.downloadInstall.enqueueModelFile(familyMetadata, modelData)
+                                                })
                                             }
                                         }
                                     }
@@ -1305,7 +1405,7 @@ Rectangle {
 
                                 Rectangle {
                                     Layout.fillWidth: true
-                                    height: 6
+                                    Layout.preferredHeight: 6
                                     radius: 3
                                     color: Theme.surfaceAlt
                                     visible: installState === 1
@@ -1508,7 +1608,9 @@ Rectangle {
                                     onClicked: {
                                         if (installState === 3) root.selectRuntime(modelData)
                                         else if (installState === 1) Theme.requestShowDownloads()
-                                        else AppController.downloadInstall.enqueueRuntime(detailPanel.f.rawMetadata, detailPanel.f.familyCapability, detailPanel.f.familyId, modelData)
+                                        else root.runWithLicenseConsent(detailPanel.f, function() {
+                                            AppController.downloadInstall.enqueueRuntime(detailPanel.f.rawMetadata, detailPanel.f.familyCapability, detailPanel.f.familyId, modelData)
+                                        })
                                     }
                                 }
 
@@ -1631,5 +1733,22 @@ Rectangle {
             }
             if (root.activeModel) root.activeModel.refresh()
         }
+    }
+
+    ConfirmationDialog {
+        id: licenseConsentDialog
+        parent: Overlay.overlay
+        property var familyItem: null
+        property var pendingAction: null
+        titleText: qsTr("License acknowledgement required")
+        messageText: root.licenseConsentMessage(familyItem)
+        confirmText: qsTr("I acknowledge")
+        cancelText: qsTr("Cancel")
+        onConfirmed: {
+            var action = pendingAction
+            pendingAction = null
+            if (action) action()
+        }
+        onCancelled: pendingAction = null
     }
 }

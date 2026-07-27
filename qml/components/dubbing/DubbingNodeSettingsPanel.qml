@@ -34,7 +34,7 @@ Rectangle {
         anchors.fill: parent
         anchors.margins: Theme.paddingSmall
         spacing: Theme.paddingSmall
-        LineIcon { name: "settings"; color: Theme.accentLight; width: 16; height: 16 }
+        LineIcon { name: "settings"; color: Theme.accentLight; Layout.preferredWidth: 16; Layout.preferredHeight: 16 }
         ColumnLayout {
             Layout.fillWidth: true
             spacing: 1

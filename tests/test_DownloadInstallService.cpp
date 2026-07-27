@@ -46,7 +46,8 @@ void TestDownloadInstallService::testDownloadInstallService()
     // Simulate finished download event
     emit downloads.finished(QStringLiteral("test-model"), QStringLiteral("bad.zip"), dummyZip, {});
 
-    QVERIFY(spyError.size() > 0 || !QFile::exists(dummyZip)); // Either error fired or bad file deleted
+    QCOMPARE(spyError.size(), 1);
+    QVERIFY(!QFile::exists(dummyZip));
 }
 
 void TestDownloadInstallService::testQuickInstallSelectsLatestCatalogRuntime()
@@ -68,6 +69,15 @@ void TestDownloadInstallService::testQuickInstallSelectsLatestCatalogRuntime()
     const QVariantMap selected = DownloadInstallService::latestSupportedRuntime(option);
     QCOMPARE(selected.value(QStringLiteral("version")).toString(), QStringLiteral("v1.10.0"));
     QCOMPARE(selected.value(QStringLiteral("asset")).toString(), QStringLiteral("latest.zip"));
+}
+
+void TestDownloadInstallService::testArchiveMemberPathsCannotEscapeExtractionDir()
+{
+    QVERIFY(DownloadInstallService::isSafeArchiveMemberPath(QStringLiteral("bin/runtime.dll")));
+    QVERIFY(DownloadInstallService::isSafeArchiveMemberPath(QStringLiteral("package/../bin/runtime.dll")));
+    QVERIFY(!DownloadInstallService::isSafeArchiveMemberPath(QStringLiteral("../evil.dll")));
+    QVERIFY(!DownloadInstallService::isSafeArchiveMemberPath(QStringLiteral("C:/evil.dll")));
+    QVERIFY(!DownloadInstallService::isSafeArchiveMemberPath(QStringLiteral("\\\\server\\share\\evil.dll")));
 }
 
 } // namespace LAStudio

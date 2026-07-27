@@ -300,6 +300,7 @@ DubbingController::DubbingController(SttSessionController *sttSession, TtsEngine
             appendAutomaticEvent(QStringLiteral("Final dubbed media is ready"),
                                  QStringLiteral("completed"), QStringLiteral("export"));
         }
+        discoverInterruptedWorkflow();
         emit workflowChanged();
     });
     connect(m_workflowRunner, &WorkflowGraphRunner::failed, this, [this](const QString &) {
@@ -307,6 +308,15 @@ DubbingController::DubbingController(SttSessionController *sttSession, TtsEngine
         m_activeReviewId.clear();
         m_workflowReviewRequest.clear();
         setWorkflowMode(QStringLiteral("idle"));
+        discoverInterruptedWorkflow();
+        emit workflowChanged();
+    });
+    connect(m_workflowRunner, &WorkflowGraphRunner::cancelled, this, [this]() {
+        if (m_workflowReviewStore && !m_activeReviewId.isEmpty()) m_workflowReviewStore->remove(m_activeReviewId);
+        m_activeReviewId.clear();
+        m_workflowReviewRequest.clear();
+        setWorkflowMode(QStringLiteral("idle"));
+        discoverInterruptedWorkflow();
         emit workflowChanged();
     });
 
@@ -1529,6 +1539,10 @@ void DubbingController::advanceAutomaticSetup()
 bool DubbingController::runWorkflow(const QString &outputPath)
 {
     if (!m_workflowRunner || m_workflowRunner->running()) return false;
+    if (workflowRecoveryAvailable()) {
+        setError(QStringLiteral("Resume or discard the interrupted workflow before starting a new run."));
+        return false;
+    }
     if (PathUtils::urlToLocalPath(outputPath).trimmed().isEmpty()) {
         setError(QStringLiteral("Choose an output path before running the full dubbing workflow."));
         return false;
@@ -1788,6 +1802,39 @@ bool DubbingController::rejectWorkflowReview(const QString &reason)
                                                  {QStringLiteral("reason"), reason}});
 }
 
+bool DubbingController::resumeInterruptedWorkflow()
+{
+    const QString runId = m_workflowRecovery.value(QStringLiteral("runId")).toString();
+    if (!m_workflowRunner || runId.isEmpty() || m_workflowRunner->running()) return false;
+    if (!m_workflowRunner->resumeInterrupted(runId)) {
+        setError(m_workflowRunner->error().isEmpty()
+                     ? QStringLiteral("The interrupted workflow could not be resumed.")
+                     : m_workflowRunner->error());
+        return false;
+    }
+    // Some lightweight nodes finish synchronously. In that case the completed
+    // handler has already looked for any older interrupted run, so do not wipe
+    // out the next recovery prompt here.
+    if (m_workflowRunner->running()) {
+        m_workflowRecovery.clear();
+        setWorkflowMode(QStringLiteral("automatic"));
+    }
+    emit workflowChanged();
+    return true;
+}
+
+bool DubbingController::discardInterruptedWorkflow()
+{
+    const QString runId = m_workflowRecovery.value(QStringLiteral("runId")).toString();
+    if (!m_workflowRunner || runId.isEmpty() || !m_workflowRunner->discardInterrupted(runId)) {
+        setError(QStringLiteral("The interrupted workflow could not be discarded."));
+        return false;
+    }
+    discoverInterruptedWorkflow();
+    emit workflowChanged();
+    return true;
+}
+
 void DubbingController::setSourceLanguage(const QString &value)
 {
     const QString normalized = value.trimmed().toLower();
@@ -1874,6 +1921,7 @@ bool DubbingController::newProject(const QString &path)
     m_workflowReviewStore.reset();
     m_activeReviewId.clear();
     m_workflowReviewRequest.clear();
+    m_workflowRecovery.clear();
     if (!path.isEmpty()) {
         if (!ensureProject(path)) return false;
     } else {
@@ -1919,6 +1967,10 @@ bool DubbingController::openProject(const QString &path)
     m_workflowReviewStore.reset();
     m_activeReviewId.clear();
     m_workflowReviewRequest.clear();
+    m_workflowJournal = std::make_unique<WorkflowRunJournal>(
+        QDir(QFileInfo(m_project.projectPath).absolutePath()).filePath(QStringLiteral(".workflow-artifacts")));
+    m_workflowRunner->setJournal(m_workflowJournal.get());
+    discoverInterruptedWorkflow();
     
     // Sync paths to runner
     m_runner->setPreviewPath(QFileInfo(m_project.projectPath).absolutePath() + QStringLiteral("/preview.wav"));
@@ -1928,6 +1980,27 @@ bool DubbingController::openProject(const QString &path)
     emit segmentsChanged();
     emit workflowChanged();
     return true;
+}
+
+void DubbingController::discoverInterruptedWorkflow()
+{
+    m_workflowRecovery.clear();
+    if (!m_workflowJournal) return;
+    QString error;
+    const QList<WorkflowInterruptedRun> runs = m_workflowJournal->interruptedRuns(&error);
+    if (!error.isEmpty()) {
+        Logger::warning(QStringLiteral("DubbingController"),
+                        QStringLiteral("Cannot inspect interrupted workflow runs: %1").arg(error));
+        return;
+    }
+    if (runs.isEmpty()) return;
+    const WorkflowInterruptedRun &run = runs.constFirst();
+    m_workflowRecovery = {{QStringLiteral("runId"), run.runId},
+                          {QStringLiteral("workflowId"), run.workflowId},
+                          {QStringLiteral("workflowVersion"), run.workflowVersion},
+                          {QStringLiteral("activeNodeId"), run.activeNodeId},
+                          {QStringLiteral("lastEvent"), run.lastEventType},
+                          {QStringLiteral("lastUpdated"), run.lastUpdated}};
 }
 
 bool DubbingController::saveProject()

@@ -10,16 +10,17 @@
 #include "core/RuntimeManager.h"
 #include "core/ModelManager.h"
 #include "core/LogViewService.h"
+#include "core/Logger.h"
 #include "controllers/models/StudioConfigurationResolver.h"
 #include "controllers/models/CapabilitySettingsSchema.h"
 #include "runtimes/LlamaTranslationInterface.h"
+#include "runtimes/CrispCommon.h"
 
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QScopeGuard>
 #include <QSet>
 #include <QSqlDatabase>
 #include <QSqlQuery>
@@ -72,6 +73,46 @@ void TestModelsAndRuntimes::testCapabilitySettingsSchemaPreservesRuntimeVoiceCho
              QStringLiteral("Speaker A"));
     QCOMPARE(choices.first().toMap().value(QStringLiteral("detail")).toString(),
              QStringLiteral("vi"));
+}
+
+void TestModelsAndRuntimes::testUpdateChecksRequireExplicitConsent()
+{
+    Settings settings;
+    settings.setAutomaticUpdateChecks(false);
+    settings.setUpdateCheckConsentAsked(false);
+    QVERIFY(!settings.automaticUpdateChecks());
+    QVERIFY(!settings.updateCheckConsentAsked());
+
+    settings.setAutomaticUpdateChecks(true);
+    settings.setUpdateCheckConsentAsked(true);
+    QVERIFY(settings.automaticUpdateChecks());
+    QVERIFY(settings.updateCheckConsentAsked());
+}
+
+void TestModelsAndRuntimes::testRuntimeManifestPreservesNativeDependencies()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    const QDir root(tempDir.path());
+    QVERIFY(root.mkpath(QStringLiteral("bin")));
+    for (const QString &relativePath : {QStringLiteral("bin/crispasr.dll"),
+                                        QStringLiteral("bin/ggml.dll"),
+                                        QStringLiteral("bin/unlisted.dll")}) {
+        QFile file(root.absoluteFilePath(relativePath));
+        QVERIFY(file.open(QIODevice::WriteOnly));
+    }
+    QFile manifest(root.absoluteFilePath(QStringLiteral("backend-manifest.json")));
+    QVERIFY(manifest.open(QIODevice::WriteOnly));
+    manifest.write(QJsonDocument(QJsonObject{
+        {QStringLiteral("nativeDependencies"), QJsonArray{QStringLiteral("bin/ggml.dll")}}
+    }).toJson());
+    manifest.close();
+
+    const QStringList dirs = crispRuntimeDependencyDirs(
+        root.absoluteFilePath(QStringLiteral("bin/crispasr.dll")));
+    QVERIFY(dirs.contains(QDir::toNativeSeparators(root.absoluteFilePath(QStringLiteral("bin"))),
+                           Qt::CaseInsensitive));
+    QCOMPARE(dirs.size(), 1);
 }
 
 void TestModelsAndRuntimes::cleanupTestCase()
@@ -167,17 +208,33 @@ void TestModelsAndRuntimes::testOptionalLlamaTranslationRuntimeLoad()
                             .arg(durationResult)));
 }
 
+void TestModelsAndRuntimes::testLlamaTranslationRejectsIncompatibleRuntimeAbi()
+{
+    QTemporaryDir runtimeDir;
+    QVERIFY(runtimeDir.isValid());
+    const QString libraryPath = runtimeDir.filePath(QStringLiteral("llama.dll"));
+    const QString modelPath = runtimeDir.filePath(QStringLiteral("model.gguf"));
+    const QString manifestPath = runtimeDir.filePath(QStringLiteral("backend-manifest.json"));
+    for (const QString &path : {libraryPath, modelPath}) {
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.close();
+    }
+    QFile manifest(manifestPath);
+    QVERIFY(manifest.open(QIODevice::WriteOnly));
+    manifest.write(QJsonDocument(QJsonObject{
+        {QStringLiteral("protocolVersion"), QStringLiteral("llama-c-api-not-supported")}
+    }).toJson());
+    manifest.close();
+
+    LlamaTranslationInterface translator;
+    QString error;
+    QVERIFY(!translator.load(libraryPath, modelPath, &error));
+    QVERIFY(error.contains(QStringLiteral("incompatible"), Qt::CaseInsensitive));
+}
+
 void TestModelsAndRuntimes::testLlamaCatalogIncludesAllWindowsX64Runtimes()
 {
-    const QString oldCurrentPath = QDir::currentPath();
-    const auto restoreCurrentPath = qScopeGuard([oldCurrentPath]() {
-        QDir::setCurrent(oldCurrentPath);
-    });
-    const QString repoRoot =
-        QDir(QFileInfo(QStringLiteral(__FILE__)).absolutePath() + QStringLiteral("/..")).absolutePath();
-    QVERIFY2(QDir::setCurrent(repoRoot),
-             "Test must run from the repository root to load catalog and schema files");
-
     CatalogManager catalog;
     QVariantMap hyMt2;
     for (const QVariant &familyValue : catalog.sttFamilies()) {
@@ -386,13 +443,6 @@ void TestModelsAndRuntimes::testCapabilityFamilyModelSuitability()
 void TestModelsAndRuntimes::testVoiceDesignFamiliesExposeRuntimeOptions()
 {
     qDebug() << "--- START: testVoiceDesignFamiliesExposeRuntimeOptions ---";
-    const QString oldCurrentPath = QDir::currentPath();
-    const auto restoreCurrentPath = qScopeGuard([oldCurrentPath]() {
-        QDir::setCurrent(oldCurrentPath);
-    });
-    const QString repoRoot = QDir(QFileInfo(QStringLiteral(__FILE__)).absolutePath() + QStringLiteral("/..")).absolutePath();
-    QVERIFY2(QDir::setCurrent(repoRoot), "Test must run from the repository root to load catalog and schema files");
-
     CatalogManager catalog;
     RegistryManager registry;
     registry.initializeFromCatalog(&catalog);
@@ -442,13 +492,6 @@ void TestModelsAndRuntimes::testVoiceDesignFamiliesExposeRuntimeOptions()
 
 void TestModelsAndRuntimes::testTranslationRecommendationUsesCompatibleRuntime()
 {
-    const QString oldCurrentPath = QDir::currentPath();
-    const auto restoreCurrentPath = qScopeGuard([oldCurrentPath]() {
-        QDir::setCurrent(oldCurrentPath);
-    });
-    const QString repoRoot = QDir(QFileInfo(QStringLiteral(__FILE__)).absolutePath() + QStringLiteral("/..")).absolutePath();
-    QVERIFY2(QDir::setCurrent(repoRoot), "Test must run from the repository root to load catalog data");
-
     CatalogManager catalog;
     RegistryManager registry;
     registry.initializeFromCatalog(&catalog);
@@ -490,13 +533,6 @@ void TestModelsAndRuntimes::testTranslationRecommendationUsesCompatibleRuntime()
 
 void TestModelsAndRuntimes::testForcedAlignmentCatalogEntry()
 {
-    const QString oldCurrentPath = QDir::currentPath();
-    const auto restoreCurrentPath = qScopeGuard([oldCurrentPath]() {
-        QDir::setCurrent(oldCurrentPath);
-    });
-    const QString repoRoot = QDir(QFileInfo(QStringLiteral(__FILE__)).absolutePath() + QStringLiteral("/..")).absolutePath();
-    QVERIFY2(QDir::setCurrent(repoRoot), "Test must run from the repository root to load catalog and schema files");
-
     CatalogManager catalog;
     RegistryManager registry;
     registry.initializeFromCatalog(&catalog);
@@ -581,13 +617,6 @@ void TestModelsAndRuntimes::testForcedAlignmentCatalogEntry()
 
 void TestModelsAndRuntimes::testVoiceIsolationRuntimeCatalogEntry()
 {
-    const QString oldCurrentPath = QDir::currentPath();
-    const auto restoreCurrentPath = qScopeGuard([oldCurrentPath]() {
-        QDir::setCurrent(oldCurrentPath);
-    });
-    const QString repoRoot = QDir(QFileInfo(QStringLiteral(__FILE__)).absolutePath() + QStringLiteral("/..")).absolutePath();
-    QVERIFY2(QDir::setCurrent(repoRoot), "Test must run from the repository root to load catalog and schema files");
-
     CatalogManager catalog;
     RegistryManager registry;
     registry.initializeFromCatalog(&catalog);
@@ -681,15 +710,41 @@ void TestModelsAndRuntimes::testProcessRuntimeRejectsMissingEntrypoint()
     QVERIFY(!manager.inspectRuntimeDirectory(tempDir.path()).isUsable());
 }
 
+void TestModelsAndRuntimes::testLlamaRuntimeManifestRejectsIncompatibleAbi()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    QFile library(QDir(tempDir.path()).absoluteFilePath(QStringLiteral("llama.dll")));
+    QVERIFY(library.open(QIODevice::WriteOnly));
+    library.close();
+
+    const QJsonObject manifest{
+        {QStringLiteral("id"), QStringLiteral("llama-win-x86_64-cpu")},
+        {QStringLiteral("engineFamily"), QStringLiteral("llama")},
+        {QStringLiteral("variant"), QStringLiteral("win-x86_64-cpu")},
+        {QStringLiteral("version"), QStringLiteral("b9999")},
+        {QStringLiteral("type"), QStringLiteral("stt")},
+        {QStringLiteral("kind"), QStringLiteral("dynamic-library")},
+        {QStringLiteral("library"), QStringLiteral("llama.dll")},
+        {QStringLiteral("protocolVersion"), QStringLiteral("llama-c-api-b9999")}
+    };
+    QFile manifestFile(QDir(tempDir.path()).absoluteFilePath(QStringLiteral("backend-manifest.json")));
+    QVERIFY(manifestFile.open(QIODevice::WriteOnly));
+    manifestFile.write(QJsonDocument(manifest).toJson());
+    manifestFile.close();
+
+    Settings settings;
+    RuntimeManager manager(nullptr, &settings);
+    const RuntimeInfo info = manager.inspectRuntimeDirectory(tempDir.path());
+    QVERIFY(info.isUsable());
+    QVERIFY(!info.protocolCompatible);
+    QVERIFY(info.protocolCompatibilityError.contains(QStringLiteral("incompatible"), Qt::CaseInsensitive));
+    QCOMPARE(info.protocolVersion, QStringLiteral("llama-c-api-b9999"));
+}
+
 void TestModelsAndRuntimes::testVieNeuV3CatalogIncludesMossExternalData()
 {
-    const QString oldCurrentPath = QDir::currentPath();
-    const auto restoreCurrentPath = qScopeGuard([oldCurrentPath]() {
-        QDir::setCurrent(oldCurrentPath);
-    });
-    const QString repoRoot = QDir(QFileInfo(QStringLiteral(__FILE__)).absolutePath() + QStringLiteral("/..")).absolutePath();
-    QVERIFY2(QDir::setCurrent(repoRoot), "Test must run from the repository root to load catalog and schema files");
-
     CatalogManager catalog;
     QVariantMap vieneuV3;
     for (const QVariant &familyValue : catalog.ttsFamilies()) {
@@ -807,13 +862,6 @@ void TestModelsAndRuntimes::testCapabilityFamilyModelAcceptsExistingModelFiles()
 
 void TestModelsAndRuntimes::testQwen3TtsUsesAutomaticFrameLimit()
 {
-    const QString oldCurrentPath = QDir::currentPath();
-    const auto restoreCurrentPath = qScopeGuard([oldCurrentPath]() {
-        QDir::setCurrent(oldCurrentPath);
-    });
-    const QString repoRoot = QDir(QFileInfo(QStringLiteral(__FILE__)).absolutePath() + QStringLiteral("/..")).absolutePath();
-    QVERIFY2(QDir::setCurrent(repoRoot), "Test must run from the repository root to load catalog and schema files");
-
     CatalogManager catalog;
     QSet<QString> qwen3FamilyIds = {
         QStringLiteral("qwen3-tts-0.6b-base"),
@@ -842,13 +890,6 @@ void TestModelsAndRuntimes::testQwen3TtsUsesAutomaticFrameLimit()
 
 void TestModelsAndRuntimes::testQwen3TtsDoesNotExposeUnsupportedLengthScale()
 {
-    const QString oldCurrentPath = QDir::currentPath();
-    const auto restoreCurrentPath = qScopeGuard([oldCurrentPath]() {
-        QDir::setCurrent(oldCurrentPath);
-    });
-    const QString repoRoot = QDir(QFileInfo(QStringLiteral(__FILE__)).absolutePath() + QStringLiteral("/..")).absolutePath();
-    QVERIFY2(QDir::setCurrent(repoRoot), "Test must run from the repository root to load catalog and schema files");
-
     CatalogManager catalog;
     QSet<QString> qwen3FamilyIds = {
         QStringLiteral("qwen3-tts-0.6b-base"),
@@ -894,6 +935,22 @@ void TestModelsAndRuntimes::testLogViewServicePending()
     
     // Wait slightly to let any worker task run its course safely without referencing deleted service pointer
     QThreadPool::globalInstance()->waitForDone();
+}
+
+void TestModelsAndRuntimes::testLogSanitization()
+{
+    const QString raw = QStringLiteral("preview=\"private words\" referencePath=\"C:/Users/Alice/audio.wav\" "
+                                       "Authorization: Bearer secret-token api_key=another-secret "
+                                       "{\"sourceText\":\"private transcript\"} /Users/bob/secret.wav");
+    const QString sanitized = Logger::sanitizeDiagnostics(raw);
+    QVERIFY(!sanitized.contains(QStringLiteral("private words")));
+    QVERIFY(!sanitized.contains(QStringLiteral("private transcript")));
+    QVERIFY(!sanitized.contains(QStringLiteral("Alice")));
+    QVERIFY(!sanitized.contains(QStringLiteral("bob")));
+    QVERIFY(!sanitized.contains(QStringLiteral("secret-token")));
+    QVERIFY(!sanitized.contains(QStringLiteral("another-secret")));
+    QVERIFY(sanitized.contains(QStringLiteral("<HOME>")));
+    QVERIFY(sanitized.contains(QStringLiteral("Bearer <redacted>")));
 }
 
 void TestModelsAndRuntimes::testStudioConfigurationResolver()

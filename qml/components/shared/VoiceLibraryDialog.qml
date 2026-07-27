@@ -184,7 +184,7 @@ Dialog {
             }
         }
 
-        Rectangle { Layout.fillWidth: true; height: 1; color: Theme.surfaceAlt }
+        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.surfaceAlt }
 
         RowLayout {
             Layout.fillWidth: true
@@ -223,7 +223,7 @@ Dialog {
                         }
                     }
 
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.surfaceAlt; Layout.topMargin: Theme.paddingSmall; Layout.bottomMargin: Theme.paddingSmall }
+                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.surfaceAlt; Layout.topMargin: Theme.paddingSmall; Layout.bottomMargin: Theme.paddingSmall }
 
                     PrimaryButton {
                         Layout.fillWidth: true

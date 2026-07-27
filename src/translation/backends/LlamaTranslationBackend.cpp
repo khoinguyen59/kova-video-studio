@@ -14,7 +14,7 @@ bool LlamaTranslationBackend::loadModel(const TranslationBackendConfiguration &c
                           configuration.modelPath, configuration.runtimePath));
     m_configuration = configuration;
     return m_runtime.load(configuration.runtimePath, configuration.modelPath, &error,
-                          configuration.useGpu);
+                          configuration.useGpu, configuration.threads);
 }
 
 void LlamaTranslationBackend::unloadModel()

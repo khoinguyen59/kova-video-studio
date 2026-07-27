@@ -32,6 +32,9 @@ void SttWorker::loadModel(const QString &modelPath, bool useGpu, const QString &
         emit modelLoaded(false, QStringLiteral("Unsupported STT backend configuration"));
         return;
     }
+    m_backend->setProgressCallback([this](int percent) {
+        emit progress(qBound(0, percent, 100));
+    });
 
     QString error;
     if (!m_backend->loadModel(modelPath, useGpu, runtimePath, error)) {

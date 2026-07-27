@@ -9,6 +9,11 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QRegularExpression>
+#include <QStorageInfo>
+
+#include <cmath>
+#include <limits>
 
 namespace LAStudio {
 
@@ -75,18 +80,23 @@ bool DownloadManager::isDownloading(const QString &identifier, const QString &fi
     return m_downloads.contains(key) && !m_downloads[key].done;
 }
 
-void DownloadManager::enqueue(const QString &modelId, const QString &filename,
-                               const QString &destDir, const QVariantMap &metadata)
+bool DownloadManager::enqueue(const QString &modelId, const QString &filename,
+                              const QString &destDir, const QVariantMap &metadata)
 {
     QString key = makeKey(modelId, filename);
     if (m_downloads.contains(key) && !m_downloads[key].done)
-        return; // already downloading
+        return true; // already downloading
 
     DownloadEntry e;
     e.identifier = modelId;
     e.filename = filename;
     e.status = QStringLiteral("downloading");
     e.metadata = metadata;
+    QString spaceError;
+    const qint64 expectedBytes = expectedDownloadBytes(metadata);
+    if (expectedBytes > 0 && !hasSpaceForDownload(destDir, filename, expectedBytes, &spaceError)) {
+        return rejectForDiskSpace(key, e, spaceError);
+    }
     m_downloads[key] = e;
 
     m_order.removeAll(key);
@@ -99,20 +109,26 @@ void DownloadManager::enqueue(const QString &modelId, const QString &filename,
     emit activeDownloadsChanged();
     emit allDownloadsChanged();
     m_hub->downloadFile(modelId, filename, destDir);
+    return true;
 }
 
-void DownloadManager::enqueueUrl(const QString &url, const QString &filename,
-                                  const QString &destDir, const QVariantMap &metadata)
+bool DownloadManager::enqueueUrl(const QString &url, const QString &filename,
+                                 const QString &destDir, const QVariantMap &metadata)
 {
     QString key = makeKey(url, filename);
     if (m_downloads.contains(key) && !m_downloads[key].done)
-        return; // already downloading
+        return true; // already downloading
 
     DownloadEntry e;
     e.identifier = url;
     e.filename = filename;
     e.status = QStringLiteral("downloading");
     e.metadata = metadata;
+    QString spaceError;
+    const qint64 expectedBytes = expectedDownloadBytes(metadata);
+    if (expectedBytes > 0 && !hasSpaceForDownload(destDir, filename, expectedBytes, &spaceError)) {
+        return rejectForDiskSpace(key, e, spaceError);
+    }
     m_downloads[key] = e;
 
     m_order.removeAll(key);
@@ -125,6 +141,91 @@ void DownloadManager::enqueueUrl(const QString &url, const QString &filename,
     emit activeDownloadsChanged();
     emit allDownloadsChanged();
     m_hub->downloadUrl(url, filename, destDir);
+    return true;
+}
+
+qint64 DownloadManager::expectedDownloadBytes(const QVariantMap &metadata)
+{
+    for (const QString &key : {QStringLiteral("expectedBytes"), QStringLiteral("sizeBytes")}) {
+        const QVariant value = metadata.value(key);
+        bool ok = false;
+        const qint64 bytes = value.toLongLong(&ok);
+        if (ok && bytes > 0) return bytes;
+    }
+
+    const QString sizeText = metadata.value(QStringLiteral("expectedSize")).toString().trimmed();
+    if (sizeText.isEmpty()) return 0;
+    bool integerOk = false;
+    const qint64 integerBytes = sizeText.toLongLong(&integerOk);
+    if (integerOk && integerBytes > 0) return integerBytes;
+
+    const QRegularExpression pattern(
+        QStringLiteral(R"(^\s*([0-9]+(?:\.[0-9]+)?)\s*(B|KB|KiB|MB|MiB|GB|GiB)\s*$)"),
+        QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch match = pattern.match(sizeText);
+    if (!match.hasMatch()) return 0;
+
+    bool numberOk = false;
+    const double amount = match.captured(1).toDouble(&numberOk);
+    const QString unit = match.captured(2).toUpper();
+    if (!numberOk || amount <= 0.0) return 0;
+    double multiplier = 1.0;
+    if (unit == QStringLiteral("KB")) multiplier = 1000.0;
+    else if (unit == QStringLiteral("KIB")) multiplier = 1024.0;
+    else if (unit == QStringLiteral("MB")) multiplier = 1000.0 * 1000.0;
+    else if (unit == QStringLiteral("MIB")) multiplier = 1024.0 * 1024.0;
+    else if (unit == QStringLiteral("GB")) multiplier = 1000.0 * 1000.0 * 1000.0;
+    else if (unit == QStringLiteral("GIB")) multiplier = 1024.0 * 1024.0 * 1024.0;
+    const double bytes = amount * multiplier;
+    if (bytes > static_cast<double>(std::numeric_limits<qint64>::max())) return 0;
+    return static_cast<qint64>(std::ceil(bytes));
+}
+
+bool DownloadManager::hasSpaceForDownload(const QString &destDir, const QString &filename,
+                                          qint64 expectedBytes, QString *errorMessage)
+{
+    constexpr qint64 kSafetyMarginBytes = 64LL * 1024 * 1024;
+    const qint64 resumeBytes = QFileInfo(QDir(destDir).absoluteFilePath(filename + QStringLiteral(".download"))).size();
+    const qint64 remainingBytes = expectedBytes > resumeBytes ? expectedBytes - resumeBytes : expectedBytes;
+    if (remainingBytes > std::numeric_limits<qint64>::max() - kSafetyMarginBytes) {
+        if (errorMessage) *errorMessage = QStringLiteral("The requested download size is too large to validate safely.");
+        return false;
+    }
+
+    const QStorageInfo storage(QDir(destDir).absolutePath());
+    const qint64 requiredBytes = remainingBytes + kSafetyMarginBytes;
+    if (!storage.isReady() || storage.bytesAvailable() < 0) {
+        if (errorMessage) *errorMessage = QStringLiteral("Could not determine free disk space for: %1").arg(destDir);
+        return false;
+    }
+    if (storage.bytesAvailable() < requiredBytes) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("Not enough free disk space for this download. Need %1 MiB, but only %2 MiB is available.")
+                .arg((requiredBytes + 1024 * 1024 - 1) / (1024 * 1024))
+                .arg(storage.bytesAvailable() / (1024 * 1024));
+        }
+        return false;
+    }
+    return true;
+}
+
+bool DownloadManager::rejectForDiskSpace(const QString &key, const DownloadEntry &entry,
+                                         const QString &errorMessage)
+{
+    DownloadEntry failed = entry;
+    failed.done = true;
+    failed.status = QStringLiteral("failed");
+    failed.errorMsg = errorMessage;
+    m_downloads[key] = failed;
+    m_order.removeAll(key);
+    m_order.prepend(key);
+    saveHistory();
+    Logger::error(QStringLiteral("Download"), QStringLiteral("Download preflight failed for %1: %2")
+                      .arg(entry.filename, errorMessage));
+    emit activeDownloadsChanged();
+    emit allDownloadsChanged();
+    emit error(entry.identifier, entry.filename, errorMessage);
+    return false;
 }
 
 void DownloadManager::cancelAll()

@@ -94,7 +94,7 @@ laStudio:
     - text: Malay (ms)
       value: ms
     - text: Norwegian (no)
-      value: no
+      value: "no"
     - text: Polish (pl)
       value: pl
     - text: Portuguese (pt)
@@ -146,6 +146,7 @@ laStudio:
       version: v0.8.13
       source: https://github.com/CrispStrobe/CrispASR/releases/download/
       library: bin/crispasr.dll
+      nativeDependencies: [bin/ggml-base.dll, bin/ggml-cpu.dll, bin/ggml.dll, bin/ogg.dll, bin/opus.dll]
       backend: voxcpm2-tts
       modelVersion: VoxCPM2 GGUF
     - id: crispasr-win-x86_64-cuda

@@ -210,8 +210,8 @@ ColumnLayout {
             spacing: Theme.paddingMedium
 
             Rectangle {
-                width: 44
-                height: 44
+                Layout.preferredWidth: 44
+                Layout.preferredHeight: 44
                 radius: 22
                 color: recorderPane.recording ? Qt.rgba(0.94, 0.33, 0.31, 0.18) : Qt.rgba(0.49, 0.30, 1.0, 0.12)
                 border.color: recorderPane.recording ? Theme.danger : Qt.rgba(0.49, 0.30, 1.0, 0.35)
@@ -248,7 +248,7 @@ ColumnLayout {
 
                 Rectangle {
                     Layout.preferredWidth: 260
-                    height: 4
+                    Layout.preferredHeight: 4
                     radius: 2
                     color: Qt.rgba(1, 1, 1, 0.10)
                     visible: recorderPane.meterVisible

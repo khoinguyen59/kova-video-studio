@@ -168,6 +168,11 @@ QString LogViewService::readLogFile() const
     return readSessionLogFile();
 }
 
+QString LogViewService::readSanitizedLogFile() const
+{
+    return Logger::sanitizeDiagnostics(readSessionLogFile());
+}
+
 QString LogViewService::readSessionLogFile() const
 {
     return readLogFileFromOffset(m_sessionStartPosition);

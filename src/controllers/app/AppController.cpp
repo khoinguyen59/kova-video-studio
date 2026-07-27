@@ -18,8 +18,16 @@
 #include "audio/WaveformProvider.h"
 #include "controllers/shared/AppUpdateService.h"
 #include "api/ApiServerService.h"
+#include <QCoreApplication>
+#include <QDateTime>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QClipboard>
+#include <QSaveFile>
+#include <QSysInfo>
+#include <QTextStream>
 #include "core/Logger.h"
 #include <QTimer>
 
@@ -40,18 +48,24 @@ AppController::AppController(QObject *parent)
     m_downloads = new DownloadManager(m_hub, this);
     m_models    = new ModelManager(this);
     m_models->setModelsRoot(m_settings->modelsPath());
-    m_models->scanLocalModels();
     m_catalog   = new CatalogManager(this);
     m_registry  = new RegistryManager(this);
+    connect(m_catalog, &CatalogManager::errorOccurred, this,
+            [this](const QString &message) { enqueueError(message, QStringLiteral("Catalog")); });
+    connect(m_registry, &RegistryManager::errorOccurred, this,
+            [this](const QString &message) { enqueueError(message, QStringLiteral("Registry")); });
     m_registry->initializeFromCatalog(m_catalog);
     m_logs      = new LogViewService(this);
+    m_cache     = new CacheLifecycleService(this);
     m_stt       = new SttEngine(this);
     m_tts       = new TtsEngine(this);
     m_translationEngine = new TranslationEngine({}, this);
     m_llmEngine = new LlmChatEngine(this);
+    Logger::info(QStringLiteral("App"), QStringLiteral("Initializing runtime services."));
     m_runtimes  = new RuntimeManager(m_catalog, m_settings, this);
     m_alignment = new AlignmentExecutionService(m_runtimes, m_models, this);
     m_voiceIsolator = new VoiceIsolatorController(this);
+    Logger::info(QStringLiteral("App"), QStringLiteral("Initializing model session registry."));
     m_sessionRegistry = new ModelSessionRegistry(m_stt, m_tts, m_translationEngine, m_llmEngine, m_alignment, m_voiceIsolator, this);
     m_translation = new TranslationController(m_translationEngine,
         qobject_cast<TranslationModelSession*>(m_sessionRegistry->sessionForCapability(QStringLiteral("translation"))), this);
@@ -75,6 +89,7 @@ AppController::AppController(QObject *parent)
     m_examples = new ExampleManager(this);
     m_workflows = new WorkflowActivityManager(m_sessionRegistry, m_tts, m_sttSession, m_alignment, m_dubbing, this);
     m_apiServer = new ApiServerService(m_settings, m_tts, m_stt, this);
+    Logger::info(QStringLiteral("App"), QStringLiteral("Application services initialized."));
 
     connect(m_preview, &AudioPreviewService::errorOccurred, this, &AppController::onError);
     connect(m_player, &AudioPlayer::errorOccurred, this, &AppController::onError);
@@ -85,9 +100,31 @@ AppController::AppController(QObject *parent)
     connect(m_translation, &TranslationController::errorTextChanged, this, [this]() {
         if (m_translation && !m_translation->errorText().isEmpty()) onError(m_translation->errorText());
     });
+    connect(m_llmChat, &LlmChatController::errorTextChanged, this, [this]() {
+        if (m_llmChat && !m_llmChat->errorText().isEmpty()) {
+            enqueueError(m_llmChat->errorText(), QStringLiteral("LLM Chat"));
+        }
+    });
+    connect(m_dubbing, &DubbingController::errorChanged, this, [this]() {
+        if (m_dubbing && !m_dubbing->lastError().isEmpty()) {
+            enqueueError(m_dubbing->lastError(), QStringLiteral("Dubbing"));
+        }
+    });
+    connect(m_voiceIsolator, &VoiceIsolatorController::stateChanged, this, [this]() {
+        if (m_voiceIsolator && !m_voiceIsolator->lastError().isEmpty()) {
+            enqueueError(m_voiceIsolator->lastError(), QStringLiteral("Voice Isolator"));
+        }
+    });
+    connect(m_apiServer, &ApiServerService::lastErrorChanged, this, [this]() {
+        if (m_apiServer && !m_apiServer->lastError().isEmpty()) {
+            enqueueError(m_apiServer->lastError(), QStringLiteral("Local API Server"));
+        }
+    });
     connect(m_voiceClonePresets, &VoiceClonePresetService::errorOccurred, this, &AppController::onError);
     connect(m_voiceDesignPresets, &VoiceDesignPresetService::errorOccurred, this, &AppController::onError);
     connect(m_updates, &AppUpdateService::errorOccurred, this, &AppController::onError);
+    connect(m_cache, &CacheLifecycleService::errorOccurred, this, &AppController::onError);
+    connect(m_llmEngine, &LlmChatEngine::errorOccurred, this, &AppController::onError);
 
     connect(m_stt, &SttEngine::errorOccurred, this, &AppController::onError);
     connect(m_tts, &TtsEngine::errorOccurred, this, &AppController::onError);
@@ -100,8 +137,15 @@ AppController::AppController(QObject *parent)
         m_models->scanLocalModels();
     });
 
+    // Constructing AppController happens before the first QML frame.  A
+    // recursive models-tree scan can be slow on network or removable storage,
+    // so defer it until the application has had an opportunity to paint.
+    QTimer::singleShot(250, this, [this]() {
+        if (m_models) m_models->scanLocalModels();
+    });
+
     QTimer::singleShot(2000, this, [this]() {
-        if (m_updates) {
+        if (m_updates && m_settings && m_settings->automaticUpdateChecks()) {
             m_updates->checkForUpdates(QStringLiteral("stable"));
         }
     });
@@ -127,19 +171,112 @@ AppController *AppController::create(QQmlEngine *, QJSEngine *)
 
 void AppController::onError(const QString &msg)
 {
-    m_errorMessage = msg;
-    emit errorMessageChanged();
+    enqueueError(msg);
 }
 
 void AppController::clearError()
 {
-    m_errorMessage.clear();
+    if (m_errorNotifications.isEmpty()) {
+        return;
+    }
+    m_errorNotifications.removeFirst();
+    m_errorMessage = m_errorNotifications.isEmpty()
+        ? QString() : m_errorNotifications.constFirst().toMap().value(QStringLiteral("message")).toString();
     emit errorMessageChanged();
+    emit errorNotificationsChanged();
+}
+
+void AppController::enqueueError(const QString &message, const QString &source)
+{
+    const QString trimmedMessage = message.trimmed();
+    if (trimmedMessage.isEmpty()) {
+        return;
+    }
+
+    const QVariantMap previous = m_errorNotifications.isEmpty()
+        ? QVariantMap() : m_errorNotifications.constLast().toMap();
+    if (previous.value(QStringLiteral("message")).toString() == trimmedMessage &&
+        previous.value(QStringLiteral("source")).toString() == source) {
+        return;
+    }
+
+    QVariantMap notification;
+    notification.insert(QStringLiteral("id"), QString::number(m_nextErrorNotificationId++));
+    notification.insert(QStringLiteral("severity"), QStringLiteral("error"));
+    notification.insert(QStringLiteral("source"), source);
+    notification.insert(QStringLiteral("message"), trimmedMessage);
+    notification.insert(QStringLiteral("timestamp"), QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+    const bool queueWasEmpty = m_errorNotifications.isEmpty();
+    m_errorNotifications.append(notification);
+    if (queueWasEmpty) {
+        m_errorMessage = trimmedMessage;
+        emit errorMessageChanged();
+    }
+    emit errorNotificationsChanged();
 }
 
 void AppController::copyToClipboard(const QString &text)
 {
     QGuiApplication::clipboard()->setText(text);
+}
+
+QString AppController::createProblemReport()
+{
+    const QString reportsRoot = PathUtils::logsDir() + QStringLiteral("/support-reports");
+    const QString reportId = QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMddTHHmmsszzzZ"));
+    const QString reportDirPath = reportsRoot + QLatin1Char('/') + reportId;
+    if (!QDir().mkpath(reportDirPath)) {
+        onError(tr("Could not create the local diagnostics package."));
+        return {};
+    }
+
+    QDir crashDir(PathUtils::logsDir() + QStringLiteral("/crashes"));
+    const QFileInfoList dumps = crashDir.entryInfoList({QStringLiteral("*.dmp")}, QDir::Files,
+                                                       QDir::Time);
+    QString dumpStatus = tr("No crash dump was available.");
+    if (!dumps.isEmpty()) {
+        const QFileInfo &latestDump = dumps.constFirst();
+        const QString copiedDump = reportDirPath + QLatin1Char('/') + latestDump.fileName();
+        if (QFile::copy(latestDump.absoluteFilePath(), copiedDump)) {
+            dumpStatus = tr("Included crash dump: %1").arg(latestDump.fileName());
+        } else {
+            dumpStatus = tr("Could not copy crash dump; attach it manually from: %1")
+                             .arg(latestDump.absoluteFilePath());
+        }
+    }
+
+    QString logTail = m_logs ? m_logs->readSanitizedLogFile() : QString();
+    constexpr qsizetype maxLogTailCharacters = 64 * 1024;
+    if (logTail.size() > maxLogTailCharacters) {
+        logTail = tr("[Earlier log lines omitted]\n") + logTail.right(maxLogTailCharacters);
+    }
+
+    QSaveFile reportFile(reportDirPath + QStringLiteral("/diagnostics.txt"));
+    if (!reportFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QDir(reportDirPath).removeRecursively();
+        onError(tr("Could not write the local diagnostics package."));
+        return {};
+    }
+
+    QTextStream stream(&reportFile);
+    stream.setEncoding(QStringConverter::Utf8);
+    stream << "LA Studio local diagnostics package\n"
+           << "Created (UTC): " << QDateTime::currentDateTimeUtc().toString(Qt::ISODate) << "\n"
+           << "Application version: " << QCoreApplication::applicationVersion() << "\n"
+           << "Operating system: " << QSysInfo::prettyProductName() << "\n"
+           << "\nThis package was created only after a user action. Nothing was uploaded automatically.\n"
+           << "Review the files before attaching them to an issue. Do not share API keys, private media, or transcripts.\n\n"
+           << dumpStatus << "\n\n"
+           << "--- Sanitized application log tail ---\n"
+           << logTail;
+    if (!reportFile.commit()) {
+        QDir(reportDirPath).removeRecursively();
+        onError(tr("Could not finalize the local diagnostics package."));
+        return {};
+    }
+
+    Logger::info("support", QStringLiteral("Created local diagnostics package: %1").arg(reportDirPath));
+    return reportDirPath;
 }
 
 QString AppController::logsDir() const
@@ -150,6 +287,21 @@ QString AppController::logsDir() const
 QString AppController::dataDir() const
 {
     return PathUtils::dataDir();
+}
+
+QString AppController::licensesDir() const
+{
+    const QDir appDir(QCoreApplication::applicationDirPath());
+    const QString installedLicenses = appDir.absoluteFilePath(QStringLiteral("../licenses"));
+    if (QDir(installedLicenses).exists()) {
+        return QDir::cleanPath(installedLicenses);
+    }
+
+    // Development builds may run from a build directory instead of the staged
+    // installer layout.  Return the conventional path without creating it so
+    // the UI never claims that legal documents have been installed when they
+    // have not.
+    return QDir::cleanPath(appDir.absoluteFilePath(QStringLiteral("licenses")));
 }
 
 } // namespace LAStudio

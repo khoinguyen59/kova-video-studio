@@ -64,7 +64,7 @@ ColumnLayout {
 
     Rectangle {
         Layout.fillWidth: true
-        height: 1
+        Layout.preferredHeight: 1
         color: Qt.rgba(1, 1, 1, 0.07)
     }
 

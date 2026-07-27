@@ -1,4 +1,4 @@
-find_package(Qt6 6.5 REQUIRED COMPONENTS
+find_package(Qt6 6.9 REQUIRED COMPONENTS
     Quick QuickControls2 Multimedia Network Concurrent Sql LinguistTools
 )
 qt_standard_project_setup()

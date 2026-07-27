@@ -1,10 +1,18 @@
 cmake_minimum_required(VERSION 3.21)
 
+include(cmake/RuntimeAbi.cmake)
+
 # This is the single source of truth for the application version. Release
 # automation may override it with -DLASTUDIO_VERSION=<major.minor.patch>.
 set(LASTUDIO_VERSION "0.2.0" CACHE STRING "LA Studio application version")
 if(NOT LASTUDIO_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
     message(FATAL_ERROR "LASTUDIO_VERSION must use MAJOR.MINOR.PATCH format; got '${LASTUDIO_VERSION}'")
+endif()
+set(LASTUDIO_RELEASE_SUFFIX "" CACHE STRING
+    "Optional SemVer prerelease suffix (for example, -beta.1)")
+if(NOT LASTUDIO_RELEASE_SUFFIX MATCHES "^(-(alpha|beta|rc)\\.[1-9][0-9]*)?$")
+    message(FATAL_ERROR
+        "LASTUDIO_RELEASE_SUFFIX must be empty or -alpha.N, -beta.N, or -rc.N; got '${LASTUDIO_RELEASE_SUFFIX}'")
 endif()
 
 project(LAStudio VERSION ${LASTUDIO_VERSION} LANGUAGES CXX)
@@ -30,7 +38,7 @@ endif()
 if(NOT EXISTS "${LLAMA_CPP_SOURCE_DIR}/include/llama.h" OR
    NOT EXISTS "${LLAMA_CPP_SOURCE_DIR}/ggml/include/ggml.h")
     message(FATAL_ERROR
-        "LLAMA_CPP_SOURCE_DIR must point to a llama.cpp b10036 checkout compatible with the packaged runtime. "
+        "LLAMA_CPP_SOURCE_DIR must point to a llama.cpp ${LASTUDIO_LLAMA_CPP_REF} checkout compatible with the packaged runtime. "
         "Pass -DLLAMA_CPP_SOURCE_DIR=<path> or set the LLAMA_CPP_SOURCE_DIR environment variable.")
 endif()
 
@@ -50,29 +58,16 @@ configure_file(
     "${LASTUDIO_GENERATED_DIR}/lastudio/AppVersion.h"
     @ONLY
 )
+configure_file(
+    "${CMAKE_SOURCE_DIR}/cmake/RuntimeAbi.h.in"
+    "${LASTUDIO_GENERATED_DIR}/lastudio/RuntimeAbi.h"
+    @ONLY
+)
 
 include(CTest)
 include(cmake/CompilerOptions.cmake)
 message(STATUS "MSVC value: ${MSVC}")
 message(STATUS "CMAKE_CXX_COMPILER_ID: ${CMAKE_CXX_COMPILER_ID}")
-
-option(ENABLE_SHERPA_ONNX "Enable Sherpa-ONNX support" OFF)
-set(SHERPA_ONNX_ROOT "" CACHE PATH "Optional sherpa-onnx checkout or install root used for source separation development")
-if(NOT SHERPA_ONNX_ROOT AND DEFINED ENV{SHERPA_ONNX_ROOT})
-    set(SHERPA_ONNX_ROOT "$ENV{SHERPA_ONNX_ROOT}" CACHE PATH "Optional sherpa-onnx checkout or install root used for source separation development" FORCE)
-endif()
-if(SHERPA_ONNX_ROOT)
-    add_compile_definitions(LASTUDIO_SHERPA_ONNX_ROOT=\"${SHERPA_ONNX_ROOT}\")
-    message(STATUS "Using sherpa-onnx development root: ${SHERPA_ONNX_ROOT}")
-endif()
-if(ENABLE_SHERPA_ONNX)
-    add_compile_definitions(LA_ENABLE_SHERPA_ONNX)
-endif()
-
-option(ENABLE_OMNIVOICE "Enable Omnivoice support" ON)
-if(ENABLE_OMNIVOICE)
-    add_compile_definitions(LA_ENABLE_OMNIVOICE)
-endif()
 
 include(cmake/Dependencies.cmake)
 
@@ -86,6 +81,7 @@ qt_policy(SET QTP0004 NEW)
 set(LASTUDIO_SOURCES
     src/main.cpp
     src/core/Logger.cpp
+    src/core/CrashHandler.cpp
     src/core/PathUtils.cpp
     src/core/VoiceCloningUtils.cpp
     src/core/InferenceThreadPolicy.cpp
@@ -104,6 +100,7 @@ set(LASTUDIO_SOURCES
     src/translation/backends/CrispTranslationBackend.cpp
     src/translation/backends/LlamaTranslationBackend.cpp
     src/core/Settings.cpp
+    src/core/SecureCredentialStore.cpp
     src/api/ApiServerService.cpp
     src/core/HFHubClient.cpp
     src/core/DownloadManager.cpp
@@ -117,6 +114,7 @@ set(LASTUDIO_SOURCES
     src/core/StudioSelectionRepository.cpp
     src/core/CapabilityFamilyModel.cpp
     src/core/LogViewService.cpp
+    src/core/CacheLifecycleService.cpp
 
     src/audio/WavIO.cpp
     src/audio/AudioFileDecoder.cpp
@@ -234,6 +232,7 @@ set(LASTUDIO_SOURCES
 
 set(LASTUDIO_HEADERS
     src/core/Logger.h
+    src/core/CrashHandler.h
     src/core/PathUtils.h
     src/core/VoiceCloningUtils.h
     src/core/InferenceThreadPolicy.h
@@ -248,6 +247,7 @@ set(LASTUDIO_HEADERS
     src/runtimehost/HostedWhisperBackend.h
     src/runtimehost/HostedLlamaTranslationBackend.h
     src/core/Settings.h
+    src/core/SecureCredentialStore.h
     src/core/HFHubClient.h
     src/core/DownloadManager.h
     src/core/ModelManager.h
@@ -268,6 +268,7 @@ set(LASTUDIO_HEADERS
     src/core/StudioSelectionRepository.h
     src/core/CapabilityFamilyModel.h
     src/core/LogViewService.h
+    src/core/CacheLifecycleService.h
     src/api/ApiServerService.h
 
     src/audio/WavIO.h
@@ -398,7 +399,10 @@ set(LASTUDIO_HEADERS
 
 qt_add_executable(LAStudio ${LASTUDIO_SOURCES} ${LASTUDIO_HEADERS})
 
-qt_add_translations(LAStudio
+# Calling this at the top-level is safe because LAStudio is already known.
+# It also avoids the deferred Qt Linguist invocation serializing an absolute
+# source path with spaces into unquoted CMake code on Windows.
+qt_add_translations(LAStudio IMMEDIATE_CALL
     TS_FILES
         i18n/lastudio_en.ts
         i18n/lastudio_vi.ts
@@ -413,7 +417,6 @@ qt_add_qml_module(LAStudio
     QML_FILES
         qml/Main.qml
         qml/Theme.qml
-        qml/pages/HFExplorerPage.qml
         qml/pages/DeveloperPage.qml
         qml/pages/ModelsPage.qml
         qml/pages/MyModelsPage.qml
@@ -429,12 +432,11 @@ qt_add_qml_module(LAStudio
         qml/pages/DubbingPage.qml
         qml/pages/WelcomePage.qml
         qml/pages/settings/GeneralSettingsTab.qml
-        qml/pages/settings/RuntimeSettingsTab.qml
         qml/pages/settings/HardwareSettingsTab.qml
+        qml/pages/settings/AboutLicensesTab.qml
 
         qml/components/Sidebar.qml
         qml/components/AppTitleBar.qml
-        qml/components/AudioDropArea.qml
         qml/components/WaveformView.qml
         qml/components/RuntimeVersionManagerDialog.qml
         qml/components/base/AppComboBox.qml
@@ -448,7 +450,6 @@ qt_add_qml_module(LAStudio
         qml/components/base/LineIcon.qml
         qml/components/PrimaryButton.qml
         qml/components/SearchBar.qml
-        qml/components/ModelCard.qml
         qml/components/ModelListItem.qml
         qml/components/ModelDetailsView.qml
         qml/components/DownloadProgressBar.qml
@@ -461,7 +462,6 @@ qt_add_qml_module(LAStudio
         qml/components/alignment/AlignmentSectionHeader.qml
         qml/components/alignment/AlignmentOptionField.qml
         qml/components/alignment/AlignmentStatusStrip.qml
-        qml/components/alignment/AlignmentStatusRow.qml
         qml/components/alignment/AlignmentSetupPanel.qml
         qml/components/alignment/AlignmentViewModeButton.qml
         qml/components/alignment/AlignmentPlayerButton.qml
@@ -483,9 +483,6 @@ qt_add_qml_module(LAStudio
         qml/components/voicecloning/VoiceCloningStudioView.qml
         qml/components/voicecloning/ReferenceInputBox.qml
         qml/components/voicecloning/InputSourceTabs.qml
-        qml/components/voicecloning/AudioDisplayBox.qml
-        qml/components/voicecloning/ModelSelectorPopup.qml
-        qml/components/voicecloning/VoiceCloningSetupPanel.qml
         qml/components/shared/StudioHeaderBar.qml
         qml/components/shared/GeneratedAudioOutput.qml
         qml/components/shared/VoiceSeparationOutput.qml
@@ -565,7 +562,6 @@ target_include_directories(LAStudio PRIVATE
     ${CMAKE_SOURCE_DIR}/src/alignment
     ${CMAKE_SOURCE_DIR}/src/separation
     ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/third_party/whisper/include
     ${LLAMA_CPP_SOURCE_DIR}/include
     ${LLAMA_CPP_SOURCE_DIR}/ggml/include
 )
@@ -573,12 +569,6 @@ target_include_directories(LAStudio PRIVATE
 target_compile_definitions(LAStudio PRIVATE
     LASTUDIO_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
 )
-
-if(ENABLE_OMNIVOICE)
-    target_include_directories(LAStudio PRIVATE
-        ${CMAKE_SOURCE_DIR}/omnivoice.cpp/src
-    )
-endif()
 
 target_link_libraries(LAStudio PRIVATE
     vietnorm::vietnorm
@@ -593,7 +583,8 @@ target_link_libraries(LAStudio PRIVATE
 )
 
 if(WIN32)
-    target_link_libraries(LAStudio PRIVATE shell32)
+    target_link_libraries(LAStudio PRIVATE dbghelp)
+    target_link_libraries(LAStudio PRIVATE shell32 wintrust crypt32)
 endif()
 
 # Unit tests build.
@@ -627,6 +618,7 @@ add_executable(LAStudioRuntimeHost
     src/runtimehost/RuntimeHostAdapter.h
 )
 target_include_directories(LAStudioRuntimeHost PRIVATE
+    ${LASTUDIO_GENERATED_DIR}
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/core
     ${CMAKE_SOURCE_DIR}/src/audio
@@ -640,11 +632,6 @@ target_include_directories(LAStudioRuntimeHost PRIVATE
     ${LLAMA_CPP_SOURCE_DIR}/include
     ${LLAMA_CPP_SOURCE_DIR}/ggml/include
 )
-if(ENABLE_OMNIVOICE)
-    target_include_directories(LAStudioRuntimeHost PRIVATE
-        ${CMAKE_SOURCE_DIR}/omnivoice.cpp/src
-    )
-endif()
 target_link_libraries(LAStudioRuntimeHost PRIVATE
     Qt6::Core
     Qt6::Network
@@ -653,8 +640,11 @@ target_link_libraries(LAStudioRuntimeHost PRIVATE
 target_compile_definitions(LAStudioRuntimeHost PRIVATE
     NOMINMAX
     WIN32_LEAN_AND_MEAN
-    LA_ENABLE_OMNIVOICE
 )
+
+if(BUILD_TESTING)
+    add_dependencies(LAStudioUnitTests LAStudioRuntimeHost)
+endif()
 
 if(WIN32)
     target_compile_definitions(LAStudio PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
@@ -671,18 +661,32 @@ set_target_properties(LAStudio PROPERTIES
 )
 
 if(WIN32)
+    string(REPLACE "." "," LASTUDIO_VERSION_COMMA "${LASTUDIO_VERSION}")
+    file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}/icons/app_icon.ico" LASTUDIO_ICON_FILE)
+    set(LASTUDIO_FILE_DESCRIPTION "LA Studio")
+    set(LASTUDIO_INTERNAL_NAME "LAStudio")
+    set(LASTUDIO_ORIGINAL_FILENAME "LA Studio.exe")
+    configure_file(
+        "${CMAKE_SOURCE_DIR}/resources/versioninfo.rc.in"
+        "${LASTUDIO_GENERATED_DIR}/LAStudioVersionInfo.rc"
+        @ONLY
+    )
+    set(LASTUDIO_FILE_DESCRIPTION "LA Studio Runtime Host")
+    set(LASTUDIO_INTERNAL_NAME "LAStudioRuntimeHost")
+    set(LASTUDIO_ORIGINAL_FILENAME "LAStudioRuntimeHost.exe")
+    configure_file(
+        "${CMAKE_SOURCE_DIR}/resources/versioninfo.rc.in"
+        "${LASTUDIO_GENERATED_DIR}/LAStudioRuntimeHostVersionInfo.rc"
+        @ONLY
+    )
+
     # Keep a console in Debug builds for dev logging, but hide it in all non-Debug builds.
     set_target_properties(LAStudio PROPERTIES
         WIN32_EXECUTABLE $<IF:$<CONFIG:Debug>,FALSE,TRUE>
     )
 
-    # If an .rc resource exists (and an .ico) then add it so the built .exe has an embedded icon
-    if(EXISTS "${CMAKE_SOURCE_DIR}/resources/app_icon.rc")
-        message(STATUS "Found resources/app_icon.rc — adding to LAStudio sources for Windows exe icon")
-        target_sources(LAStudio PRIVATE "${CMAKE_SOURCE_DIR}/resources/app_icon.rc")
-    else()
-        message(STATUS "No resources/app_icon.rc found — skipping .exe icon embedding")
-    endif()
+    target_sources(LAStudio PRIVATE "${LASTUDIO_GENERATED_DIR}/LAStudioVersionInfo.rc")
+    target_sources(LAStudioRuntimeHost PRIVATE "${LASTUDIO_GENERATED_DIR}/LAStudioRuntimeHostVersionInfo.rc")
 endif()
 
 # --- Installation Rules ---
@@ -693,6 +697,8 @@ if(WIN32)
     file(TO_CMAKE_PATH "${CMAKE_INSTALL_PREFIX}" LASTUDIO_INSTALLER_STAGE_DIR)
     file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}/out" LASTUDIO_INSTALLER_OUTPUT_DIR)
     file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}/icons/app_icon.ico" LASTUDIO_INSTALLER_ICON_FILE)
+    file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}/LICENSE" LASTUDIO_LICENSE_FILE)
+    file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}/resources/SOURCE-OFFER.txt" LASTUDIO_SOURCE_OFFER_FILE)
     configure_file(
         "${CMAKE_SOURCE_DIR}/scripts/installer.iss.in"
         "${CMAKE_BINARY_DIR}/installer.iss"
@@ -710,10 +716,11 @@ install(TARGETS LAStudioRuntimeHost
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
-# Install resources (if any outside of QML resources)
-if(EXISTS "${CMAKE_SOURCE_DIR}/resources")
-    install(DIRECTORY resources DESTINATION .)
-endif()
+install(FILES "${CMAKE_SOURCE_DIR}/LICENSE" DESTINATION .)
+install(FILES "${CMAKE_SOURCE_DIR}/LICENSE" DESTINATION licenses RENAME "AGPL-3.0.txt")
+install(FILES "${CMAKE_SOURCE_DIR}/resources/SOURCE-OFFER.txt" DESTINATION licenses)
+install(FILES "${CMAKE_SOURCE_DIR}/THIRD-PARTY-NOTICES.md" DESTINATION .)
+install(FILES "${CMAKE_SOURCE_DIR}/THIRD-PARTY-NOTICES.md" DESTINATION licenses)
 
 # Note: Runtime DLLs (Whisper, etc.) and windeployqt will be handled 
 # by the CI/CD script or a post-install step.

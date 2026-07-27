@@ -6,6 +6,8 @@
 #include <QThreadPool>
 #include <QUrl>
 
+#include <limits>
+
 #include "controllers/models/ModelsPathMigrator.h"
 #include "controllers/models/ModelsPathMigrationService.h"
 #include "core/Settings.h"
@@ -81,6 +83,11 @@ void TestModelsPathMigration::testModelsPathMigrator()
     bool success = ModelsPathMigrator::copyDirectoryMerge(srcDir, dstDir, errorMsg);
     QVERIFY(success);
     QVERIFY(QFile::exists(dstDir + QStringLiteral("/model.bin")));
+
+    QCOMPARE(ModelsPathMigrator::directorySize(srcDir, errorMsg), qint64(10));
+    QVERIFY2(ModelsPathMigrator::hasAvailableSpace(dstDir, 0, errorMsg), qPrintable(errorMsg));
+    QVERIFY(!ModelsPathMigrator::hasAvailableSpace(dstDir, std::numeric_limits<qint64>::max(), errorMsg));
+    QVERIFY(errorMsg.contains(QStringLiteral("Not enough free disk space"), Qt::CaseInsensitive));
 
     // Same size but different content must fail with conflict.
     QString conflictSrcDir = m_tempDir.filePath(QStringLiteral("migrate_conflict_src"));

@@ -155,10 +155,20 @@ public:
     }
 
     void cancel() override { m_backend.cancelProcessing(); }
-    void setProgressCallback(ProgressCallback) override {}
+
+    void setProgressCallback(ProgressCallback callback) override
+    {
+        m_progressCallback = std::move(callback);
+        m_backend.setProgressCallback([this](int percent) {
+            if (m_progressCallback) {
+                m_progressCallback(percent, 100, QStringLiteral("transcribe"), 0, 0);
+            }
+        });
+    }
 
 private:
     WhisperSttBackend m_backend;
+    ProgressCallback m_progressCallback;
 };
 
 class LlamaHostAdapter final : public RuntimeHostAdapter {
@@ -204,7 +214,14 @@ public:
         translationRequest.maxTokens = request.value(QStringLiteral("maxTokens")).toInteger(4096);
         translationRequest.cancellation = m_cancelToken;
         QVariantList patches;
-        if (!m_backend.translate(translationRequest, patches, {}, *error)) return false;
+        if (!m_backend.translate(translationRequest, patches,
+                                 [this](int percent) {
+                                     if (m_progressCallback) {
+                                         m_progressCallback(percent, 100,
+                                                            QStringLiteral("translate"), 0, 0);
+                                     }
+                                 },
+                                 *error)) return false;
         result->payload = QCborMap{{QStringLiteral("patches"), QCborValue::fromVariant(patches)}};
         return true;
     }
@@ -214,11 +231,15 @@ public:
         m_cancelToken.cancel();
         m_backend.cancelProcessing();
     }
-    void setProgressCallback(ProgressCallback) override {}
+    void setProgressCallback(ProgressCallback callback) override
+    {
+        m_progressCallback = std::move(callback);
+    }
 
 private:
     LlamaTranslationBackend m_backend;
     InferenceCancellationToken m_cancelToken;
+    ProgressCallback m_progressCallback;
 };
 
 class LlamaChatHostAdapter final : public RuntimeHostAdapter {

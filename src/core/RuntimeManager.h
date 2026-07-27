@@ -27,6 +27,8 @@ struct RuntimeInfo {
     QString kind = QStringLiteral("dynamic-library");
     QString executablePath; // Process runtime entrypoint
     QString protocolVersion;
+    bool protocolCompatible = true;
+    QString protocolCompatibilityError;
     QStringList capabilities;
     QStringList modelFormats;
     QVariantMap metadata;

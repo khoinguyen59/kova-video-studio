@@ -1,0 +1,245 @@
+function Ensure-EspeakNgRuntime {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $RepositoryRoot,
+        [Parameter(Mandatory = $true)]
+        [string] $DeployRoot,
+        [switch] $AllowUnsignedEspeakForInternalBuild
+    )
+
+    $version = "1.52.0"
+    $runtimeRoot = Join-Path $DeployRoot "espeak-ng"
+    $dllTarget = Join-Path $runtimeRoot "libespeak-ng.dll"
+    $exeTarget = Join-Path $runtimeRoot "espeak-ng.exe"
+    $dataTarget = Join-Path $runtimeRoot "espeak-ng-data"
+    $cacheRoot = Join-Path $RepositoryRoot ".deps\espeak-ng"
+    $msiPath = Join-Path $cacheRoot "espeak-ng-$version.msi"
+    $url = "https://github.com/espeak-ng/espeak-ng/releases/download/$version/espeak-ng.msi"
+    $expectedSha256 = "7f673c709ea5dd579d3b5ebb98688cc575328a6ab7438d2bc405b88cedaeafb9"
+    New-Item -ItemType Directory -Path $cacheRoot -Force | Out-Null
+    if (-not (Test-Path -LiteralPath $msiPath)) {
+        Write-Host ">> Downloading eSpeak NG $version" -ForegroundColor Cyan
+        Invoke-WebRequest -Uri $url -OutFile $msiPath -UseBasicParsing
+    }
+
+    $actualSha256 = (Get-FileHash -LiteralPath $msiPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actualSha256 -ne $expectedSha256) {
+        throw "eSpeak NG MSI SHA-256 mismatch. Expected $expectedSha256 but got $actualSha256."
+    }
+    $signature = Get-AuthenticodeSignature -LiteralPath $msiPath
+    if ($signature.Status -ne "Valid") {
+        if (-not $AllowUnsignedEspeakForInternalBuild) {
+            throw "eSpeak NG MSI Authenticode signature is not valid: $($signature.Status)"
+        }
+
+        Write-Warning "INTERNAL BUILD ONLY: eSpeak NG MSI signature status is $($signature.Status). The SHA-256 was verified, but this payload must not be used for a distributable release."
+    }
+
+    if ((Test-Path -LiteralPath $dllTarget) -and
+        (Test-Path -LiteralPath $exeTarget) -and
+        (Test-Path -LiteralPath (Join-Path $dataTarget "voices"))) {
+        Write-Host ">> eSpeak NG runtime already staged: $runtimeRoot" -ForegroundColor DarkGray
+        return
+    }
+
+    $msiexec = Join-Path $env:SystemRoot "System32\msiexec.exe"
+    if (-not (Test-Path -LiteralPath $msiexec)) {
+        throw "Windows Installer executable was not found: $msiexec"
+    }
+
+    $extractRoot = Join-Path $DeployRoot ".espeak-ng-extract"
+    if (Test-Path -LiteralPath $extractRoot) {
+        Remove-Item -LiteralPath $extractRoot -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $extractRoot -Force | Out-Null
+    Write-Host ">> Extracting eSpeak NG runtime" -ForegroundColor Cyan
+    if ($AllowUnsignedEspeakForInternalBuild) {
+        $sevenZip = Join-Path $DeployRoot "7z.exe"
+        if (-not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) {
+            throw "Internal eSpeak NG staging requires the packaged 7z.exe: $sevenZip"
+        }
+
+        & $sevenZip x $msiPath "-o$extractRoot" -y | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to extract eSpeak NG MSI with 7-Zip (exit code $LASTEXITCODE): $msiPath"
+        }
+
+        $installer = New-Object -ComObject WindowsInstaller.Installer
+        $database = $installer.OpenDatabase($msiPath, 0)
+        $directories = @{}
+        $directoryView = $database.OpenView('SELECT `Directory`, `Directory_Parent`, `DefaultDir` FROM `Directory`')
+        $directoryView.Execute()
+        while ($true) {
+            $record = $directoryView.Fetch()
+            if ($null -eq $record) { break }
+            $directories[$record.StringData(1)] = @{
+                Parent = $record.StringData(2)
+                Name = ($record.StringData(3) -split '\|')[-1]
+            }
+        }
+        $directoryView.Close()
+
+        function Get-EspeakMsiRelativeDirectory {
+            param([string] $DirectoryId)
+
+            $segments = New-Object System.Collections.Generic.List[string]
+            while ($DirectoryId -ne "INSTALLDIR") {
+                if (-not $directories.ContainsKey($DirectoryId)) {
+                    throw "eSpeak NG MSI directory metadata is incomplete at '$DirectoryId'."
+                }
+                $entry = $directories[$DirectoryId]
+                if ($entry.Name -ne "." -and -not [string]::IsNullOrWhiteSpace($entry.Name)) {
+                    $segments.Insert(0, $entry.Name)
+                }
+                $DirectoryId = $entry.Parent
+            }
+            return ($segments -join [IO.Path]::DirectorySeparatorChar)
+        }
+
+        $components = @{}
+        $componentView = $database.OpenView('SELECT `Component`, `Directory_` FROM `Component`')
+        $componentView.Execute()
+        while ($true) {
+            $record = $componentView.Fetch()
+            if ($null -eq $record) { break }
+            $components[$record.StringData(1)] = $record.StringData(2)
+        }
+        $componentView.Close()
+
+        New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
+        $fileView = $database.OpenView('SELECT `File`, `Component_`, `FileName` FROM `File`')
+        $fileView.Execute()
+        while ($true) {
+            $record = $fileView.Fetch()
+            if ($null -eq $record) { break }
+            $source = Join-Path $extractRoot $record.StringData(1)
+            if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+                throw "7-Zip did not extract expected eSpeak NG MSI file: $($record.StringData(1))"
+            }
+            $component = $record.StringData(2)
+            if (-not $components.ContainsKey($component)) {
+                throw "eSpeak NG MSI component metadata is incomplete at '$component'."
+            }
+            $relativeDirectory = Get-EspeakMsiRelativeDirectory -DirectoryId $components[$component]
+            $destinationDirectory = if ([string]::IsNullOrWhiteSpace($relativeDirectory)) {
+                $runtimeRoot
+            } else {
+                Join-Path $runtimeRoot $relativeDirectory
+            }
+            New-Item -ItemType Directory -Path $destinationDirectory -Force | Out-Null
+            $destinationName = (($record.StringData(3) -split '\|')[-1]).Trim()
+            Copy-Item -LiteralPath $source -Destination (Join-Path $destinationDirectory $destinationName) -Force
+        }
+        $fileView.Close()
+    } else {
+        $installer = Start-Process -FilePath $msiexec -ArgumentList @(
+            "/a", "`"$msiPath`"", "/qn", "TARGETDIR=`"$extractRoot`""
+        ) -Wait -PassThru
+        if ($installer.ExitCode -ne 0) {
+            throw "Failed to extract eSpeak NG MSI (exit code $($installer.ExitCode)): $msiPath"
+        }
+
+        $dllSource = Get-ChildItem -Path $extractRoot -Filter "libespeak-ng.dll" -Recurse -File | Select-Object -First 1
+        $exeSource = Get-ChildItem -Path $extractRoot -Filter "espeak-ng.exe" -Recurse -File | Select-Object -First 1
+        $dataSource = Get-ChildItem -Path $extractRoot -Directory -Recurse |
+            Where-Object { $_.Name -eq "espeak-ng-data" } | Select-Object -First 1
+        if ($null -eq $dllSource -or $null -eq $exeSource -or $null -eq $dataSource) {
+            Remove-Item -LiteralPath $extractRoot -Recurse -Force -ErrorAction SilentlyContinue
+            throw "eSpeak NG MSI did not contain libespeak-ng.dll, espeak-ng.exe, and espeak-ng-data."
+        }
+
+        New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
+        Copy-Item -LiteralPath $dllSource.FullName -Destination $dllTarget -Force
+        Copy-Item -LiteralPath $exeSource.FullName -Destination $exeTarget -Force
+        if (Test-Path -LiteralPath $dataTarget) {
+            Remove-Item -LiteralPath $dataTarget -Recurse -Force
+        }
+        Copy-Item -LiteralPath $dataSource.FullName -Destination $dataTarget -Recurse -Force
+    }
+    Remove-Item -LiteralPath $extractRoot -Recurse -Force
+
+    if (-not (Test-Path -LiteralPath $dllTarget) -or
+        -not (Test-Path -LiteralPath (Join-Path $dataTarget "voices"))) {
+        throw "eSpeak NG runtime staging was incomplete: $runtimeRoot"
+    }
+    Write-Host ">> Staged eSpeak NG runtime: $runtimeRoot" -ForegroundColor Green
+}
+
+function Assert-StagedRuntimeManifest {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $DeployRoot
+    )
+
+    $required = @(
+        "LA Studio.exe",
+        "LAStudioRuntimeHost.exe",
+        "Qt6Core.dll",
+        "Qt6Quick.dll",
+        "Qt6Multimedia.dll",
+        "platforms\qwindows.dll",
+        "imageformats\qwebp.dll",
+        "libcurl.dll",
+        "zlib1.dll",
+        "7z.exe",
+        "bsdtar.exe",
+        "espeak-ng\libespeak-ng.dll",
+        "espeak-ng\espeak-ng-data\voices"
+    )
+    $missing = @($required | Where-Object { -not (Test-Path -LiteralPath (Join-Path $DeployRoot $_)) })
+    if ($missing.Count -gt 0) {
+        throw "Staging manifest is incomplete. Missing: $($missing -join ', ')"
+    }
+    Write-Host ">> Staging manifest verified ($($required.Count) required artifacts)" -ForegroundColor Green
+}
+
+function Assert-StagedMsvcRuntime {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $DeployRoot
+    )
+
+    $redist = Join-Path $DeployRoot "vc_redist.x64.exe"
+    if (Test-Path -LiteralPath $redist -PathType Leaf) {
+        Write-Host ">> MSVC redistributable staged for installer execution: $redist" -ForegroundColor Green
+        return
+    }
+
+    $runtimeDlls = @(
+        Get-ChildItem -LiteralPath $DeployRoot -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^(vcruntime|msvcp|concrt|vcomp)\d.*\.dll$' }
+    )
+    if ($runtimeDlls.Count -eq 0) {
+        throw "windeployqt --compiler-runtime staged neither vc_redist.x64.exe nor MSVC runtime DLLs in '$DeployRoot'."
+    }
+    Write-Host ">> MSVC runtime DLLs staged privately: $($runtimeDlls.Name -join ', ')" -ForegroundColor Green
+}
+
+function Assert-StagedLicenseManifest {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $StageRoot
+    )
+
+    $required = @(
+        "LICENSE",
+        "THIRD-PARTY-NOTICES.md",
+        "licenses\AGPL-3.0.txt",
+        "licenses\GPL-3.0.txt",
+        "licenses\LGPL-3.0.txt",
+        "licenses\THIRD-PARTY-NOTICES.md",
+        "licenses\curl\LICENSE",
+        "licenses\zlib\LICENSE",
+        "licenses\bzip2\LICENSE",
+        "licenses\7-Zip\License.txt",
+        "licenses\qt",
+        "licenses\vietnorm\LICENSE",
+        "licenses\vietnorm\NOTICE",
+        "licenses\libarchive\LICENSE"
+    )
+    $missing = @($required | Where-Object { -not (Test-Path -LiteralPath (Join-Path $StageRoot $_)) })
+    if ($missing.Count -gt 0) {
+        throw "License staging manifest is incomplete. Missing: $($missing -join ', ')"
+    }
+    Write-Host ">> License staging manifest verified ($($required.Count) required artifacts)" -ForegroundColor Green
+}

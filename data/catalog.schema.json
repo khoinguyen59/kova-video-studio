@@ -35,6 +35,12 @@
       "items": {
         "$ref": "#/$defs/family"
       }
+    },
+    "llmFamilies": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/family"
+      }
     }
   },
   "$defs": {
@@ -151,13 +157,17 @@
           "type": "string"
         },
         "task": {
-          "enum": ["tts", "stt", "voice-cloning", "voice-design", "forced-alignment"]
+          "enum": ["tts", "stt", "voice-cloning", "voice-design", "forced-alignment", "llm-chat"]
         },
         "file": {
           "type": "string"
         },
         "size": {
           "type": "string"
+        },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 1
         },
         "desc": {
           "type": "string"
@@ -218,6 +228,10 @@
         "size": {
           "type": "string"
         },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
         "tags": {
           "$ref": "#/$defs/stringArray"
         },
@@ -229,7 +243,7 @@
     "family": {
       "type": "object",
       "additionalProperties": true,
-      "required": ["id", "localDir", "title", "modelId", "capabilities", "requiredFiles", "runtimes", "studio"],
+      "required": ["id", "localDir", "title", "modelId", "capabilities", "requiredFiles", "runtimes", "studio", "license", "licenseUrl", "commercialUse", "attributionRequired", "gated"],
       "properties": {
         "id": {
           "type": "string"
@@ -254,6 +268,24 @@
         },
         "modelId": {
           "type": "string"
+        },
+        "license": {
+          "type": "string",
+          "minLength": 1
+        },
+        "licenseUrl": {
+          "type": "string",
+          "format": "uri",
+          "minLength": 1
+        },
+        "commercialUse": {
+          "enum": ["allowed", "non-commercial", "conditional", "unknown"]
+        },
+        "attributionRequired": {
+          "type": "boolean"
+        },
+        "gated": {
+          "type": "boolean"
         },
         "capabilities": {
           "$ref": "#/$defs/stringArray"
@@ -429,6 +461,16 @@
             "type": ["string", "number", "boolean"]
           }
         },
+        "freeTextInstruct": { "type": "boolean" },
+        "textNormalization": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "policy": { "type": "string" },
+            "profile": { "type": "string" },
+            "transliteration": { "type": "boolean" }
+          }
+        },
         "nonVerbalTags": {
           "type": "array",
           "items": {
@@ -479,6 +521,10 @@
         },
         "size": {
           "type": "string"
+        },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 1
         },
         "candidates": {
           "$ref": "#/$defs/stringArray"
@@ -535,8 +581,22 @@
         "modelVersion": {
           "type": "string"
         },
+        "size": {
+          "type": ["string", "integer"]
+        },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
         "disabledReason": {
           "type": "string"
+        },
+        "requiredCpuFeatures": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "minDriverVersion": {
+          "type": "string",
+          "pattern": "^v?[0-9]+(\\.[0-9]+){0,3}$"
         },
         "dependencyDownloads": {
           "type": "array",
@@ -550,7 +610,7 @@
     "modelYaml": {
       "type": "object",
       "additionalProperties": true,
-      "required": ["model", "base"],
+      "required": ["model", "base", "license", "licenseUrl", "commercialUse", "attributionRequired", "gated"],
       "properties": {
         "model": { "type": "string" },
         "base": {
@@ -559,6 +619,11 @@
             "$ref": "#/$defs/modelBase"
           }
         },
+        "license": { "type": "string", "minLength": 1 },
+        "licenseUrl": { "type": "string", "format": "uri", "minLength": 1 },
+        "commercialUse": { "enum": ["allowed", "non-commercial", "conditional", "unknown"] },
+        "attributionRequired": { "type": "boolean" },
+        "gated": { "type": "boolean" },
         "metadataOverrides": {
           "$ref": "#/$defs/modelYamlMetadata"
         },
@@ -622,7 +687,8 @@
       "properties": {
         "name": { "type": "string" },
         "file": { "type": "string" },
-        "size": { "type": "string" },
+        "size": { "type": ["string", "integer"] },
+        "sizeBytes": { "type": "integer", "minimum": 1 },
         "quant": { "type": "string" },
         "tags": { "$ref": "#/$defs/stringArray" }
       }

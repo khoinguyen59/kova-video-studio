@@ -4,6 +4,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 #include <QVector>
+#include <functional>
 
 namespace LAStudio {
 
@@ -14,6 +15,7 @@ public:
     virtual bool loadModel(const QString &modelPath, bool useGpu, const QString &runtimePath, QString &error) = 0;
     virtual void unloadModel() = 0;
     virtual void cancelProcessing() {}
+    virtual void setProgressCallback(std::function<void(int percent)>) {}
     virtual bool transcribe(const QVector<float> &samples,
                             const QString &language,
                             int threads,

@@ -69,8 +69,8 @@ Dialog {
                 spacing: Theme.paddingMedium
 
                 Rectangle {
-                    width: 42
-                    height: 42
+                    Layout.preferredWidth: 42
+                    Layout.preferredHeight: 42
                     radius: 12
                     color: Qt.rgba(0.49, 0.30, 1.0, 0.16)
                     border.color: Qt.rgba(0.70, 0.55, 1.0, 0.34)
@@ -175,7 +175,7 @@ Dialog {
             }
         }
 
-        Rectangle { Layout.fillWidth: true; height: 1; color: Qt.rgba(1, 1, 1, 0.08) }
+        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1, 1, 1, 0.08) }
 
         ScrollView {
             Layout.fillWidth: true
@@ -279,8 +279,8 @@ Dialog {
                                     }
 
                                     Rectangle {
-                                        width: 4
-                                        height: 4
+                                        Layout.preferredWidth: 4
+                                        Layout.preferredHeight: 4
                                         radius: 2
                                         color: Qt.rgba(1, 1, 1, 0.22)
                                     }
@@ -362,7 +362,7 @@ Dialog {
             }
         }
 
-        Rectangle { Layout.fillWidth: true; height: 1; color: Qt.rgba(1, 1, 1, 0.08) }
+        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1, 1, 1, 0.08) }
 
         RowLayout {
             Layout.fillWidth: true

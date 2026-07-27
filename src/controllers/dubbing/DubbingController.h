@@ -61,6 +61,8 @@ class DubbingController : public QObject
     Q_PROPERTY(QString workflowNodeRunId READ workflowNodeRunId NOTIFY processingChanged)
     Q_PROPERTY(bool workflowWaitingForInput READ workflowWaitingForInput NOTIFY workflowChanged)
     Q_PROPERTY(QVariantMap workflowReviewRequest READ workflowReviewRequest NOTIFY workflowChanged)
+    Q_PROPERTY(bool workflowRecoveryAvailable READ workflowRecoveryAvailable NOTIFY workflowChanged)
+    Q_PROPERTY(QVariantMap workflowRecovery READ workflowRecovery NOTIFY workflowChanged)
     Q_PROPERTY(QString workflowMode READ workflowMode NOTIFY workflowChanged)
     Q_PROPERTY(QString currentStepId READ currentStepId NOTIFY workflowChanged)
     Q_PROPERTY(QVariantMap currentStepOutput READ currentStepOutput NOTIFY workflowChanged)
@@ -126,6 +128,8 @@ public:
     QString workflowNodeRunId() const;
     bool workflowWaitingForInput() const;
     QVariantMap workflowReviewRequest() const;
+    bool workflowRecoveryAvailable() const { return !m_workflowRecovery.isEmpty(); }
+    QVariantMap workflowRecovery() const { return m_workflowRecovery; }
     QString workflowMode() const { return m_workflowMode; }
     QString currentStepId() const;
     QVariantMap currentStepOutput() const;
@@ -186,6 +190,8 @@ public:
     Q_INVOKABLE QVariantMap stepOutput(const QString &stepId) const;
     Q_INVOKABLE bool approveWorkflowReview(const QVariantMap &artifact = QVariantMap());
     Q_INVOKABLE bool rejectWorkflowReview(const QString &reason = QString());
+    Q_INVOKABLE bool resumeInterruptedWorkflow();
+    Q_INVOKABLE bool discardInterruptedWorkflow();
     Q_INVOKABLE bool setWorkflowNodeModel(const QString &nodeId,
                                           const QString &familyId,
                                           const QString &runtimeId,
@@ -249,6 +255,7 @@ private:
     void appendAutomaticEvent(const QString &message, const QString &state,
                               const QString &nodeId = QString());
     void setAutomaticStatus(const QString &message);
+    void discoverInterruptedWorkflow();
     static QString visibleStepForNode(const QString &nodeId);
     void loadHistory();
     void recordHistoryEntry();
@@ -261,6 +268,7 @@ private:
     std::unique_ptr<WorkflowReviewStore> m_workflowReviewStore;
     std::unique_ptr<WorkflowRunJournal> m_workflowJournal;
     QVariantMap m_workflowReviewRequest;
+    QVariantMap m_workflowRecovery;
     QString m_activeReviewId;
     QString m_workflowMode = QStringLiteral("idle");
     QString m_currentStepId = QStringLiteral("import");

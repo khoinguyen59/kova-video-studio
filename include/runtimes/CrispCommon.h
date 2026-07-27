@@ -2,8 +2,12 @@
 
 #include <QByteArray>
 #include <QDir>
-#include <QDirIterator>
+#include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonValue>
 #include <QLibrary>
 #include <QSet>
 #include <QString>
@@ -35,18 +39,9 @@ inline bool crispContainsPath(const QStringList& entries, const QString& path)
     return entries.contains(cleanPath, Qt::CaseInsensitive);
 }
 
-inline void crispPrependPath(QStringList& entries, const QString& path)
-{
-    const QString cleanPath = QDir::toNativeSeparators(QDir::cleanPath(path));
-    if (!cleanPath.isEmpty() && QDir(cleanPath).exists() && !crispContainsPath(entries, cleanPath)) {
-        entries.prepend(cleanPath);
-    }
-}
-
 inline QStringList crispRuntimeDependencyDirs(const QString& libPath)
 {
     const QFileInfo libInfo(libPath);
-    const QDir runtimeRoot(QDir::cleanPath(libInfo.absolutePath() + QStringLiteral("/..")));
 
     QStringList dirs;
     auto addDir = [&dirs](const QString& path) {
@@ -57,33 +52,36 @@ inline QStringList crispRuntimeDependencyDirs(const QString& libPath)
     };
 
     addDir(libInfo.absolutePath());
-    addDir(runtimeRoot.absoluteFilePath(QStringLiteral("bin")));
-    addDir(runtimeRoot.absoluteFilePath(QStringLiteral("ggml/bin")));
-    addDir(runtimeRoot.absoluteFilePath(QStringLiteral("espeak-ng")));
-    addDir(runtimeRoot.absoluteFilePath(QStringLiteral("espeak-ng/bin")));
-    addDir(runtimeRoot.absoluteFilePath(QStringLiteral("espeak-ng/eSpeak NG")));
-    addDir(runtimeRoot.absoluteFilePath(QStringLiteral("espeak-ng/eSpeak NG/bin")));
 
-    if (runtimeRoot.exists()) {
-        QDirIterator it(runtimeRoot.absolutePath(),
-                        QStringList{QStringLiteral("*.dll")},
-                        QDir::Files,
-                        QDirIterator::Subdirectories);
-        while (it.hasNext()) {
-            addDir(QFileInfo(it.next()).absolutePath());
+    // A runtime may use a sibling directory for an explicitly declared native
+    // dependency. Never discover directories by recursively scanning an
+    // untrusted archive; the installer copies this list from the catalog into
+    // backend-manifest.json.
+    QDir runtimeRoot(libInfo.absolutePath());
+    runtimeRoot.cdUp();
+    QFile manifest(runtimeRoot.absoluteFilePath(QStringLiteral("backend-manifest.json")));
+    if (!manifest.open(QIODevice::ReadOnly)) {
+        return dirs;
+    }
+    const QJsonDocument document = QJsonDocument::fromJson(manifest.readAll());
+    if (!document.isObject()) {
+        return dirs;
+    }
+    for (const QJsonValue &value : document.object().value(QStringLiteral("nativeDependencies")).toArray()) {
+        const QString dependency = QDir::cleanPath(value.toString());
+        if (dependency.isEmpty() || QDir::isAbsolutePath(dependency) ||
+            dependency == QStringLiteral("..") || dependency.startsWith(QStringLiteral("../")) ||
+            dependency.startsWith(QStringLiteral("..\\")) ||
+            !dependency.endsWith(QStringLiteral(".dll"), Qt::CaseInsensitive)) {
+            continue;
+        }
+        const QFileInfo dependencyInfo(runtimeRoot.absoluteFilePath(dependency));
+        if (dependencyInfo.isFile()) {
+            addDir(dependencyInfo.absolutePath());
         }
     }
 
     return dirs;
-}
-
-inline void crispPrependRuntimeDirsToPath(const QStringList& dirs)
-{
-    QStringList pathEntries = QString::fromLocal8Bit(qgetenv("PATH")).split(QDir::listSeparator(), Qt::SkipEmptyParts);
-    for (auto it = dirs.crbegin(); it != dirs.crend(); ++it) {
-        crispPrependPath(pathEntries, *it);
-    }
-    qputenv("PATH", pathEntries.join(QDir::listSeparator()).toLocal8Bit());
 }
 
 #ifdef Q_OS_WIN
@@ -100,18 +98,33 @@ inline int crispDllLoadPriority(const QString& fileName)
 
 inline QVector<HMODULE> crispPreloadRuntimeDlls(const QString& mainLibPath, const QStringList& dirs)
 {
+    Q_UNUSED(dirs);
     const QString mainPath = QDir::toNativeSeparators(QDir::cleanPath(mainLibPath));
     QVector<QFileInfo> dlls;
 
-    for (const QString& dir : dirs) {
-        const QFileInfoList files = QDir(dir).entryInfoList(QStringList{QStringLiteral("*.dll")}, QDir::Files);
-        for (const QFileInfo& file : files) {
-            const QString filePath = QDir::toNativeSeparators(QDir::cleanPath(file.absoluteFilePath()));
-            if (filePath.compare(mainPath, Qt::CaseInsensitive) == 0)
-                continue;
-            if (file.fileName().compare(QStringLiteral("whisper.dll"), Qt::CaseInsensitive) == 0)
-                continue;
-            dlls.append(file);
+    const QFileInfo mainInfo(mainLibPath);
+    QDir runtimeRoot(mainInfo.absolutePath());
+    runtimeRoot.cdUp();
+    QFile manifest(runtimeRoot.absoluteFilePath(QStringLiteral("backend-manifest.json")));
+    if (!manifest.open(QIODevice::ReadOnly)) {
+        return {};
+    }
+    const QJsonDocument document = QJsonDocument::fromJson(manifest.readAll());
+    if (!document.isObject()) {
+        return {};
+    }
+    for (const QJsonValue &value : document.object().value(QStringLiteral("nativeDependencies")).toArray()) {
+        const QString dependency = QDir::cleanPath(value.toString());
+        if (dependency.isEmpty() || QDir::isAbsolutePath(dependency) ||
+            dependency == QStringLiteral("..") || dependency.startsWith(QStringLiteral("../")) ||
+            dependency.startsWith(QStringLiteral("..\\")) ||
+            !dependency.endsWith(QStringLiteral(".dll"), Qt::CaseInsensitive)) {
+            continue;
+        }
+        const QFileInfo dependencyInfo(runtimeRoot.absoluteFilePath(dependency));
+        const QString dependencyPath = QDir::toNativeSeparators(QDir::cleanPath(dependencyInfo.absoluteFilePath()));
+        if (dependencyInfo.isFile() && dependencyPath.compare(mainPath, Qt::CaseInsensitive) != 0) {
+            dlls.append(dependencyInfo);
         }
     }
 
@@ -130,7 +143,9 @@ inline QVector<HMODULE> crispPreloadRuntimeDlls(const QString& mainLibPath, cons
             continue;
         loadedPaths.insert(filePath);
 
-        HMODULE module = LoadLibraryW(reinterpret_cast<LPCWSTR>(filePath.utf16()));
+        HMODULE module = LoadLibraryExW(reinterpret_cast<LPCWSTR>(filePath.utf16()), nullptr,
+                                        LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR |
+                                        LOAD_LIBRARY_SEARCH_USER_DIRS);
         if (module) {
             handles.append(module);
         }

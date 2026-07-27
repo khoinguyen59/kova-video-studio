@@ -135,8 +135,8 @@ Rectangle {
                     }
 
                     Rectangle {
-                        width: 1
-                        height: 16
+                        Layout.preferredWidth: 1
+                        Layout.preferredHeight: 16
                         color: Qt.rgba(255, 255, 255, 0.1)
                         Layout.leftMargin: 4
                         Layout.rightMargin: 4
@@ -178,7 +178,7 @@ Rectangle {
                         flat: true
 
                         AppToolTip {
-                            text: qsTr("Copy Logs")
+                            text: qsTr("Copy sanitized diagnostics")
                             visible: copyButton.hovered
                         }
 
@@ -196,7 +196,7 @@ Rectangle {
                             anchors.centerIn: parent
                         }
 
-                        onClicked: AppController.copyToClipboard(AppController.logs.readLogFile())
+                        onClicked: AppController.copyToClipboard(AppController.logs.readSanitizedLogFile())
                         HoverHandler { cursorShape: Qt.PointingHandCursor }
                     }
 

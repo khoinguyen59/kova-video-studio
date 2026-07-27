@@ -8,6 +8,7 @@
 #include <QtTest/QtTest>
 #include <QSignalSpy>
 #include <QDir>
+#include <QFile>
 #include <QProcess>
 #include <QStandardPaths>
 #include <memory>
@@ -115,6 +116,46 @@ void TestSourceSeparation::testBackendFactory()
 
     // Querying unknown backend returns nullptr
     QVERIFY(factory.createBackend(QStringLiteral("unknown")) == nullptr);
+}
+
+void TestSourceSeparation::testWavIoRejectsMalformedChunks()
+{
+    auto writeFixture = [this](const QString &name, const QByteArray &bytes) -> QString {
+        const QString path = m_tempDir.filePath(name);
+        QFile file(path);
+        if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size()) return {};
+        return path;
+    };
+
+    QByteArray truncatedFmt("RIFF\0\0\0\0WAVEfmt ", 16);
+    truncatedFmt.append(QByteArray::fromHex("10000000"));
+    const QString truncatedPath = writeFixture(QStringLiteral("truncated-fmt.wav"), truncatedFmt);
+    QVERIFY(!truncatedPath.isEmpty());
+    QVERIFY(WavIO::loadAsFloat(truncatedPath).samples.isEmpty());
+
+    QByteArray valid;
+    const QString validPath = m_tempDir.filePath(QStringLiteral("valid-for-mutation.wav"));
+    const QVector<float> sample{0.0f};
+    QVERIFY(WavIO::saveFloat(validPath, sample.constData(), sample.size(), 16000));
+    QFile validFile(validPath);
+    QVERIFY(validFile.open(QIODevice::ReadOnly));
+    valid = validFile.readAll();
+
+    QByteArray zeroBits = valid;
+    zeroBits[34] = 0;
+    zeroBits[35] = 0;
+    const QString zeroBitsPath = writeFixture(QStringLiteral("zero-bps.wav"), zeroBits);
+    QVERIFY(!zeroBitsPath.isEmpty());
+    QVERIFY(WavIO::loadAsFloat(zeroBitsPath).samples.isEmpty());
+
+    QByteArray oversizedData = valid;
+    oversizedData[40] = char(0xff);
+    oversizedData[41] = char(0xff);
+    oversizedData[42] = char(0xff);
+    oversizedData[43] = char(0x7f);
+    const QString oversizedPath = writeFixture(QStringLiteral("oversized-data.wav"), oversizedData);
+    QVERIFY(!oversizedPath.isEmpty());
+    QVERIFY(WavIO::loadAsFloat(oversizedPath).samples.isEmpty());
 }
 
 void TestSourceSeparation::testSharedAudioDecoderNormalizesReferenceAudio()

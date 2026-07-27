@@ -5,6 +5,8 @@ import LAStudio
 import "../base"
 
 ColumnLayout {
+    id: root
+
     spacing: Theme.paddingXL + 4
 
     property var sttSession: null
@@ -42,7 +44,7 @@ ColumnLayout {
                     
                     AppToolTip {
                         text: qsTr("Copy transcription")
-                        visible: parent.hovered
+                        visible: copyBtn.hovered
                     }
                     
                     contentItem: LineIcon {
@@ -59,8 +61,8 @@ ColumnLayout {
                         radius: 6
                     }
                     onClicked: {
-                        if (sttSession) {
-                            sttSession.copyTranscript()
+                        if (root.sttSession) {
+                            root.sttSession.copyTranscript()
                         }
                     }
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
@@ -75,7 +77,7 @@ ColumnLayout {
                     
                     AppToolTip {
                         text: qsTr("Clear transcription")
-                        visible: parent.hovered
+                        visible: clearBtn.hovered
                     }
                     
                     contentItem: LineIcon {
@@ -92,8 +94,8 @@ ColumnLayout {
                         radius: 6
                     }
                     onClicked: {
-                        if (sttSession) {
-                            sttSession.clearTranscript()
+                        if (root.sttSession) {
+                            root.sttSession.clearTranscript()
                         }
                     }
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
@@ -107,7 +109,7 @@ ColumnLayout {
 
                 TextArea {
                     id: transcriptArea
-                    text: sttSession ? sttSession.transcript : ""
+                    text: root.sttSession ? root.sttSession.transcript : ""
                     color: Theme.textPrimary
                     font.pixelSize: Theme.fontMedium
                     wrapMode: Text.Wrap

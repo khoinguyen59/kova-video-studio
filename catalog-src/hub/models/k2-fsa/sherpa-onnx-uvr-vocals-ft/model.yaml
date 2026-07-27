@@ -8,6 +8,7 @@ base:
     sources:
       - type: url
         url: https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/UVR-MDX-NET-Voc_FT.onnx
+        sha256: e411182ce2c53541fefdcc99a8f46f2fe03978eb22038b9497c1d9d95a00fad4
         files:
           - name: UVR-MDX-NET-Voc_FT.onnx
             size: 335 MiB

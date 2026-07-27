@@ -6,33 +6,80 @@ on:
       - "v*.*.*"
 
 permissions:
+  actions: read
   contents: write
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   windows-installer:
     name: Build Windows installer
-    runs-on: windows-latest
+    runs-on: windows-2022
+    # Build, two origin-verified signing requests, and the clean-install
+    # smoke test can legitimately exceed the former 60-minute budget.
+    timeout-minutes: 90
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           submodules: recursive
 
-      # Keep build-time C API headers on the same revision as the runtime
-      # downloaded by the Hy-MT2 catalog entry.
+      - name: Verify release version
+        shell: pwsh
+        run: .\scripts\verify_release_version.ps1 -Tag $env:GITHUB_REF_NAME
+
+      # Releases must never silently fall back to unsigned binaries. The
+      # project/policy identifiers are non-secret repository variables; the
+      # submitter token remains a GitHub Actions secret.
+      - name: Require SignPath release-signing configuration
+        shell: pwsh
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          SIGNPATH_APPLICATION_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_APPLICATION_ARTIFACT_CONFIGURATION_SLUG }}
+          SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG }}
+          SIGNPATH_CERTIFICATE_SUBJECT: ${{ vars.SIGNPATH_CERTIFICATE_SUBJECT }}
+        run: |
+          $required = @(
+            'SIGNPATH_API_TOKEN',
+            'SIGNPATH_ORGANIZATION_ID',
+            'SIGNPATH_PROJECT_SLUG',
+            'SIGNPATH_SIGNING_POLICY_SLUG',
+            'SIGNPATH_APPLICATION_ARTIFACT_CONFIGURATION_SLUG',
+            'SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG',
+            'SIGNPATH_CERTIFICATE_SUBJECT'
+          )
+          $missing = $required | Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) }
+          if ($missing) {
+            throw "Release signing is not configured. Missing GitHub secret/variables: $($missing -join ', ')."
+          }
+
+      - name: Verify llama runtime ABI contract
+        shell: pwsh
+        run: .\scripts\verify_runtime_abi.ps1
+
+      # Read the header ref from the same source that generates the compiled
+      # ABI constant; the verification above also checks every catalog entry.
       - name: Checkout llama.cpp headers
-        uses: actions/checkout@v4
-        with:
-          repository: ggml-org/llama.cpp
-          ref: b10036
-          path: .deps/llama.cpp
+        shell: pwsh
+        run: |
+          $abi = Get-Content -LiteralPath .\cmake\RuntimeAbi.cmake -Raw
+          $match = [regex]::Match($abi, 'set\(LASTUDIO_LLAMA_CPP_REF\s+"([^"]+)"\)')
+          if (-not $match.Success) { throw "Could not read LASTUDIO_LLAMA_CPP_REF." }
+          $ref = $match.Groups[1].Value
+          git clone --depth 1 --branch $ref https://github.com/ggml-org/llama.cpp.git .deps\llama.cpp
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Setup MSVC
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
 
       - name: Install Qt
-        uses: jurplel/install-qt-action@v4
+        uses: jurplel/install-qt-action@d325aaf2a8baeeda41ad0b5d39f84a6af9bcf005 # v4.3.1
         with:
           version: "6.9.3"
           host: "windows"
@@ -41,28 +88,176 @@ jobs:
           dir: "C:\\Qt"
           modules: "qtmultimedia qtimageformats"
 
-      - name: Configure vcpkg
+      # A release tag must be self-validating. Do not rely on the assumption
+      # that the same source revision previously passed the PR workflow.
+      - name: Verify generated model catalog is current
         shell: pwsh
         run: |
-          "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append
+          python scripts/generate_catalog.py
+          git diff --exit-code -- data/catalog.json
+
+      - name: Verify runtime release checksums
+        shell: pwsh
+        run: python scripts/verify_catalog_checksums.py
+
+      - name: Verify translation catalogs are current
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:QT_ROOT_DIR)) {
+            throw "QT_ROOT_DIR was not exported by install-qt-action."
+          }
+          $lupdate = Join-Path $env:QT_ROOT_DIR "bin\lupdate.exe"
+          if (-not (Test-Path -LiteralPath $lupdate)) {
+            throw "lupdate.exe was not installed with the selected Qt kit."
+          }
+          & $lupdate qml src -recursive -no-obsolete -locations relative -ts i18n\lastudio_en.ts i18n\lastudio_vi.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code -- i18n/lastudio_en.ts i18n/lastudio_vi.ts
+
+      - name: Check out pinned vcpkg
+        shell: pwsh
+        run: |
+          $vcpkgRoot = "$env:GITHUB_WORKSPACE\.deps\vcpkg"
+          $baseline = "9a023fa7d4c8c9ed3fa5b1be466e605b10b9d220"
+          git clone https://github.com/microsoft/vcpkg.git $vcpkgRoot
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git -C $vcpkgRoot fetch --depth 1 origin $baseline
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git -C $vcpkgRoot checkout --detach $baseline
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$vcpkgRoot\bootstrap-vcpkg.bat"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Install Inno Setup
         shell: pwsh
-        run: choco install innosetup --yes --no-progress
+        run: choco install innosetup --version 6.7.1 --yes --no-progress
 
       - name: Install 7-Zip
         shell: pwsh
-        run: choco install 7zip --yes --no-progress
+        run: choco install 7zip --version 26.2.0 --yes --no-progress
 
-      - name: Build installer
+      - name: Build and test release candidate
         shell: pwsh
         run: |
           if ([string]::IsNullOrWhiteSpace($env:QT_ROOT_DIR)) {
             throw "QT_ROOT_DIR was not exported by install-qt-action."
           }
           $qtRoot = Split-Path -Parent $env:QT_ROOT_DIR
-          $version = $env:GITHUB_REF_NAME -replace '^v', ''
-          .\scripts\package.ps1 -Preset windows-msvc-release -QtRoot $qtRoot -VcpkgRoot $env:VCPKG_ROOT -LlamaCppSourceDir "$env:GITHUB_WORKSPACE\.deps\llama.cpp" -Version $version
+          .\scripts\build.ps1 -Preset windows-msvc-release -QtRoot $qtRoot -VcpkgRoot $env:VCPKG_ROOT -LlamaCppSourceDir "$env:GITHUB_WORKSPACE\.deps\llama.cpp" -SkipDeploy
+          .\scripts\run_tests.ps1 -Preset windows-msvc-release -QtRoot $qtRoot -VcpkgRoot $env:VCPKG_ROOT -NoBuild
+
+      - name: Stage unsigned application payload
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:QT_ROOT_DIR)) {
+            throw "QT_ROOT_DIR was not exported by install-qt-action."
+          }
+          $qtRoot = Split-Path -Parent $env:QT_ROOT_DIR
+          if ($env:GITHUB_REF_NAME -notmatch '^v(\d+\.\d+\.\d+)(-(alpha|beta|rc)\.[1-9][0-9]*)?$') {
+            throw "Unsupported release tag format: $env:GITHUB_REF_NAME"
+          }
+          $version = $Matches[1]
+          $releaseSuffix = $Matches[2]
+          .\scripts\package.ps1 -Preset windows-msvc-release -QtRoot $qtRoot -VcpkgRoot $env:VCPKG_ROOT -LlamaCppSourceDir "$env:GITHUB_WORKSPACE\.deps\llama.cpp" -Version $version -ReleaseSuffix $releaseSuffix -SkipInstaller
+
+      - name: Upload unsigned application payload for SignPath
+        id: upload-unsigned-application
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: LA-Studio-${{ github.ref_name }}-unsigned-application
+          path: |
+            out/stage/bin/LA Studio.exe
+            out/stage/bin/LAStudioRuntimeHost.exe
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Sign application executables with SignPath
+        uses: signpath/github-action-submit-signing-request@b9d91eadd323de506c0c81cf0c7fe7438f3360fd # v2.2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_APPLICATION_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.upload-unsigned-application.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: out/signed-application
+
+      - name: Install and verify signed application executables
+        shell: pwsh
+        env:
+          SIGNPATH_CERTIFICATE_SUBJECT: ${{ vars.SIGNPATH_CERTIFICATE_SUBJECT }}
+        run: |
+          $signedRoot = 'out\signed-application'
+          foreach ($name in @('LA Studio.exe', 'LAStudioRuntimeHost.exe')) {
+            $matches = @(Get-ChildItem -LiteralPath $signedRoot -Filter $name -Recurse -File)
+            if ($matches.Count -ne 1) {
+              throw "Expected exactly one signed '$name' in '$signedRoot'; found $($matches.Count)."
+            }
+            $target = Join-Path 'out\stage\bin' $name
+            Copy-Item -LiteralPath $matches[0].FullName -Destination $target -Force
+            $signature = Get-AuthenticodeSignature -LiteralPath $target
+            if ($signature.Status -ne 'Valid') {
+              throw "Authenticode verification failed for '$target': $($signature.Status)."
+            }
+            if ($signature.SignerCertificate.Subject -notlike "*$env:SIGNPATH_CERTIFICATE_SUBJECT*") {
+              throw "Unexpected signer for '$target': $($signature.SignerCertificate.Subject)."
+            }
+          }
+
+      - name: Build installer from signed application payload
+        shell: pwsh
+        run: |
+          $installerScript = 'out\build\windows-msvc-release\installer.iss'
+          if (-not (Test-Path -LiteralPath $installerScript -PathType Leaf)) {
+            throw "Generated installer script not found at '$installerScript'."
+          }
+          $iscc = (Get-Command ISCC.exe -ErrorAction Stop).Source
+          & $iscc $installerScript
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path -LiteralPath 'out\LA-Studio-Setup.exe' -PathType Leaf)) {
+            throw 'Inno Setup did not create out\\LA-Studio-Setup.exe.'
+          }
+
+      - name: Upload unsigned installer for SignPath
+        id: upload-unsigned-installer
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: LA-Studio-${{ github.ref_name }}-unsigned-installer
+          path: out/LA-Studio-Setup.exe
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Sign installer with SignPath
+        uses: signpath/github-action-submit-signing-request@b9d91eadd323de506c0c81cf0c7fe7438f3360fd # v2.2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.upload-unsigned-installer.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: out/signed-installer
+
+      - name: Install and verify signed installer
+        shell: pwsh
+        env:
+          SIGNPATH_CERTIFICATE_SUBJECT: ${{ vars.SIGNPATH_CERTIFICATE_SUBJECT }}
+        run: |
+          $matches = @(Get-ChildItem -LiteralPath 'out\signed-installer' -Filter 'LA-Studio-Setup.exe' -Recurse -File)
+          if ($matches.Count -ne 1) {
+            throw "Expected exactly one signed installer; found $($matches.Count)."
+          }
+          Copy-Item -LiteralPath $matches[0].FullName -Destination 'out\LA-Studio-Setup.exe' -Force
+          $signature = Get-AuthenticodeSignature -LiteralPath 'out\LA-Studio-Setup.exe'
+          if ($signature.Status -ne 'Valid') {
+            throw "Authenticode verification failed for installer: $($signature.Status)."
+          }
+          if ($signature.SignerCertificate.Subject -notlike "*$env:SIGNPATH_CERTIFICATE_SUBJECT*") {
+            throw "Unexpected installer signer: $($signature.SignerCertificate.Subject)."
+          }
 
       - name: Rename installer
         id: package
@@ -73,8 +268,94 @@ jobs:
           Move-Item -LiteralPath "out\LA-Studio-Setup.exe" -Destination "out\$artifact" -Force
           "artifact=out/$artifact" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Generate installer checksum
+        id: checksum
+        shell: pwsh
+        run: |
+          $artifact = "${{ steps.package.outputs.artifact }}"
+          $hash = (Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash.ToLowerInvariant()
+          $checksum = "${artifact}.sha256"
+          "$hash  $(Split-Path -Leaf $artifact)" | Set-Content -LiteralPath $checksum -NoNewline
+          "checksum=$checksum" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Generate staged payload SBOM
+        uses: anchore/sbom-action@62ad5284b8ced813296287a0b63906cb364b73ee # v0.24.0
         with:
-          files: ${{ steps.package.outputs.artifact }}
+          path: ./out/stage
+          format: cyclonedx-json
+          output-file: out/LA-Studio-${{ github.ref_name }}-sbom.cdx.json
+          syft-version: v1.42.0
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Generate toolchain manifest
+        id: toolchain
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:QT_ROOT_DIR)) {
+            throw "QT_ROOT_DIR was not exported by install-qt-action."
+          }
+          $qtRoot = Split-Path -Parent $env:QT_ROOT_DIR
+          $manifest = "out\LA-Studio-$env:GITHUB_REF_NAME-toolchain.json"
+          .\scripts\write_toolchain_manifest.ps1 -OutputPath $manifest -QtRoot $qtRoot -VcpkgRoot $env:VCPKG_ROOT -ReleaseTag $env:GITHUB_REF_NAME
+          "manifest=$manifest" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Archive private debugging symbols
+        id: symbols
+        shell: pwsh
+        run: |
+          $pdbs = @(Get-ChildItem -Path "out\build\windows-msvc-release" -Filter "*.pdb" -Recurse -File)
+          if ($pdbs.Count -eq 0) {
+            throw "No PDB files were produced by the release build."
+          }
+          $archive = "out\LA-Studio-$env:GITHUB_REF_NAME-symbols.zip"
+          Compress-Archive -LiteralPath $pdbs.FullName -DestinationPath $archive -CompressionLevel Optimal -Force
+          "archive=$archive" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Retain private debugging symbols
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: LA-Studio-${{ github.ref_name }}-windows-x64-symbols
+          path: ${{ steps.symbols.outputs.archive }}
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Archive corresponding source
+        id: source
+        shell: pwsh
+        run: |
+          $archive = "out\LA-Studio-$env:GITHUB_REF_NAME-source.zip"
+          git archive --format=zip --output=$archive $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $archive -PathType Leaf)) {
+            throw "Could not create the corresponding source archive."
+          }
+          "archive=$archive" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Smoke test installer on a clean runner path
+        shell: pwsh
+        run: |
+          $installDir = Join-Path $env:RUNNER_TEMP "LA-Studio-smoke-$env:GITHUB_RUN_ID"
+          $dataDir = Join-Path $env:RUNNER_TEMP "LA-Studio-smoke-data-$env:GITHUB_RUN_ID"
+          .\scripts\smoke_installer.ps1 -InstallerPath "${{ steps.package.outputs.artifact }}" -InstallDir $installDir -DataDir $dataDir
+
+      - name: Retain smoke-test evidence on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: LA-Studio-${{ github.ref_name }}-smoke-failure-evidence
+          path: ${{ runner.temp }}/LA-Studio-smoke-data-${{ github.run_id }}/logs
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          files: |
+            ${{ steps.package.outputs.artifact }}
+            ${{ steps.checksum.outputs.checksum }}
+            out/LA-Studio-${{ github.ref_name }}-sbom.cdx.json
+            ${{ steps.toolchain.outputs.manifest }}
+            ${{ steps.source.outputs.archive }}
+          draft: true
+          prerelease: ${{ contains(github.ref_name, '-alpha.') || contains(github.ref_name, '-beta.') || contains(github.ref_name, '-rc.') }}
           generate_release_notes: true

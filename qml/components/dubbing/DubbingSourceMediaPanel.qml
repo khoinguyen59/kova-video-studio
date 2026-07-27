@@ -236,7 +236,7 @@ Rectangle {
                 font.pixelSize: Theme.fontSmall
             }
         }
-        Rectangle { Layout.fillWidth: true; height: 1; color: Qt.rgba(1, 1, 1, 0.07) }
+        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1, 1, 1, 0.07) }
 
         Rectangle {
             Layout.fillWidth: true

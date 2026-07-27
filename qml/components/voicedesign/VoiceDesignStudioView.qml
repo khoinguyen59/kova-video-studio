@@ -185,7 +185,7 @@ StudioShell {
                 }
             }
 
-            Rectangle { Layout.fillWidth: true; height: 1; color: Qt.rgba(1, 1, 1, 0.07) }
+            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1, 1, 1, 0.07) }
 
             StackLayout {
                 Layout.fillWidth: true
@@ -343,7 +343,7 @@ StudioShell {
                             }
                         }
 
-                        Rectangle { Layout.fillWidth: true; height: 1; color: Theme.surfaceAlt }
+                        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.surfaceAlt }
 
                         Rectangle {
                             Layout.fillWidth: true
@@ -435,7 +435,7 @@ StudioShell {
                             }
                         }
 
-                        Rectangle { Layout.fillWidth: true; height: 1; color: Theme.surfaceAlt }
+                        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.surfaceAlt }
 
                         ScrollView {
                             Layout.fillWidth: true

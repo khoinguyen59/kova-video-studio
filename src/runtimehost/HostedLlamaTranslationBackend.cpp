@@ -6,6 +6,14 @@
 
 namespace LAStudio {
 
+HostedLlamaTranslationBackend::HostedLlamaTranslationBackend()
+{
+    QObject::connect(&m_client, &RuntimeHostClient::hostExited, [this](const QString &) {
+        releaseHostPermit();
+        m_loaded = false;
+    });
+}
+
 HostedLlamaTranslationBackend::~HostedLlamaTranslationBackend()
 {
     unloadModel();
@@ -15,48 +23,64 @@ bool HostedLlamaTranslationBackend::loadModel(const TranslationBackendConfigurat
                                               QString &error)
 {
     unloadModel();
-    const bool gpu = configuration.useGpu
-                     || configuration.runtimePath.contains(QStringLiteral("cuda"), Qt::CaseInsensitive);
+    m_configuration = configuration;
+    m_hasConfiguration = true;
+    return startHost(error);
+}
+
+bool HostedLlamaTranslationBackend::startHost(QString &error)
+{
+    if (!m_hasConfiguration || m_configuration.modelPath.isEmpty()) {
+        error = QStringLiteral("Llama runtime has no saved model configuration.");
+        return false;
+    }
+    releaseHostPermit();
+    const bool gpu = m_configuration.useGpu
+                     || m_configuration.runtimePath.contains(QStringLiteral("cuda"), Qt::CaseInsensitive);
     if (!RuntimeHostManager::instance().acquire(m_runtimeFamily, gpu, &error)) return false;
     m_gpuPermit = gpu;
+    m_permitAcquired = true;
     const QString hostPath = QDir(QCoreApplication::applicationDirPath())
                                  .absoluteFilePath(QStringLiteral("LAStudioRuntimeHost.exe"));
     if (!QFileInfo(hostPath).isFile()) {
         error = QStringLiteral("LAStudioRuntimeHost.exe is missing: %1").arg(hostPath);
-        RuntimeHostManager::instance().release(m_runtimeFamily, m_gpuPermit);
-        m_gpuPermit = false;
+        releaseHostPermit();
         return false;
     }
     if (!m_client.start(hostPath, &error)) {
-        RuntimeHostManager::instance().release(m_runtimeFamily, m_gpuPermit);
-        m_gpuPermit = false;
+        releaseHostPermit();
         return false;
     }
     const QCborMap config{
         {QStringLiteral("adapter"), QStringLiteral("llama")},
-        {QStringLiteral("model"), configuration.modelPath},
-        {QStringLiteral("runtimePath"), configuration.runtimePath},
-        {QStringLiteral("useGpu"), configuration.useGpu},
-        {QStringLiteral("threads"), configuration.threads}
+        {QStringLiteral("model"), m_configuration.modelPath},
+        {QStringLiteral("runtimePath"), m_configuration.runtimePath},
+        {QStringLiteral("useGpu"), m_configuration.useGpu},
+        {QStringLiteral("threads"), m_configuration.threads}
     };
     QCborValue schema;
     if (!m_client.load(config, &schema, &error)) {
         m_client.shutdown();
-        RuntimeHostManager::instance().release(m_runtimeFamily, m_gpuPermit);
-        m_gpuPermit = false;
+        releaseHostPermit();
         return false;
     }
     m_loaded = true;
     return true;
 }
 
+bool HostedLlamaTranslationBackend::ensureHost(QString &error)
+{
+    return m_client.isRunning() || startHost(error);
+}
+
 void HostedLlamaTranslationBackend::unloadModel()
 {
     QString ignored;
     m_client.shutdown(&ignored);
-    RuntimeHostManager::instance().release(m_runtimeFamily, m_gpuPermit);
-    m_gpuPermit = false;
+    releaseHostPermit();
     m_loaded = false;
+    m_hasConfiguration = false;
+    m_configuration = {};
 }
 
 void HostedLlamaTranslationBackend::cancelProcessing()
@@ -69,10 +93,11 @@ bool HostedLlamaTranslationBackend::translate(const TranslationInferenceRequest 
                                               TranslationProgressCallback progress,
                                               QString &error)
 {
-    if (!m_loaded) {
+    if (!m_loaded && !m_hasConfiguration) {
         error = QStringLiteral("Llama runtime is not loaded.");
         return false;
     }
+    if (!ensureHost(error)) return false;
     const QCborMap payload{
         {QStringLiteral("mode"), QStringLiteral("translate")},
         {QStringLiteral("segments"), QCborValue::fromVariant(request.segments)},
@@ -82,10 +107,26 @@ bool HostedLlamaTranslationBackend::translate(const TranslationInferenceRequest 
         {QStringLiteral("maxTokens"), request.maxTokens}
     };
     QCborMap result;
-    if (!m_client.execute(payload, {}, &result, nullptr, nullptr, &error)) return false;
+    m_client.setProgressCallback([&progress](const QCborMap &progressPayload) {
+        if (!progress) return;
+        const qint64 current = progressPayload.value(QStringLiteral("current")).toInteger();
+        const qint64 total = progressPayload.value(QStringLiteral("total")).toInteger();
+        if (total > 0) progress(static_cast<int>(current * 100 / total));
+    });
+    const bool executed = m_client.execute(payload, {}, &result, nullptr, nullptr, &error);
+    m_client.setProgressCallback({});
+    if (!executed) return false;
     patches = result.value(QStringLiteral("patches")).toVariant().toList();
     if (progress) progress(100);
     return true;
+}
+
+void HostedLlamaTranslationBackend::releaseHostPermit()
+{
+    if (!m_permitAcquired) return;
+    RuntimeHostManager::instance().release(m_runtimeFamily, m_gpuPermit);
+    m_permitAcquired = false;
+    m_gpuPermit = false;
 }
 
 } // namespace LAStudio

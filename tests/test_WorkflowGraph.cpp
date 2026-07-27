@@ -286,4 +286,70 @@ void TestWorkflowGraph::appendsOrderedRunJournalEvents()
     QCOMPARE(events.at(1).nodeRunId, QStringLiteral("node-1"));
 }
 
+void TestWorkflowGraph::resumesInterruptedRunFromJournalSnapshot()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    DubbingJobRunner dubbingRunner(nullptr, nullptr);
+    NodeRegistry registry;
+    QVERIFY(registerDubbingWorkflowNodes(registry, &dubbingRunner));
+    WorkflowGraph graph;
+    graph.id = QStringLiteral("recovery.workflow");
+    graph.version = 2;
+    graph.nodes = {
+        {QStringLiteral("input"), QStringLiteral("core.input"), QString(),
+         {{QStringLiteral("value"), QStringLiteral("transcript-v1")}}},
+        {QStringLiteral("review"), QStringLiteral("core.review-gate"), QString(),
+         {{QStringLiteral("mode"), QStringLiteral("always")}, {QStringLiteral("editor"), QStringLiteral("dubbing.transcript")}}}
+    };
+    graph.edges = {{QStringLiteral("input"), QStringLiteral("value"),
+                    QStringLiteral("review"), QStringLiteral("artifact")}};
+
+    WorkflowRunJournal journal(temp.path());
+    WorkflowGraphRunner interrupted(&registry);
+    interrupted.setJournal(&journal);
+    QVERIFY(interrupted.run(graph));
+    QVERIFY(interrupted.waitingForInput());
+    const QString runId = interrupted.runId();
+    QCOMPARE(journal.interruptedRuns().size(), 1);
+
+    WorkflowGraphRunner recovered(&registry);
+    recovered.setJournal(&journal);
+    QSignalSpy reviewSpy(&recovered, &WorkflowGraphRunner::reviewRequested);
+    QSignalSpy completedSpy(&recovered, &WorkflowGraphRunner::completed);
+    QVERIFY(recovered.resumeInterrupted(runId));
+    QVERIFY(recovered.waitingForInput());
+    QCOMPARE(reviewSpy.size(), 1);
+    QVERIFY(recovered.resume({{QStringLiteral("action"), QStringLiteral("approve")}}));
+    QCOMPARE(completedSpy.size(), 1);
+    QCOMPARE(completedSpy.at(0).at(0).toMap().value(QStringLiteral("review.artifact")).toString(),
+             QStringLiteral("transcript-v1"));
+    QVERIFY(journal.interruptedRuns().isEmpty());
+}
+
+void TestWorkflowGraph::recordsCancellationSeparatelyFromFailure()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    DubbingJobRunner dubbingRunner(nullptr, nullptr);
+    NodeRegistry registry;
+    QVERIFY(registerDubbingWorkflowNodes(registry, &dubbingRunner));
+    WorkflowGraph graph;
+    graph.id = QStringLiteral("cancel.workflow");
+    graph.nodes = {{QStringLiteral("review"), QStringLiteral("core.review-gate"), QString(),
+                    {{QStringLiteral("mode"), QStringLiteral("always")}}}};
+    WorkflowRunJournal journal(temp.path());
+    WorkflowGraphRunner runner(&registry);
+    runner.setJournal(&journal);
+    QSignalSpy cancelledSpy(&runner, &WorkflowGraphRunner::cancelled);
+    QSignalSpy failedSpy(&runner, &WorkflowGraphRunner::failed);
+    QVERIFY(runner.run(graph, {{QStringLiteral("review.artifact"), QStringLiteral("draft")}}));
+    const QString runId = runner.runId();
+    runner.cancel();
+    QCOMPARE(cancelledSpy.size(), 1);
+    QCOMPARE(failedSpy.size(), 0);
+    const QList<WorkflowRunEvent> events = journal.read(runId);
+    QCOMPARE(events.constLast().eventType, QStringLiteral("run.cancelled"));
+}
+
 } // namespace LAStudio

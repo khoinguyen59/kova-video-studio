@@ -15,7 +15,9 @@ param(
     [string] $VcpkgRoot,
     [string] $LlamaCppSourceDir,
     [string] $Version,
-    [switch] $SkipInstaller
+    [string] $ReleaseSuffix,
+    [switch] $SkipInstaller,
+    [switch] $AllowUnsignedEspeakForInternalBuild
 )
 
 $ErrorActionPreference = "Stop"
@@ -24,6 +26,7 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $RepoRoot
 
 . (Join-Path $PSScriptRoot "cmake_helpers.ps1")
+. (Join-Path $PSScriptRoot "runtime_helpers.ps1")
 
 # Helper: Test if command exists
 function Test-Command {
@@ -108,6 +111,52 @@ function Normalize-AppVersion {
     }
     if ($Value -notmatch '^\d+\.\d+\.\d+$') {
         throw "Version must use MAJOR.MINOR.PATCH format; got '$Value'."
+    }
+    return $Value
+}
+
+function Resolve-SevenZipExecutable {
+    param([string] $VcpkgRoot)
+
+    $fromPath = Get-Command "7z.exe" -ErrorAction SilentlyContinue
+    if ($null -ne $fromPath) {
+        return $fromPath.Source
+    }
+
+    $candidates = @(
+        (Join-Path $env:ProgramFiles "7-Zip\7z.exe"),
+        (Join-Path ${env:ProgramFiles(x86)} "7-Zip\7z.exe")
+    )
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return $candidate
+        }
+    }
+
+    $toolRoots = @(
+        (Join-Path $VcpkgRoot "downloads\tools"),
+        (Join-Path $RepoRoot ".deps\vcpkg\downloads\tools")
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
+    foreach ($toolRoot in $toolRoots) {
+        if (-not (Test-Path -LiteralPath $toolRoot)) { continue }
+        $candidate = Get-ChildItem -Path $toolRoot -Filter "7z.exe" -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($null -ne $candidate) {
+            return $candidate.FullName
+        }
+    }
+
+    return $null
+}
+
+function Normalize-ReleaseSuffix {
+    param([string] $Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return ""
+    }
+    $Value = $Value.Trim()
+    if ($Value -notmatch '^-(alpha|beta|rc)\.[1-9][0-9]*$') {
+        throw "Release suffix must be empty or -alpha.N, -beta.N, or -rc.N; got '$Value'."
     }
     return $Value
 }
@@ -229,37 +278,210 @@ function Ensure-ArchiveExtractor {
         [string] $VcpkgRoot
     )
     $target = Join-Path $DeployRoot "7z.exe"
-    if (Test-Path -LiteralPath $target) { return }
-
-    $source = $null
-    if (Test-Command "7z.exe") {
-        $source = (Get-Command "7z.exe").Source
-    }
+    $source = Resolve-SevenZipExecutable -VcpkgRoot $VcpkgRoot
 
     if ([string]::IsNullOrWhiteSpace($source)) {
-        $toolRoots = @(
-            (Join-Path $VcpkgRoot "downloads\tools"),
-            (Join-Path $RepoRoot ".deps\vcpkg\downloads\tools")
-        ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
-
-        foreach ($toolRoot in $toolRoots) {
-            if (-not (Test-Path -LiteralPath $toolRoot)) { continue }
-            $candidate = Get-ChildItem -Path $toolRoot -Filter "7z.exe" -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($null -ne $candidate) {
-                $source = $candidate.FullName
-                break
-            }
-        }
-    }
-
-    if ($null -eq $source) {
         throw "7z.exe is required to extract .tar.bz2 runtime packages on Windows. Install 7-Zip or provide the vcpkg tools cache."
     }
 
-    Copy-Item -LiteralPath $source -Destination $target -Force
-    $sevenZipDll = Join-Path (Split-Path -Parent $source) "7z.dll"
-    if (Test-Path -LiteralPath $sevenZipDll) {
-        Copy-Item -LiteralPath $sevenZipDll -Destination (Join-Path $DeployRoot "7z.dll") -Force
+    if (-not (Test-Path -LiteralPath $target)) {
+        Copy-Item -LiteralPath $source -Destination $target -Force
+        $sevenZipDll = Join-Path (Split-Path -Parent $source) "7z.dll"
+        if (Test-Path -LiteralPath $sevenZipDll) {
+            Copy-Item -LiteralPath $sevenZipDll -Destination (Join-Path $DeployRoot "7z.dll") -Force
+        }
+    }
+
+    return $source
+}
+
+function Ensure-Bsdtar {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $RepositoryRoot,
+        [Parameter(Mandatory = $true)]
+        [string] $DeployRoot,
+        [Parameter(Mandatory = $true)]
+        [string] $StageRoot,
+        [Parameter(Mandatory = $true)]
+        [string] $BuildDirectory,
+        [Parameter(Mandatory = $true)]
+        [string] $Triplet
+    )
+
+    $target = Join-Path $DeployRoot "bsdtar.exe"
+    if (Test-Path -LiteralPath $target -PathType Leaf) {
+        return
+    }
+
+    # Build from pinned source. Never redistribute the Windows inbox tar.exe
+    # or a binary resolved from PATH.
+    $version = "3.8.1"
+    $sourceArchive = Join-Path $RepositoryRoot ".deps\libarchive-$version.tar.xz"
+    $sourceSha256 = "19f917d42d530f98815ac824d90c7eaf648e9d9a50e4f309c812457ffa5496b5"
+    $sourceUrl = "https://github.com/libarchive/libarchive/releases/download/v$version/libarchive-$version.tar.xz"
+    $sourceRoot = Join-Path $RepositoryRoot ".deps\libarchive-$version"
+    $sevenZip = Join-Path $DeployRoot "7z.exe"
+    if (-not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) {
+        throw "A staged 7z.exe is required to unpack pinned libarchive source."
+    }
+
+    New-Item -ItemType Directory -Path (Split-Path -Parent $sourceArchive) -Force | Out-Null
+    if (-not (Test-Path -LiteralPath $sourceArchive -PathType Leaf)) {
+        Write-Host ">> Downloading libarchive $version source" -ForegroundColor Cyan
+        Invoke-WebRequest -Uri $sourceUrl -OutFile $sourceArchive -UseBasicParsing
+    }
+    $actualSha256 = (Get-FileHash -LiteralPath $sourceArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actualSha256 -ne $sourceSha256) {
+        throw "libarchive source SHA-256 mismatch. Expected $sourceSha256 but got $actualSha256."
+    }
+
+    if (-not (Test-Path -LiteralPath (Join-Path $sourceRoot "CMakeLists.txt") -PathType Leaf)) {
+        $extractRoot = Join-Path $RepositoryRoot ".deps\libarchive-extract-$version"
+        if (Test-Path -LiteralPath $extractRoot) {
+            Remove-Item -LiteralPath $extractRoot -Recurse -Force
+        }
+        New-Item -ItemType Directory -Path $extractRoot -Force | Out-Null
+        & $sevenZip x -y "-o$extractRoot" $sourceArchive | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw "Failed to decompress libarchive source archive." }
+        $tarArchive = Join-Path $extractRoot "libarchive-$version.tar"
+        if (-not (Test-Path -LiteralPath $tarArchive -PathType Leaf)) {
+            throw "libarchive source decompression did not produce $tarArchive."
+        }
+        & $sevenZip x -y "-o$extractRoot" $tarArchive | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw "Failed to extract libarchive source tarball." }
+        $extractedSource = Join-Path $extractRoot "libarchive-$version"
+        if (-not (Test-Path -LiteralPath (Join-Path $extractedSource "CMakeLists.txt") -PathType Leaf) -or
+            -not (Test-Path -LiteralPath (Join-Path $extractedSource "COPYING") -PathType Leaf)) {
+            throw "Pinned libarchive source tree is incomplete after extraction."
+        }
+        if (Test-Path -LiteralPath $sourceRoot) {
+            Remove-Item -LiteralPath $sourceRoot -Recurse -Force
+        }
+        Move-Item -LiteralPath $extractedSource -Destination $sourceRoot -Force
+        Remove-Item -LiteralPath $extractRoot -Recurse -Force
+    }
+
+    $vcpkgPrefix = Join-Path $BuildDirectory "vcpkg_installed\$Triplet"
+    if (-not (Test-Path -LiteralPath (Join-Path $vcpkgPrefix "include\bzlib.h") -PathType Leaf)) {
+        throw "Pinned bzip2 dependency was not installed at $vcpkgPrefix."
+    }
+    $bsdtarBuildDir = Join-Path $RepositoryRoot "out\build\bsdtar-$Triplet"
+    $prefixPath = $vcpkgPrefix.Replace('\', '/')
+    Write-Host ">> Building pinned bsdtar $version" -ForegroundColor Cyan
+    & cmake -S $sourceRoot -B $bsdtarBuildDir -G Ninja `
+        "-DCMAKE_BUILD_TYPE=Release" `
+        "-DCMAKE_PREFIX_PATH=$prefixPath" `
+        "-DENABLE_TAR=ON" `
+        "-DENABLE_CPIO=OFF" `
+        "-DENABLE_CAT=OFF" `
+        "-DENABLE_TEST=OFF" `
+        "-DENABLE_OPENSSL=OFF" `
+        "-DENABLE_BZip2=ON" `
+        "-DENABLE_ZLIB=ON" `
+        "-DENABLE_LZMA=OFF" `
+        "-DENABLE_ZSTD=OFF"
+    if ($LASTEXITCODE -ne 0) { throw "Failed to configure pinned bsdtar source." }
+    & cmake --build $bsdtarBuildDir --target bsdtar --parallel
+    if ($LASTEXITCODE -ne 0) { throw "Failed to build pinned bsdtar source." }
+
+    $builtBsdtar = Get-ChildItem -Path $bsdtarBuildDir -Filter "bsdtar.exe" -Recurse -File |
+        Select-Object -First 1
+    if ($null -eq $builtBsdtar) {
+        throw "Pinned libarchive build did not produce bsdtar.exe."
+    }
+    Copy-Item -LiteralPath $builtBsdtar.FullName -Destination $target -Force
+    $archiveDll = Get-ChildItem -Path $bsdtarBuildDir -Filter "archive.dll" -Recurse -File |
+        Select-Object -First 1
+    if ($null -ne $archiveDll) {
+        Copy-Item -LiteralPath $archiveDll.FullName -Destination (Join-Path $DeployRoot "archive.dll") -Force
+    }
+    $versionOutput = (& $target --version 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $versionOutput -notmatch "^bsdtar $([regex]::Escape($version))") {
+        throw "Staged bsdtar failed version verification: $versionOutput"
+    }
+
+    $licenseDir = Join-Path $StageRoot "licenses\libarchive"
+    New-Item -ItemType Directory -Path $licenseDir -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $sourceRoot "COPYING") -Destination (Join-Path $licenseDir "LICENSE") -Force
+    Write-Host ">> Staged pinned bsdtar $version" -ForegroundColor Green
+}
+
+function Stage-ThirdPartyLicenseTexts {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $RepositoryRoot,
+        [Parameter(Mandatory = $true)]
+        [string] $StageRoot,
+        [Parameter(Mandatory = $true)]
+        [string] $BuildDirectory,
+        [Parameter(Mandatory = $true)]
+        [string] $Triplet,
+        [Parameter(Mandatory = $true)]
+        [string] $QtRoot,
+        [Parameter(Mandatory = $true)]
+        [string] $SevenZipSource
+    )
+
+    $licensesRoot = Join-Path $StageRoot "licenses"
+    New-Item -ItemType Directory -Path $licensesRoot -Force | Out-Null
+
+    $vcpkgPrefix = Join-Path $BuildDirectory "vcpkg_installed\$Triplet"
+    $vcpkgLicenses = @(
+        @{ Name = "curl"; Source = Join-Path $vcpkgPrefix "share\curl\copyright" },
+        @{ Name = "zlib"; Source = Join-Path $vcpkgPrefix "share\zlib\copyright" },
+        @{ Name = "bzip2"; Source = Join-Path $vcpkgPrefix "share\bzip2\copyright" }
+    )
+    foreach ($entry in $vcpkgLicenses) {
+        if (-not (Test-Path -LiteralPath $entry.Source -PathType Leaf)) {
+            throw "Pinned vcpkg license text was not found: $($entry.Source)"
+        }
+        $destination = Join-Path (Join-Path $licensesRoot $entry.Name) "LICENSE"
+        New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
+        Copy-Item -LiteralPath $entry.Source -Destination $destination -Force
+    }
+
+    $qtLicenseRoots = @(
+        (Join-Path $QtRoot "LICENSES"),
+        (Join-Path $QtRoot "msvc2022_64\LICENSES")
+    ) | Where-Object { Test-Path -LiteralPath $_ -PathType Container } | Select-Object -Unique
+    $qtLicenseTarget = Join-Path $licensesRoot "qt"
+    New-Item -ItemType Directory -Path $qtLicenseTarget -Force | Out-Null
+    foreach ($qtLicenseRoot in $qtLicenseRoots) {
+        Get-ChildItem -LiteralPath $qtLicenseRoot -Force | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination $qtLicenseTarget -Recurse -Force
+        }
+    }
+
+    $sevenZipLicense = Join-Path (Split-Path -Parent $SevenZipSource) "License.txt"
+    if ([string]::IsNullOrWhiteSpace($sevenZipLicense) -or -not (Test-Path -LiteralPath $sevenZipLicense -PathType Leaf)) {
+        throw "7-Zip License.txt was not found beside the configured 7z.exe."
+    }
+    $sevenZipTarget = Join-Path (Join-Path $licensesRoot "7-Zip") "License.txt"
+    New-Item -ItemType Directory -Path (Split-Path -Parent $sevenZipTarget) -Force | Out-Null
+    Copy-Item -LiteralPath $sevenZipLicense -Destination $sevenZipTarget -Force
+
+    $gnuLicenses = @(
+        @{ File = "GPL-3.0.txt"; Url = "https://www.gnu.org/licenses/gpl-3.0.txt"; Sha256 = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986" },
+        @{ File = "LGPL-3.0.txt"; Url = "https://www.gnu.org/licenses/lgpl-3.0.txt"; Sha256 = "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118" }
+    )
+    $licenseCache = Join-Path $RepositoryRoot ".deps\licenses"
+    New-Item -ItemType Directory -Path $licenseCache -Force | Out-Null
+    foreach ($entry in $gnuLicenses) {
+        $cachedPath = Join-Path $licenseCache $entry.File
+        if (-not (Test-Path -LiteralPath $cachedPath -PathType Leaf)) {
+            Invoke-WebRequest -Uri $entry.Url -OutFile $cachedPath -UseBasicParsing
+        }
+        $actualHash = (Get-FileHash -LiteralPath $cachedPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualHash -ne $entry.Sha256) {
+            throw "Canonical license hash mismatch for $($entry.File). Expected $($entry.Sha256) but got $actualHash."
+        }
+        Copy-Item -LiteralPath $cachedPath -Destination (Join-Path $licensesRoot $entry.File) -Force
+    }
+
+    if ($qtLicenseRoots.Count -eq 0) {
+        Copy-Item -LiteralPath (Join-Path $licensesRoot "LGPL-3.0.txt") -Destination (Join-Path $qtLicenseTarget "LGPL-3.0.txt") -Force
+        Write-Warning "Qt installation did not include a LICENSES directory; staged the canonical LGPL-3.0 text for the deployed Qt runtime."
     }
 }
 
@@ -313,6 +535,7 @@ $QtRoot = Resolve-QtRoot -Candidate $QtRoot
 $VcpkgRoot = Resolve-VcpkgRoot -Candidate $VcpkgRoot
 $LlamaCppSourceDir = Resolve-LlamaCppSourceDir -Candidate $LlamaCppSourceDir
 $Version = Normalize-AppVersion -Value $Version
+$ReleaseSuffix = Normalize-ReleaseSuffix -Value $ReleaseSuffix
 $kitName = if ($Preset -like "*mingw*") { "mingw_64" } else { "msvc2022_64" }
 
 if ([string]::IsNullOrWhiteSpace($QtRoot)) {
@@ -324,6 +547,8 @@ if ([string]::IsNullOrWhiteSpace($VcpkgRoot)) {
 if ([string]::IsNullOrWhiteSpace($LlamaCppSourceDir)) {
     throw "llama.cpp b10036 headers not found. Pass -LlamaCppSourceDir, set LLAMA_CPP_SOURCE_DIR, or check out llama.cpp at '.deps\llama.cpp'."
 }
+
+& (Join-Path $PSScriptRoot "verify_runtime_abi.ps1")
 
 $qtPrefixPath = Join-Path $QtRoot $kitName
 $windeployqt = Join-Path $qtPrefixPath "bin\windeployqt.exe"
@@ -360,6 +585,8 @@ if ($Preset -like "*mingw*") {
 }
 $cmakeArgs += "-DVCPKG_TARGET_TRIPLET=$vcpkgTriplet"
 $cmakeArgs += "-DLASTUDIO_VERSION=$Version"
+$cmakeArgs += "-DLASTUDIO_RELEASE_SUFFIX=$ReleaseSuffix"
+$cmakeArgs += "-DBUILD_TESTING=OFF"
 
 $env:VCPKG_ROOT = $VcpkgRoot
 & cmake @cmakeArgs
@@ -385,7 +612,17 @@ if ($LASTEXITCODE -ne 0) { throw "windeployqt failed." }
 Ensure-WebpImageFormatPlugin -QtPrefixPath $qtPrefixPath -DeployRoot (Split-Path -Parent $stagedExe)
 Write-Host ">> Deploying vcpkg runtime DLLs..." -ForegroundColor Cyan
 Copy-VcpkgRuntimeLibraries -BuildDirectory $buildDir -Triplet $vcpkgTriplet -DeployDirectory (Split-Path -Parent $stagedExe)
-Ensure-ArchiveExtractor -DeployRoot (Split-Path -Parent $stagedExe) -VcpkgRoot $VcpkgRoot
+$sevenZipSource = Ensure-ArchiveExtractor -DeployRoot (Split-Path -Parent $stagedExe) -VcpkgRoot $VcpkgRoot
+Ensure-Bsdtar -RepositoryRoot $RepoRoot -DeployRoot (Split-Path -Parent $stagedExe) -StageRoot $stageDir -BuildDirectory $buildDir -Triplet $vcpkgTriplet
+Stage-ThirdPartyLicenseTexts -RepositoryRoot $RepoRoot -StageRoot $stageDir -BuildDirectory $buildDir -Triplet $vcpkgTriplet -QtRoot $QtRoot -SevenZipSource $sevenZipSource
+if ($AllowUnsignedEspeakForInternalBuild) {
+    Write-Warning "INTERNAL BUILD ONLY: permitting the SHA-256-verified but unsigned eSpeak NG MSI. Do not distribute this package or promote it to a release."
+}
+
+Ensure-EspeakNgRuntime -RepositoryRoot $RepoRoot -DeployRoot (Split-Path -Parent $stagedExe) -AllowUnsignedEspeakForInternalBuild:$AllowUnsignedEspeakForInternalBuild
+Assert-StagedMsvcRuntime -DeployRoot (Split-Path -Parent $stagedExe)
+Assert-StagedRuntimeManifest -DeployRoot (Split-Path -Parent $stagedExe)
+Assert-StagedLicenseManifest -StageRoot $stageDir
 
 # 5. Build installer using Inno Setup
 if ($SkipInstaller) {

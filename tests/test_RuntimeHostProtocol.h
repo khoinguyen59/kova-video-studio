@@ -12,6 +12,7 @@ private slots:
     void rejectsProtocolMismatchAndOversizedPayload();
     void roundTripsCborMap();
     void roundTripsSharedAudioBuffer();
+    void rejectsSharedAudioDescriptorLargerThanMapping();
     void startsAndPingsHostProcess();
     void limitsGpuHostAdmission();
 };

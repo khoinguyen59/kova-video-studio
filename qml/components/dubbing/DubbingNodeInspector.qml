@@ -119,7 +119,7 @@ Rectangle {
             }
         }
 
-        Rectangle { Layout.fillWidth: true; height: 1; color: Theme.surfaceAlt }
+        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.surfaceAlt }
 
         ScrollView {
             Layout.fillWidth: true
@@ -142,7 +142,7 @@ Rectangle {
                         family: null
                         labelText: qsTr("Source language")
                         language: root.dubbing.sourceLanguage
-                        onLanguageChanged: root.dubbing.sourceLanguage = language
+                        onLanguageSelected: function(language) { root.dubbing.sourceLanguage = language }
                     }
 
                     LanguageSelector {
@@ -155,7 +155,7 @@ Rectangle {
                                            ? root.dynamicSettings["lang"]
                                            : (root.nodeId === "synthesize"
                                               ? root.dubbing.targetLanguage : "auto"))
-                        onLanguageChanged: {
+                        onLanguageSelected: function(language) {
                             if (root.nodeId === "translate")
                                 root.dubbing.targetLanguage = language
                             else

@@ -4,6 +4,7 @@
 #include <QString>
 #include <QFileInfo>
 #include <QDir>
+#include "runtimes/WindowsDllSearch.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -71,19 +72,10 @@ public:
             m_lib.unload();
         }
 
-        QFileInfo fi(libPath);
-        QString dir = QDir::toNativeSeparators(fi.absolutePath());
-
-#ifdef Q_OS_WIN
-        SetDllDirectoryW((LPCWSTR)dir.utf16());
-#endif
+        ScopedTrustedDllDirectories trustedDirectories({QFileInfo(libPath).absolutePath()});
 
         m_lib.setFileName(libPath);
         bool ok = m_lib.load();
-
-#ifdef Q_OS_WIN
-        SetDllDirectoryW(NULL);
-#endif
 
         if (!ok) return false;
 

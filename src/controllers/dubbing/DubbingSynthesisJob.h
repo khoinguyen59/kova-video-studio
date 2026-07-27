@@ -1,10 +1,13 @@
 #pragma once
 
 #include <QObject>
+#include <QAtomicInteger>
 #include <QByteArray>
 #include <QVariantList>
 #include <QVariantMap>
 #include <QVector>
+
+#include <memory>
 
 #include "dubbing/DubbingVoiceReferenceSelector.h"
 
@@ -59,6 +62,8 @@ private:
     int m_chunkIndex = -1;
     QVector<float> m_chunkSamples;
     int m_chunkSampleRate = 0;
+    std::shared_ptr<QAtomicInteger<bool>> m_timingCancelled;
+    quint64 m_timingRequestId = 0;
 };
 
 } // namespace LAStudio

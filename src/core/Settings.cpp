@@ -1,18 +1,25 @@
 #include "Settings.h"
 #include "PathUtils.h"
 #include "Logger.h"
+#include "SecureCredentialStore.h"
 
 #include <QDir>
+#include <QDateTime>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSet>
+#include <QTimer>
+#include <QStorageInfo>
+#include <QStandardPaths>
 
 namespace LAStudio {
 
 namespace {
+
+constexpr int kSettingsSchemaVersion = 1;
 
 QString settingsFilePath()
 {
@@ -22,6 +29,39 @@ QString settingsFilePath()
 QString settingsIniPath()
 {
     return PathUtils::dataDir() + QStringLiteral("/settings.ini");
+}
+
+QString preparedSettingsIniPath()
+{
+    const QString path = settingsIniPath();
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    if (!QFileInfo::exists(path)) {
+        return path;
+    }
+
+    // Probe in a short-lived QSettings instance before the live instance is
+    // created.  This lets us preserve a malformed INI as evidence instead of
+    // allowing a later write to overwrite it.
+    bool readable = false;
+    {
+        QSettings probe(path, QSettings::IniFormat);
+        probe.allKeys();
+        readable = probe.status() == QSettings::NoError;
+    }
+    if (readable) {
+        return path;
+    }
+
+    const QString backup = path + QStringLiteral(".corrupt-")
+        + QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMddTHHmmsszzzZ"));
+    if (QFile::rename(path, backup)) {
+        Logger::warning(QStringLiteral("Settings"),
+                        QStringLiteral("Quarantined malformed settings file at %1").arg(backup));
+    } else {
+        Logger::error(QStringLiteral("Settings"),
+                      QStringLiteral("Settings file is malformed and could not be quarantined: %1").arg(path));
+    }
+    return path;
 }
 
 bool hasModelFiles(const QString &path)
@@ -91,7 +131,15 @@ void writeStableModelsPath(const QString &path)
     }
 }
 
-QString discoverExistingModelsPath(const QString &qSettingsPath)
+QString configuredModelsPath(const QString &qSettingsPath)
+{
+    const QString stablePath = readStableModelsPath();
+    if (!stablePath.isEmpty()) return QDir(stablePath).absolutePath();
+    if (!qSettingsPath.isEmpty()) return QDir(qSettingsPath).absolutePath();
+    return QDir(PathUtils::modelsDir()).absolutePath();
+}
+
+QString discoverExistingModelsPath(const QString &qSettingsPath, bool includeMountedVolumes)
 {
     QStringList candidates;
     const QString stablePath = readStableModelsPath();
@@ -100,10 +148,14 @@ QString discoverExistingModelsPath(const QString &qSettingsPath)
     candidates.append(QDir(PathUtils::modelsDir()).absolutePath());
 
 #ifdef Q_OS_WIN
-    const QFileInfoList drives = QDir::drives();
-    for (const QFileInfo &drive : drives) {
-        candidates.append(QDir(drive.absoluteFilePath()).absoluteFilePath(QStringLiteral("models")));
+    if (includeMountedVolumes) {
+        const QFileInfoList drives = QDir::drives();
+        for (const QFileInfo &drive : drives) {
+            candidates.append(QDir(drive.absoluteFilePath()).absoluteFilePath(QStringLiteral("models")));
+        }
     }
+#else
+    Q_UNUSED(includeMountedVolumes);
 #endif
 
     QSet<QString> seen;
@@ -123,19 +175,56 @@ QString discoverExistingModelsPath(const QString &qSettingsPath)
 
 Settings::Settings(QObject *parent)
     : QObject(parent)
-    , m_settings(settingsIniPath(), QSettings::IniFormat)
+    , m_settings(preparedSettingsIniPath(), QSettings::IniFormat)
 {
+    // Reading all keys forces QSettings to detect parse errors before any
+    // value is read or changed.  A future schema is deliberately left intact
+    // rather than being silently downgraded by an older application.
+    m_settings.allKeys();
+    if (m_settings.status() != QSettings::NoError) {
+        Logger::error(QStringLiteral("Settings"),
+                      QStringLiteral("Settings could not be read: %1").arg(m_settings.fileName()));
+    } else {
+        const int storedVersion = m_settings.value(QStringLiteral("meta/schemaVersion"), 0).toInt();
+        if (storedVersion > kSettingsSchemaVersion) {
+            Logger::error(QStringLiteral("Settings"),
+                          QStringLiteral("Settings schema version %1 is newer than this application supports (%2)")
+                              .arg(storedVersion).arg(kSettingsSchemaVersion));
+        } else if (storedVersion < kSettingsSchemaVersion) {
+            m_settings.setValue(QStringLiteral("meta/schemaVersion"), kSettingsSchemaVersion);
+            m_settings.sync();
+            if (m_settings.status() != QSettings::NoError) {
+                Logger::error(QStringLiteral("Settings"),
+                              QStringLiteral("Could not record settings schema version in %1")
+                                  .arg(m_settings.fileName()));
+            }
+        }
+    }
+
     // Initialize cached values from QSettings
     m_device = m_settings.value(QStringLiteral("engine/device"), QStringLiteral("cpu")).toString();
     m_threads = m_settings.value(QStringLiteral("engine/threads"), 4).toInt();
     m_language = m_settings.value(QStringLiteral("engine/language"), QStringLiteral("en")).toString();
     m_uiLanguage = m_settings.value(QStringLiteral("ui/language"), QStringLiteral("en")).toString();
+    m_onboardingComplete = m_settings.value(QStringLiteral("ui/onboardingComplete"), false).toBool();
     const QString qSettingsModelsPath = m_settings.value(QStringLiteral("storage/modelsPath"), PathUtils::modelsDir()).toString();
-    m_modelsPath = discoverExistingModelsPath(qSettingsModelsPath);
+    // Do not recursively probe every mounted volume while the application is
+    // being constructed.  In particular, disconnected network drives can
+    // block first paint for a long time. Keep the configured path initially
+    // and perform legacy-volume discovery after the UI is responsive.
+    m_modelsPath = configuredModelsPath(qSettingsModelsPath);
     m_settings.setValue(QStringLiteral("storage/modelsPath"), m_modelsPath);
     m_settings.sync();
     writeStableModelsPath(m_modelsPath);
     Logger::info(QStringLiteral("Settings"), QStringLiteral("Models path: %1").arg(m_modelsPath));
+    QTimer::singleShot(5000, this, [this, qSettingsModelsPath]() {
+        const QString discovered = discoverExistingModelsPath(qSettingsModelsPath, true);
+        if (discovered != m_modelsPath && hasModelFiles(discovered)) {
+            Logger::info(QStringLiteral("Settings"),
+                         QStringLiteral("Discovered existing models after startup at: %1").arg(discovered));
+            setModelsPath(discovered);
+        }
+    });
     m_selectedRuntime = m_settings.value(QStringLiteral("engine/selectedRuntime"), QString()).toString();
     m_selectedTtsRuntime = m_settings.value(QStringLiteral("engine/selectedTtsRuntime"), QString()).toString();
     m_selectedTtsRuntimeVersion = m_settings.value(QStringLiteral("engine/selectedTtsRuntimeVersion"), QString()).toString();
@@ -154,7 +243,21 @@ Settings::Settings(QObject *parent)
     m_apiServerEnabled = m_settings.value(QStringLiteral("api/serverEnabled"), false).toBool();
     m_apiServerAllowLan = m_settings.value(QStringLiteral("api/serverAllowLan"), false).toBool();
     m_apiServerPort = m_settings.value(QStringLiteral("api/serverPort"), 3900).toInt();
-    m_apiServerApiKey = m_settings.value(QStringLiteral("api/serverApiKey"), QString()).toString();
+    QString credentialError;
+    m_apiServerApiKey = SecureCredentialStore::migrateLegacy(
+        m_settings, QStringLiteral("api-server"), QStringLiteral("api/serverApiKey"), &credentialError);
+    if (!credentialError.isEmpty()) {
+        Logger::error(QStringLiteral("Settings"), QStringLiteral("API credential migration failed: %1").arg(credentialError));
+    }
+    // Network activity must be an explicit choice. Existing installs without
+    // this key therefore default to no automatic update request.
+    m_automaticUpdateChecks = m_settings.value(QStringLiteral("updates/automaticChecks"), false).toBool();
+    m_updateCheckConsentAsked = m_settings.value(QStringLiteral("updates/consentAsked"), false).toBool();
+    m_windowX = m_settings.value(QStringLiteral("window/x"), m_windowX).toInt();
+    m_windowY = m_settings.value(QStringLiteral("window/y"), m_windowY).toInt();
+    m_windowWidth = qMax(960, m_settings.value(QStringLiteral("window/width"), m_windowWidth).toInt());
+    m_windowHeight = qMax(600, m_settings.value(QStringLiteral("window/height"), m_windowHeight).toInt());
+    m_windowMaximized = m_settings.value(QStringLiteral("window/maximized"), m_windowMaximized).toBool();
 }
 
 
@@ -517,10 +620,100 @@ void Settings::setApiServerApiKey(const QString &v)
     const QString normalized = v.trimmed();
     if (m_apiServerApiKey != normalized) {
         m_apiServerApiKey = normalized;
-        m_settings.setValue(QStringLiteral("api/serverApiKey"), normalized);
+        QString credentialError;
+        if (!SecureCredentialStore::write(m_settings, QStringLiteral("api-server"), normalized, &credentialError)) {
+            Logger::error(QStringLiteral("Settings"), QStringLiteral("API credential was not persisted: %1").arg(credentialError));
+        }
+        m_settings.remove(QStringLiteral("api/serverApiKey"));
         m_settings.sync();
         emit apiServerApiKeyChanged();
     }
+}
+
+bool Settings::automaticUpdateChecks() const
+{
+    return m_automaticUpdateChecks;
+}
+
+void Settings::setAutomaticUpdateChecks(bool v)
+{
+    if (m_automaticUpdateChecks != v) {
+        m_automaticUpdateChecks = v;
+        m_settings.setValue(QStringLiteral("updates/automaticChecks"), v);
+        m_settings.sync();
+        emit automaticUpdateChecksChanged();
+    }
+}
+
+bool Settings::updateCheckConsentAsked() const
+{
+    return m_updateCheckConsentAsked;
+}
+
+void Settings::setUpdateCheckConsentAsked(bool v)
+{
+    if (m_updateCheckConsentAsked != v) {
+        m_updateCheckConsentAsked = v;
+        m_settings.setValue(QStringLiteral("updates/consentAsked"), v);
+        m_settings.sync();
+        emit updateCheckConsentAskedChanged();
+    }
+}
+
+void Settings::setOnboardingComplete(bool v)
+{
+    if (m_onboardingComplete == v) return;
+    m_onboardingComplete = v;
+    m_settings.setValue(QStringLiteral("ui/onboardingComplete"), v);
+    m_settings.sync();
+    emit onboardingCompleteChanged();
+}
+
+void Settings::saveWindowPlacement(int x, int y, int width, int height, bool maximized)
+{
+    const int normalizedWidth = qMax(960, width);
+    const int normalizedHeight = qMax(600, height);
+    if (m_windowX == x && m_windowY == y && m_windowWidth == normalizedWidth
+        && m_windowHeight == normalizedHeight && m_windowMaximized == maximized) {
+        return;
+    }
+    m_windowX = x;
+    m_windowY = y;
+    m_windowWidth = normalizedWidth;
+    m_windowHeight = normalizedHeight;
+    m_windowMaximized = maximized;
+    m_settings.setValue(QStringLiteral("window/x"), m_windowX);
+    m_settings.setValue(QStringLiteral("window/y"), m_windowY);
+    m_settings.setValue(QStringLiteral("window/width"), m_windowWidth);
+    m_settings.setValue(QStringLiteral("window/height"), m_windowHeight);
+    m_settings.setValue(QStringLiteral("window/maximized"), m_windowMaximized);
+    m_settings.sync();
+    emit windowPlacementChanged();
+}
+
+qint64 Settings::modelsPathAvailableBytes() const
+{
+    const QStorageInfo storage(m_modelsPath);
+    return storage.isValid() && storage.isReady() ? storage.bytesAvailable() : -1;
+}
+
+bool Settings::externalMediaToolsAvailable() const
+{
+    const QString configuredFfmpeg = qEnvironmentVariable("LASTUDIO_FFMPEG");
+    const QString ffmpeg = !configuredFfmpeg.isEmpty() && QFileInfo(configuredFfmpeg).isFile()
+        ? configuredFfmpeg : QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
+    if (ffmpeg.isEmpty()) return false;
+    const QString configuredFfprobe = qEnvironmentVariable("LASTUDIO_FFPROBE");
+    if (!configuredFfprobe.isEmpty() && QFileInfo(configuredFfprobe).isFile()) return true;
+    const QFileInfo ffmpegInfo(ffmpeg);
+    const QString sibling = QDir(ffmpegInfo.absolutePath()).filePath(
+        QStringLiteral("ffprobe")
+#ifdef Q_OS_WIN
+        + QStringLiteral(".exe")
+#endif
+    );
+    return QFileInfo(sibling).isFile()
+        || !QStandardPaths::findExecutable(QStringLiteral("ffprobe")).isEmpty();
 }
 
 } // namespace LAStudio

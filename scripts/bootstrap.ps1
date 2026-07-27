@@ -16,7 +16,8 @@ param(
     [string] $Version,
     [switch] $AllowMingwFallback,
     [switch] $Clean,
-    [switch] $SkipDeploy
+    [switch] $SkipDeploy,
+    [switch] $AllowUnsignedEspeakForInternalBuild
 )
 
 $ErrorActionPreference = "Stop"
@@ -123,6 +124,63 @@ function Resolve-VcpkgRoot {
     return $null
 }
 
+function Ensure-ManagedVcpkg {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $Root
+    )
+
+    $baseline = "9a023fa7d4c8c9ed3fa5b1be466e605b10b9d220"
+    $toolchain = Join-Path $Root "scripts\buildsystems\vcpkg.cmake"
+    if (-not (Test-Path -LiteralPath $toolchain)) {
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Root) | Out-Null
+        Write-Host ">> Cloning vcpkg at pinned baseline $baseline" -ForegroundColor Cyan
+        git clone https://github.com/microsoft/vcpkg.git $Root
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
+
+    Write-Host ">> Checking out vcpkg baseline $baseline" -ForegroundColor Cyan
+    git -C $Root fetch --depth 1 origin $baseline
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    git -C $Root checkout --detach $baseline
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+    $vcpkgExe = Join-Path $Root "vcpkg.exe"
+    if (-not (Test-Path -LiteralPath $vcpkgExe)) {
+        Write-Host ">> Bootstrapping vcpkg" -ForegroundColor Cyan
+        & (Join-Path $Root "bootstrap-vcpkg.bat")
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
+}
+
+function Ensure-LlamaCppHeaders {
+    $runtimeAbiPath = Join-Path $RepoRoot "cmake\RuntimeAbi.cmake"
+    $runtimeAbi = Get-Content -LiteralPath $runtimeAbiPath -Raw
+    $revisionMatch = [regex]::Match($runtimeAbi, 'set\(LASTUDIO_LLAMA_CPP_REF\s+"([^"]+)"\)')
+    if (-not $revisionMatch.Success) {
+        throw "Could not read LASTUDIO_LLAMA_CPP_REF from '$runtimeAbiPath'."
+    }
+    $revision = $revisionMatch.Groups[1].Value
+    $root = Join-Path $RepoRoot ".deps\llama.cpp"
+    $llamaHeader = Join-Path $root "include\llama.h"
+    $ggmlHeader = Join-Path $root "ggml\include\ggml.h"
+
+    if (-not ((Test-Path -LiteralPath $llamaHeader) -and (Test-Path -LiteralPath $ggmlHeader))) {
+        if (Test-Path -LiteralPath $root) {
+            Remove-Item -LiteralPath $root -Recurse -Force
+        }
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $root) | Out-Null
+        Write-Host ">> Cloning llama.cpp headers at $revision" -ForegroundColor Cyan
+        git clone --depth 1 --branch $revision https://github.com/ggml-org/llama.cpp.git $root
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
+
+    if (-not ((Test-Path -LiteralPath $llamaHeader) -and (Test-Path -LiteralPath $ggmlHeader))) {
+        throw "llama.cpp checkout at '$root' does not contain the required b10036 public headers."
+    }
+    return $root
+}
+
 Ensure-Command -Name "git" -FallbackPaths @(
     "C:\Program Files\Git\cmd",
     "C:\Program Files\Git\bin"
@@ -160,15 +218,7 @@ $localVcpkg = Join-Path $RepoRoot ".deps\vcpkg"
 $useManagedLocalVcpkg = [string]::IsNullOrWhiteSpace($VcpkgRoot)
 
 if ($useManagedLocalVcpkg) {
-    if (-not (Test-Path (Join-Path $localVcpkg "scripts\buildsystems\vcpkg.cmake"))) {
-        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $localVcpkg) | Out-Null
-        Write-Host ">> Cloning vcpkg to $localVcpkg" -ForegroundColor Cyan
-        git clone https://github.com/microsoft/vcpkg.git $localVcpkg
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-        Write-Host ">> Bootstrapping vcpkg" -ForegroundColor Cyan
-        & (Join-Path $localVcpkg "bootstrap-vcpkg.bat")
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    }
+    Ensure-ManagedVcpkg -Root $localVcpkg
     $resolvedVcpkgRoot = $localVcpkg
 } else {
     $resolvedVcpkgRoot = Resolve-VcpkgRoot -Candidate $VcpkgRoot
@@ -178,14 +228,16 @@ if ([string]::IsNullOrWhiteSpace($resolvedVcpkgRoot)) {
     throw "vcpkg root was not detected. Pass -VcpkgRoot <path-to-vcpkg>."
 }
 
+$llamaCppSourceDir = Ensure-LlamaCppHeaders
+
 Write-Host ">> Qt root: $resolvedQtRoot" -ForegroundColor DarkGray
 Write-Host ">> vcpkg root: $resolvedVcpkgRoot" -ForegroundColor DarkGray
 Write-Host ">> Preset: $effectivePreset" -ForegroundColor DarkGray
 
 $buildScript = Join-Path $PSScriptRoot "build.ps1"
 if ($Clean) {
-    & $buildScript -Preset $effectivePreset -QtRoot $resolvedQtRoot -VcpkgRoot $resolvedVcpkgRoot -Version $Version -Clean -SkipDeploy:$SkipDeploy
+    & $buildScript -Preset $effectivePreset -QtRoot $resolvedQtRoot -VcpkgRoot $resolvedVcpkgRoot -LlamaCppSourceDir $llamaCppSourceDir -Version $Version -Clean -SkipDeploy:$SkipDeploy -AllowUnsignedEspeakForInternalBuild:$AllowUnsignedEspeakForInternalBuild
 } else {
-    & $buildScript -Preset $effectivePreset -QtRoot $resolvedQtRoot -VcpkgRoot $resolvedVcpkgRoot -Version $Version -SkipDeploy:$SkipDeploy
+    & $buildScript -Preset $effectivePreset -QtRoot $resolvedQtRoot -VcpkgRoot $resolvedVcpkgRoot -LlamaCppSourceDir $llamaCppSourceDir -Version $Version -SkipDeploy:$SkipDeploy -AllowUnsignedEspeakForInternalBuild:$AllowUnsignedEspeakForInternalBuild
 }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

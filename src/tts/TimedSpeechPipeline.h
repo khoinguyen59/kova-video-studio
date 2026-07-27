@@ -8,6 +8,7 @@
 #include <QVector>
 
 #include <memory>
+#include <atomic>
 
 class QTemporaryDir;
 
@@ -56,7 +57,9 @@ private:
     QVector<QString> m_naturalPaths;
     QVector<qint64> m_naturalDurationsMs;
     QVector<SubtitleFit> m_initialFits;
-    std::unique_ptr<QTemporaryDir> m_jobDirectory;
+    std::shared_ptr<QTemporaryDir> m_jobDirectory;
+    std::shared_ptr<std::atomic_bool> m_fitCancelled;
+    quint64 m_fitRequestId = 0;
 };
 
 } // namespace LAStudio

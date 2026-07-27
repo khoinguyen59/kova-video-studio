@@ -199,8 +199,8 @@ Popup {
                                 spacing: Theme.paddingMedium
 
                                 Rectangle {
-                                    width: 32
-                                    height: 32
+                                    Layout.preferredWidth: 32
+                                    Layout.preferredHeight: 32
                                     radius: 6
                                     color: Theme.surfaceAlt
                                     border.color: Qt.rgba(1, 1, 1, 0.04)
@@ -243,7 +243,7 @@ Popup {
 
                                     Rectangle {
                                         Layout.fillWidth: true
-                                        height: 4
+                                        Layout.preferredHeight: 4
                                         radius: 2
                                         color: Theme.background
 
@@ -316,8 +316,8 @@ Popup {
                                 spacing: Theme.paddingMedium
 
                                 Rectangle {
-                                    width: 32
-                                    height: 32
+                                    Layout.preferredWidth: 32
+                                    Layout.preferredHeight: 32
                                     radius: 6
                                     color: Theme.surfaceAlt
                                     border.color: Qt.rgba(1, 1, 1, 0.04)
@@ -451,8 +451,8 @@ Popup {
                     name: "download"
                     color: Theme.textSecondary
                     Layout.alignment: Qt.AlignHCenter
-                    width: 28
-                    height: 28
+                    Layout.preferredWidth: 28
+                    Layout.preferredHeight: 28
                     opacity: 0.5
                 }
 
@@ -468,7 +468,7 @@ Popup {
         // Separator
         Rectangle {
             Layout.fillWidth: true
-            height: 1
+            Layout.preferredHeight: 1
             color: Theme.surfaceAlt
         }
 
@@ -506,8 +506,8 @@ Popup {
                         LineIcon {
                             name: "external-link"
                             color: openFolderLink.hovered ? Theme.accentLight : Theme.textSecondary
-                            width: 12
-                            height: 12
+                            Layout.preferredWidth: 12
+                            Layout.preferredHeight: 12
                         }
                     }
                     background: Item {}

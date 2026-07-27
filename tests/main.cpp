@@ -1,4 +1,5 @@
 #include <QCoreApplication>
+#include <QTemporaryDir>
 #include <QtTest>
 #include <iostream>
 
@@ -17,22 +18,38 @@
 #include "test_WorkflowGraph.h"
 #include "test_SourceSeparation.h"
 #include "test_RuntimeHostProtocol.h"
+#include "test_MediaIngestService.h"
+#include "test_MediaToolService.h"
+#include "test_HardwareManager.h"
 #include "test_SubtitleVoice.h"
 #include "test_TtsTextPreprocessor.h"
+#include "test_TtsRequestValidator.h"
+#include "test_LlmChatEngine.h"
 
 #include <QFile>
 #include <QTextStream>
 
 int main(int argc, char *argv[])
 {
+    QTemporaryDir testDataDir;
+    if (!testDataDir.isValid()) {
+        std::cerr << "Failed to create an isolated LA Studio test-data directory.\n";
+        return 1;
+    }
+    qputenv("LASTUDIO_DATA_DIR", testDataDir.path().toUtf8());
+
     // Ensure that application info is available for tests that use Settings/PathUtils
     QCoreApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("LAStudioUnitTests"));
     app.setOrganizationName(QStringLiteral("LAStudio"));
 
     int status = 0;
+    const QString requestedSuite = qEnvironmentVariable("LASTUDIO_TEST_SUITE").trimmed();
 
-    auto runSuite = [&status](QObject* testObj, const char* name) {
+    auto runSuite = [&status, &requestedSuite](QObject* testObj, const char* name) {
+        if (!requestedSuite.isEmpty() && requestedSuite != QString::fromLatin1(name)) {
+            return;
+        }
         std::cout << "\n==================================================\n";
         std::cout << "Running suite: " << name << "\n";
         std::cout << "==================================================\n";
@@ -146,8 +163,33 @@ int main(int argc, char *argv[])
     }
 
     {
+        LAStudio::TestMediaIngestService suite;
+        runSuite(&suite, "TestMediaIngestService");
+    }
+
+    {
+        LAStudio::TestMediaToolService suite;
+        runSuite(&suite, "TestMediaToolService");
+    }
+
+    {
+        LAStudio::TestHardwareManager suite;
+        runSuite(&suite, "TestHardwareManager");
+    }
+
+    {
         LAStudio::TestTtsTextPreprocessor suite;
         runSuite(&suite, "TestTtsTextPreprocessor");
+    }
+
+    {
+        LAStudio::TestTtsRequestValidator suite;
+        runSuite(&suite, "TestTtsRequestValidator");
+    }
+
+    {
+        LAStudio::TestLlmChatEngine suite;
+        runSuite(&suite, "TestLlmChatEngine");
     }
 
     std::cout << "\n==================================================\n";

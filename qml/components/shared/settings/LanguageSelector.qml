@@ -13,6 +13,7 @@ ColumnLayout {
     property bool useTextFieldFallback: false
     property bool hasLanguageInput: true
     property bool syncingSelection: false
+    signal languageSelected(string language)
 
     visible: hasLanguageInput
     spacing: Theme.paddingSmall
@@ -98,13 +99,9 @@ ColumnLayout {
         searchable: model.length > 15
         Component.onCompleted: root.syncComboSelection()
         onModelChanged: root.syncComboSelection()
-        onCurrentIndexChanged: {
-            if (root.syncingSelection) return
-            if (!model || currentIndex < 0 || currentIndex >= model.length) return
-            var val = model[currentIndex].value
-            if (root.language !== val) {
-                root.language = val
-            }
+        onActivated: function(index) {
+            if (!model || index < 0 || index >= model.length) return
+            root.languageSelected(model[index].value)
         }
     }
 
@@ -117,10 +114,8 @@ ColumnLayout {
         color: Theme.textPrimary
         placeholderTextColor: Theme.textSecondary
         font.pixelSize: Theme.fontMedium
-        onTextChanged: {
-            if (root.language !== text) {
-                root.language = text
-            }
+        onEditingFinished: {
+            root.languageSelected(text)
         }
         background: Rectangle {
             radius: Theme.radiusSmall

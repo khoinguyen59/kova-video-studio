@@ -279,8 +279,8 @@ Rectangle {
                 LineIcon {
                     name: root.workflowBusy ? "activity" : (root.workflowReady ? "check" : "settings")
                     color: root.workflowReady ? Theme.success : (root.workflowBusy ? Theme.accentLight : Theme.warning)
-                    width: 16
-                    height: 16
+                    Layout.preferredWidth: 16
+                    Layout.preferredHeight: 16
                 }
 
                 ColumnLayout {

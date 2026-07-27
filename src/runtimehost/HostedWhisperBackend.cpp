@@ -6,6 +6,13 @@
 
 namespace LAStudio {
 
+HostedWhisperBackend::HostedWhisperBackend()
+{
+    QObject::connect(&m_client, &RuntimeHostClient::hostExited, [this](const QString &) {
+        releaseHostPermit();
+    });
+}
+
 HostedWhisperBackend::~HostedWhisperBackend()
 {
     unloadModel();
@@ -15,51 +22,80 @@ bool HostedWhisperBackend::loadModel(const QString &modelPath, bool useGpu,
                                      const QString &runtimePath, QString &error)
 {
     unloadModel();
-    const bool gpu = useGpu || runtimePath.contains(QStringLiteral("cuda"), Qt::CaseInsensitive);
+    m_modelPath = modelPath;
+    m_runtimePath = runtimePath;
+    m_useGpu = useGpu;
+    return startHost(error);
+}
+
+bool HostedWhisperBackend::startHost(QString &error)
+{
+    if (m_modelPath.isEmpty()) {
+        error = QStringLiteral("Whisper model path is empty.");
+        return false;
+    }
+    // A crashed process may not deliver its queued hostExited signal before
+    // the worker retries. Release is idempotent and prevents a leaked GPU slot.
+    releaseHostPermit();
+    const bool gpu = m_useGpu || m_runtimePath.contains(QStringLiteral("cuda"), Qt::CaseInsensitive);
     if (!RuntimeHostManager::instance().acquire(m_runtimeFamily, gpu, &error)) return false;
     m_gpuPermit = gpu;
+    m_permitAcquired = true;
     const QString hostPath = QDir(QCoreApplication::applicationDirPath())
                                  .absoluteFilePath(QStringLiteral("LAStudioRuntimeHost.exe"));
     if (!QFileInfo(hostPath).isFile()) {
         error = QStringLiteral("LAStudioRuntimeHost.exe is missing: %1").arg(hostPath);
-        RuntimeHostManager::instance().release(m_runtimeFamily, m_gpuPermit);
-        m_gpuPermit = false;
+        releaseHostPermit();
         return false;
     }
     if (!m_client.start(hostPath, &error)) {
-        RuntimeHostManager::instance().release(m_runtimeFamily, m_gpuPermit);
-        m_gpuPermit = false;
+        releaseHostPermit();
         return false;
     }
     const QCborMap config{
         {QStringLiteral("adapter"), QStringLiteral("whisper")},
-        {QStringLiteral("model"), modelPath},
-        {QStringLiteral("runtimePath"), runtimePath},
-        {QStringLiteral("useGpu"), useGpu}
+        {QStringLiteral("model"), m_modelPath},
+        {QStringLiteral("runtimePath"), m_runtimePath},
+        {QStringLiteral("useGpu"), m_useGpu}
     };
     QCborValue ignoredSchema;
     if (!m_client.load(config, &ignoredSchema, &error)) {
         m_client.shutdown();
-        RuntimeHostManager::instance().release(m_runtimeFamily, m_gpuPermit);
-        m_gpuPermit = false;
+        releaseHostPermit();
         return false;
     }
-    m_modelPath = modelPath;
     return true;
+}
+
+bool HostedWhisperBackend::ensureHost(QString &error)
+{
+    return m_client.isRunning() || startHost(error);
 }
 
 void HostedWhisperBackend::unloadModel()
 {
     QString ignored;
     m_client.shutdown(&ignored);
-    RuntimeHostManager::instance().release(m_runtimeFamily, m_gpuPermit);
-    m_gpuPermit = false;
+    releaseHostPermit();
     m_modelPath.clear();
+    m_runtimePath.clear();
+    m_useGpu = false;
 }
 
 void HostedWhisperBackend::cancelProcessing()
 {
     m_client.cancelCurrent();
+}
+
+void HostedWhisperBackend::setProgressCallback(std::function<void(int percent)> callback)
+{
+    m_progressCallback = std::move(callback);
+    m_client.setProgressCallback([this](const QCborMap &payload) {
+        if (!m_progressCallback) return;
+        const int current = static_cast<int>(payload.value(QStringLiteral("current")).toInteger());
+        const int total = static_cast<int>(payload.value(QStringLiteral("total")).toInteger());
+        if (total > 0) m_progressCallback(qBound(0, current * 100 / total, 100));
+    });
 }
 
 bool HostedWhisperBackend::transcribe(const QVector<float> &samples,
@@ -75,6 +111,7 @@ bool HostedWhisperBackend::transcribe(const QVector<float> &samples,
         error = QStringLiteral("Whisper input audio is empty.");
         return false;
     }
+    if (!ensureHost(error)) return false;
     const QCborMap request{
         {QStringLiteral("mode"), QStringLiteral("transcribe")},
         {QStringLiteral("language"), language},
@@ -87,6 +124,14 @@ bool HostedWhisperBackend::transcribe(const QVector<float> &samples,
     fullText = result.value(QStringLiteral("fullText")).toString();
     segments = result.value(QStringLiteral("segments")).toVariant().toList();
     return true;
+}
+
+void HostedWhisperBackend::releaseHostPermit()
+{
+    if (!m_permitAcquired) return;
+    RuntimeHostManager::instance().release(m_runtimeFamily, m_gpuPermit);
+    m_permitAcquired = false;
+    m_gpuPermit = false;
 }
 
 } // namespace LAStudio

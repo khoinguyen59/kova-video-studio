@@ -202,7 +202,6 @@ ModelManager::ModelManager(QObject *parent)
     QSettings settings;
     m_modelsRoot = QDir(settings.value(QStringLiteral("storage/modelsPath"), PathUtils::modelsDir()).toString()).absolutePath();
     Logger::info(QStringLiteral("ModelManager"), QStringLiteral("Using models root: %1").arg(m_modelsRoot));
-    scanLocalModels();
 }
 
 int ModelManager::rowCount(const QModelIndex &parent) const
@@ -874,18 +873,6 @@ QVariantList ModelManager::filteredSttModels(const QString &searchText) const
         }
     }
     return list;
-}
-
-QVariantList ModelManager::filteredVoiceCloneModels(const QString &searchText, const QString &runtimeId)
-{
-    // Implementation placeholder
-    Q_UNUSED(searchText)
-    Q_UNUSED(runtimeId)
-    return QVariantList();
-}
-
-void ModelManager::refreshVoiceCloneCache()
-{
 }
 
 QString ModelManager::registryPath() const
