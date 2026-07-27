@@ -259,6 +259,8 @@ Settings::Settings(QObject *parent)
     m_gatewayLlmModel = m_settings.value(QStringLiteral("remote/gatewayLlmModel"), QString()).toString().trimmed();
     m_gatewayTranslationModel = m_settings.value(QStringLiteral("remote/gatewayTranslationModel"), QString()).toString().trimmed();
     m_gatewaySttModel = m_settings.value(QStringLiteral("remote/gatewaySttModel"), QString()).toString().trimmed();
+    m_gatewayTtsModel = m_settings.value(QStringLiteral("remote/gatewayTtsModel"), QString()).toString().trimmed();
+    m_gatewayTtsVoice = m_settings.value(QStringLiteral("remote/gatewayTtsVoice"), QStringLiteral("alloy")).toString().trimmed();
     // Network activity must be an explicit choice. Existing installs without
     // this key therefore default to no automatic update request.
     m_automaticUpdateChecks = m_settings.value(QStringLiteral("updates/automaticChecks"), false).toBool();
@@ -724,6 +726,36 @@ void Settings::setGatewaySttModel(const QString &v)
     m_settings.setValue(QStringLiteral("remote/gatewaySttModel"), normalized);
     m_settings.sync();
     emit gatewaySttModelChanged();
+}
+
+QString Settings::gatewayTtsModel() const
+{
+    return m_gatewayTtsModel;
+}
+
+void Settings::setGatewayTtsModel(const QString &v)
+{
+    const QString normalized = v.trimmed();
+    if (m_gatewayTtsModel == normalized) return;
+    m_gatewayTtsModel = normalized;
+    m_settings.setValue(QStringLiteral("remote/gatewayTtsModel"), normalized);
+    m_settings.sync();
+    emit gatewayTtsModelChanged();
+}
+
+QString Settings::gatewayTtsVoice() const
+{
+    return m_gatewayTtsVoice;
+}
+
+void Settings::setGatewayTtsVoice(const QString &v)
+{
+    const QString normalized = v.trimmed();
+    if (m_gatewayTtsVoice == normalized) return;
+    m_gatewayTtsVoice = normalized;
+    m_settings.setValue(QStringLiteral("remote/gatewayTtsVoice"), normalized);
+    m_settings.sync();
+    emit gatewayTtsVoiceChanged();
 }
 
 bool Settings::automaticUpdateChecks() const

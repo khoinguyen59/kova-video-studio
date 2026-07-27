@@ -35,6 +35,7 @@
 #include "VoiceDesignPresetService.h"
 #include "SttSessionController.h"
 #include "SubtitleVoiceController.h"
+#include "controllers/tts/GatewayTtsController.h"
 #include "VoiceIsolatorController.h"
 #include "AppUpdateService.h"
 #include "ExampleManager.h"
@@ -79,6 +80,7 @@ class AppController : public QObject {
     Q_PROPERTY(VoiceClonePresetService* voiceClonePresets READ voiceClonePresets CONSTANT)
     Q_PROPERTY(VoiceDesignPresetService* voiceDesignPresets READ voiceDesignPresets CONSTANT)
     Q_PROPERTY(SttSessionController* sttSession READ sttSession CONSTANT)
+    Q_PROPERTY(GatewayTtsController* gatewayTts READ gatewayTts CONSTANT)
     Q_PROPERTY(SubtitleVoiceController* subtitleVoice READ subtitleVoice CONSTANT)
     Q_PROPERTY(DubbingController* dubbing READ dubbing CONSTANT)
     Q_PROPERTY(VoiceIsolatorController* voiceIsolator READ voiceIsolator CONSTANT)
@@ -130,6 +132,7 @@ public:
     VoiceClonePresetService* voiceClonePresets() const { return m_voiceClonePresets; }
     VoiceDesignPresetService* voiceDesignPresets() const { return m_voiceDesignPresets; }
     SttSessionController* sttSession() const { return m_sttSession; }
+    GatewayTtsController* gatewayTts() const { return m_gatewayTts; }
     SubtitleVoiceController* subtitleVoice() const { return m_subtitleVoice; }
     DubbingController* dubbing() const { return m_dubbing; }
     VoiceIsolatorController* voiceIsolator() const { return m_voiceIsolator; }
@@ -193,6 +196,7 @@ private:
     VoiceClonePresetService* m_voiceClonePresets = nullptr;
     VoiceDesignPresetService* m_voiceDesignPresets = nullptr;
     SttSessionController* m_sttSession = nullptr;
+    GatewayTtsController* m_gatewayTts = nullptr;
     SubtitleVoiceController* m_subtitleVoice = nullptr;
     DubbingController* m_dubbing = nullptr;
     VoiceIsolatorController* m_voiceIsolator = nullptr;

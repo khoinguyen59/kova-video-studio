@@ -138,6 +138,7 @@ set(LASTUDIO_SOURCES
     src/tts/TtsEngine.cpp
     src/tts/TtsEngineInstance.cpp
     src/tts/TtsWorker.cpp
+    src/tts/GatewayTtsRunner.cpp
     src/tts/TextNormalizationPolicy.cpp
     src/tts/TtsTextPreprocessor.cpp
     src/tts/TtsRequestValidator.cpp
@@ -186,6 +187,7 @@ set(LASTUDIO_SOURCES
     src/controllers/models/StudioConfigurationResolver.cpp
     src/controllers/models/CapabilitySettingsSchema.cpp
     src/controllers/stt/SttSessionController.cpp
+    src/controllers/tts/GatewayTtsController.cpp
     src/controllers/tts/SubtitleVoiceController.cpp
     src/controllers/stt/SttAudioDecoder.cpp
     src/dubbing/DubbingProject.cpp
@@ -300,6 +302,7 @@ set(LASTUDIO_HEADERS
     src/tts/TtsEngine.h
     src/tts/TtsEngineInstance.h
     src/tts/TtsWorker.h
+    src/tts/GatewayTtsRunner.h
     src/tts/TextNormalizationPolicy.h
     src/tts/TtsTextPreprocessor.h
     src/tts/TtsRequestValidator.h
@@ -359,6 +362,7 @@ set(LASTUDIO_HEADERS
     src/controllers/models/StudioConfigurationResolver.h
     src/controllers/models/CapabilitySettingsSchema.h
     src/controllers/stt/SttSessionController.h
+    src/controllers/tts/GatewayTtsController.h
     src/controllers/tts/SubtitleVoiceController.h
     src/controllers/stt/SttAudioDecoder.h
     src/dubbing/DubbingProject.h

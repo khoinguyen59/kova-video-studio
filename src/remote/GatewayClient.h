@@ -39,6 +39,9 @@ public:
     bool transcribeWav(const QByteArray &wavData, const QString &language,
                        const std::shared_ptr<std::atomic_bool> &cancelToken,
                        QJsonObject *response, QString *errorMessage);
+    bool synthesizeSpeech(const QString &text, const QString &voice, float speed,
+                          const std::shared_ptr<std::atomic_bool> &cancelToken,
+                          QByteArray *wavData, QString *errorMessage);
     void cancel();
 
 private:

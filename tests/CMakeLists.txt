@@ -10,6 +10,8 @@ set(TEST_SOURCES
     test_AudioPreviewService.cpp
     test_ModelsAndRuntimes.cpp
     test_SttSession.cpp
+    test_GatewayTtsRunner.cpp
+    test_GatewayTtsRunner.h
     test_SubtitleVoice.cpp
     test_TtsTextPreprocessor.cpp
     test_TtsRequestValidator.cpp
@@ -81,6 +83,7 @@ set(TEST_SOURCES
     ../src/controllers/models/StudioConfigurationResolver.cpp
     ../src/controllers/models/CapabilitySettingsSchema.cpp
     ../src/controllers/stt/SttSessionController.cpp
+    ../src/controllers/tts/GatewayTtsController.cpp
     ../src/controllers/tts/SubtitleVoiceController.cpp
     ../src/subtitles/SrtTimelineParser.cpp
     ../src/tts/SubtitleSmartFitPlanner.cpp
@@ -150,6 +153,7 @@ set(TEST_SOURCES
     ../src/remote/ColabWorkerClient.cpp
     ../src/stt/ColabSttRunner.cpp
     ../src/stt/GatewaySttRunner.cpp
+    ../src/tts/GatewayTtsRunner.cpp
     ../src/core/LocalizationManager.cpp
     ../src/core/ModelManager.cpp
     ../src/core/CatalogManager.cpp
@@ -182,6 +186,8 @@ set(TEST_SOURCES
     ../src/remote/ColabWorkerClient.h
     ../src/stt/ColabSttRunner.h
     ../src/stt/GatewaySttRunner.h
+    ../src/tts/GatewayTtsRunner.h
+    ../src/controllers/tts/GatewayTtsController.h
     ../src/controllers/app/AppController.h
     ../src/controllers/shared/AppUpdateService.h
     ../src/controllers/shared/ExampleManager.h
@@ -336,6 +342,7 @@ set(LASTUDIO_TEST_SUITES
     TestTtsRequestValidator
     TestLlmChatEngine
     TestRemoteExecution
+    TestGatewayTtsRunner
 )
 
 foreach(LASTUDIO_TEST_SUITE IN LISTS LASTUDIO_TEST_SUITES)

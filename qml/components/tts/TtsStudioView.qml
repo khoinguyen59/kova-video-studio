@@ -27,12 +27,15 @@ StudioShell {
 
     property string playingType: "none"
     property string detectedLanguage: "en"
-    property bool outputReady: AppController.tts.lastSampleCount > 0 && !AppController.tts.isCloneAction
+    readonly property bool gatewayActive: AppController.gatewayTts && AppController.gatewayTts.gatewayActive
+    property bool outputReady: gatewayActive
+                              ? AppController.gatewayTts.lastSampleCount > 0
+                              : (AppController.tts.lastSampleCount > 0 && !AppController.tts.isCloneAction)
     property string lastSynthesizedText: ""
     property bool srtVoiceMode: false
     property real mainHorizontalInset: Theme.paddingXL
     property real promptInset: Theme.paddingSmall
-    readonly property bool inputsLocked: AppController.tts.processing
+    readonly property bool inputsLocked: gatewayActive ? AppController.gatewayTts.processing : AppController.tts.processing
     readonly property var nonVerbalTags: {
         if (family && family.studio && family.studio[root.capability] && family.studio[root.capability].nonVerbalTags)
             return family.studio[root.capability].nonVerbalTags
@@ -68,8 +71,10 @@ StudioShell {
     }
 
     function outputDurationText() {
-        if (!root.outputReady || AppController.tts.sampleRate <= 0) return "--"
-        var seconds = AppController.tts.lastSampleCount / AppController.tts.sampleRate
+        var rate = root.gatewayActive ? AppController.gatewayTts.sampleRate : AppController.tts.sampleRate
+        var count = root.gatewayActive ? AppController.gatewayTts.lastSampleCount : AppController.tts.lastSampleCount
+        if (!root.outputReady || rate <= 0) return "--"
+        var seconds = count / rate
         if (seconds < 60) return seconds.toFixed(1) + "s"
         var minutes = Math.floor(seconds / 60)
         var remain = Math.floor(seconds % 60)
@@ -77,7 +82,7 @@ StudioShell {
     }
 
     function sampleCountText() {
-        var count = AppController.tts.lastSampleCount
+        var count = root.gatewayActive ? AppController.gatewayTts.lastSampleCount : AppController.tts.lastSampleCount
         if (count >= 1000000) return (count / 1000000).toFixed(1) + "M samples"
         if (count >= 1000) return (count / 1000).toFixed(1) + "k samples"
         return count + " samples"
@@ -127,6 +132,7 @@ StudioShell {
     Connections {
         target: AppController.tts
         function onSynthesisFinished(pcm16, sampleRate) {
+            if (root.gatewayActive) return;
             if (AppController.tts.lastGenerationMode !== "tts") return;
             // Subtitle synthesis is a single batch workflow. Its per-cue
             // completions are previews, not standalone TTS history entries.
@@ -426,12 +432,16 @@ StudioShell {
                         iconName: "spark"
                         Layout.preferredWidth: 180
                         Layout.preferredHeight: 42
-                        visible: !AppController.tts.processing
-                        enabled: (root.studioController ? root.studioController.canProcess : false) && AppController.tts.modelLoaded && inputText.text.length > 0 && !root.inputsLocked
+                        visible: !root.inputsLocked
+                        enabled: (root.gatewayActive || ((root.studioController ? root.studioController.canProcess : false) && AppController.tts.modelLoaded)) && inputText.text.length > 0 && !root.inputsLocked
                         onClicked: {
                             root.lastSynthesizedText = inputText.text
-                            var synSettings = settingsPanel.getSynthesisSettings()
-                            AppController.tts.synthesize(inputText.text.normalize("NFC"), 0, 1.0, synSettings)
+                            if (root.gatewayActive) {
+                                AppController.gatewayTts.synthesize(inputText.text.normalize("NFC"), 1.0)
+                            } else {
+                                var synSettings = settingsPanel.getSynthesisSettings()
+                                AppController.tts.synthesize(inputText.text.normalize("NFC"), 0, 1.0, synSettings)
+                            }
                         }
                     }
 
@@ -441,8 +451,11 @@ StudioShell {
                         buttonColor: Theme.danger
                         Layout.preferredWidth: 180
                         Layout.preferredHeight: 42
-                        visible: AppController.tts.processing
-                        onClicked: AppController.tts.cancelProcessing()
+                        visible: root.inputsLocked
+                        onClicked: {
+                            if (root.gatewayActive) AppController.gatewayTts.cancelProcessing()
+                            else AppController.tts.cancelProcessing()
+                        }
                     }
                 }
 
@@ -451,23 +464,24 @@ StudioShell {
                     Layout.alignment: Qt.AlignHCenter
                     family: root.family
                     outputReady: root.outputReady
-                    samples: AppController.tts.lastSamplePreview
+                    samples: root.gatewayActive ? AppController.gatewayTts.lastSamplePreview : AppController.tts.lastSamplePreview
                     durationText: root.outputDurationText()
-                    sampleRate: AppController.tts.sampleRate
+                    sampleRate: root.gatewayActive ? AppController.gatewayTts.sampleRate : AppController.tts.sampleRate
                     sampleCountText: root.sampleCountText()
                     isPlaying: root.playingType === "tts" && AppController.player.playing
                     isPaused: root.playingType === "tts" && AppController.player.paused
                     playbackPositionMs: root.playingType === "tts" ? AppController.player.playbackPositionMs : 0
                     playbackDurationMs: root.playingType === "tts" ? AppController.player.playbackDurationMs : 0
-                    audioDurationMs: AppController.tts.sampleRate > 0
-                                     ? Math.round(AppController.tts.lastSampleCount * 1000 / AppController.tts.sampleRate) : 0
-                    processing: AppController.tts.processing
-                    generationProgress: AppController.tts.generationProgress
-                    progressEstimated: AppController.tts.generationProgressEstimated
-                    progressLabel: AppController.tts.generationProgressLabel
+                    audioDurationMs: (root.gatewayActive ? AppController.gatewayTts.sampleRate : AppController.tts.sampleRate) > 0
+                                     ? Math.round((root.gatewayActive ? AppController.gatewayTts.lastSampleCount : AppController.tts.lastSampleCount) * 1000 / (root.gatewayActive ? AppController.gatewayTts.sampleRate : AppController.tts.sampleRate)) : 0
+                    processing: root.inputsLocked
+                    generationProgress: root.gatewayActive ? AppController.gatewayTts.progress : AppController.tts.generationProgress
+                    progressEstimated: root.gatewayActive ? true : AppController.tts.generationProgressEstimated
+                    progressLabel: root.gatewayActive ? qsTr("Generating with API Gateway") : AppController.tts.generationProgressLabel
                     onPlayClicked: {
                         root.playingType = "tts"
-                        AppController.preview.playLastTts()
+                        if (root.gatewayActive) AppController.gatewayTts.playOutput()
+                        else AppController.preview.playLastTts()
                     }
                     onPauseClicked: AppController.player.pause()
                     onResumeClicked: AppController.player.resume()
@@ -477,7 +491,8 @@ StudioShell {
                         if (AppController.player.playing)
                             AppController.player.seek(positionMs)
                         else
-                            AppController.preview.playLastTtsAtPosition(positionMs)
+                            if (root.gatewayActive) AppController.gatewayTts.playOutput(positionMs)
+                            else AppController.preview.playLastTtsAtPosition(positionMs)
                     }
                     onSaveClicked: saveDialog.open()
                 }
@@ -593,6 +608,7 @@ StudioShell {
                 suggestedLanguage: root.detectedLanguage
                 backendType: root.resolveBackendType()
                 locked: AppController.subtitleVoice ? AppController.subtitleVoice.processing : false
+                showGatewaySettings: false
                 onCloseRequested: root.isSettingsOpen = false
             }
         }
@@ -603,7 +619,10 @@ StudioShell {
         title: "Save Audio File"
         fileMode: FileDialog.SaveFile
         nameFilters: ["WAV files (*.wav)"]
-        onAccepted: AppController.preview.saveWav(selectedFile.toString())
+        onAccepted: {
+            if (root.gatewayActive) AppController.gatewayTts.saveWav(selectedFile.toString())
+            else AppController.preview.saveWav(selectedFile.toString())
+        }
     }
 
     ExamplePickerDialog {

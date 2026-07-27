@@ -72,7 +72,7 @@ bool GatewayClient::configure(const QString &baseUrl, const QString &apiKey, con
         return false;
     }
     if (normalizedModel.isEmpty()) {
-        if (errorMessage) *errorMessage = QStringLiteral("API Gateway chat model is required");
+        if (errorMessage) *errorMessage = QStringLiteral("API Gateway model is required");
         return false;
     }
 
@@ -277,6 +277,70 @@ bool GatewayClient::transcribeWav(const QByteArray &wavData, const QString &lang
         return false;
     }
     if (response) *response = document.object();
+    return true;
+}
+
+bool GatewayClient::synthesizeSpeech(const QString &text, const QString &voice, float speed,
+                                     const std::shared_ptr<std::atomic_bool> &cancelToken,
+                                     QByteArray *wavData, QString *errorMessage)
+{
+    if (wavData) wavData->clear();
+    if (!isConfigured()) {
+        if (errorMessage) *errorMessage = QStringLiteral("API Gateway is not configured");
+        return false;
+    }
+    const QString normalizedText = text.trimmed();
+    const QString normalizedVoice = voice.trimmed();
+    if (normalizedText.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Text is required for speech synthesis");
+        return false;
+    }
+    if (normalizedVoice.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("API Gateway TTS voice is required");
+        return false;
+    }
+
+    const QJsonObject payload{
+        {QStringLiteral("model"), m_model},
+        {QStringLiteral("input"), normalizedText},
+        {QStringLiteral("voice"), normalizedVoice},
+        {QStringLiteral("response_format"), QStringLiteral("wav")},
+        {QStringLiteral("speed"), qBound(0.25F, speed, 4.0F)}
+    };
+    QNetworkAccessManager manager;
+    QNetworkRequest request(appendRemotePath(m_baseUrl, QStringLiteral("audio/speech")));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    request.setRawHeader("Authorization", QByteArray("Bearer ") + m_apiKey.toUtf8());
+    request.setRawHeader("Accept", "audio/wav, application/octet-stream");
+    QNetworkReply *reply = manager.post(request, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+    m_activeReply = reply;
+    QEventLoop eventLoop;
+    QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
+    eventLoop.exec();
+    const QByteArray body = reply->readAll();
+    const int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QNetworkReply::NetworkError networkError = reply->error();
+    const QString networkErrorText = reply->errorString();
+    m_activeReply = nullptr;
+    reply->deleteLater();
+
+    if (cancelToken && cancelToken->load(std::memory_order_relaxed)) return false;
+    if (networkError != QNetworkReply::NoError) {
+        if (errorMessage) {
+            *errorMessage = statusCode >= 400 ? responseErrorMessage(body, statusCode)
+                                               : QStringLiteral("API Gateway request failed: %1").arg(networkErrorText);
+        }
+        return false;
+    }
+    if (statusCode < 200 || statusCode >= 300) {
+        if (errorMessage) *errorMessage = responseErrorMessage(body, statusCode);
+        return false;
+    }
+    if (body.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("API Gateway returned empty TTS audio");
+        return false;
+    }
+    if (wavData) *wavData = body;
     return true;
 }
 

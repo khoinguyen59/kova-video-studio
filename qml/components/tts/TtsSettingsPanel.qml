@@ -19,6 +19,7 @@ ColumnLayout {
     property string suggestedLanguage: "en"
     property string backendType: ""  // "kokoro", "vibevoice", or "" (omnivoice)
     property bool locked: false
+    property bool showGatewaySettings: true
 
     property var capabilitySchema: []
     property var basicSchema: []
@@ -95,6 +96,21 @@ ColumnLayout {
     }
 
     readonly property bool isKokoro: backendType === "kokoro"
+
+    component GatewayField: TextField {
+        Layout.fillWidth: true
+        color: Theme.textPrimary
+        placeholderTextColor: Theme.textSecondary
+        font.pixelSize: Theme.fontSmall
+        padding: Theme.paddingSmall
+        selectByMouse: true
+        background: Rectangle {
+            radius: Theme.radiusSmall
+            color: Qt.rgba(1, 1, 1, 0.035)
+            border.color: parent.activeFocus ? Theme.accent : Qt.rgba(1, 1, 1, 0.09)
+            border.width: parent.activeFocus ? 2 : 1
+        }
+    }
 
     signal settingsChanged()
     signal closeRequested()
@@ -277,6 +293,54 @@ ColumnLayout {
                     onTextChanged: {
                         root.styleInstruction = text
                         root.settingsChanged()
+                    }
+                }
+            }
+
+            SettingsSection {
+                title: qsTr("API Gateway TTS")
+                iconName: "cloud"
+                visible: root.showGatewaySettings
+
+                Text { Layout.fillWidth: true; text: qsTr("This independent route uses API Gateway only; it never uses a Colab worker or token."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                Text { text: qsTr("Gateway URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                GatewayField {
+                    text: AppController.settings.gatewayUrl
+                    placeholderText: qsTr("https://gateway.example/v1")
+                    onEditingFinished: AppController.settings.gatewayUrl = text.trim()
+                }
+                Text { text: qsTr("API key"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                GatewayField {
+                    id: gatewayKey
+                    echoMode: TextInput.Password
+                    placeholderText: AppController.settings.gatewayApiKeyConfigured ? qsTr("API key saved — enter to replace") : qsTr("Stored encrypted on this device")
+                    onEditingFinished: {
+                        if (text.trim() !== "") {
+                            AppController.settings.setGatewayApiKey(text)
+                            text = ""
+                        }
+                    }
+                }
+                Text { text: qsTr("TTS model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                GatewayField {
+                    text: AppController.gatewayTts.gatewayModel
+                    placeholderText: qsTr("OpenAI-compatible TTS model")
+                    onEditingFinished: AppController.gatewayTts.gatewayModel = text.trim()
+                }
+                Text { text: qsTr("Voice"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                GatewayField {
+                    text: AppController.gatewayTts.gatewayVoice
+                    placeholderText: qsTr("alloy")
+                    onEditingFinished: AppController.gatewayTts.gatewayVoice = text.trim()
+                }
+                PrimaryButton {
+                    Layout.fillWidth: true
+                    enabled: !root.locked
+                    text: AppController.gatewayTts.gatewayActive ? qsTr("Use local TTS") : qsTr("Use API Gateway TTS")
+                    iconName: AppController.gatewayTts.gatewayActive ? "close" : "cloud"
+                    onClicked: {
+                        if (AppController.gatewayTts.gatewayActive) AppController.gatewayTts.disconnectGateway()
+                        else AppController.gatewayTts.useGateway()
                     }
                 }
             }
