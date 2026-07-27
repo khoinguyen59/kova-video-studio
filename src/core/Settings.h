@@ -35,6 +35,8 @@ class Settings : public QObject {
     Q_PROPERTY(bool apiServerAllowLan READ apiServerAllowLan WRITE setApiServerAllowLan NOTIFY apiServerAllowLanChanged)
     Q_PROPERTY(int apiServerPort READ apiServerPort WRITE setApiServerPort NOTIFY apiServerPortChanged)
     Q_PROPERTY(QString apiServerApiKey READ apiServerApiKey WRITE setApiServerApiKey NOTIFY apiServerApiKeyChanged)
+    Q_PROPERTY(QString gatewayUrl READ gatewayUrl WRITE setGatewayUrl NOTIFY gatewayUrlChanged)
+    Q_PROPERTY(QString gatewayApiKey READ gatewayApiKey WRITE setGatewayApiKey NOTIFY gatewayApiKeyChanged)
     Q_PROPERTY(bool automaticUpdateChecks READ automaticUpdateChecks WRITE setAutomaticUpdateChecks NOTIFY automaticUpdateChecksChanged)
     Q_PROPERTY(bool updateCheckConsentAsked READ updateCheckConsentAsked WRITE setUpdateCheckConsentAsked NOTIFY updateCheckConsentAskedChanged)
     Q_PROPERTY(bool onboardingComplete READ onboardingComplete WRITE setOnboardingComplete NOTIFY onboardingCompleteChanged)
@@ -120,6 +122,11 @@ public:
     QString apiServerApiKey() const;
     void setApiServerApiKey(const QString &v);
 
+    QString gatewayUrl() const;
+    void setGatewayUrl(const QString &v);
+    QString gatewayApiKey() const;
+    void setGatewayApiKey(const QString &v);
+
     bool automaticUpdateChecks() const;
     void setAutomaticUpdateChecks(bool v);
 
@@ -162,6 +169,8 @@ signals:
     void apiServerAllowLanChanged();
     void apiServerPortChanged();
     void apiServerApiKeyChanged();
+    void gatewayUrlChanged();
+    void gatewayApiKeyChanged();
     void automaticUpdateChecksChanged();
     void updateCheckConsentAskedChanged();
     void onboardingCompleteChanged();
@@ -194,6 +203,8 @@ private:
     bool m_apiServerAllowLan;
     int m_apiServerPort;
     QString m_apiServerApiKey;
+    QString m_gatewayUrl;
+    QString m_gatewayApiKey;
     bool m_automaticUpdateChecks;
     bool m_updateCheckConsentAsked;
     bool m_onboardingComplete = false;

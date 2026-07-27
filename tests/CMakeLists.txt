@@ -14,6 +14,7 @@ set(TEST_SOURCES
     test_TtsTextPreprocessor.cpp
     test_TtsRequestValidator.cpp
     test_LlmChatEngine.cpp
+    test_RemoteExecution.cpp
     test_StudioCapabilities.cpp
     test_AlignmentTranscriptMatcher.cpp
     test_AlignmentWorkflow.cpp
@@ -142,6 +143,8 @@ set(TEST_SOURCES
     ../src/core/StudioSelectionRepository.cpp
     ../src/core/Settings.cpp
     ../src/core/SecureCredentialStore.cpp
+    ../src/remote/ExecutionProvider.cpp
+    ../src/remote/ColabSession.cpp
     ../src/core/LocalizationManager.cpp
     ../src/core/ModelManager.cpp
     ../src/core/CatalogManager.cpp
@@ -227,6 +230,7 @@ set(TEST_SOURCES
     test_MediaIngestService.h
     test_MediaToolService.h
     test_LlmChatEngine.h
+    test_RemoteExecution.h
     test_HardwareManager.h
     test_TranslationProject.h
     ../src/controllers/separation/VoiceIsolatorController.h
@@ -321,6 +325,7 @@ set(LASTUDIO_TEST_SUITES
     TestTtsTextPreprocessor
     TestTtsRequestValidator
     TestLlmChatEngine
+    TestRemoteExecution
 )
 
 foreach(LASTUDIO_TEST_SUITE IN LISTS LASTUDIO_TEST_SUITES)

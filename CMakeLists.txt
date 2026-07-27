@@ -101,6 +101,8 @@ set(LASTUDIO_SOURCES
     src/translation/backends/LlamaTranslationBackend.cpp
     src/core/Settings.cpp
     src/core/SecureCredentialStore.cpp
+    src/remote/ExecutionProvider.cpp
+    src/remote/ColabSession.cpp
     src/api/ApiServerService.cpp
     src/core/HFHubClient.cpp
     src/core/DownloadManager.cpp
@@ -248,6 +250,8 @@ set(LASTUDIO_HEADERS
     src/runtimehost/HostedLlamaTranslationBackend.h
     src/core/Settings.h
     src/core/SecureCredentialStore.h
+    src/remote/ExecutionProvider.h
+    src/remote/ColabSession.h
     src/core/HFHubClient.h
     src/core/DownloadManager.h
     src/core/ModelManager.h
@@ -542,6 +546,7 @@ target_include_directories(LAStudio PRIVATE
     ${LASTUDIO_GENERATED_DIR}
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/core
+    ${CMAKE_SOURCE_DIR}/src/remote
     ${CMAKE_SOURCE_DIR}/src/api
     ${CMAKE_SOURCE_DIR}/src/audio
     ${CMAKE_SOURCE_DIR}/src/stt

@@ -249,6 +249,13 @@ Settings::Settings(QObject *parent)
     if (!credentialError.isEmpty()) {
         Logger::error(QStringLiteral("Settings"), QStringLiteral("API credential migration failed: %1").arg(credentialError));
     }
+    m_gatewayUrl = m_settings.value(QStringLiteral("remote/gatewayUrl"), QString()).toString().trimmed();
+    credentialError.clear();
+    m_gatewayApiKey = SecureCredentialStore::migrateLegacy(
+        m_settings, QStringLiteral("remote-gateway"), QStringLiteral("remote/gatewayApiKey"), &credentialError);
+    if (!credentialError.isEmpty()) {
+        Logger::error(QStringLiteral("Settings"), QStringLiteral("Gateway credential migration failed: %1").arg(credentialError));
+    }
     // Network activity must be an explicit choice. Existing installs without
     // this key therefore default to no automatic update request.
     m_automaticUpdateChecks = m_settings.value(QStringLiteral("updates/automaticChecks"), false).toBool();
@@ -628,6 +635,41 @@ void Settings::setApiServerApiKey(const QString &v)
         m_settings.sync();
         emit apiServerApiKeyChanged();
     }
+}
+
+QString Settings::gatewayUrl() const
+{
+    return m_gatewayUrl;
+}
+
+void Settings::setGatewayUrl(const QString &v)
+{
+    const QString normalized = v.trimmed();
+    if (m_gatewayUrl == normalized) return;
+    m_gatewayUrl = normalized;
+    m_settings.setValue(QStringLiteral("remote/gatewayUrl"), normalized);
+    m_settings.sync();
+    emit gatewayUrlChanged();
+}
+
+QString Settings::gatewayApiKey() const
+{
+    return m_gatewayApiKey;
+}
+
+void Settings::setGatewayApiKey(const QString &v)
+{
+    const QString normalized = v.trimmed();
+    if (m_gatewayApiKey == normalized) return;
+    QString credentialError;
+    if (!SecureCredentialStore::write(m_settings, QStringLiteral("remote-gateway"), normalized, &credentialError)) {
+        Logger::error(QStringLiteral("Settings"), QStringLiteral("Gateway credential was not persisted: %1").arg(credentialError));
+        return;
+    }
+    m_gatewayApiKey = normalized;
+    m_settings.remove(QStringLiteral("remote/gatewayApiKey"));
+    m_settings.sync();
+    emit gatewayApiKeyChanged();
 }
 
 bool Settings::automaticUpdateChecks() const

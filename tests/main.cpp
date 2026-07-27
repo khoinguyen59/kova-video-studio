@@ -25,6 +25,7 @@
 #include "test_TtsTextPreprocessor.h"
 #include "test_TtsRequestValidator.h"
 #include "test_LlmChatEngine.h"
+#include "test_RemoteExecution.h"
 
 #include <QFile>
 #include <QTextStream>
@@ -190,6 +191,11 @@ int main(int argc, char *argv[])
     {
         LAStudio::TestLlmChatEngine suite;
         runSuite(&suite, "TestLlmChatEngine");
+    }
+
+    {
+        LAStudio::TestRemoteExecution suite;
+        runSuite(&suite, "TestRemoteExecution");
     }
 
     std::cout << "\n==================================================\n";
