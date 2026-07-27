@@ -36,7 +36,8 @@ class Settings : public QObject {
     Q_PROPERTY(int apiServerPort READ apiServerPort WRITE setApiServerPort NOTIFY apiServerPortChanged)
     Q_PROPERTY(QString apiServerApiKey READ apiServerApiKey WRITE setApiServerApiKey NOTIFY apiServerApiKeyChanged)
     Q_PROPERTY(QString gatewayUrl READ gatewayUrl WRITE setGatewayUrl NOTIFY gatewayUrlChanged)
-    Q_PROPERTY(QString gatewayApiKey READ gatewayApiKey WRITE setGatewayApiKey NOTIFY gatewayApiKeyChanged)
+    Q_PROPERTY(bool gatewayApiKeyConfigured READ gatewayApiKeyConfigured NOTIFY gatewayApiKeyChanged)
+    Q_PROPERTY(QString gatewayLlmModel READ gatewayLlmModel WRITE setGatewayLlmModel NOTIFY gatewayLlmModelChanged)
     Q_PROPERTY(bool automaticUpdateChecks READ automaticUpdateChecks WRITE setAutomaticUpdateChecks NOTIFY automaticUpdateChecksChanged)
     Q_PROPERTY(bool updateCheckConsentAsked READ updateCheckConsentAsked WRITE setUpdateCheckConsentAsked NOTIFY updateCheckConsentAskedChanged)
     Q_PROPERTY(bool onboardingComplete READ onboardingComplete WRITE setOnboardingComplete NOTIFY onboardingCompleteChanged)
@@ -125,7 +126,10 @@ public:
     QString gatewayUrl() const;
     void setGatewayUrl(const QString &v);
     QString gatewayApiKey() const;
-    void setGatewayApiKey(const QString &v);
+    bool gatewayApiKeyConfigured() const;
+    Q_INVOKABLE bool setGatewayApiKey(const QString &v);
+    QString gatewayLlmModel() const;
+    void setGatewayLlmModel(const QString &v);
 
     bool automaticUpdateChecks() const;
     void setAutomaticUpdateChecks(bool v);
@@ -171,6 +175,7 @@ signals:
     void apiServerApiKeyChanged();
     void gatewayUrlChanged();
     void gatewayApiKeyChanged();
+    void gatewayLlmModelChanged();
     void automaticUpdateChecksChanged();
     void updateCheckConsentAskedChanged();
     void onboardingCompleteChanged();
@@ -205,6 +210,7 @@ private:
     QString m_apiServerApiKey;
     QString m_gatewayUrl;
     QString m_gatewayApiKey;
+    QString m_gatewayLlmModel;
     bool m_automaticUpdateChecks;
     bool m_updateCheckConsentAsked;
     bool m_onboardingComplete = false;

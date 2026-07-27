@@ -256,6 +256,7 @@ Settings::Settings(QObject *parent)
     if (!credentialError.isEmpty()) {
         Logger::error(QStringLiteral("Settings"), QStringLiteral("Gateway credential migration failed: %1").arg(credentialError));
     }
+    m_gatewayLlmModel = m_settings.value(QStringLiteral("remote/gatewayLlmModel"), QString()).toString().trimmed();
     // Network activity must be an explicit choice. Existing installs without
     // this key therefore default to no automatic update request.
     m_automaticUpdateChecks = m_settings.value(QStringLiteral("updates/automaticChecks"), false).toBool();
@@ -657,19 +658,40 @@ QString Settings::gatewayApiKey() const
     return m_gatewayApiKey;
 }
 
-void Settings::setGatewayApiKey(const QString &v)
+bool Settings::gatewayApiKeyConfigured() const
+{
+    return !m_gatewayApiKey.isEmpty();
+}
+
+bool Settings::setGatewayApiKey(const QString &v)
 {
     const QString normalized = v.trimmed();
-    if (m_gatewayApiKey == normalized) return;
+    if (m_gatewayApiKey == normalized) return true;
     QString credentialError;
     if (!SecureCredentialStore::write(m_settings, QStringLiteral("remote-gateway"), normalized, &credentialError)) {
         Logger::error(QStringLiteral("Settings"), QStringLiteral("Gateway credential was not persisted: %1").arg(credentialError));
-        return;
+        return false;
     }
     m_gatewayApiKey = normalized;
     m_settings.remove(QStringLiteral("remote/gatewayApiKey"));
     m_settings.sync();
     emit gatewayApiKeyChanged();
+    return true;
+}
+
+QString Settings::gatewayLlmModel() const
+{
+    return m_gatewayLlmModel;
+}
+
+void Settings::setGatewayLlmModel(const QString &v)
+{
+    const QString normalized = v.trimmed();
+    if (m_gatewayLlmModel == normalized) return;
+    m_gatewayLlmModel = normalized;
+    m_settings.setValue(QStringLiteral("remote/gatewayLlmModel"), normalized);
+    m_settings.sync();
+    emit gatewayLlmModelChanged();
 }
 
 bool Settings::automaticUpdateChecks() const

@@ -145,6 +145,7 @@ set(TEST_SOURCES
     ../src/core/SecureCredentialStore.cpp
     ../src/remote/ExecutionProvider.cpp
     ../src/remote/ColabSession.cpp
+    ../src/remote/GatewayClient.cpp
     ../src/core/LocalizationManager.cpp
     ../src/core/ModelManager.cpp
     ../src/core/CatalogManager.cpp
@@ -173,6 +174,7 @@ set(TEST_SOURCES
     ../src/audio/AudioFileDecoder.h
     ../src/runtimehost/RuntimeHostProtocol.h
     ../src/core/HFHubClient.h
+    ../src/remote/GatewayClient.h
     ../src/controllers/app/AppController.h
     ../src/controllers/shared/AppUpdateService.h
     ../src/controllers/shared/ExampleManager.h

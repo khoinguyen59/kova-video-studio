@@ -103,6 +103,7 @@ set(LASTUDIO_SOURCES
     src/core/SecureCredentialStore.cpp
     src/remote/ExecutionProvider.cpp
     src/remote/ColabSession.cpp
+    src/remote/GatewayClient.cpp
     src/api/ApiServerService.cpp
     src/core/HFHubClient.cpp
     src/core/DownloadManager.cpp
@@ -252,6 +253,7 @@ set(LASTUDIO_HEADERS
     src/core/SecureCredentialStore.h
     src/remote/ExecutionProvider.h
     src/remote/ColabSession.h
+    src/remote/GatewayClient.h
     src/core/HFHubClient.h
     src/core/DownloadManager.h
     src/core/ModelManager.h

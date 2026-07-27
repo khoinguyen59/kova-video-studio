@@ -85,8 +85,8 @@ StudioShell {
             RowLayout {
                 Layout.fillWidth: true
                 LineIcon { name: "chat"; color: Theme.accentLight; Layout.preferredWidth: Theme.iconSize; Layout.preferredHeight: Theme.iconSize }
-                Text { text: qsTr("Local conversation"); color: Theme.textPrimary; font.pixelSize: Theme.fontLarge; font.bold: true; Layout.fillWidth: true }
-                Text { text: chat.generating ? qsTr("Generating") : (studioController && studioController.studioReady ? qsTr("Ready") : qsTr("Setup required")); color: chat.generating ? Theme.warning : (studioController && studioController.studioReady ? Theme.success : Theme.warning); font.pixelSize: Theme.fontSmall; font.bold: true }
+                Text { text: chat.gatewayActive ? qsTr("9Router conversation") : qsTr("Local conversation"); color: Theme.textPrimary; font.pixelSize: Theme.fontLarge; font.bold: true; Layout.fillWidth: true }
+                Text { text: chat.generating ? qsTr("Generating") : (chat.gatewayActive || (studioController && studioController.studioReady) ? qsTr("Ready") : qsTr("Setup required")); color: chat.generating ? Theme.warning : (chat.gatewayActive || (studioController && studioController.studioReady) ? Theme.success : Theme.warning); font.pixelSize: Theme.fontSmall; font.bold: true }
                 PrimaryButton { text: qsTr("Clear"); iconName: "trash"; quiet: true; enabled: !chat.generating; onClicked: chat.clearConversation() }
             }
             Rectangle { Layout.fillWidth: true; Layout.fillHeight: true; radius: Theme.radiusSmall; color: Qt.rgba(0,0,0,0.12); border.color: Qt.rgba(1,1,1,0.07); border.width: 1
@@ -112,7 +112,7 @@ StudioShell {
             }
             RowLayout {
                 Layout.fillWidth: true; spacing: Theme.paddingSmall
-                AppTextArea { id: composer; Layout.fillWidth: true; Layout.minimumHeight: Theme.paddingXL * 3; placeholderText: qsTr("Message the local model..."); enabled: !chat.generating; Keys.onReturnPressed: function(event) { if (!(event.modifiers & Qt.ShiftModifier)) { chat.sendMessage(text); text = ""; event.accepted = true } } }
+                AppTextArea { id: composer; Layout.fillWidth: true; Layout.minimumHeight: Theme.paddingXL * 3; placeholderText: chat.gatewayActive ? qsTr("Message the 9Router model...") : qsTr("Message the local model..."); enabled: !chat.generating; Keys.onReturnPressed: function(event) { if (!(event.modifiers & Qt.ShiftModifier)) { chat.sendMessage(text); text = ""; event.accepted = true } } }
                 PrimaryButton { text: chat.generating ? qsTr("Stop") : qsTr("Send"); iconName: chat.generating ? "stop" : "send"; enabled: chat.generating || composer.text.trim() !== ""; onClicked: chat.generating ? chat.stopGeneration() : (chat.sendMessage(composer.text), composer.text = "") }
             }
             Text { visible: chat.errorText !== ""; Layout.fillWidth: true; text: chat.errorText; color: Theme.danger; wrapMode: Text.Wrap; font.pixelSize: Theme.fontSmall }
@@ -179,11 +179,49 @@ StudioShell {
                 }
 
                 Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1, 1, 1, 0.08) }
+                Text { text: qsTr("Inference source"); color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; font.bold: true }
+                Text { Layout.fillWidth: true; text: qsTr("9Router is an independent API path. It does not start or connect to Colab."); color: Theme.textSecondary; wrapMode: Text.WordWrap; font.pixelSize: Theme.fontSmall }
+                Text { text: qsTr("Gateway URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                NumberField {
+                    Layout.fillWidth: true
+                    text: AppController.settings.gatewayUrl
+                    placeholderText: qsTr("https://gateway.example/v1")
+                    onEditingFinished: AppController.settings.gatewayUrl = text.trim()
+                }
+                Text { text: qsTr("API key"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                NumberField {
+                    id: gatewayKey
+                    Layout.fillWidth: true
+                    echoMode: TextInput.Password
+                    placeholderText: AppController.settings.gatewayApiKeyConfigured ? qsTr("API key saved — enter to replace") : qsTr("Stored encrypted on this device")
+                    onEditingFinished: {
+                        if (text.trim() !== "") {
+                            AppController.settings.setGatewayApiKey(text)
+                            text = ""
+                        }
+                    }
+                }
+                Text { text: qsTr("Chat model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                NumberField {
+                    Layout.fillWidth: true
+                    text: chat.gatewayModel
+                    placeholderText: qsTr("Model ID exposed by 9Router")
+                    onEditingFinished: chat.gatewayModel = text.trim()
+                }
+                PrimaryButton {
+                    Layout.fillWidth: true
+                    text: chat.gatewayActive ? qsTr("Using 9Router") : qsTr("Use 9Router")
+                    iconName: "cloud"
+                    enabled: !chat.generating && !chat.gatewayActive
+                    onClicked: chat.useGateway()
+                }
+
+                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1, 1, 1, 0.08) }
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Theme.paddingSmall
                     LineIcon { name: "cpu"; color: Theme.success; Layout.preferredWidth: 16; Layout.preferredHeight: 16 }
-                    Text { Layout.fillWidth: true; text: qsTr("Local llama.cpp runtime"); color: Theme.textSecondary; wrapMode: Text.WordWrap; font.pixelSize: Theme.fontSmall }
+                    Text { Layout.fillWidth: true; text: qsTr("Choose a local model from the model picker to switch back to llama.cpp."); color: Theme.textSecondary; wrapMode: Text.WordWrap; font.pixelSize: Theme.fontSmall }
                 }
                 Item { Layout.preferredHeight: Theme.paddingSmall }
             }

@@ -70,7 +70,8 @@ AppController::AppController(QObject *parent)
     m_translation = new TranslationController(m_translationEngine,
         qobject_cast<TranslationModelSession*>(m_sessionRegistry->sessionForCapability(QStringLiteral("translation"))), this);
     m_llmChat = new LlmChatController(m_llmEngine,
-        qobject_cast<LlmChatModelSession*>(m_sessionRegistry->sessionForCapability(QStringLiteral("llm-chat"))), this);
+        qobject_cast<LlmChatModelSession*>(m_sessionRegistry->sessionForCapability(QStringLiteral("llm-chat"))),
+        m_settings, this);
     m_recorder  = new AudioRecorder(this);
     m_player    = new AudioPlayer(this);
     m_waveformProvider = new WaveformProvider();

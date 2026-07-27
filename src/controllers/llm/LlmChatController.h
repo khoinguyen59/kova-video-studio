@@ -9,6 +9,7 @@
 namespace LAStudio {
 class LlmChatEngine;
 class LlmChatModelSession;
+class Settings;
 
 class LlmChatController : public QObject
 {
@@ -27,8 +28,11 @@ class LlmChatController : public QObject
     Q_PROPERTY(double topP READ topP WRITE setTopP NOTIFY settingsChanged)
     Q_PROPERTY(int topK READ topK WRITE setTopK NOTIFY settingsChanged)
     Q_PROPERTY(double repeatPenalty READ repeatPenalty WRITE setRepeatPenalty NOTIFY settingsChanged)
+    Q_PROPERTY(bool gatewayActive READ gatewayActive NOTIFY gatewayStateChanged)
+    Q_PROPERTY(QString gatewayModel READ gatewayModel WRITE setGatewayModel NOTIFY gatewayModelChanged)
 public:
-    explicit LlmChatController(LlmChatEngine *engine, LlmChatModelSession *session, QObject *parent = nullptr);
+    explicit LlmChatController(LlmChatEngine *engine, LlmChatModelSession *session,
+                               Settings *settings, QObject *parent = nullptr);
     QVariantList conversations() const { return m_conversations; }
     QVariantList messages() const { return m_messages; }
     QString activeConversationId() const { return m_activeId; }
@@ -41,6 +45,8 @@ public:
     double topP() const { return m_topP; }
     int topK() const { return m_topK; }
     double repeatPenalty() const { return m_repeatPenalty; }
+    bool gatewayActive() const;
+    QString gatewayModel() const;
     void setSystemPrompt(const QString &value);
     void setContextTokens(int value);
     void setMaxTokens(int value);
@@ -48,6 +54,7 @@ public:
     void setTopP(double value);
     void setTopK(int value);
     void setRepeatPenalty(double value);
+    void setGatewayModel(const QString &value);
 
     Q_INVOKABLE void newConversation();
     Q_INVOKABLE void selectConversation(const QString &id);
@@ -58,6 +65,7 @@ public:
     Q_INVOKABLE void stopGeneration();
     Q_INVOKABLE void regenerateLastResponse();
     Q_INVOKABLE void copyMessage(const QString &text);
+    Q_INVOKABLE void useGateway();
 
 signals:
     void conversationsChanged();
@@ -67,6 +75,8 @@ signals:
     void errorTextChanged();
     void settingsChanged();
     void statusChanged();
+    void gatewayStateChanged();
+    void gatewayModelChanged();
 
 private slots:
     void onToken(const QString &requestId, const QString &token);
@@ -84,6 +94,7 @@ private:
 
     LlmChatEngine *m_engine = nullptr;
     LlmChatModelSession *m_session = nullptr;
+    Settings *m_settings = nullptr;
     QVariantList m_conversations;
     QVariantList m_messages;
     QString m_activeId;

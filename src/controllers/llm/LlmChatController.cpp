@@ -1,5 +1,6 @@
 #include "LlmChatController.h"
 #include "llm/LlmChatEngine.h"
+#include "core/Settings.h"
 #include "core/PathUtils.h"
 #include "core/Logger.h"
 #include <QClipboard>
@@ -19,14 +20,20 @@ namespace {
 QString storePath() { return QDir(PathUtils::dataDir()).filePath(QStringLiteral("llm-conversations.json")); }
 }
 
-LlmChatController::LlmChatController(LlmChatEngine *engine, LlmChatModelSession *session, QObject *parent)
-    : QObject(parent), m_engine(engine), m_session(session)
+LlmChatController::LlmChatController(LlmChatEngine *engine, LlmChatModelSession *session,
+                                     Settings *settings, QObject *parent)
+    : QObject(parent), m_engine(engine), m_session(session), m_settings(settings)
 {
     if (m_engine) {
         connect(m_engine, &LlmChatEngine::tokenGenerated, this, &LlmChatController::onToken);
         connect(m_engine, &LlmChatEngine::generationFinished, this, &LlmChatController::onFinished);
         connect(m_engine, &LlmChatEngine::generationCancelled, this, &LlmChatController::onCancelled);
         connect(m_engine, &LlmChatEngine::errorOccurred, this, &LlmChatController::onEngineError);
+        connect(m_engine, &LlmChatEngine::gatewayActiveChanged, this, &LlmChatController::gatewayStateChanged);
+    }
+    if (m_settings) {
+        connect(m_settings, &Settings::gatewayLlmModelChanged,
+                this, &LlmChatController::gatewayModelChanged);
     }
     load();
     ensureActive();
@@ -38,6 +45,21 @@ void LlmChatController::setTemperature(double v) { v = qBound(0.01, v, 2.0); if 
 void LlmChatController::setTopP(double v) { v = qBound(0.01, v, 1.0); if (qFuzzyCompare(m_topP, v)) return; m_topP = v; emit settingsChanged(); persist(); }
 void LlmChatController::setTopK(int v) { v = qBound(1, v, 200); if (m_topK == v) return; m_topK = v; emit settingsChanged(); persist(); }
 void LlmChatController::setRepeatPenalty(double v) { v = qBound(0.8, v, 2.0); if (qFuzzyCompare(m_repeatPenalty, v)) return; m_repeatPenalty = v; emit settingsChanged(); persist(); }
+
+bool LlmChatController::gatewayActive() const
+{
+    return m_engine && m_engine->isGatewayActive();
+}
+
+QString LlmChatController::gatewayModel() const
+{
+    return m_settings ? m_settings->gatewayLlmModel() : QString();
+}
+
+void LlmChatController::setGatewayModel(const QString &value)
+{
+    if (m_settings) m_settings->setGatewayLlmModel(value);
+}
 
 QString LlmChatController::newId() const { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
 void LlmChatController::ensureActive()
@@ -102,6 +124,15 @@ void LlmChatController::sendMessage(const QString &text)
     m_engine->generate(messages, m_contextTokens, m_maxTokens, float(m_temperature), float(m_topP), m_topK, float(m_repeatPenalty), m_requestId);
 }
 void LlmChatController::stopGeneration() { if (m_engine && m_generating) m_engine->cancel(); }
+void LlmChatController::useGateway()
+{
+    if (!m_engine || !m_settings) {
+        setError(QStringLiteral("API Gateway configuration is unavailable."));
+        return;
+    }
+    m_engine->loadGateway(m_settings->gatewayUrl(), m_settings->gatewayApiKey(),
+                          m_settings->gatewayLlmModel());
+}
 void LlmChatController::regenerateLastResponse()
 {
     if (m_generating || m_messages.size() < 2) return;
