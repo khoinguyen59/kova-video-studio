@@ -9,6 +9,7 @@ import "../shared/settings"
 Item {
     id: root
     property string preferredAnchorModelId: ""
+    readonly property bool colabSelected: AppController.colabAlignment.colabActive
     readonly property string languageCode: languageSelector.language
     readonly property string timestampUnit: timestampUnitInput.currentIndex === 1 ? "character" : "word"
     readonly property string outputFormat: outputFormatInput.currentIndex === 1 ? "srt" : (outputFormatInput.currentIndex === 2 ? "webvtt" : "json")
@@ -19,6 +20,18 @@ Item {
     }
     readonly property bool anchorModelAvailable: selectedAnchorModel() !== null
     signal closeRequested()
+
+    component ColabField: TextField {
+        Layout.fillWidth: true
+        color: Theme.textPrimary
+        placeholderTextColor: Theme.textSecondary
+        selectByMouse: true
+        background: Rectangle {
+            radius: Theme.radiusSmall
+            color: Qt.rgba(1, 1, 1, 0.04)
+            border.color: parent.activeFocus ? Theme.accent : Qt.rgba(1, 1, 1, 0.12)
+        }
+    }
 
     function selectedAnchorModel() {
         var items = root.anchorModels
@@ -82,6 +95,8 @@ Item {
 
                 Text { text: qsTr("PROCESSING"); color: Theme.textSecondary; font.pixelSize: 10; font.bold: true; font.letterSpacing: 0.8 }
 
+                Text { Layout.fillWidth: true; text: root.colabSelected ? qsTr("Direct Colab GPU alignment is selected. It does not use API Gateway or local model downloads.") : qsTr("Local alignment uses installed models and runtimes."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+
                 LanguageSelector {
                     id: languageSelector
                     Layout.fillWidth: true
@@ -106,6 +121,52 @@ Item {
                 }
 
                 CheckBox { id: normalizeTranscriptInput; text: qsTr("Normalize transcript"); checked: true; palette.windowText: Theme.textPrimary }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                implicitHeight: colabContent.implicitHeight + Theme.paddingMedium * 2
+                radius: Theme.radiusSmall
+                color: Qt.rgba(1, 1, 1, 0.025)
+                border.color: Qt.rgba(1, 1, 1, 0.08)
+
+                ColumnLayout {
+                    id: colabContent
+                    anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
+                    anchors.margins: Theme.paddingMedium
+                    spacing: Theme.paddingSmall
+
+                    Text { text: qsTr("DIRECT COLAB GPU"); color: Theme.textSecondary; font.pixelSize: 10; font.bold: true; font.letterSpacing: 0.8 }
+                    Text { Layout.fillWidth: true; text: qsTr("Qwen3 ForcedAligner receives only the selected audio and transcript directly from this app. This is independent of API Gateway."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                    Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                    ColabField {
+                        id: colabUrl
+                        text: AppController.colabSession.workerUrl
+                        placeholderText: qsTr("https://â€¦trycloudflare.com")
+                    }
+                    Text { text: qsTr("Session token"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                    ColabField {
+                        id: colabToken
+                        echoMode: TextInput.Password
+                        placeholderText: AppController.colabAlignment.colabConnected ? qsTr("Connected â€” enter token to replace") : qsTr("Temporary token from Colab")
+                    }
+                    Text { text: qsTr("Model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                    Text { Layout.fillWidth: true; text: qsTr("Qwen3 ForcedAligner 0.6B (word / character timing)"); color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                    PrimaryButton {
+                        Layout.fillWidth: true
+                        text: AppController.colabAlignment.colabActive ? qsTr("Use local alignment") : (AppController.colabAlignment.colabConnected ? qsTr("Use direct Colab alignment") : qsTr("Connect direct Colab alignment"))
+                        iconName: AppController.colabAlignment.colabActive ? "close" : "cloud"
+                        onClicked: {
+                            if (AppController.colabAlignment.colabActive) {
+                                AppController.colabAlignment.useLocal()
+                            } else if (AppController.colabAlignment.colabConnected) {
+                                AppController.colabAlignment.useColab()
+                            } else if (AppController.colabAlignment.connectColab(colabUrl.text.trim(), colabToken.text)) {
+                                colabToken.text = ""
+                            }
+                        }
+                    }
+                }
             }
 
             Rectangle {

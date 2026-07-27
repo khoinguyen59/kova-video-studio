@@ -30,6 +30,7 @@
 #include "FileAccessService.h"
 #include "DownloadInstallService.h"
 #include "controllers/alignment/AlignmentExecutionService.h"
+#include "controllers/alignment/ColabAlignmentController.h"
 #include "TranslationController.h"
 #include "VoiceClonePresetService.h"
 #include "VoiceDesignPresetService.h"
@@ -79,6 +80,7 @@ class AppController : public QObject {
     Q_PROPERTY(FileAccessService* files READ files CONSTANT)
     Q_PROPERTY(DownloadInstallService* downloadInstall READ downloadInstall CONSTANT)
     Q_PROPERTY(AlignmentExecutionService* alignment READ alignment CONSTANT)
+    Q_PROPERTY(ColabAlignmentController* colabAlignment READ colabAlignment CONSTANT)
     Q_PROPERTY(TranslationController* translation READ translation CONSTANT)
     Q_PROPERTY(VoiceClonePresetService* voiceClonePresets READ voiceClonePresets CONSTANT)
     Q_PROPERTY(VoiceDesignPresetService* voiceDesignPresets READ voiceDesignPresets CONSTANT)
@@ -134,6 +136,7 @@ public:
     FileAccessService* files() const { return m_files; }
     DownloadInstallService* downloadInstall() const { return m_downloadInstall; }
     AlignmentExecutionService* alignment() const { return m_alignment; }
+    ColabAlignmentController* colabAlignment() const { return m_colabAlignment; }
     TranslationController* translation() const { return m_translation; }
     VoiceClonePresetService* voiceClonePresets() const { return m_voiceClonePresets; }
     VoiceDesignPresetService* voiceDesignPresets() const { return m_voiceDesignPresets; }
@@ -201,6 +204,7 @@ private:
     FileAccessService* m_files = nullptr;
     DownloadInstallService* m_downloadInstall = nullptr;
     AlignmentExecutionService* m_alignment = nullptr;
+    ColabAlignmentController* m_colabAlignment = nullptr;
     TranslationController* m_translation = nullptr;
     VoiceClonePresetService* m_voiceClonePresets = nullptr;
     VoiceDesignPresetService* m_voiceDesignPresets = nullptr;

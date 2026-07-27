@@ -307,6 +307,66 @@ bool ColabWorkerClient::designVoice(const QString &text, const QString &model,
     return true;
 }
 
+bool ColabWorkerClient::alignAudioFile(const QString &audioPath, const QString &transcript,
+                                       const QString &language, const QString &model,
+                                       const std::shared_ptr<std::atomic_bool> &cancelToken,
+                                       QJsonObject *response, QString *errorMessage)
+{
+    if (response) *response = {};
+    if (!m_workerUrl.isValid() || m_bearerToken.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab worker is not connected");
+        return false;
+    }
+    const QString normalizedTranscript = transcript.trimmed();
+    const QString normalizedModel = model.trimmed();
+    if (normalizedTranscript.isEmpty() || normalizedModel.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Audio, transcript, and alignment model are required");
+        return false;
+    }
+
+    QFile *audio = new QFile(audioPath);
+    constexpr qint64 maxUploadBytes = 512LL * 1024LL * 1024LL;
+    if (!audio->open(QIODevice::ReadOnly) || audio->size() <= 0 || audio->size() > maxUploadBytes) {
+        delete audio;
+        if (errorMessage) *errorMessage = QStringLiteral("Alignment audio must be a readable file no larger than 512 MB");
+        return false;
+    }
+
+    QNetworkAccessManager manager;
+    QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v1/audio/alignments")));
+    request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
+    request.setRawHeader("Accept", "application/json");
+    auto *multipart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
+    multipart->append(formField("model", normalizedModel.toUtf8()));
+    multipart->append(formField("transcript", normalizedTranscript.toUtf8()));
+    multipart->append(formField("language", language.trimmed().isEmpty() ? QByteArrayLiteral("en") : language.trimmed().toUtf8()));
+    QHttpPart audioPart;
+    const QString sourceFilename = QFileInfo(audio->fileName()).fileName();
+    const QString filename = sourceFilename.isEmpty() ? QStringLiteral("audio.wav") : sourceFilename;
+    audioPart.setHeader(QNetworkRequest::ContentDispositionHeader,
+                        QVariant(QStringLiteral("form-data; name=\"audio\"; filename=\"%1\"").arg(filename)));
+    audioPart.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QStringLiteral("application/octet-stream")));
+    audio->setParent(multipart);
+    audioPart.setBodyDevice(audio);
+    multipart->append(audioPart);
+
+    QNetworkReply *reply = manager.post(request, multipart);
+    multipart->setParent(reply);
+    m_activeReply = reply;
+    QEventLoop eventLoop;
+    QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
+    eventLoop.exec();
+    m_activeReply = nullptr;
+    if (cancelToken && cancelToken->load(std::memory_order_relaxed)) {
+        reply->deleteLater();
+        return false;
+    }
+    const bool ok = parseJsonResponse(reply, nullptr, response, errorMessage,
+                                      QStringLiteral("Colab worker returned an invalid alignment response"));
+    reply->deleteLater();
+    return ok;
+}
+
 bool ColabWorkerClient::createVoiceProfileJob(const QString &referencePath, const QString &name,
                                               const QString &referenceText, const QString &language,
                                               bool separateMusic, QJsonObject *job, QString *errorMessage)

@@ -36,6 +36,9 @@ public:
                      const QString &style, const QString &language, float temperature, qint64 seed,
                      const std::shared_ptr<std::atomic_bool> &cancelToken,
                      QByteArray *wavData, QString *errorMessage);
+    bool alignAudioFile(const QString &audioPath, const QString &transcript, const QString &language,
+                        const QString &model, const std::shared_ptr<std::atomic_bool> &cancelToken,
+                        QJsonObject *response, QString *errorMessage);
     bool createVoiceProfileJob(const QString &referencePath, const QString &name,
                                const QString &referenceText, const QString &language,
                                bool separateMusic, QJsonObject *job, QString *errorMessage);

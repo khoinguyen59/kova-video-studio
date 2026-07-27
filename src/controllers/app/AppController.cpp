@@ -65,6 +65,7 @@ AppController::AppController(QObject *parent)
     Logger::info(QStringLiteral("App"), QStringLiteral("Initializing runtime services."));
     m_runtimes  = new RuntimeManager(m_catalog, m_settings, this);
     m_alignment = new AlignmentExecutionService(m_runtimes, m_models, this);
+    m_colabAlignment = new ColabAlignmentController(m_colabSession, this);
     m_voiceIsolator = new VoiceIsolatorController(this);
     Logger::info(QStringLiteral("App"), QStringLiteral("Initializing model session registry."));
     m_sessionRegistry = new ModelSessionRegistry(m_stt, m_tts, m_translationEngine, m_llmEngine, m_alignment, m_voiceIsolator, this);
@@ -105,6 +106,7 @@ AppController::AppController(QObject *parent)
     connect(m_colabTts, &ColabTtsController::errorOccurred, this, &AppController::onError);
     connect(m_colabVoiceClone, &ColabVoiceCloneController::errorOccurred, this, &AppController::onError);
     connect(m_colabVoiceDesign, &ColabVoiceDesignController::errorOccurred, this, &AppController::onError);
+    connect(m_colabAlignment, &ColabAlignmentController::failed, this, &AppController::onError);
     connect(m_downloadInstall, &DownloadInstallService::errorOccurred, this, &AppController::onError);
     connect(m_alignment, &AlignmentExecutionService::failed, this,
             [this](const QString &, const QString &message) { onError(message); });
