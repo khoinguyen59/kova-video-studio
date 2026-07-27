@@ -242,6 +242,71 @@ bool ColabWorkerClient::synthesizeSpeech(const QString &text, const QString &mod
     return true;
 }
 
+bool ColabWorkerClient::designVoice(const QString &text, const QString &model,
+                                    const QString &voiceDescription, const QString &style,
+                                    const QString &language, float temperature, qint64 seed,
+                                    const std::shared_ptr<std::atomic_bool> &cancelToken,
+                                    QByteArray *wavData, QString *errorMessage)
+{
+    if (wavData) wavData->clear();
+    if (!m_workerUrl.isValid() || m_bearerToken.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab worker is not connected");
+        return false;
+    }
+    const QString normalizedText = text.trimmed();
+    const QString normalizedModel = model.trimmed();
+    const QString normalizedDescription = voiceDescription.trimmed();
+    if (normalizedText.isEmpty() || normalizedModel.isEmpty() || normalizedDescription.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Text, VoiceDesign model, and voice description are required");
+        return false;
+    }
+
+    QJsonObject payload{{QStringLiteral("model"), normalizedModel},
+                        {QStringLiteral("input"), normalizedText},
+                        {QStringLiteral("voice_description"), normalizedDescription},
+                        {QStringLiteral("language"), language.trimmed().isEmpty() ? QStringLiteral("en") : language.trimmed()},
+                        {QStringLiteral("temperature"), qBound(0.1F, temperature, 2.0F)},
+                        {QStringLiteral("seed"), seed},
+                        {QStringLiteral("response_format"), QStringLiteral("wav")}};
+    if (!style.trimmed().isEmpty()) payload.insert(QStringLiteral("style"), style.trimmed());
+
+    QNetworkAccessManager manager;
+    QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v1/audio/voice_designs")));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
+    request.setRawHeader("Accept", "audio/wav, application/octet-stream");
+    QNetworkReply *reply = manager.post(request, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+    m_activeReply = reply;
+    QEventLoop eventLoop;
+    QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
+    eventLoop.exec();
+    const QByteArray body = reply->readAll();
+    const int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QNetworkReply::NetworkError networkError = reply->error();
+    const QString networkErrorText = reply->errorString();
+    m_activeReply = nullptr;
+    reply->deleteLater();
+
+    if (cancelToken && cancelToken->load(std::memory_order_relaxed)) return false;
+    if (networkError != QNetworkReply::NoError) {
+        if (errorMessage) {
+            *errorMessage = statusCode >= 400 ? responseError(body, statusCode)
+                                               : QStringLiteral("Colab worker request failed: %1").arg(networkErrorText);
+        }
+        return false;
+    }
+    if (statusCode < 200 || statusCode >= 300) {
+        if (errorMessage) *errorMessage = responseError(body, statusCode);
+        return false;
+    }
+    if (body.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab worker returned empty VoiceDesign audio");
+        return false;
+    }
+    if (wavData) *wavData = body;
+    return true;
+}
+
 bool ColabWorkerClient::createVoiceProfileJob(const QString &referencePath, const QString &name,
                                               const QString &referenceText, const QString &language,
                                               bool separateMusic, QJsonObject *job, QString *errorMessage)

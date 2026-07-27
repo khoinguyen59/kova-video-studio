@@ -32,6 +32,10 @@ public:
                           const QString &language, float speed, const QVariantMap &settings,
                           const std::shared_ptr<std::atomic_bool> &cancelToken,
                           QByteArray *wavData, QString *errorMessage);
+    bool designVoice(const QString &text, const QString &model, const QString &voiceDescription,
+                     const QString &style, const QString &language, float temperature, qint64 seed,
+                     const std::shared_ptr<std::atomic_bool> &cancelToken,
+                     QByteArray *wavData, QString *errorMessage);
     bool createVoiceProfileJob(const QString &referencePath, const QString &name,
                                const QString &referenceText, const QString &language,
                                bool separateMusic, QJsonObject *job, QString *errorMessage);

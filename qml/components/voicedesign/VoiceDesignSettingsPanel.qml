@@ -16,6 +16,22 @@ ColumnLayout {
     property bool randomSeed: true
     property int customSeed: 42
     property bool locked: false
+    property real colabTemperature: 0.9
+
+    component ColabField: TextField {
+        Layout.fillWidth: true
+        color: Theme.textPrimary
+        placeholderTextColor: Theme.textSecondary
+        font.pixelSize: Theme.fontSmall
+        padding: Theme.paddingSmall
+        selectByMouse: true
+        background: Rectangle {
+            radius: Theme.radiusSmall
+            color: Qt.rgba(1, 1, 1, 0.035)
+            border.color: parent.activeFocus ? Theme.accent : Qt.rgba(1, 1, 1, 0.09)
+            border.width: parent.activeFocus ? 2 : 1
+        }
+    }
 
     property var capabilitySchema: []
     property var basicSchema: []
@@ -258,6 +274,51 @@ ColumnLayout {
         ColumnLayout {
             width: parent.width - 16
             spacing: Theme.paddingMedium
+
+            SettingsSection {
+                title: qsTr("Colab GPU VoiceDesign")
+                iconName: "cloud"
+
+                Text { Layout.fillWidth: true; text: qsTr("This direct Qwen3 VoiceDesign worker is independent of API Gateway. Its token remains only in this desktop session."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                ColabField {
+                    id: colabUrl
+                    text: AppController.colabSession.workerUrl
+                    placeholderText: qsTr("https://…trycloudflare.com")
+                    enabled: !root.locked
+                }
+                Text { text: qsTr("Session token"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                ColabField {
+                    id: colabToken
+                    echoMode: TextInput.Password
+                    placeholderText: AppController.colabVoiceDesign.colabConnected ? qsTr("Connected — enter token to replace") : qsTr("Temporary token from Colab")
+                    enabled: !root.locked
+                }
+                Text { text: qsTr("Model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                Text { Layout.fillWidth: true; text: qsTr("Qwen3-TTS 1.7B VoiceDesign"); color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                Text { text: qsTr("Temperature"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                ColabField {
+                    text: root.colabTemperature.toFixed(2)
+                    validator: DoubleValidator { bottom: 0.1; top: 2.0; decimals: 2 }
+                    enabled: !root.locked
+                    onEditingFinished: root.colabTemperature = Math.max(0.1, Math.min(2.0, parseFloat(text) || 0.9))
+                }
+                PrimaryButton {
+                    Layout.fillWidth: true
+                    enabled: !root.locked
+                    text: AppController.colabVoiceDesign.colabActive ? qsTr("Use local VoiceDesign") : (AppController.colabVoiceDesign.colabConnected ? qsTr("Use Colab GPU VoiceDesign") : qsTr("Connect Colab GPU VoiceDesign"))
+                    iconName: AppController.colabVoiceDesign.colabActive ? "close" : "cloud"
+                    onClicked: {
+                        if (AppController.colabVoiceDesign.colabActive) {
+                            AppController.colabVoiceDesign.useLocal()
+                        } else if (AppController.colabVoiceDesign.colabConnected) {
+                            AppController.colabVoiceDesign.useColab()
+                        } else if (AppController.colabVoiceDesign.connectColab(colabUrl.text.trim(), colabToken.text)) {
+                            colabToken.text = ""
+                        }
+                    }
+                }
+            }
 
             SettingsSection {
                 title: "Core"

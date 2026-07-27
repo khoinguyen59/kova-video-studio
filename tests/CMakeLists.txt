@@ -16,6 +16,8 @@ set(TEST_SOURCES
     test_ColabTtsRunner.h
     test_ColabVoiceCloneRunner.cpp
     test_ColabVoiceCloneRunner.h
+    test_ColabVoiceDesignRunner.cpp
+    test_ColabVoiceDesignRunner.h
     test_SubtitleVoice.cpp
     test_TtsTextPreprocessor.cpp
     test_TtsRequestValidator.cpp
@@ -90,6 +92,7 @@ set(TEST_SOURCES
     ../src/controllers/tts/GatewayTtsController.cpp
     ../src/controllers/tts/ColabTtsController.cpp
     ../src/controllers/tts/ColabVoiceCloneController.cpp
+    ../src/controllers/tts/ColabVoiceDesignController.cpp
     ../src/controllers/tts/SubtitleVoiceController.cpp
     ../src/subtitles/SrtTimelineParser.cpp
     ../src/tts/SubtitleSmartFitPlanner.cpp
@@ -162,6 +165,7 @@ set(TEST_SOURCES
     ../src/tts/GatewayTtsRunner.cpp
     ../src/tts/ColabTtsRunner.cpp
     ../src/tts/ColabVoiceCloneRunner.cpp
+    ../src/tts/ColabVoiceDesignRunner.cpp
     ../src/core/LocalizationManager.cpp
     ../src/core/ModelManager.cpp
     ../src/core/CatalogManager.cpp
@@ -197,9 +201,11 @@ set(TEST_SOURCES
     ../src/tts/GatewayTtsRunner.h
     ../src/tts/ColabTtsRunner.h
     ../src/tts/ColabVoiceCloneRunner.h
+    ../src/tts/ColabVoiceDesignRunner.h
     ../src/controllers/tts/GatewayTtsController.h
     ../src/controllers/tts/ColabTtsController.h
     ../src/controllers/tts/ColabVoiceCloneController.h
+    ../src/controllers/tts/ColabVoiceDesignController.h
     ../src/controllers/app/AppController.h
     ../src/controllers/shared/AppUpdateService.h
     ../src/controllers/shared/ExampleManager.h
@@ -357,6 +363,7 @@ set(LASTUDIO_TEST_SUITES
     TestGatewayTtsRunner
     TestColabTtsRunner
     TestColabVoiceCloneRunner
+    TestColabVoiceDesignRunner
 )
 
 foreach(LASTUDIO_TEST_SUITE IN LISTS LASTUDIO_TEST_SUITES)

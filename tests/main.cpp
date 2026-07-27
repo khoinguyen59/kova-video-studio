@@ -29,6 +29,7 @@
 #include "test_GatewayTtsRunner.h"
 #include "test_ColabTtsRunner.h"
 #include "test_ColabVoiceCloneRunner.h"
+#include "test_ColabVoiceDesignRunner.h"
 
 #include <QFile>
 #include <QTextStream>
@@ -213,6 +214,10 @@ int main(int argc, char *argv[])
     {
         LAStudio::TestColabVoiceCloneRunner suite;
         runSuite(&suite, "TestColabVoiceCloneRunner");
+    }
+    {
+        LAStudio::TestColabVoiceDesignRunner suite;
+        runSuite(&suite, "TestColabVoiceDesignRunner");
     }
 
     std::cout << "\n==================================================\n";
