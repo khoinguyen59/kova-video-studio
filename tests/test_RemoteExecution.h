@@ -26,6 +26,7 @@ private slots:
     void gatewayAndColabFailuresRemainIndependent();
     void gatewayModelCatalogUsesGatewayOnly();
     void colabCapabilityCatalogUsesDirectWorkerOnly();
+    void remoteCatalogRequestsTimeOut();
     void remoteModelCatalogAggregatesIndependentColabSessions();
     void remoteModelCatalogRetainsHealthyWorkerWhenAnotherFails();
 };

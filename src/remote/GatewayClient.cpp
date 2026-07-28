@@ -16,6 +16,10 @@ namespace LAStudio {
 
 namespace {
 
+// Streaming requests can last for a while, but a silent endpoint must never
+// leave a feature worker blocked indefinitely.
+constexpr int kInferenceRequestTimeoutMs = 300'000;
+
 QString responseErrorMessage(const QByteArray &body, int statusCode)
 {
     const QJsonDocument document = QJsonDocument::fromJson(body);
@@ -131,6 +135,7 @@ bool GatewayClient::streamChat(const QList<QVariantMap> &messages, const ChatOpt
 
     QNetworkAccessManager manager;
     QNetworkRequest request(appendRemotePath(m_baseUrl, QStringLiteral("chat/completions")));
+    request.setTransferTimeout(kInferenceRequestTimeoutMs);
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     request.setRawHeader("Authorization", QByteArray("Bearer ") + m_apiKey.toUtf8());
     request.setRawHeader("Accept", "text/event-stream, application/json");
@@ -228,6 +233,7 @@ bool GatewayClient::transcribeWav(const QByteArray &wavData, const QString &lang
 
     QNetworkAccessManager manager;
     QNetworkRequest request(appendRemotePath(m_baseUrl, QStringLiteral("audio/transcriptions")));
+    request.setTransferTimeout(kInferenceRequestTimeoutMs);
     request.setRawHeader("Authorization", QByteArray("Bearer ") + m_apiKey.toUtf8());
     request.setRawHeader("Accept", "application/json");
     auto *multipart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
@@ -309,6 +315,7 @@ bool GatewayClient::synthesizeSpeech(const QString &text, const QString &voice, 
     };
     QNetworkAccessManager manager;
     QNetworkRequest request(appendRemotePath(m_baseUrl, QStringLiteral("audio/speech")));
+    request.setTransferTimeout(kInferenceRequestTimeoutMs);
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     request.setRawHeader("Authorization", QByteArray("Bearer ") + m_apiKey.toUtf8());
     request.setRawHeader("Accept", "audio/wav, application/octet-stream");

@@ -18,6 +18,10 @@ namespace LAStudio {
 
 namespace {
 
+// Uploads and GPU jobs can legitimately take minutes. A finite transfer
+// timeout still lets the UI recover when a Colab tunnel disappears silently.
+constexpr int kInferenceRequestTimeoutMs = 300'000;
+
 QString responseError(const QByteArray &body, int statusCode)
 {
     const QJsonDocument document = QJsonDocument::fromJson(body);
@@ -136,6 +140,7 @@ bool ColabWorkerClient::transcribeWav(const QByteArray &wavData, const QString &
 
     QNetworkAccessManager manager;
     QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v1/audio/transcriptions")));
+    request.setTransferTimeout(kInferenceRequestTimeoutMs);
     request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
     request.setRawHeader("Accept", "application/json");
 
@@ -230,6 +235,7 @@ bool ColabWorkerClient::synthesizeSpeech(const QString &text, const QString &mod
 
     QNetworkAccessManager manager;
     QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v1/audio/speech")));
+    request.setTransferTimeout(kInferenceRequestTimeoutMs);
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
     request.setRawHeader("Accept", "audio/wav, application/octet-stream");
@@ -295,6 +301,7 @@ bool ColabWorkerClient::designVoice(const QString &text, const QString &model,
 
     QNetworkAccessManager manager;
     QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v1/audio/voice_designs")));
+    request.setTransferTimeout(kInferenceRequestTimeoutMs);
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
     request.setRawHeader("Accept", "audio/wav, application/octet-stream");
@@ -362,6 +369,7 @@ bool ColabWorkerClient::alignAudioFile(const QString &audioPath, const QString &
 
     QNetworkAccessManager manager;
     QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v1/audio/alignments")));
+    request.setTransferTimeout(kInferenceRequestTimeoutMs);
     request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
     request.setRawHeader("Accept", "application/json");
     auto *multipart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
@@ -417,6 +425,7 @@ bool ColabWorkerClient::createSeparationJob(const QString &audioPath, const QStr
     }
     QNetworkAccessManager manager;
     QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v1/audio/separations")));
+    request.setTransferTimeout(kInferenceRequestTimeoutMs);
     request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
     request.setRawHeader("Accept", "application/json");
     auto *multipart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
@@ -453,6 +462,7 @@ bool ColabWorkerClient::separationJobStatus(const QString &jobId, QJsonObject *j
     }
     QNetworkAccessManager manager;
     QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v1/audio/separations/%1").arg(jobId.trimmed())));
+    request.setTransferTimeout(kInferenceRequestTimeoutMs);
     request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
     request.setRawHeader("Accept", "application/json");
     QNetworkReply *reply = manager.get(request);
@@ -480,6 +490,7 @@ bool ColabWorkerClient::downloadSeparationArtifact(const QString &jobId, const Q
     QNetworkAccessManager manager;
     QNetworkRequest request(appendRemotePath(m_workerUrl,
         QStringLiteral("v1/audio/separations/%1/artifacts/%2").arg(jobId.trimmed(), stem)));
+    request.setTransferTimeout(kInferenceRequestTimeoutMs);
     request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
     request.setRawHeader("Accept", "audio/wav, application/octet-stream");
     QNetworkReply *reply = manager.get(request);
@@ -512,6 +523,7 @@ bool ColabWorkerClient::cancelSeparationJob(const QString &jobId, QString *error
     if (!m_workerUrl.isValid() || m_bearerToken.isEmpty() || jobId.trimmed().isEmpty()) return false;
     QNetworkAccessManager manager;
     QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v1/audio/separations/%1").arg(jobId.trimmed())));
+    request.setTransferTimeout(kInferenceRequestTimeoutMs);
     request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
     QNetworkReply *reply = manager.deleteResource(request);
     m_activeReply = reply;
@@ -543,6 +555,7 @@ bool ColabWorkerClient::translateSegments(const QVariantList &segments, const QS
     }
     QNetworkAccessManager manager;
     QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v1/translations")));
+    request.setTransferTimeout(kInferenceRequestTimeoutMs);
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
     request.setRawHeader("Accept", "application/json");
@@ -594,6 +607,7 @@ bool ColabWorkerClient::streamChat(const QList<QVariantMap> &messages, const QSt
 
     QNetworkAccessManager manager;
     QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v1/chat/completions")));
+    request.setTransferTimeout(kInferenceRequestTimeoutMs);
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
     request.setRawHeader("Accept", "text/event-stream, application/json");
@@ -696,6 +710,7 @@ bool ColabWorkerClient::createVoiceProfileJob(const QString &referencePath, cons
 
     QNetworkAccessManager manager;
     QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v2/jobs/profile")));
+    request.setTransferTimeout(kInferenceRequestTimeoutMs);
     request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
     request.setRawHeader("Accept", "application/json");
     auto *multipart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
@@ -746,6 +761,7 @@ bool ColabWorkerClient::createVoiceGenerationJob(const QString &profileId, const
                               {QStringLiteral("num_step"), qBound(1, steps, 64)}};
     QNetworkAccessManager manager;
     QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v2/jobs/generation")));
+    request.setTransferTimeout(kInferenceRequestTimeoutMs);
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
     request.setRawHeader("Accept", "application/json");
@@ -770,6 +786,7 @@ bool ColabWorkerClient::voiceJobStatus(const QString &jobId, QJsonObject *job, Q
     }
     QNetworkAccessManager manager;
     QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v2/jobs/%1").arg(jobId.trimmed())));
+    request.setTransferTimeout(kInferenceRequestTimeoutMs);
     request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
     request.setRawHeader("Accept", "application/json");
     QNetworkReply *reply = manager.get(request);
@@ -792,6 +809,7 @@ bool ColabWorkerClient::cancelVoiceJob(const QString &jobId, QString *errorMessa
     }
     QNetworkAccessManager manager;
     QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v2/jobs/%1").arg(jobId.trimmed())));
+    request.setTransferTimeout(kInferenceRequestTimeoutMs);
     request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
     request.setRawHeader("Accept", "application/json");
     QNetworkReply *reply = manager.sendCustomRequest(request, "DELETE");
@@ -816,6 +834,7 @@ bool ColabWorkerClient::downloadVoiceJobAudio(const QString &jobId, QByteArray *
     }
     QNetworkAccessManager manager;
     QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v2/jobs/%1/audio").arg(jobId.trimmed())));
+    request.setTransferTimeout(kInferenceRequestTimeoutMs);
     request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
     request.setRawHeader("Accept", "audio/wav, application/octet-stream");
     QNetworkReply *reply = manager.get(request);
@@ -852,6 +871,7 @@ bool ColabWorkerClient::deleteVoiceProfile(const QString &profileId, QString *er
     }
     QNetworkAccessManager manager;
     QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v1/profiles/%1").arg(profileId.trimmed())));
+    request.setTransferTimeout(kInferenceRequestTimeoutMs);
     request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
     request.setRawHeader("Accept", "application/json");
     QNetworkReply *reply = manager.sendCustomRequest(request, "DELETE");

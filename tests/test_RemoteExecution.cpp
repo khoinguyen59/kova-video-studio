@@ -1,6 +1,7 @@
 #include "test_RemoteExecution.h"
 
 #include <QtTest>
+#include <QElapsedTimer>
 #include <QPointer>
 #include <QSettings>
 #include <QTcpServer>
@@ -74,6 +75,27 @@ private:
     QByteArray m_pending;
     QByteArray m_request;
     QList<QByteArray> m_requests;
+};
+
+class SilentCatalogMock final : public QObject
+{
+public:
+    SilentCatalogMock()
+    {
+        connect(&m_server, &QTcpServer::newConnection, this, [this] {
+            while (QTcpSocket *socket = m_server.nextPendingConnection()) {
+                socket->setParent(this);
+                m_sockets.append(socket);
+            }
+        });
+    }
+
+    bool start() { return m_server.listen(QHostAddress::LocalHost); }
+    QString baseUrl() const { return QStringLiteral("http://127.0.0.1:%1").arg(m_server.serverPort()); }
+
+private:
+    QTcpServer m_server;
+    QList<QPointer<QTcpSocket>> m_sockets;
 };
 
 } // namespace
@@ -530,6 +552,27 @@ void TestRemoteExecution::colabCapabilityCatalogUsesDirectWorkerOnly()
     QCOMPARE(server.request().left(server.request().indexOf("\r\n")),
              QByteArrayLiteral("GET /v1/capabilities HTTP/1.1"));
     QVERIFY(server.request().toLower().contains("authorization: bearer temporary-colab-catalog-token"));
+}
+
+void TestRemoteExecution::remoteCatalogRequestsTimeOut()
+{
+    SilentCatalogMock server;
+    QVERIFY(server.start());
+
+    QElapsedTimer elapsed;
+    elapsed.start();
+    const GatewayModelCatalog::Result gateway = GatewayModelCatalog::fetch(
+        server.baseUrl() + QStringLiteral("/v1"), QStringLiteral("gateway-timeout-token"), true, 120);
+    QVERIFY(!gateway.isSuccess());
+    QVERIFY(!gateway.error.contains(QStringLiteral("gateway-timeout-token")));
+    QVERIFY2(elapsed.elapsed() < 5'000, "Gateway catalog timeout exceeded its bounded test window");
+
+    elapsed.restart();
+    const ColabCapabilityCatalog::Result colab = ColabCapabilityCatalog::fetch(
+        QUrl(server.baseUrl()), QStringLiteral("colab-timeout-token"), true, 120);
+    QVERIFY(!colab.isSuccess());
+    QVERIFY(!colab.error.contains(QStringLiteral("colab-timeout-token")));
+    QVERIFY2(elapsed.elapsed() < 5'000, "Colab catalog timeout exceeded its bounded test window");
 }
 
 void TestRemoteExecution::remoteModelCatalogAggregatesIndependentColabSessions()

@@ -92,7 +92,8 @@ void appendModel(QVariantList *models, QSet<QString> *seen, const QString &capab
 
 ColabCapabilityCatalog::Result ColabCapabilityCatalog::fetch(const QUrl &workerUrl,
                                                                const QString &bearerToken,
-                                                               bool allowInsecureLocalhost)
+                                                               bool allowInsecureLocalhost,
+                                                               int transferTimeoutMs)
 {
     Result result;
     const RemoteEndpointValidation endpoint = validateRemoteEndpoint(
@@ -109,6 +110,7 @@ ColabCapabilityCatalog::Result ColabCapabilityCatalog::fetch(const QUrl &workerU
 
     QNetworkAccessManager manager;
     QNetworkRequest request(appendRemotePath(endpoint.normalizedUrl, QStringLiteral("v1/capabilities")));
+    request.setTransferTimeout(qMax(1, transferTimeoutMs));
     request.setRawHeader("Authorization", QByteArray("Bearer ") + token.toUtf8());
     request.setRawHeader("Accept", "application/json");
     QNetworkReply *reply = manager.get(request);

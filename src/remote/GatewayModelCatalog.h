@@ -18,7 +18,8 @@ public:
     };
 
     static Result fetch(const QString &gatewayUrl, const QString &apiKey,
-                        bool allowInsecureLocalhost = false);
+                        bool allowInsecureLocalhost = false,
+                        int transferTimeoutMs = 20'000);
 };
 
 } // namespace LAStudio

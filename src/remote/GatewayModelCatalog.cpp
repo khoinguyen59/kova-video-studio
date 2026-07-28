@@ -36,10 +36,11 @@ QString gatewayError(const QByteArray &body, int statusCode, const QString &netw
 
 bool fetchModels(QNetworkAccessManager *manager, const QUrl &baseUrl,
                  const QString &path, const QByteArray &apiKey,
-                 QJsonArray *models, QString *error)
+                 QJsonArray *models, QString *error, int transferTimeoutMs)
 {
     if (!manager || !models) return false;
     QNetworkRequest request(appendRemotePath(baseUrl, path));
+    request.setTransferTimeout(qMax(1, transferTimeoutMs));
     request.setRawHeader("Authorization", QByteArray("Bearer ") + apiKey);
     request.setRawHeader("Accept", "application/json");
     QNetworkReply *reply = manager->get(request);
@@ -70,7 +71,8 @@ bool fetchModels(QNetworkAccessManager *manager, const QUrl &baseUrl,
 
 GatewayModelCatalog::Result GatewayModelCatalog::fetch(const QString &gatewayUrl,
                                                         const QString &apiKey,
-                                                        bool allowInsecureLocalhost)
+                                                        bool allowInsecureLocalhost,
+                                                        int transferTimeoutMs)
 {
     Result result;
     const RemoteEndpointValidation endpoint = validateRemoteEndpoint(
@@ -95,7 +97,8 @@ GatewayModelCatalog::Result GatewayModelCatalog::fetch(const QString &gatewayUrl
     for (const auto &catalog : catalogs) {
         QJsonArray models;
         QString error;
-        if (!fetchModels(&manager, endpoint.normalizedUrl, catalog.first, key.toUtf8(), &models, &error)) {
+        if (!fetchModels(&manager, endpoint.normalizedUrl, catalog.first, key.toUtf8(), &models,
+                         &error, transferTimeoutMs)) {
             result.error = QStringLiteral("API Gateway %1 catalog: %2").arg(catalog.second, error);
             result.models.clear();
             return result;
