@@ -17,7 +17,7 @@ cd LA-Studio
 
 After a successful build, executable output is:
 
-`out/build/windows-msvc-release/LA Studio.exe`
+`out/build/windows-msvc-release/LA-Studio-<version>.exe`
 
 ## Prerequisites
 
@@ -128,7 +128,7 @@ Primary presets:
 
 Legacy aliases (`x64-release`, `x64-debug`, `mingw-release`) are retained for compatibility only.
 
-`Debug` builds keep the console attached for developer logging. All non-Debug Windows builds are packaged as GUI apps, so the terminal is hidden when `LA Studio.exe` opens.
+`Debug` builds keep the console attached for developer logging. All non-Debug Windows builds are packaged as GUI apps, so the terminal is hidden when `LA-Studio-<version>.exe` opens.
 
 ## Incremental Build and Build Speed
 

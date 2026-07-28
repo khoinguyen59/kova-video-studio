@@ -28,7 +28,7 @@ repository or in an Actions secret.
   `SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG`, and
   `SIGNPATH_CERTIFICATE_SUBJECT`.
 - Configure the application artifact configuration to accept the Actions ZIP
-  containing exactly `LA Studio.exe` and `LAStudioRuntimeHost.exe`; configure
+  containing exactly `LA-Studio-<version>.exe` and `LAStudioRuntimeHost.exe`; configure
   the installer artifact configuration for the Actions ZIP containing
   `LA-Studio-Setup.exe`. Both configurations must return the signed files with
   those original names.
@@ -56,7 +56,7 @@ release.
 4. Push the tag only after the verification succeeds. The release workflow must create a **draft** release; it must not publish directly. Preview suffixes are automatically marked as GitHub prereleases, so Stable clients do not select them while Beta clients can.
 5. Confirm the draft contains, all built from the tagged SHA:
 
-   - signed installer and signed `LA Studio.exe` / `LAStudioRuntimeHost.exe`;
+   - signed installer and signed `LA-Studio-<version>.exe` / `LAStudioRuntimeHost.exe`;
    - installer SHA-256 file (`SHA256SUMS`);
    - SBOM and toolchain manifest;
    - source archive and the license/notices payload;
@@ -77,7 +77,7 @@ release.
 Perform the clean-machine smoke test in Windows Sandbox or a fresh VM with no Visual Studio, VC++ redistributable, FFmpeg, or eSpeak NG installed.
 
 1. Install the draft artifact.
-2. Start `LA Studio.exe`, verify the main window and `app.log` are created.
+2. Start `LA-Studio-<version>.exe`, verify the main window and `app.log` are created.
 3. Start and stop `LAStudioRuntimeHost.exe` through the application test path.
 4. Exercise one downloaded model/runtime and one video-dubbing flow.
 5. Verify eSpeak phoneme budgeting is active and the local API requires authentication.

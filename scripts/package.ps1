@@ -19,6 +19,7 @@ param(
     [string] $ReleaseSuffix,
     [string] $StageDir,
     [switch] $SkipInstaller,
+    [switch] $PortableInternalLayout,
     [switch] $AllowUnsignedEspeakForInternalBuild
 )
 
@@ -117,10 +118,17 @@ function Normalize-AppVersion {
     return $Value
 }
 
+function Get-VersionedApplicationExecutableName {
+    param([Parameter(Mandatory = $true)][string] $AppVersion)
+    return "LA-Studio-$AppVersion.exe"
+}
+
 function Assert-StagingDirectoryCanBeRebuilt {
     param(
         [Parameter(Mandatory = $true)]
-        [string] $StageRoot
+        [string] $StageRoot,
+        [Parameter(Mandatory = $true)]
+        [string] $ApplicationExecutableName
     )
 
     if (-not (Test-Path -LiteralPath $StageRoot)) { return }
@@ -128,7 +136,8 @@ function Assert-StagingDirectoryCanBeRebuilt {
     $pathSeparator = [IO.Path]::DirectorySeparatorChar
     $normalizedStageRoot = [IO.Path]::GetFullPath($StageRoot).TrimEnd($pathSeparator) + $pathSeparator
     $blockers = @()
-    $candidates = Get-Process -Name 'LA Studio', 'LAStudioRuntimeHost' -ErrorAction SilentlyContinue
+    $applicationProcessName = [IO.Path]::GetFileNameWithoutExtension($ApplicationExecutableName)
+    $candidates = Get-Process -Name $applicationProcessName, 'LAStudioRuntimeHost' -ErrorAction SilentlyContinue
     foreach ($candidate in $candidates) {
         try {
             $executablePath = $candidate.Path
@@ -157,10 +166,20 @@ function Resolve-StageDirectory {
         [Parameter(Mandatory = $true)]
         [string] $RepositoryRoot,
         [Parameter(Mandatory = $true)]
-        [bool] $InstallerRequested
+        [bool] $InstallerRequested,
+        [Parameter(Mandatory = $true)]
+        [string] $AppVersion,
+        [Parameter(Mandatory = $true)]
+        [bool] $PortableLayout
     )
 
-    $defaultStage = Join-Path $RepositoryRoot 'out\stage'
+    $defaultStage = if ($PortableLayout) {
+        Join-Path $RepositoryRoot ("out\LA-Studio-" + $AppVersion)
+    } elseif ($InstallerRequested) {
+        Join-Path $RepositoryRoot 'out\stage'
+    } else {
+        Join-Path $RepositoryRoot 'out\stage'
+    }
     if ([string]::IsNullOrWhiteSpace($Candidate)) { return $defaultStage }
 
     if ($InstallerRequested) {
@@ -603,6 +622,8 @@ $VcpkgRoot = Resolve-VcpkgRoot -Candidate $VcpkgRoot
 $LlamaCppSourceDir = Resolve-LlamaCppSourceDir -Candidate $LlamaCppSourceDir
 $Version = Normalize-AppVersion -Value $Version
 $ReleaseSuffix = Normalize-ReleaseSuffix -Value $ReleaseSuffix
+$applicationExecutableName = Get-VersionedApplicationExecutableName -AppVersion $Version
+$portableLayout = $SkipInstaller -and ($PortableInternalLayout -or [string]::IsNullOrWhiteSpace($StageDir))
 $kitName = if ($Preset -like "*mingw*") { "mingw_64" } else { "msvc2022_64" }
 
 if ([string]::IsNullOrWhiteSpace($QtRoot)) {
@@ -624,8 +645,8 @@ if (-not (Test-Path $windeployqt)) {
 }
 
 # 2. Setup folders
-$stageDir = Resolve-StageDirectory -Candidate $StageDir -RepositoryRoot $RepoRoot -InstallerRequested:(-not $SkipInstaller)
-Assert-StagingDirectoryCanBeRebuilt -StageRoot $stageDir
+$stageDir = Resolve-StageDirectory -Candidate $StageDir -RepositoryRoot $RepoRoot -InstallerRequested:(-not $SkipInstaller) -AppVersion $Version -PortableLayout:$portableLayout
+Assert-StagingDirectoryCanBeRebuilt -StageRoot $stageDir -ApplicationExecutableName $applicationExecutableName
 if (Test-Path $stageDir) {
     Write-Host ">> Cleaning old staging directory..." -ForegroundColor Cyan
     Remove-Item $stageDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -654,6 +675,7 @@ if ($Preset -like "*mingw*") {
 $cmakeArgs += "-DVCPKG_TARGET_TRIPLET=$vcpkgTriplet"
 $cmakeArgs += "-DLASTUDIO_VERSION=$Version"
 $cmakeArgs += "-DLASTUDIO_RELEASE_SUFFIX=$ReleaseSuffix"
+$cmakeArgs += "-DLASTUDIO_PORTABLE_INTERNAL_LAYOUT=$(if ($portableLayout) { 'ON' } else { 'OFF' })"
 $cmakeArgs += "-DBUILD_TESTING=OFF"
 
 $env:VCPKG_ROOT = $VcpkgRoot
@@ -669,7 +691,8 @@ Write-Host ">> Installing to staging folder..." -ForegroundColor Cyan
 if ($LASTEXITCODE -ne 0) { throw "CMake install failed." }
 
 # 4. Deploy Qt libraries and DLLs
-$stagedExe = Join-Path $stageDir "bin\LA Studio.exe"
+$deployRoot = if ($portableLayout) { $stageDir } else { Join-Path $stageDir 'bin' }
+$stagedExe = Join-Path $deployRoot $applicationExecutableName
 if (-not (Test-Path $stagedExe)) {
     throw "Staged executable not found at: $stagedExe"
 }
@@ -677,24 +700,25 @@ if (-not (Test-Path $stagedExe)) {
 Write-Host ">> Running windeployqt to deploy runtime dependencies..." -ForegroundColor Cyan
 & $windeployqt --verbose 0 --qmldir qml --no-translations --compiler-runtime $stagedExe
 if ($LASTEXITCODE -ne 0) { throw "windeployqt failed." }
-Ensure-WebpImageFormatPlugin -QtPrefixPath $qtPrefixPath -DeployRoot (Split-Path -Parent $stagedExe)
+Ensure-WebpImageFormatPlugin -QtPrefixPath $qtPrefixPath -DeployRoot $deployRoot
 Write-Host ">> Deploying vcpkg runtime DLLs..." -ForegroundColor Cyan
-Copy-VcpkgRuntimeLibraries -BuildDirectory $buildDir -Triplet $vcpkgTriplet -DeployDirectory (Split-Path -Parent $stagedExe)
-$sevenZipSource = Ensure-ArchiveExtractor -DeployRoot (Split-Path -Parent $stagedExe) -VcpkgRoot $VcpkgRoot
-Ensure-Bsdtar -RepositoryRoot $RepoRoot -DeployRoot (Split-Path -Parent $stagedExe) -StageRoot $stageDir -BuildDirectory $buildDir -Triplet $vcpkgTriplet
+Copy-VcpkgRuntimeLibraries -BuildDirectory $buildDir -Triplet $vcpkgTriplet -DeployDirectory $deployRoot
+$sevenZipSource = Ensure-ArchiveExtractor -DeployRoot $deployRoot -VcpkgRoot $VcpkgRoot
+Ensure-Bsdtar -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir -BuildDirectory $buildDir -Triplet $vcpkgTriplet
 Stage-ThirdPartyLicenseTexts -RepositoryRoot $RepoRoot -StageRoot $stageDir -BuildDirectory $buildDir -Triplet $vcpkgTriplet -QtRoot $QtRoot -SevenZipSource $sevenZipSource
 if ($AllowUnsignedEspeakForInternalBuild) {
     Write-Warning "INTERNAL BUILD ONLY: permitting the SHA-256-verified but unsigned eSpeak NG MSI. Do not distribute this package or promote it to a release."
 }
 
-Ensure-EspeakNgRuntime -RepositoryRoot $RepoRoot -DeployRoot (Split-Path -Parent $stagedExe) -AllowUnsignedEspeakForInternalBuild:$AllowUnsignedEspeakForInternalBuild
-Assert-StagedMsvcRuntime -DeployRoot (Split-Path -Parent $stagedExe)
-Assert-StagedRuntimeManifest -DeployRoot (Split-Path -Parent $stagedExe)
+Ensure-EspeakNgRuntime -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -AllowUnsignedEspeakForInternalBuild:$AllowUnsignedEspeakForInternalBuild
+Assert-StagedMsvcRuntime -DeployRoot $deployRoot
+Assert-StagedRuntimeManifest -DeployRoot $deployRoot -ApplicationExecutableName $applicationExecutableName
 Assert-StagedLicenseManifest -StageRoot $stageDir
 
 # 5. Build installer using Inno Setup
 if ($SkipInstaller) {
-    Write-Host "[SUCCESS] Application staged successfully at: $stageDir" -ForegroundColor Green
+    $kind = if ($portableLayout) { 'Portable application' } else { 'Application' }
+    Write-Host "[SUCCESS] $kind staged successfully at: $stagedExe" -ForegroundColor Green
     exit 0
 }
 

@@ -168,11 +168,13 @@ function Ensure-EspeakNgRuntime {
 function Assert-StagedRuntimeManifest {
     param(
         [Parameter(Mandatory = $true)]
-        [string] $DeployRoot
+        [string] $DeployRoot,
+        [Parameter(Mandatory = $true)]
+        [string] $ApplicationExecutableName
     )
 
     $required = @(
-        "LA Studio.exe",
+        $ApplicationExecutableName,
         "LAStudioRuntimeHost.exe",
         "Qt6Core.dll",
         "Qt6Quick.dll",

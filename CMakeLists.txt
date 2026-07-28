@@ -6,7 +6,7 @@ include(cmake/RuntimeAbi.cmake)
 # automation may override it with -DLASTUDIO_VERSION=<major.minor.release.build>.
 # Internal builds use four numeric fields so each artifact has an unambiguous,
 # monotonically ordered label: 0.0.0.1 ... 0.0.0.9, then 0.0.1.0.
-set(LASTUDIO_VERSION "0.0.0.2" CACHE STRING "LA Studio application version")
+set(LASTUDIO_VERSION "0.0.0.3" CACHE STRING "LA Studio application version")
 if(NOT LASTUDIO_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$")
     message(FATAL_ERROR "LASTUDIO_VERSION must use MAJOR.MINOR.RELEASE.BUILD format; got '${LASTUDIO_VERSION}'")
 endif()
@@ -60,6 +60,10 @@ configure_file(
     "${LASTUDIO_GENERATED_DIR}/lastudio/AppVersion.h"
     @ONLY
 )
+option(LASTUDIO_PORTABLE_INTERNAL_LAYOUT
+    "Install an internal portable package with executables at its root" OFF)
+set(LASTUDIO_EXECUTABLE_BASENAME "LA-Studio-${LASTUDIO_VERSION}")
+set(LASTUDIO_EXECUTABLE_FILENAME "${LASTUDIO_EXECUTABLE_BASENAME}.exe")
 configure_file(
     "${CMAKE_SOURCE_DIR}/cmake/RuntimeAbi.h.in"
     "${LASTUDIO_GENERATED_DIR}/lastudio/RuntimeAbi.h"
@@ -708,7 +712,7 @@ endif()
 # Omnivoice is loaded dynamically at runtime via OmnivoiceInterface
 
 set_target_properties(LAStudio PROPERTIES
-    OUTPUT_NAME "LA Studio"
+    OUTPUT_NAME "${LASTUDIO_EXECUTABLE_BASENAME}"
     MACOSX_BUNDLE TRUE
 )
 
@@ -717,7 +721,7 @@ if(WIN32)
     file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}/icons/app_icon.ico" LASTUDIO_ICON_FILE)
     set(LASTUDIO_FILE_DESCRIPTION "LA Studio")
     set(LASTUDIO_INTERNAL_NAME "LAStudio")
-    set(LASTUDIO_ORIGINAL_FILENAME "LA Studio.exe")
+    set(LASTUDIO_ORIGINAL_FILENAME "${LASTUDIO_EXECUTABLE_FILENAME}")
     configure_file(
         "${CMAKE_SOURCE_DIR}/resources/versioninfo.rc.in"
         "${LASTUDIO_GENERATED_DIR}/LAStudioVersionInfo.rc"
@@ -751,6 +755,7 @@ if(WIN32)
     file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}/icons/app_icon.ico" LASTUDIO_INSTALLER_ICON_FILE)
     file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}/LICENSE" LASTUDIO_LICENSE_FILE)
     file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}/resources/SOURCE-OFFER.txt" LASTUDIO_SOURCE_OFFER_FILE)
+    set(LASTUDIO_INSTALLER_APPLICATION_EXE "${LASTUDIO_EXECUTABLE_FILENAME}")
     configure_file(
         "${CMAKE_SOURCE_DIR}/scripts/installer.iss.in"
         "${CMAKE_BINARY_DIR}/installer.iss"
@@ -759,13 +764,18 @@ if(WIN32)
 endif()
 
 # Install the executable
+set(LASTUDIO_RUNTIME_INSTALL_DESTINATION "${CMAKE_INSTALL_BINDIR}")
+if(LASTUDIO_PORTABLE_INTERNAL_LAYOUT)
+    set(LASTUDIO_RUNTIME_INSTALL_DESTINATION ".")
+endif()
+
 install(TARGETS LAStudio
     BUNDLE DESTINATION .
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    RUNTIME DESTINATION ${LASTUDIO_RUNTIME_INSTALL_DESTINATION}
 )
 
 install(TARGETS LAStudioRuntimeHost
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    RUNTIME DESTINATION ${LASTUDIO_RUNTIME_INSTALL_DESTINATION}
 )
 
 install(FILES "${CMAKE_SOURCE_DIR}/LICENSE" DESTINATION .)

@@ -171,17 +171,19 @@ jobs:
             throw "QT_ROOT_DIR was not exported by install-qt-action."
           }
           $qtRoot = Split-Path -Parent $env:QT_ROOT_DIR
-          .\scripts\package.ps1 -Preset windows-msvc-release -QtRoot $qtRoot -VcpkgRoot .deps\vcpkg -LlamaCppSourceDir .deps\llama.cpp -SkipInstaller
+          .\scripts\package.ps1 -Preset windows-msvc-release -QtRoot $qtRoot -VcpkgRoot .deps\vcpkg -LlamaCppSourceDir .deps\llama.cpp -StageDir out\stage -SkipInstaller
 
       - name: Verify staged payload
         shell: pwsh
         run: |
           $required = @(
-            'out\stage\bin\LA Studio.exe',
             'out\stage\licenses',
             'out\stage\licenses\SOURCE-OFFER.txt'
           )
           $missing = $required | Where-Object { -not (Test-Path -LiteralPath $_) }
+          if (@(Get-ChildItem -LiteralPath 'out\stage\bin' -Filter 'LA-Studio-*.exe' -File).Count -ne 1) {
+            $missing += 'out\stage\bin\LA-Studio-<version>.exe'
+          }
           if ($missing) {
             throw "Packaging rehearsal is missing staged payload paths: $($missing -join ', ')"
           }
