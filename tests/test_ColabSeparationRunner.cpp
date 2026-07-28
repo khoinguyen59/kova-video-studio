@@ -185,6 +185,14 @@ void TestColabSeparationRunner::separationNotebookMatchesDirectColabContract()
     QVERIFY(source.contains(QStringLiteral("@app.get('/v1/capabilities')")));
     QVERIFY(source.contains(QStringLiteral("'id': 'voice-isolation'")));
     QVERIFY(source.contains(QStringLiteral("'device': 'cuda'")));
+    QVERIFY(source.contains(QStringLiteral("MAX_UPLOAD_BYTES = 512 * 1024 * 1024")));
+    QVERIFY(source.contains(QStringLiteral("MAX_AUDIO_SECONDS = 30 * 60")));
+    QVERIFY(source.contains(QStringLiteral("ARTIFACT_TTL_SECONDS = 1800")));
+    QVERIFY(source.contains(QStringLiteral("ALLOWED_CONTENT_TYPES")));
+    QVERIFY(source.contains(QStringLiteral("JOB_SLOTS = threading.BoundedSemaphore(1)")));
+    QVERIFY(source.contains(QStringLiteral("media_duration_seconds")));
+    QVERIFY(source.contains(QStringLiteral("status_code=429")));
+    QVERIFY(source.contains(QStringLiteral("JOB_SLOTS.release()")));
     QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_SEPARATION_URL")));
     QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_SEPARATION_TOKEN")));
     QVERIFY(source.contains(QStringLiteral("cloudflared")));
