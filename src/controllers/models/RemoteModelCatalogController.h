@@ -43,7 +43,8 @@ public:
     Q_INVOKABLE void refreshGateway();
     Q_INVOKABLE void refreshColab();
     Q_INVOKABLE bool pairColab(const QString &workerUrl, const QString &bearerToken);
-    Q_INVOKABLE bool isModelSelectable(const QString &provider, const QString &modelId) const;
+    Q_INVOKABLE bool isModelSelectable(const QString &provider, const QString &modelId,
+                                       const QString &capability = {}) const;
 
 signals:
     void gatewayStateChanged();

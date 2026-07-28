@@ -106,16 +106,37 @@ Rectangle {
             enabled: !root.dubbing.processing
             onActivated: function(index) {
                 root.dubbing.setWorkflowNodeParameters(root.nodeId,
-                                                       { "executionProvider": model[index].id })
+                                                       { "executionProvider": model[index].id,
+                                                         "modelId": "" })
+            }
+        }
+        ComboBox {
+            id: remoteModelPicker
+            visible: translationProvider.currentIndex !== 0 && root.remoteModelOptions().length > 0
+            Layout.fillWidth: true
+            textRole: "displayName"
+            model: root.remoteModelOptions()
+            currentIndex: {
+                var selectedModel = (root.node && root.node.parameters && root.node.parameters.modelId) || ""
+                for (var i = 0; i < model.length; ++i) if (model[i].modelId === selectedModel) return i
+                return -1
+            }
+            enabled: !root.dubbing.processing
+            onActivated: function(index) {
+                root.dubbing.setWorkflowNodeParameters(root.nodeId,
+                                                       { "modelId": model[index].modelId })
             }
         }
         TextField {
             id: translationModel
+            visible: translationProvider.currentIndex !== 0
+                     && root.remoteModelOptions().length === 0
+                     && !root.remoteCatalogAvailable()
             Layout.fillWidth: true
             color: Theme.textPrimary
             placeholderText: translationProvider.currentIndex === 0
                 ? qsTr("Local model selected above")
-                : qsTr("Remote model ID (optional)")
+                : qsTr("Refresh the selected provider's model catalog")
             text: (root.node && root.node.parameters && root.node.parameters.modelId) || ""
             enabled: !root.dubbing.processing && translationProvider.currentIndex !== 0
             selectByMouse: true
@@ -127,10 +148,47 @@ Rectangle {
                 border.color: translationModel.activeFocus ? Theme.accent : Qt.rgba(1, 1, 1, 0.09)
             }
         }
+        Text {
+            visible: translationProvider.currentIndex !== 0
+                     && root.remoteModelOptions().length === 0
+                     && root.remoteCatalogAvailable()
+            Layout.fillWidth: true
+            text: qsTr("No compatible model is currently available for this node.")
+            color: Theme.warning
+            font.pixelSize: 10
+            wrapMode: Text.WordWrap
+        }
     }
 
     function modelState() { return root.node && root.node.modelState !== undefined ? root.node.modelState : 0 }
     function remoteRouteConfigurable() { return root.nodeId === "source-separate" || root.nodeId === "transcribe" || root.nodeId === "translate" || root.nodeId === "synthesize" }
+    function remoteCapabilityId() {
+        if (root.nodeId === "source-separate") return "voice-isolation"
+        if (root.nodeId === "transcribe") return "stt"
+        if (root.nodeId === "translate") return "translation"
+        if (root.nodeId === "synthesize") return "tts"
+        return ""
+    }
+    function remoteCatalogAvailable() {
+        var provider = (root.node && root.node.parameters && root.node.parameters.executionProvider) || "local-dev"
+        if (provider === "api-gateway") return AppController.remoteModels.gatewayAvailable
+        if (provider === "colab-direct") return AppController.remoteModels.colabAvailable
+        return false
+    }
+    function remoteModelOptions() {
+        var provider = (root.node && root.node.parameters && root.node.parameters.executionProvider) || "local-dev"
+        var candidates = provider === "api-gateway" ? AppController.remoteModels.gatewayModels
+                       : (provider === "colab-direct" ? AppController.remoteModels.colabModels : [])
+        var capability = root.remoteCapabilityId()
+        var options = []
+        for (var i = 0; i < candidates.length; ++i) {
+            var item = candidates[i]
+            if (item.selectable !== true) continue
+            if (provider === "colab-direct" && item.capability !== capability) continue
+            options.push(item)
+        }
+        return options
+    }
     function lifecycleBusy() { return [2, 4, 5].indexOf(root.modelState()) >= 0 || root.dubbing.processing }
     function canLoad() { return root.node && root.node.configurable === true && [1, 6].indexOf(root.modelState()) >= 0 }
     function canReload() { return root.node && root.node.configurable === true && root.modelState() === 3 }

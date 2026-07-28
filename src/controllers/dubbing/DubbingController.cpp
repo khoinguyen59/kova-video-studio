@@ -1097,6 +1097,31 @@ bool DubbingController::setWorkflowNodeParameters(const QString &nodeId, const Q
     QVariantMap current = selected.value(QStringLiteral("parameters")).toMap();
     for (auto it = parameters.cbegin(); it != parameters.cend(); ++it)
         current.insert(it.key(), it.value());
+    const QString providerId = current.value(QStringLiteral("executionProvider"),
+                                             QStringLiteral("local-dev")).toString().trimmed().toLower();
+    ExecutionProvider provider = ExecutionProvider::LocalDev;
+    if (!executionProviderFromId(providerId, &provider)) {
+        setError(QStringLiteral("Unknown remote execution provider."));
+        return false;
+    }
+    const QString modelId = current.value(QStringLiteral("modelId")).toString().trimmed();
+    if (provider != ExecutionProvider::LocalDev && !modelId.isEmpty()) {
+        RemoteModelCatalogController *catalog = AppController::instance()
+            ? AppController::instance()->remoteModels() : nullptr;
+        const bool catalogAvailable = catalog
+            && (provider == ExecutionProvider::ApiGateway ? catalog->gatewayAvailable()
+                                                          : catalog->colabAvailable());
+        QString capability;
+        if (nodeId == QStringLiteral("source-separate")) capability = QStringLiteral("voice-isolation");
+        else if (nodeId == QStringLiteral("transcribe")) capability = QStringLiteral("stt");
+        else if (nodeId == QStringLiteral("translate")) capability = QStringLiteral("translation");
+        else if (nodeId == QStringLiteral("synthesize")) capability = QStringLiteral("tts");
+        if (catalogAvailable && !catalog->isModelSelectable(providerId, modelId, capability)) {
+            setError(QStringLiteral("The selected %1 model is unavailable for this node. Refresh that provider's model catalog and choose a compatible model.")
+                         .arg(executionProviderDisplayName(provider)));
+            return false;
+        }
+    }
     selected.insert(QStringLiteral("parameters"), current);
     m_workflowNodeConfigurations.insert(nodeId, selected);
     if (m_project.dubbingQuality == QStringLiteral("custom"))

@@ -129,7 +129,8 @@ bool RemoteModelCatalogController::pairColab(const QString &workerUrl,
 }
 
 bool RemoteModelCatalogController::isModelSelectable(const QString &provider,
-                                                      const QString &modelId) const
+                                                      const QString &modelId,
+                                                      const QString &capability) const
 {
     const QString providerId = provider.trimmed().toLower();
     const QVariantList *models = nullptr;
@@ -138,6 +139,10 @@ bool RemoteModelCatalogController::isModelSelectable(const QString &provider,
     if (!models) return false;
     for (const QVariant &value : *models) {
         const QVariantMap model = value.toMap();
+        if (providerId == QStringLiteral("colab-direct") && !capability.trimmed().isEmpty()
+            && model.value(QStringLiteral("capability")).toString() != capability.trimmed()) {
+            continue;
+        }
         if (model.value(QStringLiteral("modelId")).toString() == modelId.trimmed())
             return model.value(QStringLiteral("selectable")).toBool();
     }
