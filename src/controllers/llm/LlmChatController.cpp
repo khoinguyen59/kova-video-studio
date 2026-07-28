@@ -94,12 +94,39 @@ bool LlmChatController::colabActive() const
 {
     return m_provider == Provider::Colab && m_colabSession && m_colabSession->isActive();
 }
+QString LlmChatController::notebookForColabModel(const QString &model) const
+{
+    const QString normalized = model.trimmed().toLower();
+    if (normalized == QStringLiteral("qwen3.5-2b"))
+        return QStringLiteral("LA_STUDIO_LLM_QWEN3_5_2B_GPU.ipynb");
+    return {};
+}
+QString LlmChatController::colabNotebookFile() const
+{
+    return notebookForColabModel(m_colabModel);
+}
 void LlmChatController::setColabModel(const QString &value)
 {
-    const QString normalized = value.trimmed();
-    if (normalized.isEmpty() || normalized == m_colabModel) return;
+    const QString normalized = value.trimmed().toLower();
+    if (notebookForColabModel(normalized).isEmpty()) {
+        setError(QStringLiteral("No Colab notebook is mapped for chat model '%1'.").arg(value));
+        return;
+    }
+    if (normalized == m_colabModel) return;
+    if (m_generating) stopGeneration();
+    if (m_colabSession && m_colabSession->isActive()) m_colabSession->clear();
     m_colabModel = normalized;
     emit colabModelChanged();
+}
+bool LlmChatController::selectColabModel(const QString &model)
+{
+    const QString normalized = model.trimmed().toLower();
+    if (notebookForColabModel(normalized).isEmpty()) {
+        setError(QStringLiteral("No Colab notebook is mapped for chat model '%1'.").arg(model));
+        return false;
+    }
+    setColabModel(normalized);
+    return m_colabModel == normalized;
 }
 void LlmChatController::selectProvider(Provider provider)
 {
@@ -187,8 +214,11 @@ void LlmChatController::sendMessage(const QString &text)
         request.model = m_colabModel;
         request.messages = messages;
         request.maxTokens = m_maxTokens;
+        request.contextTokens = m_contextTokens;
         request.temperature = float(m_temperature);
         request.topP = float(m_topP);
+        request.topK = m_topK;
+        request.repeatPenalty = float(m_repeatPenalty);
         request.requestId = m_requestId;
         QMetaObject::invokeMethod(m_colabRunner, "generate", Qt::QueuedConnection,
                                   Q_ARG(ColabChatRequest, request));

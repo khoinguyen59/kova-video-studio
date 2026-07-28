@@ -711,7 +711,10 @@ void TestRemoteExecution::colabNotebooksAdvertiseCapabilityContractVersion()
         QStringLiteral("LA_STUDIO_ALIGNMENT_QWEN3_0_6B_GPU.ipynb"),
         QStringLiteral("LA_STUDIO_SEPARATION_SPLEETER_2STEMS_GPU.ipynb"),
         QStringLiteral("LA_STUDIO_SEPARATION_UVR_VOCALS_GPU.ipynb"),
-        QStringLiteral("LA_STUDIO_LANGUAGE_GPU.ipynb"),
+        QStringLiteral("LA_STUDIO_TRANSLATION_M2M100_418M_GPU.ipynb"),
+        QStringLiteral("LA_STUDIO_TRANSLATION_MADLAD400_3B_GPU.ipynb"),
+        QStringLiteral("LA_STUDIO_TRANSLATION_HY_MT2_1_8B_GPU.ipynb"),
+        QStringLiteral("LA_STUDIO_LLM_QWEN3_5_2B_GPU.ipynb"),
     };
     for (const QString &notebook : notebooks) {
         QFile file(sourceRoot.filePath(QStringLiteral("notebooks/") + notebook));

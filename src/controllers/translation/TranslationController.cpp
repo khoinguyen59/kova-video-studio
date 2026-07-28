@@ -64,12 +64,14 @@ TranslationController::TranslationController(TranslationEngine *engine, Translat
     if (m_session) {
         connect(m_session, &IModelSession::activeConfigurationChanged, this, [this] {
             if (m_provider != Provider::Gateway) return;
+            ++m_routeRevision;
             m_provider = Provider::Local;
             emit gatewayStateChanged();
         });
     }
     if (m_colabSession) {
         connect(m_colabSession, &ColabSession::sessionChanged, this, [this] {
+            ++m_routeRevision;
             if (m_provider != Provider::Colab) return;
             if (m_processing) cancel();
             if (!m_colabSession->isActive()) m_provider = Provider::Local;
@@ -104,12 +106,44 @@ void TranslationController::setTargetLanguage(const QString &value) { if (m_proj
 QString TranslationController::gatewayModel() const { return m_settings ? (m_settings->gatewayTranslationModel().isEmpty() ? m_settings->gatewayLlmModel() : m_settings->gatewayTranslationModel()) : QString(); }
 void TranslationController::setGatewayModel(const QString &value) { if (m_settings) m_settings->setGatewayTranslationModel(value); }
 bool TranslationController::colabActive() const { return m_provider == Provider::Colab && m_colabSession && m_colabSession->isActive(); }
+QString TranslationController::notebookForColabModel(const QString &model) const
+{
+    const QString normalized = model.trimmed().toLower();
+    if (normalized == QStringLiteral("m2m100-418m"))
+        return QStringLiteral("LA_STUDIO_TRANSLATION_M2M100_418M_GPU.ipynb");
+    if (normalized == QStringLiteral("madlad400-3b-mt"))
+        return QStringLiteral("LA_STUDIO_TRANSLATION_MADLAD400_3B_GPU.ipynb");
+    if (normalized == QStringLiteral("hy-mt2-1.8b"))
+        return QStringLiteral("LA_STUDIO_TRANSLATION_HY_MT2_1_8B_GPU.ipynb");
+    return {};
+}
+QString TranslationController::colabNotebookFile() const
+{
+    return notebookForColabModel(m_colabModel);
+}
 void TranslationController::setColabModel(const QString &value)
 {
-    const QString normalized = value.trimmed();
-    if (normalized.isEmpty() || normalized == m_colabModel) return;
+    const QString normalized = value.trimmed().toLower();
+    if (notebookForColabModel(normalized).isEmpty()) {
+        setError(QStringLiteral("No Colab notebook is mapped for translation model '%1'.").arg(value));
+        return;
+    }
+    if (normalized == m_colabModel) return;
+    if (m_processing && m_provider == Provider::Colab) cancel();
+    ++m_routeRevision;
+    if (m_colabSession && m_colabSession->isActive()) m_colabSession->clear();
     m_colabModel = normalized;
     emit colabModelChanged();
+}
+bool TranslationController::selectColabModel(const QString &model)
+{
+    const QString normalized = model.trimmed().toLower();
+    if (notebookForColabModel(normalized).isEmpty()) {
+        setError(QStringLiteral("No Colab notebook is mapped for translation model '%1'.").arg(model));
+        return false;
+    }
+    setColabModel(normalized);
+    return m_colabModel == normalized;
 }
 void TranslationController::newProject() { if (m_processing) return; m_project = TranslationProject(); m_dirty = false; m_error.clear(); emit projectChanged(); emit errorTextChanged(); }
 bool TranslationController::openProject(const QString &path) { if (m_processing) return false; TranslationProject project; QString error; if (!TranslationProject::load(path, project, &error)) { setError(error); return false; } m_project = std::move(project); m_dirty = false; emit projectChanged(); return true; }
@@ -145,6 +179,7 @@ void TranslationController::useGateway()
     if (gatewayModel().isEmpty()) { setError(QStringLiteral("API Gateway translation model is required.")); return; }
     if (m_provider != Provider::Gateway) {
         const bool colabWasSelected = m_provider == Provider::Colab;
+        ++m_routeRevision;
         m_provider = Provider::Gateway;
         emit gatewayStateChanged();
         if (colabWasSelected) emit colabStateChanged();
@@ -178,6 +213,7 @@ void TranslationController::useColab()
     }
     if (m_provider != Provider::Colab) {
         const bool gatewayWasSelected = m_provider == Provider::Gateway;
+        ++m_routeRevision;
         m_provider = Provider::Colab;
         emit colabStateChanged();
         if (gatewayWasSelected) emit gatewayStateChanged();
@@ -193,6 +229,7 @@ void TranslationController::useLocal()
     }
     if (m_processing || m_provider == Provider::Local) return;
     const Provider previous = m_provider;
+    ++m_routeRevision;
     m_provider = Provider::Local;
     if (previous == Provider::Gateway) emit gatewayStateChanged();
     if (previous == Provider::Colab) emit colabStateChanged();
@@ -235,6 +272,8 @@ void TranslationController::startTranslation(const QVariantList &segments, const
     request.cancellation = InferenceCancellationToken(m_cancelToken);
     m_error.clear();
     m_processing = true;
+    m_activeProvider = m_provider;
+    m_activeRouteRevision = m_routeRevision;
     m_activeSegmentId = activeSegmentId;
     m_progress = 0;
     if (m_session) m_session->clearError();
@@ -263,6 +302,14 @@ void TranslationController::startTranslation(const QVariantList &segments, const
 void TranslationController::completeTranslation(const QVariantList &patches)
 {
     if (!m_processing) return;
+    if (m_activeProvider != m_provider || m_activeRouteRevision != m_routeRevision) {
+        m_processing = false;
+        m_activeSegmentId.clear();
+        m_progress = 0;
+        m_cancelToken.reset();
+        emit processingChanged();
+        return;
+    }
     m_processing = false;
     m_activeSegmentId.clear();
     m_progress = 100;
@@ -275,6 +322,14 @@ void TranslationController::completeTranslation(const QVariantList &patches)
 void TranslationController::failTranslation(const QString &error)
 {
     if (!m_processing) return;
+    if (m_activeProvider != m_provider || m_activeRouteRevision != m_routeRevision) {
+        m_processing = false;
+        m_activeSegmentId.clear();
+        m_progress = 0;
+        m_cancelToken.reset();
+        emit processingChanged();
+        return;
+    }
     const bool cancelled = !m_cancelToken || m_cancelToken->load(std::memory_order_relaxed);
     m_processing = false;
     m_activeSegmentId.clear();

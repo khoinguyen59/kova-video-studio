@@ -54,7 +54,8 @@ public:
                            const std::shared_ptr<std::atomic_bool> &cancelToken,
                            QJsonObject *response, QString *errorMessage);
     bool streamChat(const QList<QVariantMap> &messages, const QString &model, int maxTokens,
-                    float temperature, float topP,
+                    int contextTokens, float temperature, float topP, int topK,
+                    float repeatPenalty,
                     const std::shared_ptr<std::atomic_bool> &cancelToken,
                     const std::function<void(const QString &)> &tokenHandler,
                     QString *fullText, QString *errorMessage);

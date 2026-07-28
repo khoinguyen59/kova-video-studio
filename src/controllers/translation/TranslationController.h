@@ -42,6 +42,7 @@ class TranslationController final : public QObject
     Q_PROPERTY(QString gatewayModel READ gatewayModel WRITE setGatewayModel NOTIFY gatewayModelChanged)
     Q_PROPERTY(bool colabActive READ colabActive NOTIFY colabStateChanged)
     Q_PROPERTY(QString colabModel READ colabModel WRITE setColabModel NOTIFY colabModelChanged)
+    Q_PROPERTY(QString colabNotebookFile READ colabNotebookFile NOTIFY colabModelChanged)
 
 public:
     TranslationController(TranslationEngine *engine, TranslationModelSession *session,
@@ -64,11 +65,14 @@ public:
     QString gatewayModel() const;
     bool colabActive() const;
     QString colabModel() const { return m_colabModel; }
+    QString colabNotebookFile() const;
 
     void setSourceLanguage(const QString &value);
     void setTargetLanguage(const QString &value);
     void setGatewayModel(const QString &value);
     void setColabModel(const QString &value);
+    Q_INVOKABLE bool selectColabModel(const QString &model);
+    Q_INVOKABLE QString notebookForColabModel(const QString &model) const;
 
     Q_INVOKABLE void newProject();
     Q_INVOKABLE bool openProject(const QString &path);
@@ -130,7 +134,10 @@ private:
     bool m_dirty = false;
     bool m_processing = false;
     Provider m_provider = Provider::Local;
+    Provider m_activeProvider = Provider::Local;
     QString m_colabModel = QStringLiteral("m2m100-418m");
+    quint64 m_routeRevision = 0;
+    quint64 m_activeRouteRevision = 0;
     QString m_activeSegmentId;
     int m_progress = 0;
     QString m_error;

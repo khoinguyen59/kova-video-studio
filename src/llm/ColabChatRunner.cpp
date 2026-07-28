@@ -33,7 +33,8 @@ void ColabChatRunner::generate(const ColabChatRequest &request)
     const std::shared_ptr<std::atomic_bool> cancellation = d->cancellation;
     QString text;
     const bool ok = d->client.streamChat(
-        request.messages, request.model, request.maxTokens, request.temperature, request.topP,
+        request.messages, request.model, request.maxTokens, request.contextTokens,
+        request.temperature, request.topP, request.topK, request.repeatPenalty,
         cancellation, [this, requestId = request.requestId](const QString &token) {
             emit tokenGenerated(requestId, token);
         }, &text, &error);

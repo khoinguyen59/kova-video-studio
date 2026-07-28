@@ -586,7 +586,8 @@ bool ColabWorkerClient::translateSegments(const QVariantList &segments, const QS
 }
 
 bool ColabWorkerClient::streamChat(const QList<QVariantMap> &messages, const QString &model,
-                                   int maxTokens, float temperature, float topP,
+                                   int maxTokens, int contextTokens, float temperature, float topP,
+                                   int topK, float repeatPenalty,
                                    const std::shared_ptr<std::atomic_bool> &cancelToken,
                                    const std::function<void(const QString &)> &tokenHandler,
                                    QString *fullText, QString *errorMessage)
@@ -621,8 +622,11 @@ bool ColabWorkerClient::streamChat(const QList<QVariantMap> &messages, const QSt
                               {QStringLiteral("messages"), requestMessages},
                               {QStringLiteral("stream"), true},
                               {QStringLiteral("max_tokens"), qBound(1, maxTokens, 32768)},
+                              {QStringLiteral("context_tokens"), qBound(512, contextTokens, 131072)},
                               {QStringLiteral("temperature"), qBound(0.01F, temperature, 2.0F)},
-                              {QStringLiteral("top_p"), qBound(0.01F, topP, 1.0F)}};
+                              {QStringLiteral("top_p"), qBound(0.01F, topP, 1.0F)},
+                              {QStringLiteral("top_k"), qBound(1, topK, 200)},
+                              {QStringLiteral("repeat_penalty"), qBound(0.8F, repeatPenalty, 2.0F)}};
     QNetworkReply *reply = manager.post(request, QJsonDocument(payload).toJson(QJsonDocument::Compact));
     m_activeReply = reply;
     QByteArray pending;

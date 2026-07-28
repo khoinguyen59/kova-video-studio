@@ -58,8 +58,8 @@ source of each entry; it never combines their tokens or routes.
 | Voice Design | One exact-model `LA_STUDIO_VOICE_DESIGN_*_GPU.ipynb` notebook selected from the model gallery | model-bound voice design jobs |
 | Voice Isolation | Exact-model notebook selected from `LA_STUDIO_SEPARATION_SPLEETER_2STEMS_GPU.ipynb` or `LA_STUDIO_SEPARATION_UVR_VOCALS_GPU.ipynb` | model-bound separation jobs |
 | Forced Alignment | Exact-model notebook selected from the four `LA_STUDIO_ALIGNMENT_*_GPU.ipynb` workers | model-bound alignment jobs |
-| Translation | `LA_STUDIO_LANGUAGE_GPU.ipynb` | `/v1/translations` |
-| LLM Chat | `LA_STUDIO_LANGUAGE_GPU.ipynb` | `/v1/chat/completions` |
+| Translation | One exact-model notebook selected from the three `LA_STUDIO_TRANSLATION_*_GPU.ipynb` workers | model-bound `/v1/translations` |
+| LLM Chat | `LA_STUDIO_LLM_QWEN3_5_2B_GPU.ipynb` | model-bound `/v1/chat/completions` |
 
 Every notebook exposes `/health` and `/v1/capabilities` in addition to its
 feature endpoint. The capabilities response identifies CUDA-backed models that

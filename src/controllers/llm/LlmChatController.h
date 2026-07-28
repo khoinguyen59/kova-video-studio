@@ -38,6 +38,7 @@ class LlmChatController : public QObject
     Q_PROPERTY(QString gatewayModel READ gatewayModel WRITE setGatewayModel NOTIFY gatewayModelChanged)
     Q_PROPERTY(bool colabActive READ colabActive NOTIFY colabStateChanged)
     Q_PROPERTY(QString colabModel READ colabModel WRITE setColabModel NOTIFY colabModelChanged)
+    Q_PROPERTY(QString colabNotebookFile READ colabNotebookFile NOTIFY colabModelChanged)
 
 public:
     explicit LlmChatController(LlmChatEngine *engine, LlmChatModelSession *session,
@@ -60,6 +61,7 @@ public:
     QString gatewayModel() const;
     bool colabActive() const;
     QString colabModel() const { return m_colabModel; }
+    QString colabNotebookFile() const;
 
     void setSystemPrompt(const QString &value);
     void setContextTokens(int value);
@@ -70,6 +72,8 @@ public:
     void setRepeatPenalty(double value);
     void setGatewayModel(const QString &value);
     void setColabModel(const QString &value);
+    Q_INVOKABLE bool selectColabModel(const QString &model);
+    Q_INVOKABLE QString notebookForColabModel(const QString &model) const;
 
     Q_INVOKABLE void newConversation();
     Q_INVOKABLE void selectConversation(const QString &id);
@@ -124,7 +128,7 @@ private:
     ColabChatRunner *m_colabRunner = nullptr;
     QThread m_colabThread;
     Provider m_provider = Provider::Local;
-    QString m_colabModel = QStringLiteral("qwen2.5-3b-instruct");
+    QString m_colabModel = QStringLiteral("qwen3.5-2b");
     QVariantList m_conversations;
     QVariantList m_messages;
     QString m_activeId;

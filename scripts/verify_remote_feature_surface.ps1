@@ -37,8 +37,8 @@ $features = @(
     @{ id = 'voice-design'; qml = 'qml/components/voicedesign/VoiceDesignSettingsPanel.qml'; shell = 'qml/components/voicedesign/VoiceDesignStudioView.qml'; notebook = 'LA_STUDIO_VOICE_DESIGN_QWEN3_1_7B_GPU.ipynb'; qmlNeedle = 'colabNotebookFile'; cudaGuard = 'torch.cuda.is_available()'; capability = '"capability": "voice-design"'; endpoint = '/v1/audio/voice_designs'; url = 'LA_STUDIO_COLAB_VOICE_DESIGN_URL'; token = 'LA_STUDIO_COLAB_VOICE_DESIGN_TOKEN' },
     @{ id = 'forced-alignment'; qml = 'qml/components/alignment/AlignmentSetupPanel.qml'; shell = 'qml/components/alignment/AlignmentStudioView.qml'; notebook = 'LA_STUDIO_ALIGNMENT_MMS_ONNX_GPU.ipynb'; qmlNeedle = 'colabNotebookFile'; cudaGuard = 'torch.cuda.is_available()'; capability = '"forced-alignment"'; endpoint = '/v1/audio/alignments'; url = 'LA_STUDIO_COLAB_ALIGNMENT_URL'; token = 'LA_STUDIO_COLAB_ALIGNMENT_TOKEN' },
     @{ id = 'voice-isolation'; qml = 'qml/components/voiceisolator/VoiceIsolatorStudioView.qml'; shell = 'qml/components/voiceisolator/VoiceIsolatorStudioView.qml'; notebook = 'LA_STUDIO_SEPARATION_SPLEETER_2STEMS_GPU.ipynb'; qmlNeedle = 'colabNotebookFile'; cudaGuard = 'sherpa_onnx.__version__'; capability = '"voice-isolation"'; endpoint = '/v1/audio/separations'; url = 'LA_STUDIO_COLAB_SEPARATION_URL'; token = 'LA_STUDIO_COLAB_SEPARATION_TOKEN' },
-    @{ id = 'translation'; qml = 'qml/components/translation/TranslationStudioView.qml'; shell = 'qml/components/translation/TranslationStudioView.qml'; notebook = 'LA_STUDIO_LANGUAGE_GPU.ipynb'; cudaGuard = 'torch.cuda.is_available()'; capability = "'translation'"; endpoint = '/v1/translations'; url = 'LA_STUDIO_LANGUAGE_URL'; token = 'LA_STUDIO_LANGUAGE_TOKEN' },
-    @{ id = 'chat'; qml = 'qml/components/llm/LlmChatStudioView.qml'; shell = 'qml/components/llm/LlmChatStudioView.qml'; notebook = 'LA_STUDIO_LANGUAGE_GPU.ipynb'; cudaGuard = 'torch.cuda.is_available()'; capability = "'chat'"; endpoint = '/v1/chat/completions'; url = 'LA_STUDIO_LANGUAGE_URL'; token = 'LA_STUDIO_LANGUAGE_TOKEN' }
+    @{ id = 'translation'; qml = 'qml/components/translation/TranslationStudioView.qml'; shell = 'qml/components/translation/TranslationStudioView.qml'; notebook = 'LA_STUDIO_TRANSLATION_M2M100_418M_GPU.ipynb'; qmlNeedle = 'colabNotebookFile'; cudaGuard = 'torch.cuda.is_available()'; capability = '\"translation\"'; endpoint = '/v1/translations'; url = 'LA_STUDIO_COLAB_TRANSLATION_URL'; token = 'LA_STUDIO_COLAB_TRANSLATION_TOKEN' },
+    @{ id = 'chat'; qml = 'qml/components/llm/LlmChatStudioView.qml'; shell = 'qml/components/llm/LlmChatStudioView.qml'; notebook = 'LA_STUDIO_LLM_QWEN3_5_2B_GPU.ipynb'; qmlNeedle = 'colabNotebookFile'; cudaGuard = 'torch.cuda.is_available()'; capability = '\"llm-chat\"'; endpoint = '/v1/chat/completions'; url = 'LA_STUDIO_COLAB_CHAT_URL'; token = 'LA_STUDIO_COLAB_CHAT_TOKEN' }
 )
 
 $notebookLink = Get-SourceText 'qml/components/base/ColabNotebookLink.qml'
@@ -161,5 +161,29 @@ foreach ($entry in $separationNotebooks) {
     Assert-Contains $source 'provider=\"cuda\"' "voice-isolation notebook $($entry.file)"
     Assert-Contains $source 'LA_STUDIO_COLAB_SEPARATION_MODEL' "voice-isolation notebook $($entry.file)"
 }
+
+$translationNotebooks = @(
+    @{ file = 'LA_STUDIO_TRANSLATION_M2M100_418M_GPU.ipynb'; model = 'm2m100-418m' },
+    @{ file = 'LA_STUDIO_TRANSLATION_MADLAD400_3B_GPU.ipynb'; model = 'madlad400-3b-mt' },
+    @{ file = 'LA_STUDIO_TRANSLATION_HY_MT2_1_8B_GPU.ipynb'; model = 'hy-mt2-1.8b' }
+)
+foreach ($entry in $translationNotebooks) {
+    $path = Join-Path $repoRoot (Join-Path 'notebooks' $entry.file)
+    if (-not (Test-Path -LiteralPath $path)) { throw "translation: notebook is missing: $($entry.file)" }
+    $source = Get-Content -LiteralPath $path -Raw
+    Assert-Contains $source $entry.model "translation notebook $($entry.file)"
+    Assert-Contains $source 'require_exact_model(request.model)' "translation notebook $($entry.file)"
+    Assert-Contains $source 'LA_STUDIO_COLAB_TRANSLATION_MODEL' "translation notebook $($entry.file)"
+}
+
+$chatNotebook = Join-Path $repoRoot 'notebooks/LA_STUDIO_LLM_QWEN3_5_2B_GPU.ipynb'
+if (-not (Test-Path -LiteralPath $chatNotebook)) { throw 'chat: exact Qwen3.5 notebook is missing.' }
+$chatSource = Get-Content -LiteralPath $chatNotebook -Raw
+Assert-Contains $chatSource 'qwen3.5-2b' 'chat notebook'
+Assert-Contains $chatSource 'require_exact_model(request.model)' 'chat notebook'
+Assert-Contains $chatSource 'LA_STUDIO_COLAB_CHAT_MODEL' 'chat notebook'
+Assert-Contains $chatSource 'context_tokens' 'chat notebook'
+Assert-Contains $chatSource 'top_k' 'chat notebook'
+Assert-Contains $chatSource 'repeat_penalty' 'chat notebook'
 
 Write-Host "Remote feature surface verified: $passed/$($features.Count) direct Colab routes." -ForegroundColor Green

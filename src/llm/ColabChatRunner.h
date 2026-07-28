@@ -18,8 +18,11 @@ struct ColabChatRequest
     QString model;
     QList<QVariantMap> messages;
     int maxTokens = 1024;
+    int contextTokens = 4096;
     float temperature = 0.7F;
     float topP = 0.8F;
+    int topK = 20;
+    float repeatPenalty = 1.05F;
     QString requestId;
     bool allowInsecureLocalhost = false;
 };

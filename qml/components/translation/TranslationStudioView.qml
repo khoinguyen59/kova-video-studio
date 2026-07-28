@@ -427,13 +427,15 @@ StudioShell {
             Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1,1,1,0.07) }
             Text { text: qsTr("Colab GPU Worker"); color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; font.bold: true }
             Text { Layout.fillWidth: true; text: qsTr("Direct temporary worker. Its URL and session token are independent from API Gateway and never use its API key."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
-            ColabNotebookLink { notebookFile: "LA_STUDIO_LANGUAGE_GPU.ipynb" }
+            ColabNotebookLink { notebookFile: translation.colabNotebookFile }
             Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
             GatewayField { id: translationColabUrl; text: AppController.colabTranslationSession.workerUrl; placeholderText: qsTr("https://…trycloudflare.com") }
             Text { text: qsTr("Session token"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
             GatewayField { id: translationColabToken; echoMode: TextInput.Password; placeholderText: translation.colabActive ? qsTr("Connected — enter token to replace") : qsTr("Temporary token from Colab") }
-            Text { text: qsTr("Translation model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
-            GatewayField { text: translation.colabModel; placeholderText: qsTr("m2m100-418m"); onEditingFinished: translation.colabModel = text.trim() }
+            Text { text: qsTr("Selected Colab model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+            Text { Layout.fillWidth: true; text: translation.colabModel; color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WrapAnywhere }
+            Text { text: qsTr("Exact notebook"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+            Text { Layout.fillWidth: true; text: translation.colabNotebookFile; color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WrapAnywhere }
             PrimaryButton {
                 Layout.fillWidth: true
                 text: translation.colabActive ? qsTr("Using Colab GPU") : qsTr("Connect Colab GPU")

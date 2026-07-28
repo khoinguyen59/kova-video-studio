@@ -1,5 +1,7 @@
 #include "test_ColabTranslationRunner.h"
 
+#include "controllers/translation/TranslationController.h"
+#include "remote/ColabSession.h"
 #include "translation/ColabTranslationRunner.h"
 
 #include <QDir>
@@ -145,37 +147,57 @@ void TestColabTranslationRunner::cancellationAbortsDirectWorkerRequest()
 
 void TestColabTranslationRunner::languageNotebookMatchesDirectTranslationContract()
 {
-    const QString path = QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
-        .filePath(QStringLiteral("notebooks/LA_STUDIO_LANGUAGE_GPU.ipynb"));
-    QFile file(path);
-    QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(path));
-    const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
-    QVERIFY(document.isObject());
-    const QJsonObject root = document.object();
-    QCOMPARE(root.value(QStringLiteral("nbformat")).toInt(), 4);
+    const QList<QPair<QString, QString>> expected{
+        {QStringLiteral("m2m100-418m"), QStringLiteral("LA_STUDIO_TRANSLATION_M2M100_418M_GPU.ipynb")},
+        {QStringLiteral("madlad400-3b-mt"), QStringLiteral("LA_STUDIO_TRANSLATION_MADLAD400_3B_GPU.ipynb")},
+        {QStringLiteral("hy-mt2-1.8b"), QStringLiteral("LA_STUDIO_TRANSLATION_HY_MT2_1_8B_GPU.ipynb")},
+    };
+    ColabSession session;
+    TranslationController controller(nullptr, nullptr, nullptr, &session);
+    for (const auto &[model, notebook] : expected) {
+        QCOMPARE(controller.notebookForColabModel(model), notebook);
+        QVERIFY(controller.selectColabModel(model));
+        QCOMPARE(controller.colabModel(), model);
+        QCOMPARE(controller.colabNotebookFile(), notebook);
 
-    QString source;
-    const QJsonArray cells = root.value(QStringLiteral("cells")).toArray();
-    QVERIFY(cells.size() >= 4);
-    for (const QJsonValue &cellValue : cells) {
-        const QJsonArray lines = cellValue.toObject().value(QStringLiteral("source")).toArray();
-        for (const QJsonValue &line : lines) source += line.toString();
+        const QString path = QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
+            .filePath(QStringLiteral("notebooks/") + notebook);
+        QFile file(path);
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(path));
+        const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
+        QVERIFY(document.isObject());
+        QCOMPARE(document.object().value(QStringLiteral("nbformat")).toInt(), 4);
+        QString source;
+        for (const QJsonValue &cellValue : document.object().value(QStringLiteral("cells")).toArray()) {
+            for (const QJsonValue &line : cellValue.toObject().value(QStringLiteral("source")).toArray())
+                source += line.toString();
+        }
+        QVERIFY(source.contains(model));
+        QVERIFY(source.contains(QStringLiteral("CPU fallback is disabled")));
+        QVERIFY(source.contains(QStringLiteral("require_exact_model(request.model)")));
+        QVERIFY(source.contains(QStringLiteral("@app.post(\"/v1/translations\")")));
+        QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_TRANSLATION_URL")));
+        QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_TRANSLATION_TOKEN")));
+        QVERIFY(source.contains(QStringLiteral("cloudflared")));
+        QVERIFY(!source.contains(QStringLiteral("API_GATEWAY")));
     }
-    QVERIFY(source.contains(QStringLiteral("M2M100ForConditionalGeneration")));
-    QVERIFY(source.contains(QStringLiteral("CPU fallback is disabled")));
-    QVERIFY(source.contains(QStringLiteral("MAX_TRANSLATION_SEGMENTS = 128")));
-    QVERIFY(source.contains(QStringLiteral("MAX_TRANSLATION_CHARS = 50000")));
-    QVERIFY(source.contains(QStringLiteral("INFERENCE_SLOTS = threading.BoundedSemaphore(1)")));
-    QVERIFY(source.contains(QStringLiteral("status_code=413")));
-    QVERIFY(source.contains(QStringLiteral("status_code=429")));
-    QVERIFY(source.contains(QStringLiteral("INFERENCE_SLOTS.release()")));
-    QVERIFY(source.contains(QStringLiteral("@app.post('/v1/translations')")));
-    QVERIFY(source.contains(QStringLiteral("'translation'")));
-    QVERIFY(source.contains(QStringLiteral("'device': 'cuda'")));
-    QVERIFY(source.contains(QStringLiteral("LA_STUDIO_LANGUAGE_URL")));
-    QVERIFY(source.contains(QStringLiteral("LA_STUDIO_LANGUAGE_TOKEN")));
-    QVERIFY(source.contains(QStringLiteral("cloudflared")));
-    QVERIFY(!source.contains(QStringLiteral("API_GATEWAY")));
+    QVERIFY(controller.notebookForColabModel(QStringLiteral("unknown-translation")).isEmpty());
+    QVERIFY(!controller.selectColabModel(QStringLiteral("unknown-translation")));
+
+    QString error;
+    QVERIFY(session.setSession(QStringLiteral("https://translation-worker.example.test"),
+                               QStringLiteral("translation-token"), &error));
+    controller.useColab();
+    QVERIFY(controller.colabActive());
+    QVERIFY(controller.selectColabModel(QStringLiteral("m2m100-418m")));
+    QVERIFY(!session.isActive());
+
+    QFile page(QDir(QStringLiteral(LASTUDIO_SOURCE_DIR)).filePath(
+        QStringLiteral("qml/pages/TranslationPage.qml")));
+    QVERIFY(page.open(QIODevice::ReadOnly));
+    const QByteArray pageSource = page.readAll();
+    QVERIFY(pageSource.contains("colabModelSelectionEnabled: true"));
+    QVERIFY(pageSource.contains("AppController.translation.selectColabModel(familyId)"));
 }
 
 } // namespace LAStudio

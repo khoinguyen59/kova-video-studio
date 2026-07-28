@@ -1,6 +1,8 @@
 #include "test_ColabChatRunner.h"
 
+#include "controllers/llm/LlmChatController.h"
 #include "llm/ColabChatRunner.h"
+#include "remote/ColabSession.h"
 
 #include <QDir>
 #include <QFile>
@@ -89,12 +91,15 @@ void TestColabChatRunner::streamsDirectColabChatOnly()
     ColabChatRequest request;
     request.workerUrl = QUrl(worker.baseUrl());
     request.bearerToken = QStringLiteral("colab-chat-token");
-    request.model = QStringLiteral("qwen2.5-3b-instruct");
+    request.model = QStringLiteral("qwen3.5-2b");
     request.messages = {QVariantMap{{QStringLiteral("role"), QStringLiteral("user")},
                                     {QStringLiteral("content"), QStringLiteral("Hello")}}};
     request.maxTokens = 320;
+    request.contextTokens = 8192;
     request.temperature = 0.25F;
     request.topP = 0.9F;
+    request.topK = 40;
+    request.repeatPenalty = 1.15F;
     request.requestId = QStringLiteral("direct-request");
     request.allowInsecureLocalhost = true;
     QVERIFY(QMetaObject::invokeMethod(runner, "generate", Qt::QueuedConnection,
@@ -107,9 +112,16 @@ void TestColabChatRunner::streamsDirectColabChatOnly()
     const QByteArray sent = worker.request();
     QVERIFY(sent.startsWith("POST /v1/chat/completions HTTP/1.1\r\n"));
     QVERIFY(sent.toLower().contains("authorization: bearer colab-chat-token"));
-    QVERIFY(sent.contains("\"model\":\"qwen2.5-3b-instruct\""));
+    QVERIFY(sent.contains("\"model\":\"qwen3.5-2b\""));
     QVERIFY(sent.contains("\"content\":\"Hello\""));
     QVERIFY(sent.contains("\"stream\":true"));
+    QVERIFY(sent.contains("\"context_tokens\":8192"));
+    QVERIFY(sent.contains("\"top_k\":40"));
+    const int bodyOffset = sent.indexOf("\r\n\r\n");
+    QVERIFY(bodyOffset >= 0);
+    const QJsonDocument requestDocument = QJsonDocument::fromJson(sent.mid(bodyOffset + 4));
+    QVERIFY(requestDocument.isObject());
+    QCOMPARE(qRound(requestDocument.object().value(QStringLiteral("repeat_penalty")).toDouble() * 100.0), 115);
     QVERIFY(!sent.contains("gateway"));
     thread.quit();
     QVERIFY(thread.wait(5000));
@@ -131,7 +143,7 @@ void TestColabChatRunner::cancellationAbortsDirectStream()
     ColabChatRequest request;
     request.workerUrl = QUrl(worker.baseUrl());
     request.bearerToken = QStringLiteral("cancel-token");
-    request.model = QStringLiteral("qwen2.5-3b-instruct");
+    request.model = QStringLiteral("qwen3.5-2b");
     request.messages = {QVariantMap{{QStringLiteral("role"), QStringLiteral("user")},
                                     {QStringLiteral("content"), QStringLiteral("Cancel me")}}};
     request.requestId = QStringLiteral("cancel-request");
@@ -149,8 +161,16 @@ void TestColabChatRunner::cancellationAbortsDirectStream()
 
 void TestColabChatRunner::languageNotebookMatchesDirectChatContract()
 {
+    ColabSession session;
+    LlmChatController controller(nullptr, nullptr, nullptr, &session);
+    QCOMPARE(controller.notebookForColabModel(QStringLiteral("qwen3.5-2b")),
+             QStringLiteral("LA_STUDIO_LLM_QWEN3_5_2B_GPU.ipynb"));
+    QVERIFY(controller.selectColabModel(QStringLiteral("qwen3.5-2b")));
+    QCOMPARE(controller.colabNotebookFile(), QStringLiteral("LA_STUDIO_LLM_QWEN3_5_2B_GPU.ipynb"));
+    QVERIFY(!controller.selectColabModel(QStringLiteral("qwen2.5-3b-instruct")));
+
     const QString path = QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
-        .filePath(QStringLiteral("notebooks/LA_STUDIO_LANGUAGE_GPU.ipynb"));
+        .filePath(QStringLiteral("notebooks/LA_STUDIO_LLM_QWEN3_5_2B_GPU.ipynb"));
     QFile file(path);
     QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(path));
     const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
@@ -165,23 +185,40 @@ void TestColabChatRunner::languageNotebookMatchesDirectChatContract()
         const QJsonArray lines = cellValue.toObject().value(QStringLiteral("source")).toArray();
         for (const QJsonValue &line : lines) source += line.toString();
     }
-    QVERIFY(source.contains(QStringLiteral("AutoModelForCausalLM")));
+    QVERIFY(source.contains(QStringLiteral("AutoModelForMultimodalLM")));
+    QVERIFY(source.contains(QStringLiteral("Qwen/Qwen3.5-2B")));
     QVERIFY(source.contains(QStringLiteral("CPU fallback is disabled")));
     QVERIFY(source.contains(QStringLiteral("MAX_CHAT_MESSAGES = 64")));
     QVERIFY(source.contains(QStringLiteral("MAX_CHAT_CHARS = 50000")));
-    QVERIFY(source.contains(QStringLiteral("MAX_CHAT_TOKENS = 4096")));
+    QVERIFY(source.contains(QStringLiteral("MAX_CHAT_TOKENS = 32768")));
     QVERIFY(source.contains(QStringLiteral("INFERENCE_SLOTS = threading.BoundedSemaphore(1)")));
     QVERIFY(source.contains(QStringLiteral("status_code=413")));
     QVERIFY(source.contains(QStringLiteral("status_code=429")));
     QVERIFY(source.contains(QStringLiteral("INFERENCE_SLOTS.release()")));
-    QVERIFY(source.contains(QStringLiteral("@app.post('/v1/chat/completions')")));
+    QVERIFY(source.contains(QStringLiteral("require_exact_model(request.model)")));
+    QVERIFY(source.contains(QStringLiteral("@app.post(\"/v1/chat/completions\")")));
     QVERIFY(source.contains(QStringLiteral("stream=true")));
-    QVERIFY(source.contains(QStringLiteral("'chat'")));
-    QVERIFY(source.contains(QStringLiteral("'device': 'cuda'")));
-    QVERIFY(source.contains(QStringLiteral("LA_STUDIO_LANGUAGE_URL")));
-    QVERIFY(source.contains(QStringLiteral("LA_STUDIO_LANGUAGE_TOKEN")));
+    QVERIFY(source.contains(QStringLiteral("\"llm-chat\"")));
+    QVERIFY(source.contains(QStringLiteral("\"device\": \"cuda\"")));
+    QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_CHAT_URL")));
+    QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_CHAT_TOKEN")));
     QVERIFY(source.contains(QStringLiteral("cloudflared")));
     QVERIFY(!source.contains(QStringLiteral("API_GATEWAY")));
+
+    QString error;
+    QVERIFY(session.setSession(QStringLiteral("https://chat-worker.example.test"),
+                               QStringLiteral("chat-token"), &error));
+    controller.useColab();
+    QVERIFY(controller.colabActive());
+    controller.setColabModel(QStringLiteral("qwen2.5-3b-instruct"));
+    QVERIFY(session.isActive());
+
+    QFile page(QDir(QStringLiteral(LASTUDIO_SOURCE_DIR)).filePath(
+        QStringLiteral("qml/pages/LlmPage.qml")));
+    QVERIFY(page.open(QIODevice::ReadOnly));
+    const QByteArray pageSource = page.readAll();
+    QVERIFY(pageSource.contains("colabModelSelectionEnabled: true"));
+    QVERIFY(pageSource.contains("AppController.llmChat.selectColabModel(familyId)"));
 }
 
 } // namespace LAStudio
