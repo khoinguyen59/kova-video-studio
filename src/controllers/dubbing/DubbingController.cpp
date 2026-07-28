@@ -582,7 +582,8 @@ QVariantMap DubbingController::firstCustomSetupIssue() const
                      QStringLiteral("Choose a model for the %1 node before running Custom dubbing.")
                          .arg(visibleStepForNode(required.first))}};
         }
-        if (required.first == QStringLiteral("transcribe")
+        if (required.first == QStringLiteral("source-separate")
+            || required.first == QStringLiteral("transcribe")
             || required.first == QStringLiteral("translate")
             || required.first == QStringLiteral("synthesize")) {
             const QVariantMap parameters = selected.value(QStringLiteral("parameters")).toMap();
@@ -1077,12 +1078,18 @@ bool DubbingController::reloadWorkflowNodeModel(const QString &nodeId)
 bool DubbingController::setWorkflowNodeParameters(const QString &nodeId, const QVariantMap &parameters)
 {
     if (nodeId.isEmpty()) return false;
-    if ((nodeId == QStringLiteral("transcribe") || nodeId == QStringLiteral("translate")
+    if ((nodeId == QStringLiteral("source-separate") || nodeId == QStringLiteral("transcribe")
+         || nodeId == QStringLiteral("translate")
          || nodeId == QStringLiteral("synthesize"))
         && parameters.contains(QStringLiteral("executionProvider"))) {
         ExecutionProvider provider = ExecutionProvider::LocalDev;
         if (!executionProviderFromId(parameters.value(QStringLiteral("executionProvider")).toString(), &provider)) {
             setError(QStringLiteral("Unknown remote execution provider."));
+            return false;
+        }
+        if (nodeId == QStringLiteral("source-separate")
+            && provider == ExecutionProvider::ApiGateway) {
+            setError(QStringLiteral("Source separation supports Local Dev or Colab GPU, not API Gateway."));
             return false;
         }
     }

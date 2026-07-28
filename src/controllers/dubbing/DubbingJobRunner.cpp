@@ -13,13 +13,18 @@
 #include "tts/TtsEngine.h"
 #include "dubbing/media/MediaIngestService.h"
 #include "separation/SourceSeparationService.h"
+#include "separation/ColabSeparationRunner.h"
 #include "separation/SeparationTypes.h"
 #include "core/PathUtils.h"
 #include "core/Logger.h"
 #include "core/ModelManager.h"
 #include "core/RuntimeManager.h"
+#include "remote/ColabSession.h"
+#include "remote/ExecutionProvider.h"
 
 #include <QFileInfo>
+#include <QDir>
+#include <QMetaObject>
 #include <QtConcurrent>
 #include <QRegularExpression>
 
@@ -63,6 +68,40 @@ DubbingJobRunner::DubbingJobRunner(SttSessionController *sttSession, TtsEngine *
     });
     m_sourceSeparation = new SourceSeparationService(this);
     connect(m_sourceSeparation, &SourceSeparationService::finished, this, &DubbingJobRunner::onSourceSeparationFinished);
+    qRegisterMetaType<ColabSeparationRequest>("ColabSeparationRequest");
+    qRegisterMetaType<ColabSeparationResult>("ColabSeparationResult");
+    m_colabSeparationRunner = new ColabSeparationRunner;
+    m_colabSeparationRunner->moveToThread(&m_colabSeparationThread);
+    connect(&m_colabSeparationThread, &QThread::finished,
+            m_colabSeparationRunner, &QObject::deleteLater);
+    connect(m_colabSeparationRunner, &ColabSeparationRunner::progress, this,
+            [this](int progress) {
+        if (m_run.processing() && m_run.stageId() == DubbingStage::SourceSeparation) {
+            m_run.setProgress(qBound(0, progress, 99));
+            emit stateChanged();
+        }
+    });
+    connect(m_colabSeparationRunner, &ColabSeparationRunner::finished, this,
+            [this](const ColabSeparationResult &result) {
+        if (!m_run.processing() || m_run.stageId() != DubbingStage::SourceSeparation) return;
+        m_colabSeparationCancellation.reset();
+        m_pendingSourceAudioPath.clear();
+        setProcessing(false, QStringLiteral("separated"), 100);
+        const QVariantMap outputs{{QStringLiteral("vocals"), result.vocalsPath},
+                                  {QStringLiteral("background"), result.backgroundPath},
+                                  {QStringLiteral("sourceSeparation"), QStringLiteral("colab-direct")},
+                                  {QStringLiteral("remoteJobId"), result.jobId}};
+        emit sourceSeparationFinished(outputs);
+        emit stageCompleted(QStringLiteral("source-separate"), outputs);
+    });
+    connect(m_colabSeparationRunner, &ColabSeparationRunner::failed, this,
+            [this](const QString &message) {
+        if (!m_run.processing() || m_run.stageId() != DubbingStage::SourceSeparation) return;
+        m_colabSeparationCancellation.reset();
+        m_pendingSourceAudioPath.clear();
+        setError(message);
+    });
+    m_colabSeparationThread.start();
 
     m_transcriptionJob = new DubbingTranscriptionJob(m_sttSession, m_models, m_runtimes, this);
     connect(m_transcriptionJob, &DubbingTranscriptionJob::progressChanged, this, [this](int progress) {
@@ -207,6 +246,7 @@ void DubbingJobRunner::setRemoteServices(Settings *settings, ColabSession *colab
 {
     if (m_translationJob) m_translationJob->setRemoteServices(settings, colabSession);
     if (m_synthesisJob) m_synthesisJob->setRemoteServices(settings, colabSession);
+    m_colabSession = colabSession;
 }
 
 void DubbingJobRunner::finishTranslation(const QVariantList &segments)
@@ -221,6 +261,12 @@ void DubbingJobRunner::finishTranslation(const QVariantList &segments)
 DubbingJobRunner::~DubbingJobRunner()
 {
     cancel();
+    if (m_colabSeparationCancellation)
+        m_colabSeparationCancellation->store(true, std::memory_order_relaxed);
+    if (m_colabSeparationRunner && m_colabSeparationThread.isRunning())
+        QMetaObject::invokeMethod(m_colabSeparationRunner, "cancel", Qt::QueuedConnection);
+    m_colabSeparationThread.quit();
+    m_colabSeparationThread.wait();
     if (m_timingWatcher) {
         if (m_timingCancel) m_timingCancel->storeRelease(true);
         m_timingWatcher->cancel();
@@ -258,6 +304,53 @@ void DubbingJobRunner::startSourceSeparation(const QString &audioPath,
     Logger::info(QStringLiteral("DubbingPipeline"),
                  QStringLiteral("[source-separate] requested audio=%1 size=%2 bytes")
                      .arg(audioPath).arg(QFileInfo(audioPath).size()));
+
+    const QVariantMap parameters = modelConfiguration.value(QStringLiteral("parameters")).toMap();
+    const QString providerId = modelConfiguration.value(
+        QStringLiteral("executionProvider"), parameters.value(
+        QStringLiteral("executionProvider"), QStringLiteral("local-dev"))).toString().trimmed().toLower();
+    ExecutionProvider provider = ExecutionProvider::LocalDev;
+    if (!executionProviderFromId(providerId, &provider)) {
+        setError(QStringLiteral("Unknown source-separation provider: %1").arg(providerId));
+        return;
+    }
+    if (provider == ExecutionProvider::ApiGateway) {
+        setError(QStringLiteral("Source separation is not available through API Gateway. Select Local Dev or Colab GPU."));
+        return;
+    }
+    if (provider == ExecutionProvider::ColabDirect) {
+        if (!m_colabSession || !m_colabSession->isActive()) {
+            setError(QStringLiteral("Connect a Colab GPU worker before running this Voice Isolation node."));
+            return;
+        }
+        if (!m_colabSeparationRunner) {
+            setError(QStringLiteral("Colab source-separation runner is unavailable."));
+            return;
+        }
+        m_run.ensureRun();
+        m_run.beginNode();
+        m_pendingSourceAudioPath = audioPath;
+        setProcessing(true, QStringLiteral("source-separation"), 0);
+        m_colabSeparationCancellation = std::make_shared<std::atomic_bool>(false);
+        ColabSeparationRequest request;
+        request.workerUrl = m_colabSession->endpoint();
+        request.bearerToken = m_colabSession->bearerTokenForRequest();
+        request.audioPath = audioPath;
+        request.outputRoot = QDir(PathUtils::cacheDir()).filePath(
+            QStringLiteral("dubbing/colab-separation/%1/%2")
+                .arg(m_run.runId(), m_run.nodeRunId()));
+        request.model = modelConfiguration.value(
+            QStringLiteral("modelId"), parameters.value(
+            QStringLiteral("modelId"), QStringLiteral("htdemucs"))).toString().trimmed();
+        if (request.model.isEmpty()) request.model = QStringLiteral("htdemucs");
+        request.cancellation = InferenceCancellationToken(m_colabSeparationCancellation);
+        Logger::info(QStringLiteral("DubbingPipeline"),
+                     QStringLiteral("[source-separate] direct Colab run=%1 node=%2 model=%3")
+                         .arg(m_run.runId(), m_run.nodeRunId(), request.model));
+        QMetaObject::invokeMethod(m_colabSeparationRunner, "separate", Qt::QueuedConnection,
+                                  Q_ARG(ColabSeparationRequest, request));
+        return;
+    }
 
     const SourceSeparationConfigurationResult resolved =
         SourceSeparationConfigurationResolver(m_models, m_runtimes).resolve(modelConfiguration);
@@ -426,7 +519,15 @@ void DubbingJobRunner::cancel()
     if ((m_run.stageId() == DubbingStage::Mix || m_run.stageId() == DubbingStage::Export) && m_exportJob)
         m_exportJob->cancel();
     if (m_run.stageId() == DubbingStage::Import && m_mediaIngest) m_mediaIngest->cancel();
-    if (m_sourceSeparation) m_sourceSeparation->cancel();
+    if (m_run.stageId() == DubbingStage::SourceSeparation) {
+        if (m_colabSeparationCancellation) {
+            m_colabSeparationCancellation->store(true, std::memory_order_relaxed);
+            if (m_colabSeparationRunner)
+                QMetaObject::invokeMethod(m_colabSeparationRunner, "cancel", Qt::QueuedConnection);
+        } else if (m_sourceSeparation) {
+            m_sourceSeparation->cancel();
+        }
+    }
     if (m_run.stageId() == DubbingStage::Translation && m_translationJob)
         m_translationJob->cancel();
     if (m_autoTranslationFix && m_autoTranslationFix->busy())

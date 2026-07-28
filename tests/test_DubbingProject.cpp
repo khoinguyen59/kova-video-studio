@@ -599,6 +599,25 @@ void TestDubbingProject::sourceSeparationExposesModelSelection()
              QStringLiteral("voice-isolation"));
 }
 
+void TestDubbingProject::colabSourceSeparationDoesNotFallbackToLocal()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString audioPath = dir.filePath(QStringLiteral("source.wav"));
+    QFile file(audioPath);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QVERIFY(file.write("audio-placeholder") > 0);
+    file.close();
+
+    DubbingJobRunner runner(nullptr, nullptr);
+    runner.startSourceSeparation(audioPath,
+        QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("colab-direct")}});
+
+    QVERIFY(!runner.processing());
+    QCOMPARE(runner.lastError(),
+             QStringLiteral("Connect a Colab GPU worker before running this Voice Isolation node."));
+}
+
 void TestDubbingProject::targetLanguageUpdatesVoiceNodeLanguage()
 {
     DubbingController controller(nullptr, nullptr);

@@ -53,6 +53,7 @@ private slots:
     void ranksPartialTranslationFixesByBudgetDistance();
     void remoteTranslationRoutesDoNotFallbackBetweenGatewayAndColab();
     void remoteTtsRoutesDoNotFallbackBetweenGatewayAndColab();
+    void colabSourceSeparationDoesNotFallbackToLocal();
 };
 
 } // namespace LAStudio

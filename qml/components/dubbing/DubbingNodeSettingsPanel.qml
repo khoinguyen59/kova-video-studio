@@ -88,11 +88,16 @@ Rectangle {
             id: translationProvider
             Layout.preferredWidth: 132
             textRole: "label"
-            model: [
-                { "id": "local-dev", "label": qsTr("Local Dev") },
-                { "id": "api-gateway", "label": qsTr("API Gateway") },
-                { "id": "colab-direct", "label": qsTr("Colab GPU") }
-            ]
+            model: root.nodeId === "source-separate"
+                ? [
+                    { "id": "local-dev", "label": qsTr("Local Dev") },
+                    { "id": "colab-direct", "label": qsTr("Colab GPU") }
+                  ]
+                : [
+                    { "id": "local-dev", "label": qsTr("Local Dev") },
+                    { "id": "api-gateway", "label": qsTr("API Gateway") },
+                    { "id": "colab-direct", "label": qsTr("Colab GPU") }
+                  ]
             currentIndex: {
                 var requested = (root.node && root.node.parameters && root.node.parameters.executionProvider) || "local-dev"
                 for (var i = 0; i < model.length; ++i) if (model[i].id === requested) return i
@@ -125,7 +130,7 @@ Rectangle {
     }
 
     function modelState() { return root.node && root.node.modelState !== undefined ? root.node.modelState : 0 }
-    function remoteRouteConfigurable() { return root.nodeId === "transcribe" || root.nodeId === "translate" || root.nodeId === "synthesize" }
+    function remoteRouteConfigurable() { return root.nodeId === "source-separate" || root.nodeId === "transcribe" || root.nodeId === "translate" || root.nodeId === "synthesize" }
     function lifecycleBusy() { return [2, 4, 5].indexOf(root.modelState()) >= 0 || root.dubbing.processing }
     function canLoad() { return root.node && root.node.configurable === true && [1, 6].indexOf(root.modelState()) >= 0 }
     function canReload() { return root.node && root.node.configurable === true && root.modelState() === 3 }

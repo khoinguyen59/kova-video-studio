@@ -8,6 +8,8 @@
 #include <QAtomicInteger>
 #include <memory>
 #include <QPointer>
+#include <QThread>
+#include <atomic>
 #include "separation/SeparationTypes.h"
 #include "controllers/dubbing/DubbingRunCoordinator.h"
 
@@ -28,6 +30,7 @@ class DubbingTranslationJob;
 class DubbingTranslationFixService;
 class Settings;
 class ColabSession;
+class ColabSeparationRunner;
 
 class DubbingJobRunner : public QObject
 {
@@ -120,6 +123,10 @@ private:
     DubbingExportJob *m_exportJob = nullptr;
     DubbingTranslationJob *m_translationJob = nullptr;
     DubbingTranslationFixService *m_autoTranslationFix = nullptr;
+    QPointer<ColabSession> m_colabSession;
+    ColabSeparationRunner *m_colabSeparationRunner = nullptr;
+    QThread m_colabSeparationThread;
+    std::shared_ptr<std::atomic_bool> m_colabSeparationCancellation;
     QVariantMap m_translationConfiguration;
     QVariantMap m_translationFixConfiguration;
     QString m_translationSourceLanguage;
