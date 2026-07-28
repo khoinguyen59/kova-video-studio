@@ -83,7 +83,7 @@ AppController::AppController(QObject *parent)
     m_preview   = new AudioPreviewService(m_tts, m_player, m_waveformProvider, this);
     m_history   = new HistoryService(m_tts, m_recorder, this);
     m_gatewayTts = new GatewayTtsController(m_settings, m_player, m_waveformProvider, m_history, this);
-    m_colabTts = new ColabTtsController(m_colabSession, m_player, m_waveformProvider, m_history, this);
+    m_colabTts = new ColabTtsController(m_colabSession, m_settings, m_player, m_waveformProvider, m_history, this);
     m_colabVoiceClone = new ColabVoiceCloneController(m_colabSession, m_settings, m_player, m_waveformProvider, m_history, this);
     m_colabVoiceDesign = new ColabVoiceDesignController(m_colabSession, m_settings, m_player, m_waveformProvider, m_history, this);
     m_modelsMigration = new ModelsPathMigrationService(m_settings, m_models, m_downloads, m_stt, m_tts, this);

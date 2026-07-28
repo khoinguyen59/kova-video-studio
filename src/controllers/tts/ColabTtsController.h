@@ -15,6 +15,7 @@ class AudioPlayer;
 class ColabSession;
 class ColabTtsRunner;
 class HistoryService;
+class Settings;
 class WaveformProvider;
 
 // Direct Colab TTS controller. It uses only the in-memory Colab session and
@@ -36,7 +37,7 @@ class ColabTtsController final : public QObject
     Q_PROPERTY(int sampleRate READ sampleRate NOTIFY outputChanged)
 
 public:
-    explicit ColabTtsController(ColabSession *session, AudioPlayer *player,
+    explicit ColabTtsController(ColabSession *session, Settings *settings, AudioPlayer *player,
                                 WaveformProvider *waveformProvider,
                                 HistoryService *history, QObject *parent = nullptr);
     ~ColabTtsController() override;
@@ -60,6 +61,7 @@ public:
     Q_INVOKABLE bool connectColab(const QString &workerUrl, const QString &bearerToken);
     Q_INVOKABLE void useColab();
     Q_INVOKABLE void useLocal();
+    Q_INVOKABLE void deactivateColab();
     Q_INVOKABLE void synthesize(const QString &text, float speed = 1.0F);
     Q_INVOKABLE void cancelProcessing();
     Q_INVOKABLE void playOutput(qint64 positionMs = 0);
@@ -84,6 +86,7 @@ private slots:
 
 private:
     ColabSession *m_session = nullptr;
+    Settings *m_settings = nullptr;
     AudioPlayer *m_player = nullptr;
     WaveformProvider *m_waveformProvider = nullptr;
     HistoryService *m_history = nullptr;

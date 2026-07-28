@@ -1,4 +1,9 @@
 #include <QtTest>
+#include <QDir>
+#include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QPointer>
 #include <QRegularExpression>
 #include <QTcpServer>
@@ -131,6 +136,36 @@ void TestColabTtsRunner::testPostsDirectWorkerSpeechRequest()
     QVERIFY(body.contains("\"seed\":1234"));
     workerThread.quit();
     QVERIFY(workerThread.wait(5000));
+}
+
+void TestColabTtsRunner::ttsNotebookMatchesDirectColabContract()
+{
+    const QString path = QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
+        .filePath(QStringLiteral("notebooks/LA_STUDIO_VOICE_GPU.ipynb"));
+    QFile file(path);
+    QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(path));
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
+    QVERIFY(document.isObject());
+    const QJsonObject root = document.object();
+    QCOMPARE(root.value(QStringLiteral("nbformat")).toInt(), 4);
+
+    QString source;
+    const QJsonArray cells = root.value(QStringLiteral("cells")).toArray();
+    QVERIFY(cells.size() >= 4);
+    for (const QJsonValue &cellValue : cells) {
+        const QJsonArray lines = cellValue.toObject().value(QStringLiteral("source")).toArray();
+        for (const QJsonValue &line : lines) source += line.toString();
+    }
+    QVERIFY(source.contains(QStringLiteral("kokoro")));
+    QVERIFY(source.contains(QStringLiteral("if not torch.cuda.is_available()")));
+    QVERIFY(source.contains(QStringLiteral("@app.post('/v1/audio/speech')")));
+    QVERIFY(source.contains(QStringLiteral("@app.get('/v1/capabilities')")));
+    QVERIFY(source.contains(QStringLiteral("'id': 'tts'")));
+    QVERIFY(source.contains(QStringLiteral("'device': 'cuda'")));
+    QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_TTS_URL")));
+    QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_TTS_TOKEN")));
+    QVERIFY(source.contains(QStringLiteral("cloudflared")));
+    QVERIFY(!source.contains(QStringLiteral("API_GATEWAY")));
 }
 
 } // namespace LAStudio

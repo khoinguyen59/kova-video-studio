@@ -5,6 +5,7 @@
 #include "audio/WavIO.h"
 #include "controllers/shared/HistoryService.h"
 #include "core/PathUtils.h"
+#include "core/Settings.h"
 #include "remote/ColabSession.h"
 #include "tts/ColabTtsRunner.h"
 
@@ -14,11 +15,12 @@
 
 namespace LAStudio {
 
-ColabTtsController::ColabTtsController(ColabSession *session, AudioPlayer *player,
+ColabTtsController::ColabTtsController(ColabSession *session, Settings *settings, AudioPlayer *player,
                                        WaveformProvider *waveformProvider,
                                        HistoryService *history, QObject *parent)
     : QObject(parent)
     , m_session(session)
+    , m_settings(settings)
     , m_player(player)
     , m_waveformProvider(waveformProvider)
     , m_history(history)
@@ -110,6 +112,15 @@ void ColabTtsController::useColab()
 }
 
 void ColabTtsController::useLocal()
+{
+    if (m_settings && m_settings->remoteFirstMode()) {
+        emit errorOccurred(QStringLiteral("Remote-first mode requires API Gateway or a direct Colab TTS worker. Disable Remote-first mode before selecting Local Dev TTS."));
+        return;
+    }
+    deactivateColab();
+}
+
+void ColabTtsController::deactivateColab()
 {
     if (!m_colabActive) return;
     cancelProcessing();

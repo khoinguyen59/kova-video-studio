@@ -21,6 +21,7 @@ ColumnLayout {
     property bool locked: false
     property bool showGatewaySettings: true
     property bool showColabSettings: true
+    readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
 
     property var capabilitySchema: []
     property var basicSchema: []
@@ -336,14 +337,16 @@ ColumnLayout {
                 }
                 PrimaryButton {
                     Layout.fillWidth: true
-                    enabled: !root.locked
-                    text: AppController.gatewayTts.gatewayActive ? qsTr("Use local TTS") : qsTr("Use API Gateway TTS")
-                    iconName: AppController.gatewayTts.gatewayActive ? "close" : "cloud"
+                    enabled: !root.locked && !(root.remoteFirstMode && AppController.gatewayTts.gatewayActive)
+                    text: root.remoteFirstMode
+                          ? (AppController.gatewayTts.gatewayActive ? qsTr("API Gateway TTS active") : qsTr("Use API Gateway TTS"))
+                          : (AppController.gatewayTts.gatewayActive ? qsTr("Use local TTS") : qsTr("Use API Gateway TTS"))
+                    iconName: root.remoteFirstMode || !AppController.gatewayTts.gatewayActive ? "cloud" : "close"
                     onClicked: {
-                        if (AppController.gatewayTts.gatewayActive) {
+                        if (AppController.gatewayTts.gatewayActive && !root.remoteFirstMode) {
                             AppController.gatewayTts.disconnectGateway()
                         } else {
-                            AppController.colabTts.useLocal()
+                            AppController.colabTts.deactivateColab()
                             AppController.gatewayTts.useGateway()
                         }
                     }
@@ -388,11 +391,13 @@ ColumnLayout {
                 }
                 PrimaryButton {
                     Layout.fillWidth: true
-                    enabled: !root.locked
-                    text: AppController.colabTts.colabActive ? qsTr("Use local TTS") : (AppController.colabTts.colabConnected ? qsTr("Use Colab GPU TTS") : qsTr("Connect Colab GPU TTS"))
-                    iconName: AppController.colabTts.colabActive ? "close" : "cloud"
+                    enabled: !root.locked && !(root.remoteFirstMode && AppController.colabTts.colabActive)
+                    text: root.remoteFirstMode
+                          ? (AppController.colabTts.colabActive ? qsTr("Direct Colab GPU TTS active") : (AppController.colabTts.colabConnected ? qsTr("Use direct Colab GPU TTS") : qsTr("Connect direct Colab GPU TTS")))
+                          : (AppController.colabTts.colabActive ? qsTr("Use local TTS") : (AppController.colabTts.colabConnected ? qsTr("Use Colab GPU TTS") : qsTr("Connect Colab GPU TTS")))
+                    iconName: root.remoteFirstMode || !AppController.colabTts.colabActive ? "cloud" : "close"
                     onClicked: {
-                        if (AppController.colabTts.colabActive) {
+                        if (AppController.colabTts.colabActive && !root.remoteFirstMode) {
                             AppController.colabTts.useLocal()
                         } else {
                             AppController.gatewayTts.disconnectGateway()

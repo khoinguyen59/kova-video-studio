@@ -12,6 +12,7 @@
 #include "controllers/tts/ColabVoiceDesignController.h"
 #include "controllers/separation/ColabVoiceIsolatorController.h"
 #include "controllers/alignment/ColabAlignmentController.h"
+#include "controllers/tts/ColabTtsController.h"
 #include "controllers/models/RemoteModelCatalogController.h"
 #include "remote/ColabCapabilityCatalog.h"
 #include "remote/ColabSession.h"
@@ -256,6 +257,34 @@ void TestRemoteExecution::remoteFirstAlignmentStaysDirectWhenAColabSessionIsAvai
     QVERIFY(controller.colabActive());
     QCOMPARE(failures.count(), 1);
     QVERIFY(failures.takeFirst().at(0).toString().contains(QStringLiteral("Remote-first")));
+
+    settings.setRemoteFirstMode(original);
+}
+
+void TestRemoteExecution::remoteFirstTtsBlocksLocalButPreservesIndependentRoutes()
+{
+    Settings settings;
+    const bool original = settings.remoteFirstMode();
+    settings.setRemoteFirstMode(false);
+    ColabSession session;
+    QString error;
+    QVERIFY(session.setSession(QStringLiteral("https://worker.example.test"),
+                               QStringLiteral("temporary-colab-token"), &error));
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    ColabTtsController controller(&session, &settings, nullptr, nullptr, nullptr);
+    controller.useColab();
+    QVERIFY(controller.colabActive());
+    settings.setRemoteFirstMode(true);
+    QSignalSpy errors(&controller, &ColabTtsController::errorOccurred);
+    controller.useLocal();
+    QVERIFY(controller.colabActive());
+    QCOMPARE(errors.count(), 1);
+    QVERIFY(errors.takeFirst().at(0).toString().contains(QStringLiteral("Remote-first")));
+    controller.deactivateColab();
+    QVERIFY(!controller.colabActive());
+    QCOMPARE(session.workerUrl(), QStringLiteral("https://worker.example.test"));
+    QCOMPARE(session.bearerTokenForRequest(), QStringLiteral("temporary-colab-token"));
 
     settings.setRemoteFirstMode(original);
 }

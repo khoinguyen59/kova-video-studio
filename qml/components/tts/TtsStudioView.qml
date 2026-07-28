@@ -27,6 +27,7 @@ StudioShell {
 
     property string playingType: "none"
     property string detectedLanguage: "en"
+    readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
     readonly property bool gatewayActive: AppController.gatewayTts && AppController.gatewayTts.gatewayActive
     readonly property bool colabActive: AppController.colabTts && AppController.colabTts.colabActive
     readonly property bool remoteActive: gatewayActive || colabActive
@@ -437,12 +438,12 @@ StudioShell {
                         Layout.preferredWidth: 180
                         Layout.preferredHeight: 42
                         visible: !root.inputsLocked
-                        enabled: (root.remoteActive || ((root.studioController ? root.studioController.canProcess : false) && AppController.tts.modelLoaded)) && inputText.text.length > 0 && !root.inputsLocked
+                        enabled: (root.remoteActive || (!root.remoteFirstMode && (root.studioController ? root.studioController.canProcess : false) && AppController.tts.modelLoaded)) && inputText.text.length > 0 && !root.inputsLocked
                         onClicked: {
                             root.lastSynthesizedText = inputText.text
                             if (root.remoteActive) {
                                 root.remoteTts.synthesize(inputText.text.normalize("NFC"), 1.0)
-                            } else {
+                            } else if (!root.remoteFirstMode) {
                                 var synSettings = settingsPanel.getSynthesisSettings()
                                 AppController.tts.synthesize(inputText.text.normalize("NFC"), 0, 1.0, synSettings)
                             }
