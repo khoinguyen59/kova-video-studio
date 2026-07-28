@@ -17,7 +17,7 @@ StudioShell {
     studioContext: null
     studioReady: false
     studioIconName: "voice-isolator"
-    showSettingsPanel: false
+    showSettingsPanel: true
     showLeftPanel: true
     isLeftPanelOpen: true
     modalSelectionMode: true
@@ -27,7 +27,8 @@ StudioShell {
     modalSelectionDetail: ""
     backToolTip: qsTr("Change model and runtime")
 
-    property var isolator: AppController.voiceIsolator
+    readonly property bool colabSelected: AppController.colabVoiceIsolator.colabActive
+    property var isolator: colabSelected ? AppController.colabVoiceIsolator : AppController.voiceIsolator
     readonly property bool fastModel: selectedFamilyId === "sherpa-onnx-spleeter-2stems-fp16"
     property string exportSource: ""
     property string playingStem: ""
@@ -130,7 +131,7 @@ StudioShell {
                             text: root.isolator.processing ? qsTr("Separating source · %1%").arg(root.isolator.progress)
                                   : root.isolator.lastError.length > 0 ? root.isolator.lastError
                                   : root.isolator.warning.length > 0 ? root.isolator.warning
-                                  : qsTr("Configure and load a sherpa-onnx runtime and separation model.")
+                                  : (root.colabSelected ? qsTr("Direct Colab GPU separation is ready.") : qsTr("Configure and load a sherpa-onnx runtime and separation model."))
                             color: root.isolator.lastError.length > 0 ? Theme.danger : Theme.textSecondary
                             font.pixelSize: Theme.fontSmall
                             wrapMode: Text.WordWrap
@@ -168,6 +169,61 @@ StudioShell {
             }
 
             FileDialog { id: exportDialog; title: qsTr("Export stem WAV"); fileMode: FileDialog.SaveFile; currentFile: "stem.wav"; onAccepted: root.isolator.exportStem(root.exportSource, root.localPath(file)) }
+        }
+    ]
+
+    settingsContent: [
+        Item {
+            anchors.fill: parent
+
+            component ColabField: TextField {
+                Layout.fillWidth: true
+                color: Theme.textPrimary
+                placeholderTextColor: Theme.textSecondary
+                selectByMouse: true
+                background: Rectangle {
+                    radius: Theme.radiusSmall
+                    color: Qt.rgba(1, 1, 1, 0.04)
+                    border.color: parent.activeFocus ? Theme.accent : Qt.rgba(1, 1, 1, 0.12)
+                }
+            }
+
+            ScrollView {
+                anchors.fill: parent
+                clip: true
+                contentWidth: availableWidth
+                ColumnLayout {
+                    width: parent.width - Theme.paddingLarge * 2
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    spacing: Theme.paddingMedium
+
+                    Text { Layout.fillWidth: true; text: qsTr("Voice Isolation"); color: Theme.textPrimary; font.pixelSize: Theme.fontLarge; font.bold: true }
+                    Text { Layout.fillWidth: true; text: qsTr("Local model and direct Colab GPU are independent choices."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1, 1, 1, 0.08) }
+                    Text { text: qsTr("DIRECT COLAB GPU"); color: Theme.textSecondary; font.pixelSize: 10; font.bold: true; font.letterSpacing: 0.8 }
+                    Text { Layout.fillWidth: true; text: qsTr("The worker receives the selected media directly and returns vocals/background WAV artifacts. It never uses API Gateway."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                    Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                    ColabField { id: colabUrl; text: AppController.colabSession.workerUrl; placeholderText: qsTr("https://â€¦trycloudflare.com") }
+                    Text { text: qsTr("Session token"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                    ColabField { id: colabToken; echoMode: TextInput.Password; placeholderText: AppController.colabVoiceIsolator.colabConnected ? qsTr("Connected â€” enter token to replace") : qsTr("Temporary token from Colab") }
+                    Text { text: qsTr("Model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                    Text { Layout.fillWidth: true; text: qsTr("Demucs htdemucs — vocals + background"); color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                    PrimaryButton {
+                        Layout.fillWidth: true
+                        text: AppController.colabVoiceIsolator.colabActive ? qsTr("Use local isolation") : (AppController.colabVoiceIsolator.colabConnected ? qsTr("Use direct Colab isolation") : qsTr("Connect direct Colab isolation"))
+                        iconName: AppController.colabVoiceIsolator.colabActive ? "close" : "cloud"
+                        onClicked: {
+                            if (AppController.colabVoiceIsolator.colabActive) {
+                                AppController.colabVoiceIsolator.useLocal()
+                            } else if (AppController.colabVoiceIsolator.colabConnected) {
+                                AppController.colabVoiceIsolator.useColab()
+                            } else if (AppController.colabVoiceIsolator.connectColab(colabUrl.text.trim(), colabToken.text)) {
+                                colabToken.text = ""
+                            }
+                        }
+                    }
+                }
+            }
         }
     ]
 }

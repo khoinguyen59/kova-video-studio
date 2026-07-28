@@ -143,6 +143,7 @@ set(LASTUDIO_SOURCES
     src/tts/ColabVoiceCloneRunner.cpp
     src/tts/ColabVoiceDesignRunner.cpp
     src/alignment/ColabAlignmentRunner.cpp
+    src/separation/ColabSeparationRunner.cpp
     src/tts/TextNormalizationPolicy.cpp
     src/tts/TtsTextPreprocessor.cpp
     src/tts/TtsRequestValidator.cpp
@@ -163,6 +164,7 @@ set(LASTUDIO_SOURCES
     src/controllers/models/DownloadInstallService.cpp
     src/controllers/alignment/AlignmentExecutionService.cpp
     src/controllers/alignment/ColabAlignmentController.cpp
+    src/controllers/separation/ColabVoiceIsolatorController.cpp
     src/dubbing/AlignmentRefinementService.cpp
     src/dubbing/DubbingSegmentNormalizer.cpp
     src/controllers/alignment/AlignmentTranscriptMatcher.cpp
@@ -315,6 +317,7 @@ set(LASTUDIO_HEADERS
     src/tts/ColabVoiceCloneRunner.h
     src/tts/ColabVoiceDesignRunner.h
     src/alignment/ColabAlignmentRunner.h
+    src/separation/ColabSeparationRunner.h
     src/tts/TextNormalizationPolicy.h
     src/tts/TtsTextPreprocessor.h
     src/tts/TtsRequestValidator.h
@@ -336,6 +339,7 @@ set(LASTUDIO_HEADERS
     src/controllers/models/DownloadInstallService.h
     src/controllers/alignment/AlignmentExecutionService.h
     src/controllers/alignment/ColabAlignmentController.h
+    src/controllers/separation/ColabVoiceIsolatorController.h
     src/dubbing/AlignmentRefinementService.h
     src/dubbing/DubbingSegmentNormalizer.h
     src/controllers/alignment/AlignmentTranscriptMatcher.h

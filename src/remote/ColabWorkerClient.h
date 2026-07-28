@@ -39,6 +39,13 @@ public:
     bool alignAudioFile(const QString &audioPath, const QString &transcript, const QString &language,
                         const QString &model, const std::shared_ptr<std::atomic_bool> &cancelToken,
                         QJsonObject *response, QString *errorMessage);
+    bool createSeparationJob(const QString &audioPath, const QString &model,
+                             QJsonObject *job, QString *errorMessage);
+    bool separationJobStatus(const QString &jobId, QJsonObject *job, QString *errorMessage);
+    bool downloadSeparationArtifact(const QString &jobId, const QString &stem,
+                                    const std::shared_ptr<std::atomic_bool> &cancelToken,
+                                    QByteArray *wavData, QString *errorMessage);
+    bool cancelSeparationJob(const QString &jobId, QString *errorMessage = nullptr);
     bool createVoiceProfileJob(const QString &referencePath, const QString &name,
                                const QString &referenceText, const QString &language,
                                bool separateMusic, QJsonObject *job, QString *errorMessage);

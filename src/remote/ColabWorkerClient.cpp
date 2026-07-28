@@ -367,6 +367,133 @@ bool ColabWorkerClient::alignAudioFile(const QString &audioPath, const QString &
     return ok;
 }
 
+bool ColabWorkerClient::createSeparationJob(const QString &audioPath, const QString &model,
+                                            QJsonObject *job, QString *errorMessage)
+{
+    if (job) *job = {};
+    if (!m_workerUrl.isValid() || m_bearerToken.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab worker is not connected");
+        return false;
+    }
+    QFile *audio = new QFile(audioPath);
+    constexpr qint64 maxUploadBytes = 512LL * 1024LL * 1024LL;
+    if (!audio->open(QIODevice::ReadOnly) || audio->size() <= 0 || audio->size() > maxUploadBytes) {
+        delete audio;
+        if (errorMessage) *errorMessage = QStringLiteral("Separation audio must be a readable file no larger than 512 MB");
+        return false;
+    }
+    QNetworkAccessManager manager;
+    QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v1/audio/separations")));
+    request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
+    request.setRawHeader("Accept", "application/json");
+    auto *multipart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
+    multipart->append(formField("model", model.trimmed().isEmpty() ? QByteArrayLiteral("htdemucs") : model.trimmed().toUtf8()));
+    multipart->append(formField("stems", "vocals,background"));
+    QHttpPart audioPart;
+    const QString sourceFilename = QFileInfo(audio->fileName()).fileName();
+    const QString filename = sourceFilename.isEmpty() ? QStringLiteral("audio.wav") : sourceFilename;
+    audioPart.setHeader(QNetworkRequest::ContentDispositionHeader,
+                        QVariant(QStringLiteral("form-data; name=\"file\"; filename=\"%1\"").arg(filename)));
+    audioPart.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QStringLiteral("application/octet-stream")));
+    audio->setParent(multipart);
+    audioPart.setBodyDevice(audio);
+    multipart->append(audioPart);
+    QNetworkReply *reply = manager.post(request, multipart);
+    multipart->setParent(reply);
+    m_activeReply = reply;
+    QEventLoop eventLoop;
+    QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
+    eventLoop.exec();
+    m_activeReply = nullptr;
+    const bool ok = parseJsonResponse(reply, nullptr, job, errorMessage,
+                                      QStringLiteral("Colab worker returned an invalid separation job"));
+    reply->deleteLater();
+    return ok;
+}
+
+bool ColabWorkerClient::separationJobStatus(const QString &jobId, QJsonObject *job, QString *errorMessage)
+{
+    if (job) *job = {};
+    if (!m_workerUrl.isValid() || m_bearerToken.isEmpty() || jobId.trimmed().isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab separation job is unavailable");
+        return false;
+    }
+    QNetworkAccessManager manager;
+    QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v1/audio/separations/%1").arg(jobId.trimmed())));
+    request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
+    request.setRawHeader("Accept", "application/json");
+    QNetworkReply *reply = manager.get(request);
+    m_activeReply = reply;
+    QEventLoop eventLoop;
+    QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
+    eventLoop.exec();
+    m_activeReply = nullptr;
+    const bool ok = parseJsonResponse(reply, nullptr, job, errorMessage,
+                                      QStringLiteral("Colab worker returned an invalid separation status"));
+    reply->deleteLater();
+    return ok;
+}
+
+bool ColabWorkerClient::downloadSeparationArtifact(const QString &jobId, const QString &stem,
+                                                   const std::shared_ptr<std::atomic_bool> &cancelToken,
+                                                   QByteArray *wavData, QString *errorMessage)
+{
+    if (wavData) wavData->clear();
+    if (!m_workerUrl.isValid() || m_bearerToken.isEmpty() || jobId.trimmed().isEmpty()
+        || (stem != QStringLiteral("vocals") && stem != QStringLiteral("background"))) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab separation artifact is unavailable");
+        return false;
+    }
+    QNetworkAccessManager manager;
+    QNetworkRequest request(appendRemotePath(m_workerUrl,
+        QStringLiteral("v1/audio/separations/%1/artifacts/%2").arg(jobId.trimmed(), stem)));
+    request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
+    request.setRawHeader("Accept", "audio/wav, application/octet-stream");
+    QNetworkReply *reply = manager.get(request);
+    m_activeReply = reply;
+    QEventLoop eventLoop;
+    QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
+    eventLoop.exec();
+    const QByteArray body = reply->readAll();
+    const int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QNetworkReply::NetworkError networkError = reply->error();
+    const QString networkErrorText = reply->errorString();
+    m_activeReply = nullptr;
+    reply->deleteLater();
+    if (cancelToken && cancelToken->load(std::memory_order_relaxed)) return false;
+    if (networkError != QNetworkReply::NoError || statusCode < 200 || statusCode >= 300) {
+        if (errorMessage) *errorMessage = statusCode >= 400 ? responseError(body, statusCode)
+            : QStringLiteral("Colab worker request failed: %1").arg(networkErrorText);
+        return false;
+    }
+    if (body.size() < 44 || !body.startsWith("RIFF")) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab worker returned an invalid WAV separation artifact");
+        return false;
+    }
+    if (wavData) *wavData = body;
+    return true;
+}
+
+bool ColabWorkerClient::cancelSeparationJob(const QString &jobId, QString *errorMessage)
+{
+    if (!m_workerUrl.isValid() || m_bearerToken.isEmpty() || jobId.trimmed().isEmpty()) return false;
+    QNetworkAccessManager manager;
+    QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v1/audio/separations/%1").arg(jobId.trimmed())));
+    request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
+    QNetworkReply *reply = manager.deleteResource(request);
+    m_activeReply = reply;
+    QEventLoop eventLoop;
+    QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
+    eventLoop.exec();
+    m_activeReply = nullptr;
+    const int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QByteArray body = reply->readAll();
+    const bool ok = reply->error() == QNetworkReply::NoError && statusCode >= 200 && statusCode < 300;
+    if (!ok && errorMessage) *errorMessage = responseError(body, statusCode);
+    reply->deleteLater();
+    return ok;
+}
+
 bool ColabWorkerClient::createVoiceProfileJob(const QString &referencePath, const QString &name,
                                               const QString &referenceText, const QString &language,
                                               bool separateMusic, QJsonObject *job, QString *errorMessage)

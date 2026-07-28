@@ -18,8 +18,8 @@ StudioPageFrame {
             }
             families: studioController.families
             selectedFamilyId: studioController.selectedFamilyId
-            studioReady: studioController.studioReady
-            studioTitle: studioController.studioHeaderTitle
+            studioReady: AppController.colabVoiceIsolator.colabActive || studioController.studioReady
+            studioTitle: AppController.colabVoiceIsolator.colabActive ? qsTr("Direct Colab Voice Isolation") : studioController.studioHeaderTitle
             modalSelectionTitle: studioController.modalSelectionTitle
             modalSelectionValue: studioController.modalSelectionValue
             modalSelectionDetail: studioController.modalSelectionDetail

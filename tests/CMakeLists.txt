@@ -20,6 +20,8 @@ set(TEST_SOURCES
     test_ColabVoiceDesignRunner.h
     test_ColabAlignmentRunner.cpp
     test_ColabAlignmentRunner.h
+    test_ColabSeparationRunner.cpp
+    test_ColabSeparationRunner.h
     test_SubtitleVoice.cpp
     test_TtsTextPreprocessor.cpp
     test_TtsRequestValidator.cpp
@@ -55,6 +57,7 @@ set(TEST_SOURCES
     ../src/controllers/models/DownloadInstallService.cpp
     ../src/controllers/alignment/AlignmentExecutionService.cpp
     ../src/controllers/alignment/ColabAlignmentController.cpp
+    ../src/controllers/separation/ColabVoiceIsolatorController.cpp
     ../src/dubbing/AlignmentRefinementService.cpp
     ../src/dubbing/DubbingSegmentNormalizer.cpp
     ../src/controllers/alignment/AlignmentTranscriptMatcher.cpp
@@ -170,6 +173,7 @@ set(TEST_SOURCES
     ../src/tts/ColabVoiceCloneRunner.cpp
     ../src/tts/ColabVoiceDesignRunner.cpp
     ../src/alignment/ColabAlignmentRunner.cpp
+    ../src/separation/ColabSeparationRunner.cpp
     ../src/core/LocalizationManager.cpp
     ../src/core/ModelManager.cpp
     ../src/core/CatalogManager.cpp
@@ -207,11 +211,13 @@ set(TEST_SOURCES
     ../src/tts/ColabVoiceCloneRunner.h
     ../src/tts/ColabVoiceDesignRunner.h
     ../src/alignment/ColabAlignmentRunner.h
+    ../src/separation/ColabSeparationRunner.h
     ../src/controllers/tts/GatewayTtsController.h
     ../src/controllers/tts/ColabTtsController.h
     ../src/controllers/tts/ColabVoiceCloneController.h
     ../src/controllers/tts/ColabVoiceDesignController.h
     ../src/controllers/alignment/ColabAlignmentController.h
+    ../src/controllers/separation/ColabVoiceIsolatorController.h
     ../src/controllers/app/AppController.h
     ../src/controllers/shared/AppUpdateService.h
     ../src/controllers/shared/ExampleManager.h
@@ -371,6 +377,7 @@ set(LASTUDIO_TEST_SUITES
     TestColabVoiceCloneRunner
     TestColabVoiceDesignRunner
     TestColabAlignmentRunner
+    TestColabSeparationRunner
 )
 
 foreach(LASTUDIO_TEST_SUITE IN LISTS LASTUDIO_TEST_SUITES)

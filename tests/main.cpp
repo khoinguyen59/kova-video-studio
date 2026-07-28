@@ -31,6 +31,7 @@
 #include "test_ColabVoiceCloneRunner.h"
 #include "test_ColabVoiceDesignRunner.h"
 #include "test_ColabAlignmentRunner.h"
+#include "test_ColabSeparationRunner.h"
 
 #include <QFile>
 #include <QTextStream>
@@ -223,6 +224,10 @@ int main(int argc, char *argv[])
     {
         LAStudio::TestColabAlignmentRunner suite;
         runSuite(&suite, "TestColabAlignmentRunner");
+    }
+    {
+        LAStudio::TestColabSeparationRunner suite;
+        runSuite(&suite, "TestColabSeparationRunner");
     }
 
     std::cout << "\n==================================================\n";
