@@ -260,6 +260,10 @@ function Assert-WorkerCapability {
         [Parameter(Mandatory)] [string] $ExpectedCapability
     )
 
+    $contractVersion = Get-OptionalProperty -Object $Capabilities -Name 'contract_version'
+    if ($contractVersion -ne 1) {
+        throw 'Worker must advertise contract_version=1.'
+    }
     $ids = Get-CapabilityIds -Payload $Capabilities
     if ($ExpectedCapability -notin $ids) {
         throw "Worker did not advertise '$ExpectedCapability'."
@@ -268,7 +272,7 @@ function Assert-WorkerCapability {
     if ($modelIds.Count -eq 0) {
         throw "Worker advertised '$ExpectedCapability' without a model ID."
     }
-    return "advertises $ExpectedCapability; models=$($modelIds -join ',')"
+    return "contractVersion=1; advertises $ExpectedCapability; models=$($modelIds -join ',')"
 }
 
 function Resolve-ReportPath {

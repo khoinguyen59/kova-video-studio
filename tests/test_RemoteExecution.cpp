@@ -1,7 +1,9 @@
 #include "test_RemoteExecution.h"
 
 #include <QtTest>
+#include <QDir>
 #include <QElapsedTimer>
+#include <QFile>
 #include <QPointer>
 #include <QSettings>
 #include <QTcpServer>
@@ -535,7 +537,7 @@ void TestRemoteExecution::gatewayModelCatalogUsesGatewayOnly()
 void TestRemoteExecution::colabCapabilityCatalogUsesDirectWorkerOnly()
 {
     CatalogMock server(QByteArrayLiteral(
-        R"({"device":"cuda","available_vram_gb":8,"capabilities":[{"id":"tts","models":[{"id":"kokoro","source":"hexgrad/Kokoro-82M","revision":"abc123","license":"Apache-2.0","device":"cuda","required_vram_gb":4}]},{"id":"translation","models":[{"id":"large-mt","loaded":true,"device":"cuda","required_vram_gb":16}]}]})"));
+        R"({"contract_version":1,"device":"cuda","available_vram_gb":8,"capabilities":[{"id":"tts","models":[{"id":"kokoro","source":"hexgrad/Kokoro-82M","revision":"abc123","license":"Apache-2.0","device":"cuda","required_vram_gb":4}]},{"id":"translation","models":[{"id":"large-mt","loaded":true,"device":"cuda","required_vram_gb":16}]}]})"));
     QVERIFY(server.start());
 
     const ColabCapabilityCatalog::Result result = ColabCapabilityCatalog::fetch(
@@ -552,6 +554,19 @@ void TestRemoteExecution::colabCapabilityCatalogUsesDirectWorkerOnly()
     QCOMPARE(server.request().left(server.request().indexOf("\r\n")),
              QByteArrayLiteral("GET /v1/capabilities HTTP/1.1"));
     QVERIFY(server.request().toLower().contains("authorization: bearer temporary-colab-catalog-token"));
+}
+
+void TestRemoteExecution::colabCapabilityCatalogRequiresSupportedContractVersion()
+{
+    CatalogMock missingVersion(QByteArrayLiteral(
+        R"({"device":"cuda","capabilities":[{"id":"tts","models":[{"id":"kokoro","device":"cuda"}]}]})"));
+    QVERIFY(missingVersion.start());
+
+    const ColabCapabilityCatalog::Result result = ColabCapabilityCatalog::fetch(
+        QUrl(missingVersion.baseUrl()), QStringLiteral("contract-version-token"), true);
+    QVERIFY(!result.isSuccess());
+    QVERIFY(result.error.contains(QStringLiteral("contract_version must be 1")));
+    QVERIFY(!result.error.contains(QStringLiteral("contract-version-token")));
 }
 
 void TestRemoteExecution::remoteCatalogRequestsTimeOut()
@@ -578,9 +593,9 @@ void TestRemoteExecution::remoteCatalogRequestsTimeOut()
 void TestRemoteExecution::remoteModelCatalogAggregatesIndependentColabSessions()
 {
     CatalogMock sttServer(QByteArrayLiteral(
-        R"({"device":"cuda","capabilities":[{"id":"stt","models":[{"id":"whisper-contract","device":"cuda"}]}]})"));
+        R"({"contract_version":1,"device":"cuda","capabilities":[{"id":"stt","models":[{"id":"whisper-contract","device":"cuda"}]}]})"));
     CatalogMock ttsServer(QByteArrayLiteral(
-        R"({"device":"cuda","capabilities":[{"id":"tts","models":[{"id":"kokoro-contract","device":"cuda"}]}]})"));
+        R"({"contract_version":1,"device":"cuda","capabilities":[{"id":"tts","models":[{"id":"kokoro-contract","device":"cuda"}]}]})"));
     QVERIFY(sttServer.start());
     QVERIFY(ttsServer.start());
 
@@ -618,7 +633,7 @@ void TestRemoteExecution::remoteModelCatalogAggregatesIndependentColabSessions()
 void TestRemoteExecution::remoteModelCatalogRetainsHealthyWorkerWhenAnotherFails()
 {
     CatalogMock ttsServer(QByteArrayLiteral(
-        R"({"device":"cuda","capabilities":[{"id":"tts","models":[{"id":"kokoro-survives-reset","device":"cuda"}]}]})"));
+        R"({"contract_version":1,"device":"cuda","capabilities":[{"id":"tts","models":[{"id":"kokoro-survives-reset","device":"cuda"}]}]})"));
     QVERIFY(ttsServer.start());
 
     // Reserve then release a loopback port so the STT request fails immediately
@@ -652,6 +667,27 @@ void TestRemoteExecution::remoteModelCatalogRetainsHealthyWorkerWhenAnotherFails
     QVERIFY(controller.colabError().contains(QStringLiteral("stt worker")));
     QVERIFY(ttsServer.request().toLower().contains("authorization: bearer tts-survives-token"));
     QVERIFY(!controller.colabError().contains(QStringLiteral("tts-survives-token")));
+}
+
+void TestRemoteExecution::colabNotebooksAdvertiseCapabilityContractVersion()
+{
+    const QDir sourceRoot(QStringLiteral(LASTUDIO_SOURCE_DIR));
+    const QStringList notebooks{
+        QStringLiteral("LA_STUDIO_SPEECH_GPU.ipynb"),
+        QStringLiteral("LA_STUDIO_VOICE_GPU.ipynb"),
+        QStringLiteral("LA_STUDIO_VOICE_CLONE_GPU.ipynb"),
+        QStringLiteral("LA_STUDIO_VOICE_DESIGN_GPU.ipynb"),
+        QStringLiteral("LA_STUDIO_ALIGNMENT_GPU.ipynb"),
+        QStringLiteral("LA_STUDIO_SEPARATION_GPU.ipynb"),
+        QStringLiteral("LA_STUDIO_LANGUAGE_GPU.ipynb"),
+    };
+    for (const QString &notebook : notebooks) {
+        QFile file(sourceRoot.filePath(QStringLiteral("notebooks/") + notebook));
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(file.fileName()));
+        const QByteArray source = file.readAll();
+        QVERIFY2(source.contains("@app.get('/v1/capabilities')"), qPrintable(notebook));
+        QVERIFY2(source.contains("'contract_version': 1"), qPrintable(notebook));
+    }
 }
 
 } // namespace LAStudio

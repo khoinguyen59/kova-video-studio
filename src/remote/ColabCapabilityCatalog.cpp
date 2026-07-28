@@ -15,6 +15,8 @@
 namespace LAStudio {
 namespace {
 
+constexpr int kSupportedColabContractVersion = 1;
+
 QString colabError(const QByteArray &body, int statusCode, const QString &networkError)
 {
     const QJsonDocument document = QJsonDocument::fromJson(body);
@@ -135,6 +137,12 @@ ColabCapabilityCatalog::Result ColabCapabilityCatalog::fetch(const QUrl &workerU
     }
 
     const QJsonObject root = document.object();
+    const QJsonValue contractVersion = root.value(QStringLiteral("contract_version"));
+    if (!contractVersion.isDouble() || contractVersion.toInt() != kSupportedColabContractVersion) {
+        result.error = QStringLiteral("Colab worker contract_version must be %1")
+                           .arg(kSupportedColabContractVersion);
+        return result;
+    }
     QSet<QString> seen;
     const QJsonArray capabilities = root.value(QStringLiteral("capabilities")).toArray();
     for (const QJsonValue &value : capabilities) {

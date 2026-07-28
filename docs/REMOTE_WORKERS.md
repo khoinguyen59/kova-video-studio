@@ -57,8 +57,9 @@ source of each entry; it never combines their tokens or routes.
 
 Every notebook exposes `/health` and `/v1/capabilities` in addition to its
 feature endpoint. The capabilities response identifies CUDA-backed models that
-the active worker can serve. The notebooks contain no Gateway URL, API key, or
-Gateway forwarding logic.
+the active worker can serve and declares `contract_version: 1`; an older or
+different contract is rejected before model selection. The notebooks contain no
+Gateway URL, API key, or Gateway forwarding logic.
 
 ## Live preflight, one route at a time
 

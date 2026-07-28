@@ -26,9 +26,11 @@ private slots:
     void gatewayAndColabFailuresRemainIndependent();
     void gatewayModelCatalogUsesGatewayOnly();
     void colabCapabilityCatalogUsesDirectWorkerOnly();
+    void colabCapabilityCatalogRequiresSupportedContractVersion();
     void remoteCatalogRequestsTimeOut();
     void remoteModelCatalogAggregatesIndependentColabSessions();
     void remoteModelCatalogRetainsHealthyWorkerWhenAnotherFails();
+    void colabNotebooksAdvertiseCapabilityContractVersion();
 };
 
 } // namespace LAStudio

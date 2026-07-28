@@ -132,6 +132,7 @@ try {
                     $route = $Matches[1]
                     if ($route -eq 'language') {
                         $payload = @{
+                            contract_version = 1
                             device = 'cuda'
                             translation = @(@{ id = 'translation-contract-model'; loaded = $true })
                             chat = @(@{ id = 'chat-contract-model'; loaded = $true })
@@ -140,6 +141,7 @@ try {
                     elseif ($routeCapabilities.ContainsKey($route)) {
                         $capability = $routeCapabilities[$route]
                         $payload = @{
+                            contract_version = 1
                             capabilities = @(@{
                                 id = $capability
                                 models = @(@{ id = "$capability-contract-model"; device = 'cuda' })
@@ -212,6 +214,9 @@ try {
         })
         if ($capabilityCheck.Count -ne 1 -or $capabilityCheck[0].detail -notmatch [Regex]::Escape("models=$($worker.capability)-contract-model")) {
             throw "Preflight report did not record the advertised $($worker.capability) model ID."
+        }
+        if ($capabilityCheck[0].detail -notmatch 'contractVersion=1') {
+            throw "Preflight report did not validate contract version for $($worker.capability)."
         }
     }
 
