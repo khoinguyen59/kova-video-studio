@@ -14,6 +14,7 @@
 namespace LAStudio {
 
 class ColabSession;
+class Settings;
 
 class ColabVoiceIsolatorController final : public QObject
 {
@@ -34,7 +35,7 @@ class ColabVoiceIsolatorController final : public QObject
     Q_PROPERTY(QVariantList backgroundSamples READ backgroundSamples NOTIFY backgroundSamplesChanged)
 
 public:
-    explicit ColabVoiceIsolatorController(ColabSession *session, QObject *parent = nullptr);
+    explicit ColabVoiceIsolatorController(ColabSession *session, Settings *settings, QObject *parent = nullptr);
     ~ColabVoiceIsolatorController() override;
 
     bool colabActive() const { return m_colabActive; }
@@ -70,6 +71,7 @@ signals:
 
 private slots:
     void onSessionChanged();
+    void onRemoteFirstModeChanged();
     void onRunnerProgress(int percent);
     void onRunnerFinished(const LAStudio::ColabSeparationResult &result);
     void onRunnerFailed(const QString &error);
@@ -79,6 +81,7 @@ private:
     void setError(const QString &error);
 
     ColabSession *m_session = nullptr;
+    Settings *m_settings = nullptr;
     ColabSeparationRunner *m_runner = nullptr;
     QThread m_thread;
     std::shared_ptr<std::atomic_bool> m_cancellation;

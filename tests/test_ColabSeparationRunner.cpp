@@ -1,6 +1,10 @@
 #include <QtTest>
+#include <QDir>
 #include <QFile>
 #include <QHash>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QPointer>
 #include <QRegularExpression>
 #include <QTemporaryDir>
@@ -153,6 +157,37 @@ void TestColabSeparationRunner::testCancellationDiscardsPartialArtifacts()
     QVERIFY(failures.takeFirst().at(0).toString().contains(QStringLiteral("cancelled"), Qt::CaseInsensitive));
     QVERIFY(server.requests().contains("DELETE /v1/audio/separations/job-direct HTTP/1.1"));
     thread.quit(); QVERIFY(thread.wait(5000));
+}
+
+void TestColabSeparationRunner::separationNotebookMatchesDirectColabContract()
+{
+    const QString path = QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
+        .filePath(QStringLiteral("notebooks/LA_STUDIO_SEPARATION_GPU.ipynb"));
+    QFile file(path);
+    QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(path));
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
+    QVERIFY(document.isObject());
+    const QJsonObject root = document.object();
+    QCOMPARE(root.value(QStringLiteral("nbformat")).toInt(), 4);
+
+    QString source;
+    const QJsonArray cells = root.value(QStringLiteral("cells")).toArray();
+    QVERIFY(cells.size() >= 4);
+    for (const QJsonValue &cellValue : cells) {
+        const QJsonArray lines = cellValue.toObject().value(QStringLiteral("source")).toArray();
+        for (const QJsonValue &line : lines) source += line.toString();
+    }
+    QVERIFY(source.contains(QStringLiteral("demucs")));
+    QVERIFY(source.contains(QStringLiteral("if not torch.cuda.is_available()")));
+    QVERIFY(source.contains(QStringLiteral("@app.post('/v1/audio/separations')")));
+    QVERIFY(source.contains(QStringLiteral("@app.get('/v1/audio/separations/{job_id}')")));
+    QVERIFY(source.contains(QStringLiteral("@app.get('/v1/capabilities')")));
+    QVERIFY(source.contains(QStringLiteral("'id': 'voice-isolation'")));
+    QVERIFY(source.contains(QStringLiteral("'device': 'cuda'")));
+    QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_SEPARATION_URL")));
+    QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_SEPARATION_TOKEN")));
+    QVERIFY(source.contains(QStringLiteral("cloudflared")));
+    QVERIFY(!source.contains(QStringLiteral("API_GATEWAY")));
 }
 
 } // namespace LAStudio

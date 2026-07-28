@@ -16,6 +16,7 @@ private slots:
     void remoteFirstModeIsExplicitAndPersistent();
     void remoteFirstVoiceCloneStaysDirectWhenAColabSessionIsAvailable();
     void remoteFirstVoiceDesignStaysDirectWhenAColabSessionIsAvailable();
+    void remoteFirstVoiceIsolationStaysDirectWhenAColabSessionIsAvailable();
     void gatewayAndColabFailuresRemainIndependent();
     void gatewayModelCatalogUsesGatewayOnly();
     void colabCapabilityCatalogUsesDirectWorkerOnly();

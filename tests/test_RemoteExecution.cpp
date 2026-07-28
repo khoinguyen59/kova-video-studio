@@ -10,6 +10,7 @@
 #include "core/Settings.h"
 #include "controllers/tts/ColabVoiceCloneController.h"
 #include "controllers/tts/ColabVoiceDesignController.h"
+#include "controllers/separation/ColabVoiceIsolatorController.h"
 #include "controllers/models/RemoteModelCatalogController.h"
 #include "remote/ColabCapabilityCatalog.h"
 #include "remote/ColabSession.h"
@@ -202,6 +203,30 @@ void TestRemoteExecution::remoteFirstVoiceDesignStaysDirectWhenAColabSessionIsAv
     settings.setRemoteFirstMode(true);
     QVERIFY(controller.colabActive());
     QSignalSpy errors(&controller, &ColabVoiceDesignController::errorOccurred);
+    controller.useLocal();
+    QVERIFY(controller.colabActive());
+    QCOMPARE(errors.count(), 1);
+    QVERIFY(errors.takeFirst().at(0).toString().contains(QStringLiteral("Remote-first")));
+
+    settings.setRemoteFirstMode(original);
+}
+
+void TestRemoteExecution::remoteFirstVoiceIsolationStaysDirectWhenAColabSessionIsAvailable()
+{
+    Settings settings;
+    const bool original = settings.remoteFirstMode();
+    settings.setRemoteFirstMode(false);
+    ColabSession session;
+    QString error;
+    QVERIFY(session.setSession(QStringLiteral("https://worker.example.test"),
+                               QStringLiteral("temporary-colab-token"), &error));
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    ColabVoiceIsolatorController controller(&session, &settings);
+    QVERIFY(!controller.colabActive());
+    settings.setRemoteFirstMode(true);
+    QVERIFY(controller.colabActive());
+    QSignalSpy errors(&controller, &ColabVoiceIsolatorController::errorOccurred);
     controller.useLocal();
     QVERIFY(controller.colabActive());
     QCOMPARE(errors.count(), 1);

@@ -2,6 +2,7 @@
 
 #include "audio/WavIO.h"
 #include "core/PathUtils.h"
+#include "core/Settings.h"
 #include "remote/ColabSession.h"
 #include "separation/ColabSeparationRunner.h"
 
@@ -14,8 +15,8 @@
 
 namespace LAStudio {
 
-ColabVoiceIsolatorController::ColabVoiceIsolatorController(ColabSession *session, QObject *parent)
-    : QObject(parent), m_session(session)
+ColabVoiceIsolatorController::ColabVoiceIsolatorController(ColabSession *session, Settings *settings, QObject *parent)
+    : QObject(parent), m_session(session), m_settings(settings)
 {
     qRegisterMetaType<ColabSeparationRequest>("ColabSeparationRequest");
     qRegisterMetaType<ColabSeparationResult>("ColabSeparationResult");
@@ -26,7 +27,10 @@ ColabVoiceIsolatorController::ColabVoiceIsolatorController(ColabSession *session
     connect(m_runner, &ColabSeparationRunner::finished, this, &ColabVoiceIsolatorController::onRunnerFinished);
     connect(m_runner, &ColabSeparationRunner::failed, this, &ColabVoiceIsolatorController::onRunnerFailed);
     if (m_session) connect(m_session, &ColabSession::sessionChanged, this, &ColabVoiceIsolatorController::onSessionChanged);
+    if (m_settings) connect(m_settings, &Settings::remoteFirstModeChanged,
+                            this, &ColabVoiceIsolatorController::onRemoteFirstModeChanged);
     m_thread.start();
+    onSessionChanged();
 }
 
 ColabVoiceIsolatorController::~ColabVoiceIsolatorController()
@@ -68,6 +72,10 @@ void ColabVoiceIsolatorController::useColab()
 
 void ColabVoiceIsolatorController::useLocal()
 {
+    if (m_settings && m_settings->remoteFirstMode()) {
+        setError(QStringLiteral("Remote-first mode requires a direct Colab voice-isolation worker. Disable Remote-first mode before selecting Local Dev isolation."));
+        return;
+    }
     if (!m_colabActive) return;
     cancel();
     m_colabActive = false;
@@ -138,7 +146,19 @@ void ColabVoiceIsolatorController::openRecent(const QString &vocalsPath, const Q
 void ColabVoiceIsolatorController::onSessionChanged()
 {
     if (m_processing) cancel();
-    if (!colabConnected()) m_colabActive = false;
+    if (m_settings && m_settings->remoteFirstMode() && colabConnected()) {
+        m_colabActive = true;
+    } else if (!colabConnected()) {
+        m_colabActive = false;
+    }
+    emit colabStateChanged(); emit stateChanged();
+}
+
+void ColabVoiceIsolatorController::onRemoteFirstModeChanged()
+{
+    if (m_settings && m_settings->remoteFirstMode() && colabConnected()) {
+        m_colabActive = true;
+    }
     emit colabStateChanged(); emit stateChanged();
 }
 

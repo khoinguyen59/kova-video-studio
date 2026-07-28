@@ -27,12 +27,13 @@ StudioShell {
     modalSelectionDetail: ""
     backToolTip: qsTr("Change model and runtime")
 
+    readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
     readonly property bool colabSelected: AppController.colabVoiceIsolator.colabActive
     property var isolator: colabSelected ? AppController.colabVoiceIsolator : AppController.voiceIsolator
     readonly property bool fastModel: selectedFamilyId === "sherpa-onnx-spleeter-2stems-fp16"
     property string exportSource: ""
     property string playingStem: ""
-    readonly property bool canIsolate: root.studioReady && root.isolator.ready && root.isolator.sourcePath.length > 0 && !root.isolator.processing
+    readonly property bool canIsolate: (!root.remoteFirstMode || root.colabSelected) && root.studioReady && root.isolator.ready && root.isolator.sourcePath.length > 0 && !root.isolator.processing
 
     signal backToGallery()
     signal reloadRequested()
@@ -131,7 +132,7 @@ StudioShell {
                             text: root.isolator.processing ? qsTr("Separating source · %1%").arg(root.isolator.progress)
                                   : root.isolator.lastError.length > 0 ? root.isolator.lastError
                                   : root.isolator.warning.length > 0 ? root.isolator.warning
-                                  : (root.colabSelected ? qsTr("Direct Colab GPU separation is ready.") : qsTr("Configure and load a sherpa-onnx runtime and separation model."))
+                                  : (root.colabSelected ? qsTr("Direct Colab GPU separation is ready.") : (root.remoteFirstMode ? qsTr("Remote-first: pair a direct Colab separation worker.") : qsTr("Configure and load a sherpa-onnx runtime and separation model.")))
                             color: root.isolator.lastError.length > 0 ? Theme.danger : Theme.textSecondary
                             font.pixelSize: Theme.fontSmall
                             wrapMode: Text.WordWrap
@@ -198,7 +199,7 @@ StudioShell {
                     spacing: Theme.paddingMedium
 
                     Text { Layout.fillWidth: true; text: qsTr("Voice Isolation"); color: Theme.textPrimary; font.pixelSize: Theme.fontLarge; font.bold: true }
-                    Text { Layout.fillWidth: true; text: qsTr("Local model and direct Colab GPU are independent choices."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                    Text { Layout.fillWidth: true; text: root.remoteFirstMode ? qsTr("Remote-first requires direct Colab GPU. Local Dev is available only after disabling Remote-first mode.") : qsTr("Local model and direct Colab GPU are independent choices."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
                     Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1, 1, 1, 0.08) }
                     Text { text: qsTr("DIRECT COLAB GPU"); color: Theme.textSecondary; font.pixelSize: 10; font.bold: true; font.letterSpacing: 0.8 }
                     Text { Layout.fillWidth: true; text: qsTr("The worker receives the selected media directly and returns vocals/background WAV artifacts. It never uses API Gateway."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
@@ -210,10 +211,13 @@ StudioShell {
                     Text { Layout.fillWidth: true; text: qsTr("Demucs htdemucs — vocals + background"); color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
                     PrimaryButton {
                         Layout.fillWidth: true
-                        text: AppController.colabVoiceIsolator.colabActive ? qsTr("Use local isolation") : (AppController.colabVoiceIsolator.colabConnected ? qsTr("Use direct Colab isolation") : qsTr("Connect direct Colab isolation"))
-                        iconName: AppController.colabVoiceIsolator.colabActive ? "close" : "cloud"
+                        enabled: !(root.remoteFirstMode && AppController.colabVoiceIsolator.colabActive)
+                        text: root.remoteFirstMode
+                              ? (AppController.colabVoiceIsolator.colabActive ? qsTr("Direct Colab isolation active") : (AppController.colabVoiceIsolator.colabConnected ? qsTr("Use direct Colab isolation") : qsTr("Connect direct Colab isolation")))
+                              : (AppController.colabVoiceIsolator.colabActive ? qsTr("Use local isolation") : (AppController.colabVoiceIsolator.colabConnected ? qsTr("Use direct Colab isolation") : qsTr("Connect direct Colab isolation")))
+                        iconName: root.remoteFirstMode || !AppController.colabVoiceIsolator.colabActive ? "cloud" : "close"
                         onClicked: {
-                            if (AppController.colabVoiceIsolator.colabActive) {
+                            if (AppController.colabVoiceIsolator.colabActive && !root.remoteFirstMode) {
                                 AppController.colabVoiceIsolator.useLocal()
                             } else if (AppController.colabVoiceIsolator.colabConnected) {
                                 AppController.colabVoiceIsolator.useColab()
