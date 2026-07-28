@@ -31,7 +31,7 @@ function Assert-Contains {
 }
 
 $features = @(
-    @{ id = 'stt'; qml = 'qml/components/stt/SttSettingsPanel.qml'; shell = 'qml/components/stt/SttStudioView.qml'; notebook = 'LA_STUDIO_SPEECH_GPU.ipynb'; cudaGuard = 'get_cuda_device_count()'; capability = "'stt'"; endpoint = '/v1/audio/transcriptions'; url = 'LA_STUDIO_COLAB_STT_URL'; token = 'LA_STUDIO_COLAB_STT_TOKEN' },
+    @{ id = 'stt'; qml = 'qml/components/stt/SttSettingsPanel.qml'; shell = 'qml/components/stt/SttStudioView.qml'; notebook = 'LA_STUDIO_STT_WHISPER_GPU.ipynb'; qmlNeedle = 'colabNotebookFile'; cudaGuard = 'torch.cuda.is_available()'; capability = 'MODEL_ID'; endpoint = '/v1/audio/transcriptions'; url = 'LA_STUDIO_COLAB_STT_URL'; token = 'LA_STUDIO_COLAB_STT_TOKEN' },
     @{ id = 'tts'; qml = 'qml/components/tts/TtsSettingsPanel.qml'; shell = 'qml/components/tts/TtsStudioView.qml'; notebook = 'LA_STUDIO_VOICE_GPU.ipynb'; cudaGuard = 'torch.cuda.is_available()'; capability = "'tts'"; endpoint = '/v1/audio/speech'; url = 'LA_STUDIO_COLAB_TTS_URL'; token = 'LA_STUDIO_COLAB_TTS_TOKEN' },
     @{ id = 'voice-cloning'; qml = 'qml/components/voicecloning/VoiceSettingsPanel.qml'; shell = 'qml/components/voicecloning/VoiceCloningStudioView.qml'; notebook = 'LA_STUDIO_VOICE_CLONE_GPU.ipynb'; cudaGuard = 'torch.cuda.is_available()'; capability = "'voice-cloning'"; endpoint = '/v2/jobs/profile'; url = 'LA_STUDIO_COLAB_VOICE_CLONE_URL'; token = 'LA_STUDIO_COLAB_VOICE_CLONE_TOKEN' },
     @{ id = 'voice-design'; qml = 'qml/components/voicedesign/VoiceDesignSettingsPanel.qml'; shell = 'qml/components/voicedesign/VoiceDesignStudioView.qml'; notebook = 'LA_STUDIO_VOICE_DESIGN_GPU.ipynb'; cudaGuard = 'torch.cuda.is_available()'; capability = "'voice-design'"; endpoint = '/v1/audio/voice_designs'; url = 'LA_STUDIO_COLAB_VOICE_DESIGN_URL'; token = 'LA_STUDIO_COLAB_VOICE_DESIGN_TOKEN' },
@@ -54,7 +54,8 @@ foreach ($feature in $features) {
     if (-not (Test-Path -LiteralPath $notebookPath)) { throw "$($feature.id): notebook is missing." }
     $notebook = Get-Content -LiteralPath $notebookPath -Raw
 
-    Assert-Contains $panel $feature.notebook "$($feature.id) panel"
+    $qmlNeedle = if ($feature.qmlNeedle) { $feature.qmlNeedle } else { $feature.notebook }
+    Assert-Contains $panel $qmlNeedle "$($feature.id) panel"
     Assert-Contains $panel 'Worker URL' "$($feature.id) panel"
     Assert-Contains $panel 'Session token' "$($feature.id) panel"
     Assert-Contains $shell 'settingsRequiresReady: false' "$($feature.id) studio shell"
@@ -65,6 +66,21 @@ foreach ($feature in $features) {
     Assert-Contains $notebook $feature.url "$($feature.id) notebook"
     Assert-Contains $notebook $feature.token "$($feature.id) notebook"
     $passed++
+}
+
+$sttNotebooks = @(
+    @{ file = 'LA_STUDIO_STT_NEMOTRON_3_5_0_6B_GPU.ipynb'; model = 'nemotron-3.5-asr-streaming-0.6b' },
+    @{ file = 'LA_STUDIO_STT_WHISPER_GPU.ipynb'; model = 'whisper.cpp' },
+    @{ file = 'LA_STUDIO_STT_QWEN3_ASR_0_6B_GPU.ipynb'; model = 'qwen3-asr-0.6b' },
+    @{ file = 'LA_STUDIO_STT_QWEN3_ASR_1_7B_GPU.ipynb'; model = 'qwen3-asr-1.7b' }
+)
+foreach ($entry in $sttNotebooks) {
+    $path = Join-Path $repoRoot (Join-Path 'notebooks' $entry.file)
+    if (-not (Test-Path -LiteralPath $path)) { throw "stt: notebook is missing: $($entry.file)" }
+    $source = Get-Content -LiteralPath $path -Raw
+    Assert-Contains $source $entry.model "stt notebook $($entry.file)"
+    Assert-Contains $source 'if model.strip().lower() != MODEL_ID' "stt notebook $($entry.file)"
+    Assert-Contains $source 'LA_STUDIO_COLAB_STT_MODEL' "stt notebook $($entry.file)"
 }
 
 Write-Host "Remote feature surface verified: $passed/$($features.Count) direct Colab routes." -ForegroundColor Green

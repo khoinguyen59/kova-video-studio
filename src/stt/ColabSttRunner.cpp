@@ -59,7 +59,7 @@ void ColabSttRunner::transcribe(const ColabSttRequest &request)
     }
     emit progress(5);
     QJsonObject response;
-    if (!d->client.transcribeWav(makeMono16kWav(request.samples), request.language,
+    if (!d->client.transcribeWav(makeMono16kWav(request.samples), request.model, request.language,
                                  request.cancellation.sharedFlag(), &response, &error)) {
         emit failed(request.cancellation.isCancelled() ? QStringLiteral("Transcription cancelled")
                                                        : error);

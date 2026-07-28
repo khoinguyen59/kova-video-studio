@@ -210,7 +210,19 @@ Rectangle {
                         iconName: "cloud"
 
                         Text { Layout.fillWidth: true; text: qsTr("This direct temporary worker is independent of API Gateway."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
-                        ColabNotebookLink { notebookFile: "LA_STUDIO_SPEECH_GPU.ipynb" }
+                        Text {
+                            Layout.fillWidth: true
+                            text: root.sttSession && root.sttSession.colabModel !== ""
+                                  ? qsTr("Selected Colab model: %1").arg(root.sttSession.colabModel)
+                                  : qsTr("No Colab model selected. Open Load Model and use Select for Colab.")
+                            color: root.sttSession && root.sttSession.colabModel !== "" ? Theme.success : Theme.warning
+                            font.pixelSize: Theme.fontSmall
+                            font.bold: true
+                            wrapMode: Text.WordWrap
+                        }
+                        ColabNotebookLink {
+                            notebookFile: root.sttSession ? root.sttSession.colabNotebookFile : ""
+                        }
                         Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                         ColabField {
                             id: colabUrl
@@ -227,6 +239,7 @@ Rectangle {
                             Layout.fillWidth: true
                             text: root.sttSession && root.sttSession.colabActive ? qsTr("Using Colab GPU") : qsTr("Use or connect Colab GPU")
                             iconName: root.sttSession && root.sttSession.colabActive ? "check" : "cloud"
+                            enabled: root.sttSession && root.sttSession.colabModel !== ""
                             onClicked: {
                                 if (!root.sttSession) return
                                 if (root.sttSession.colabPaired) {

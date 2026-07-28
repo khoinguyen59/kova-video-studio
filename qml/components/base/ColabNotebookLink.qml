@@ -25,6 +25,15 @@ ColumnLayout {
         wrapMode: Text.WordWrap
     }
 
+    Text {
+        Layout.fillWidth: true
+        visible: root.notebookFile !== ""
+        text: qsTr("Internal private GitHub notebook: sign in to GitHub and authorize Colab to access the private repository. The temporary worker tunnel is public only while the notebook runs and every request still requires its session token.")
+        color: Theme.warning
+        font.pixelSize: 10
+        wrapMode: Text.WordWrap
+    }
+
     RowLayout {
         Layout.fillWidth: true
         spacing: Theme.paddingSmall

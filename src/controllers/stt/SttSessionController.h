@@ -50,6 +50,8 @@ class SttSessionController : public QObject {
     Q_PROPERTY(QString playbackPath READ playbackPath NOTIFY playbackPathChanged)
     Q_PROPERTY(bool colabActive READ colabActive NOTIFY colabStateChanged)
     Q_PROPERTY(bool colabPaired READ colabPaired NOTIFY colabStateChanged)
+    Q_PROPERTY(QString colabModel READ colabModel WRITE setColabModel NOTIFY colabModelChanged)
+    Q_PROPERTY(QString colabNotebookFile READ colabNotebookFile NOTIFY colabModelChanged)
     Q_PROPERTY(bool gatewayActive READ gatewayActive NOTIFY gatewayStateChanged)
     Q_PROPERTY(QString gatewayModel READ gatewayModel WRITE setGatewayModel NOTIFY gatewayModelChanged)
 
@@ -81,6 +83,8 @@ public:
     QString playbackPath() const;
     bool colabActive() const;
     bool colabPaired() const;
+    QString colabModel() const { return m_colabModel; }
+    QString colabNotebookFile() const;
     bool gatewayActive() const { return m_selectedProvider == ExecutionProvider::ApiGateway; }
     QString gatewayModel() const;
 
@@ -92,6 +96,7 @@ public:
     void setTranslate(bool val);
     QVariantMap dynamicSettings() const;
     void setDynamicSettings(const QVariantMap &settings);
+    void setColabModel(const QString &model);
     void setGatewayModel(const QString &model);
 
     // Commands
@@ -115,6 +120,8 @@ public:
     Q_INVOKABLE void playHistoryFile(const QString &filePath);
     Q_INVOKABLE void stopPlayback();
     Q_INVOKABLE bool connectColab(const QString &workerUrl, const QString &bearerToken);
+    Q_INVOKABLE bool selectColabModel(const QString &model);
+    Q_INVOKABLE QString notebookForColabModel(const QString &model) const;
     Q_INVOKABLE void disconnectColab();
     Q_INVOKABLE void useColab();
     Q_INVOKABLE void useGateway();
@@ -140,6 +147,7 @@ signals:
     void translateChanged();
     void dynamicSettingsChanged();
     void colabStateChanged();
+    void colabModelChanged();
     void gatewayStateChanged();
     void gatewayModelChanged();
 
@@ -191,6 +199,7 @@ private:
     SttAudioDecoder* m_activeDecoder = nullptr;
     QString m_playbackPath;
     QVariantMap m_dynamicSettings;
+    QString m_colabModel;
     std::shared_ptr<std::atomic_bool> m_colabCancellation;
     bool m_colabProcessing = false;
     int m_colabProgress = 0;

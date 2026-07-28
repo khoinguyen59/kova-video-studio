@@ -14,6 +14,7 @@ namespace LAStudio {
 struct ColabSttRequest {
     QUrl workerUrl;
     QString bearerToken;
+    QString model;
     QVector<float> samples;
     QString language;
     InferenceCancellationToken cancellation;

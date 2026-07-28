@@ -161,6 +161,45 @@ bool SttSessionController::colabPaired() const
     return m_colabSession && m_colabSession->isActive();
 }
 
+QString SttSessionController::notebookForColabModel(const QString &model) const
+{
+    const QString normalized = model.trimmed().toLower();
+    if (normalized == QStringLiteral("nemotron-3.5-asr-streaming-0.6b"))
+        return QStringLiteral("LA_STUDIO_STT_NEMOTRON_3_5_0_6B_GPU.ipynb");
+    if (normalized == QStringLiteral("whisper.cpp"))
+        return QStringLiteral("LA_STUDIO_STT_WHISPER_GPU.ipynb");
+    if (normalized == QStringLiteral("qwen3-asr-0.6b"))
+        return QStringLiteral("LA_STUDIO_STT_QWEN3_ASR_0_6B_GPU.ipynb");
+    if (normalized == QStringLiteral("qwen3-asr-1.7b"))
+        return QStringLiteral("LA_STUDIO_STT_QWEN3_ASR_1_7B_GPU.ipynb");
+    return {};
+}
+
+QString SttSessionController::colabNotebookFile() const
+{
+    return notebookForColabModel(m_colabModel);
+}
+
+void SttSessionController::setColabModel(const QString &model)
+{
+    const QString normalized = model.trimmed().toLower();
+    if (m_colabModel == normalized) return;
+    m_colabModel = normalized;
+    emit colabModelChanged();
+}
+
+bool SttSessionController::selectColabModel(const QString &model)
+{
+    const QString normalized = model.trimmed().toLower();
+    if (notebookForColabModel(normalized).isEmpty()) {
+        emit transcriptionFailed(QStringLiteral("No Colab notebook is mapped for STT model '%1'.").arg(model));
+        return false;
+    }
+    setColabModel(normalized);
+    if (colabPaired()) selectProvider(ExecutionProvider::ColabDirect);
+    return true;
+}
+
 QString SttSessionController::gatewayModel() const
 {
     return m_settings ? m_settings->gatewaySttModel() : QString();
@@ -287,7 +326,8 @@ void SttSessionController::transcribeInput()
 {
     const ExecutionProvider provider = m_selectedProvider;
     transcribeInputForProvider(provider,
-                               provider == ExecutionProvider::ApiGateway ? gatewayModel() : QString(),
+                               provider == ExecutionProvider::ApiGateway ? gatewayModel()
+                                   : (provider == ExecutionProvider::ColabDirect ? colabModel() : QString()),
                                language(), translate());
 }
 
@@ -320,7 +360,7 @@ void SttSessionController::transcribeInputForProvider(ExecutionProvider provider
     QString modelName = provider == ExecutionProvider::ApiGateway
         ? QStringLiteral("API Gateway STT: %1").arg(configuredModel)
         : (provider == ExecutionProvider::ColabDirect
-               ? QStringLiteral("Colab GPU STT") : QStringLiteral("Whisper"));
+               ? QStringLiteral("Colab GPU STT: %1").arg(configuredModel) : QStringLiteral("Whisper"));
     if (provider == ExecutionProvider::LocalDev && m_repository) {
         auto selection = m_repository->selectionFor(QStringLiteral("stt"));
         auto resolved = StudioConfigurationResolver::resolve(selection);
@@ -361,6 +401,7 @@ void SttSessionController::transcribeInputForProvider(ExecutionProvider provider
         ColabSttRequest request;
         request.workerUrl = m_colabSession->endpoint();
         request.bearerToken = m_colabSession->bearerTokenForRequest();
+        request.model = configuredModel;
         request.samples = m_activeJob.samples;
         request.language = m_activeJob.language;
         request.cancellation = InferenceCancellationToken(m_colabCancellation);
@@ -375,7 +416,8 @@ bool SttSessionController::canTranscribe() const
 {
     const ExecutionProvider provider = m_selectedProvider;
     return canTranscribeForProvider(provider,
-                                    provider == ExecutionProvider::ApiGateway ? gatewayModel() : QString());
+                                    provider == ExecutionProvider::ApiGateway ? gatewayModel()
+                                        : (provider == ExecutionProvider::ColabDirect ? colabModel() : QString()));
 }
 
 bool SttSessionController::canTranscribeForProvider(ExecutionProvider provider,
@@ -404,6 +446,14 @@ bool SttSessionController::canTranscribeForProvider(ExecutionProvider provider,
         return true;
     }
     if (provider == ExecutionProvider::ColabDirect) {
+        if (model.trimmed().isEmpty()) {
+            if (error) *error = QStringLiteral("Select one of the four STT models for Colab GPU first.");
+            return false;
+        }
+        if (notebookForColabModel(model).isEmpty()) {
+            if (error) *error = QStringLiteral("The selected Colab STT model is not supported by this build.");
+            return false;
+        }
         if (!m_colabSession || !m_colabSession->isActive()) {
             if (error) *error = QStringLiteral("Connect a Colab GPU worker before running this STT node.");
             return false;
@@ -576,7 +626,7 @@ bool SttSessionController::connectColab(const QString &workerUrl, const QString 
     // Pairing a direct worker only establishes the temporary Colab session.
     // It must not modify the independently configured API Gateway route.
     useColab();
-    return true;
+    return colabActive();
 }
 
 void SttSessionController::disconnectColab()
@@ -589,6 +639,10 @@ void SttSessionController::disconnectColab()
 
 void SttSessionController::useColab()
 {
+    if (m_colabModel.isEmpty()) {
+        emit transcriptionFailed(QStringLiteral("Select one of the four STT models for Colab GPU first."));
+        return;
+    }
     if (!colabPaired()) {
         emit transcriptionFailed(QStringLiteral("Connect a Colab GPU worker before selecting Colab STT."));
         return;

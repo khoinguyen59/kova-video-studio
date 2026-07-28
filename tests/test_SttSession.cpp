@@ -234,6 +234,7 @@ void TestSttSession::testSttRouteSelectionDoesNotFallbackAcrossGatewayAndColab()
     settings->setGatewayApiKey(QStringLiteral("gateway-test-token"));
     settings->setGatewaySttModel(QStringLiteral("gateway-stt"));
 
+    QVERIFY(session.selectColabModel(QStringLiteral("qwen3-asr-0.6b")));
     QVERIFY(session.connectColab(QStringLiteral("https://worker.example.test"),
                                  QStringLiteral("temporary-colab-token")));
     QVERIFY(session.colabPaired());
@@ -259,6 +260,31 @@ void TestSttSession::testSttRouteSelectionDoesNotFallbackAcrossGatewayAndColab()
     settings->setRemoteFirstMode(originalRemoteFirst);
 }
 
+void TestSttSession::testColabSttModelNotebookMapping()
+{
+    SttSessionController session;
+    const QList<QPair<QString, QString>> models{
+        {QStringLiteral("nemotron-3.5-asr-streaming-0.6b"),
+         QStringLiteral("LA_STUDIO_STT_NEMOTRON_3_5_0_6B_GPU.ipynb")},
+        {QStringLiteral("whisper.cpp"),
+         QStringLiteral("LA_STUDIO_STT_WHISPER_GPU.ipynb")},
+        {QStringLiteral("qwen3-asr-0.6b"),
+         QStringLiteral("LA_STUDIO_STT_QWEN3_ASR_0_6B_GPU.ipynb")},
+        {QStringLiteral("qwen3-asr-1.7b"),
+         QStringLiteral("LA_STUDIO_STT_QWEN3_ASR_1_7B_GPU.ipynb")},
+    };
+
+    for (const auto &[model, notebook] : models) {
+        QVERIFY2(session.selectColabModel(model), qPrintable(model));
+        QCOMPARE(session.colabModel(), model);
+        QCOMPARE(session.colabNotebookFile(), notebook);
+        QCOMPARE(session.notebookForColabModel(model), notebook);
+    }
+    QSignalSpy failures(&session, &SttSessionController::transcriptionFailed);
+    QVERIFY(!session.selectColabModel(QStringLiteral("unknown-stt")));
+    QCOMPARE(failures.count(), 1);
+}
+
 void TestSttSession::testColabSttRunnerPostsKovaCompatibleMultipart()
 {
     ColabSttMock server;
@@ -275,6 +301,7 @@ void TestSttSession::testColabSttRunnerPostsKovaCompatibleMultipart()
     ColabSttRequest request;
     request.workerUrl = QUrl(server.baseUrl());
     request.bearerToken = QStringLiteral("colab-test-token");
+    request.model = QStringLiteral("qwen3-asr-0.6b");
     request.samples = {0.0F, 0.25F, -0.25F, 0.0F};
     request.language = QStringLiteral("en");
     request.allowInsecureLocalhost = true;
@@ -287,6 +314,8 @@ void TestSttSession::testColabSttRunnerPostsKovaCompatibleMultipart()
     const QByteArray body = server.request();
     QVERIFY(body.startsWith("POST /v1/audio/transcriptions HTTP/1.1\r\n"));
     QVERIFY(body.toLower().contains("authorization: bearer colab-test-token"));
+    QVERIFY(body.contains("name=\"model\""));
+    QVERIFY(body.contains("qwen3-asr-0.6b"));
     QVERIFY(body.contains("name=\"response_format\""));
     QVERIFY(body.contains("verbose_json"));
     QVERIFY(body.contains("name=\"file\"; filename=\"audio.wav\""));
@@ -297,41 +326,84 @@ void TestSttSession::testColabSttRunnerPostsKovaCompatibleMultipart()
 
 void TestSttSession::testSpeechNotebookMatchesDirectColabSttContract()
 {
-    const QString path = QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
-        .filePath(QStringLiteral("notebooks/LA_STUDIO_SPEECH_GPU.ipynb"));
-    QFile file(path);
-    QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(path));
-    const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
-    QVERIFY(document.isObject());
-    const QJsonObject root = document.object();
-    QCOMPARE(root.value(QStringLiteral("nbformat")).toInt(), 4);
+    struct NotebookExpectation {
+        QString fileName;
+        QString familyId;
+        QString upstreamModel;
+        QString loaderNeedle;
+    };
+    const QList<NotebookExpectation> expectations{
+        {QStringLiteral("LA_STUDIO_STT_NEMOTRON_3_5_0_6B_GPU.ipynb"),
+         QStringLiteral("nemotron-3.5-asr-streaming-0.6b"),
+         QStringLiteral("nvidia/nemotron-3.5-asr-streaming-0.6b"),
+         QStringLiteral("AutoModelForRNNT.from_pretrained")},
+        {QStringLiteral("LA_STUDIO_STT_WHISPER_GPU.ipynb"),
+         QStringLiteral("whisper.cpp"), QStringLiteral("large-v3"),
+         QStringLiteral("WhisperModel(UPSTREAM_MODEL, device=\"cuda\"")},
+        {QStringLiteral("LA_STUDIO_STT_QWEN3_ASR_0_6B_GPU.ipynb"),
+         QStringLiteral("qwen3-asr-0.6b"), QStringLiteral("Qwen/Qwen3-ASR-0.6B"),
+         QStringLiteral("Qwen3ASRModel.from_pretrained")},
+        {QStringLiteral("LA_STUDIO_STT_QWEN3_ASR_1_7B_GPU.ipynb"),
+         QStringLiteral("qwen3-asr-1.7b"), QStringLiteral("Qwen/Qwen3-ASR-1.7B"),
+         QStringLiteral("Qwen3ASRModel.from_pretrained")},
+    };
 
-    QString source;
-    const QJsonArray cells = root.value(QStringLiteral("cells")).toArray();
-    QVERIFY(cells.size() >= 4);
-    for (const QJsonValue &cellValue : cells) {
-        const QJsonArray lines = cellValue.toObject().value(QStringLiteral("source")).toArray();
-        for (const QJsonValue &line : lines) source += line.toString();
+    for (const NotebookExpectation &expected : expectations) {
+        const QString path = QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
+            .filePath(QStringLiteral("notebooks/") + expected.fileName);
+        QFile file(path);
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(path));
+        const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
+        QVERIFY2(document.isObject(), qPrintable(expected.fileName));
+        const QJsonObject root = document.object();
+        QCOMPARE(root.value(QStringLiteral("nbformat")).toInt(), 4);
+        const QJsonObject metadata = root.value(QStringLiteral("metadata")).toObject()
+                                         .value(QStringLiteral("la_studio")).toObject();
+        QCOMPARE(metadata.value(QStringLiteral("family_id")).toString(), expected.familyId);
+        QCOMPARE(metadata.value(QStringLiteral("upstream_model")).toString(), expected.upstreamModel);
+        QCOMPARE(metadata.value(QStringLiteral("device")).toString(), QStringLiteral("cuda"));
+        QVERIFY(!metadata.value(QStringLiteral("cpu_fallback")).toBool(true));
+
+        QString source;
+        const QJsonArray cells = root.value(QStringLiteral("cells")).toArray();
+        QVERIFY(cells.size() >= 4);
+        for (const QJsonValue &cellValue : cells) {
+            const QJsonArray lines = cellValue.toObject().value(QStringLiteral("source")).toArray();
+            for (const QJsonValue &line : lines) source += line.toString();
+        }
+        QVERIFY2(source.contains(expected.loaderNeedle), qPrintable(expected.fileName));
+        QVERIFY(source.contains(QStringLiteral("if not torch.cuda.is_available()")));
+        QVERIFY(source.contains(QStringLiteral("@app.post(\"/v1/audio/transcriptions\")")));
+        QVERIFY(source.contains(QStringLiteral("@app.get(\"/v1/capabilities\")")));
+        QVERIFY(source.contains(QStringLiteral("\"contract_version\": 1")));
+        QVERIFY(source.contains(QStringLiteral("if model.strip().lower() != MODEL_ID")));
+        QVERIFY(source.contains(QStringLiteral("status_code=409")));
+        QVERIFY(source.contains(QStringLiteral("MAX_UPLOAD_BYTES = 512 * 1024 * 1024")));
+        QVERIFY(source.contains(QStringLiteral("MAX_AUDIO_SECONDS = 30 * 60")));
+        QVERIFY(source.contains(QStringLiteral("REQUEST_SLOTS = threading.BoundedSemaphore(1)")));
+        QVERIFY(source.contains(QStringLiteral("status_code=415")));
+        QVERIFY(source.contains(QStringLiteral("status_code=429")));
+        QVERIFY(source.contains(QStringLiteral("await file.read(1024 * 1024)")));
+        QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_STT_URL")));
+        QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_STT_TOKEN")));
+        QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_STT_MODEL")));
+        QVERIFY(source.contains(QStringLiteral("cloudflared")));
     }
-    QVERIFY(source.contains(QStringLiteral("faster-whisper==1.1.1")));
-    QVERIFY(source.contains(QStringLiteral("ctranslate2.get_cuda_device_count() < 1")));
-    QVERIFY(source.contains(QStringLiteral("@app.post('/v1/audio/transcriptions')")));
-    QVERIFY(source.contains(QStringLiteral("response_format: str = Form(default='verbose_json')")));
-    QVERIFY(source.contains(QStringLiteral("authorization: str | None = Header(default=None)")));
-    QVERIFY(source.contains(QStringLiteral("@app.get('/v1/capabilities')")));
-    QVERIFY(source.contains(QStringLiteral("'id': 'stt'")));
-    QVERIFY(source.contains(QStringLiteral("'device': 'cuda'")));
-    QVERIFY(source.contains(QStringLiteral("cpu_fallback': False")));
-    QVERIFY(source.contains(QStringLiteral("MAX_UPLOAD_BYTES = 512 * 1024 * 1024")));
-    QVERIFY(source.contains(QStringLiteral("MAX_AUDIO_SECONDS = 30 * 60")));
-    QVERIFY(source.contains(QStringLiteral("ALLOWED_CONTENT_TYPES")));
-    QVERIFY(source.contains(QStringLiteral("REQUEST_SLOTS = threading.BoundedSemaphore(1)")));
-    QVERIFY(source.contains(QStringLiteral("status_code=415")));
-    QVERIFY(source.contains(QStringLiteral("status_code=429")));
-    QVERIFY(source.contains(QStringLiteral("await file.read(1024 * 1024)")));
-    QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_STT_URL")));
-    QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_STT_TOKEN")));
-    QVERIFY(source.contains(QStringLiteral("cloudflared")));
+
+    QFile gallery(QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
+                      .filePath(QStringLiteral("qml/components/shared/CapabilityGallery.qml")));
+    QVERIFY(gallery.open(QIODevice::ReadOnly));
+    const QByteArray gallerySource = gallery.readAll();
+    QVERIFY(gallerySource.contains("Select for Colab"));
+    QVERIFY(gallerySource.contains("Select + open notebook"));
+    QVERIFY(gallerySource.contains("localRuntimeOptions"));
+
+    QFile settings(QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
+                       .filePath(QStringLiteral("qml/components/stt/SttSettingsPanel.qml")));
+    QVERIFY(settings.open(QIODevice::ReadOnly));
+    const QByteArray settingsSource = settings.readAll();
+    QVERIFY(settingsSource.contains("root.sttSession.colabNotebookFile"));
+    QVERIFY(settingsSource.contains("root.sttSession.colabModel"));
 }
 
 void TestSttSession::testGatewaySttRunnerPostsOpenAiCompatibleMultipart()

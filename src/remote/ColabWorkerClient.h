@@ -28,7 +28,7 @@ public:
     void clear();
     void cancel();
 
-    bool transcribeWav(const QByteArray &wavData, const QString &language,
+    bool transcribeWav(const QByteArray &wavData, const QString &model, const QString &language,
                        const std::shared_ptr<std::atomic_bool> &cancelToken,
                        QJsonObject *response, QString *errorMessage);
     bool synthesizeSpeech(const QString &text, const QString &model, const QString &voice,

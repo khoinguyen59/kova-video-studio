@@ -9,6 +9,9 @@ Item {
     property Component contentView: null
     property alias studioController: studioController
     property alias studioContext: studioContext
+    property bool colabModelSelectionEnabled: false
+
+    signal colabConfigurationAccepted(string familyId, bool openNotebook)
 
     StudioPageController {
         id: studioController
@@ -162,9 +165,13 @@ Item {
                 anchors.fill: parent
                 capability: root.capabilityId
                 modalMode: true
+                colabModelSelectionEnabled: root.colabModelSelectionEnabled
                 familiesModel: studioController.familiesModel
                 onConfigurationAccepted: function(familyId, runtimeId, runtimeVersion, selectedFiles) {
                     studioController.commitConfigurationSelection(familyId, runtimeId, runtimeVersion, selectedFiles)
+                }
+                onColabConfigurationAccepted: function(familyId, openNotebook) {
+                    root.colabConfigurationAccepted(familyId, openNotebook)
                 }
             }
         }

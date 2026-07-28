@@ -14,6 +14,7 @@ private slots:
     void testSttSessionUrlPreview();
     void testSttSessionQmlNotifications();
     void testSttRecordingSourceSelection();
+    void testColabSttModelNotebookMapping();
     void testColabSttRunnerPostsKovaCompatibleMultipart();
     void testSpeechNotebookMatchesDirectColabSttContract();
     void testGatewaySttRunnerPostsOpenAiCompatibleMultipart();

@@ -17,6 +17,9 @@ Rectangle {
     property string pendingRuntimeId: ""
     property string pendingRuntimeVersion: ""
     property var initialSelectedFiles: ({})
+    // Hosts opt in when the selected capability has a model-specific Colab
+    // worker. Local download/install remains a separate CPU-only path.
+    property bool colabModelSelectionEnabled: false
     // Local installs are a deliberate development-mode choice. This gallery
     // must not start Hugging Face/GitHub downloads while remote-first is on.
     readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
@@ -36,6 +39,7 @@ Rectangle {
     signal familySelected(string familyId)
     signal openStudio(string capability, string familyId)
     signal configurationAccepted(string familyId, string runtimeId, string runtimeVersion, var selectedFiles)
+    signal colabConfigurationAccepted(string familyId, bool openNotebook)
 
     color: Theme.background
 
@@ -113,11 +117,73 @@ Rectangle {
     }
 
     function selectedFilesForFamily(familyItem) {
-        return familyItem && familyItem.selectedFiles ? familyItem.selectedFiles : ({})
+        return root.hasFamilyValue(familyItem) && familyItem.selectedFiles !== undefined
+                ? familyItem.selectedFiles : ({})
+    }
+
+    function hasFamilyValue(familyItem) {
+        return familyItem !== null && familyItem !== undefined
+                && familyItem.familyId !== undefined && familyItem.familyId !== ""
+    }
+
+    function hasColabModelAction(familyItem) {
+        return root.colabModelSelectionEnabled && root.capability === "stt"
+                && root.hasFamilyValue(familyItem) && familyItem.familyCapability === "stt"
+    }
+
+    function localRuntimeOptions(familyItem) {
+        var options = root.hasFamilyValue(familyItem)
+                && familyItem.runtimeOptions !== undefined ? familyItem.runtimeOptions : []
+        if (!root.hasColabModelAction(familyItem)) return options
+        var cpu = []
+        for (var i = 0; i < options.length; ++i) {
+            var id = (options[i].id || "").toLowerCase()
+            var label = (options[i].label || "").toLowerCase()
+            if (id.indexOf("cpu") !== -1 || label === "cpu") cpu.push(options[i])
+        }
+        return cpu
+    }
+
+    function localInstallFamilyItem(familyItem) {
+        if (!root.hasColabModelAction(familyItem)) return familyItem
+        var localItem = {}
+        for (var key in familyItem) localItem[key] = familyItem[key]
+        localItem.runtimeOptions = root.localRuntimeOptions(familyItem)
+        return localItem
+    }
+
+    function localFamilyReady(familyItem) {
+        if (!root.hasColabModelAction(familyItem))
+            return root.hasFamilyValue(familyItem) && familyItem.ready === true
+        var files = familyItem.requiredFiles || []
+        for (var i = 0; i < files.length; ++i) {
+            if (!files[i].installed && files[i].installState !== 3) return false
+        }
+        var runtimes = root.localRuntimeOptions(familyItem)
+        for (var r = 0; r < runtimes.length; ++r) {
+            if (runtimes[r].compatible
+                    && (runtimes[r].installed || runtimes[r].installState === 3)) return true
+        }
+        return runtimes.length === 0
+    }
+
+    function localSetupInProgress(familyItem) {
+        if (!root.hasColabModelAction(familyItem)) return root.setupInProgress(familyItem)
+        var localItem = root.localInstallFamilyItem(familyItem)
+        return root.setupInProgress(localItem)
+    }
+
+    function selectFamilyForColab(openNotebook) {
+        var familyItem = detailPanel.f
+        if (!root.hasColabModelAction(familyItem)) return
+        root.runWithLicenseConsent(familyItem, function() {
+            root.colabConfigurationAccepted(familyItem.familyId, openNotebook)
+        })
     }
 
     function licenseInfo(familyItem) {
-        var metadata = familyItem ? (familyItem.rawMetadata || familyItem) : ({})
+        var metadata = root.hasFamilyValue(familyItem)
+                ? (familyItem.rawMetadata || familyItem) : ({})
         return {
             id: metadata.license || qsTr("Unknown"),
             url: metadata.licenseUrl || metadata.modelCardUrl || "",
@@ -229,14 +295,23 @@ Rectangle {
     function syncPendingRuntime(force) {
         var item = selectedFamilyItem()
         if (!item) return
+        var runtimeOptions = root.localRuntimeOptions(item)
         if (!force && pendingRuntimeId !== "") {
-            for (var i = 0; i < item.runtimeOptions.length; i++) {
-                var current = item.runtimeOptions[i]
+            for (var i = 0; i < runtimeOptions.length; i++) {
+                var current = runtimeOptions[i]
                 if (current.id === pendingRuntimeId && current.compatible && current.installed) return
             }
         }
-        pendingRuntimeId = item.preferredRuntimeId || ""
-        pendingRuntimeVersion = item.preferredRuntimeVersion || ""
+        for (var r = 0; r < runtimeOptions.length; ++r) {
+            var candidate = runtimeOptions[r]
+            if (candidate.compatible && candidate.installed) {
+                pendingRuntimeId = candidate.id || ""
+                pendingRuntimeVersion = candidate.version || ""
+                return
+            }
+        }
+        pendingRuntimeId = ""
+        pendingRuntimeVersion = ""
     }
 
     function selectedStatus() {
@@ -251,7 +326,7 @@ Rectangle {
     }
 
     function setupInProgress(familyItem) {
-        if (!familyItem) return false
+        if (!root.hasFamilyValue(familyItem)) return false
         var files = familyItem.requiredFiles || []
         for (var i = 0; i < files.length; i++) {
             if (files[i].installState === 1 || files[i].installState === 2) return true
@@ -264,30 +339,34 @@ Rectangle {
     }
 
     function primaryActionText(familyItem) {
-        if (!familyItem) return qsTr("Use")
-        if (familyItem.ready) return qsTr("Use")
+        if (!root.hasFamilyValue(familyItem)) return qsTr("Use")
+        if (root.localFamilyReady(familyItem)) return root.hasColabModelAction(familyItem)
+                ? qsTr("Use local CPU") : qsTr("Use")
         if (root.remoteFirstMode) return qsTr("Remote-first mode")
-        if (root.setupInProgress(familyItem)) return qsTr("Installing...")
-        return qsTr("Quick install")
+        if (root.localSetupInProgress(familyItem)) return qsTr("Installing...")
+        return root.hasColabModelAction(familyItem)
+                ? qsTr("Install local CPU") : qsTr("Quick install")
     }
 
     function primaryActionIcon(familyItem) {
-        if (!familyItem) return "check"
-        if (familyItem.ready) return root.modalMode ? "check" : "chevron-right"
+        if (!root.hasFamilyValue(familyItem)) return "check"
+        if (root.localFamilyReady(familyItem)) return root.modalMode ? "check" : "chevron-right"
         if (root.remoteFirstMode) return "cloud"
-        if (root.setupInProgress(familyItem)) return "download"
+        if (root.localSetupInProgress(familyItem)) return "download"
         return "download"
     }
 
     function primaryActionEnabled(familyItem) {
-        if (!familyItem) return false
-        if (root.remoteFirstMode && !familyItem.ready) return false
-        return familyItem.ready || familyItem.statusKind !== "incompatible" || root.setupInProgress(familyItem)
+        if (!root.hasFamilyValue(familyItem)) return false
+        if (root.remoteFirstMode && !root.localFamilyReady(familyItem)) return false
+        return root.localFamilyReady(familyItem)
+                || familyItem.statusKind !== "incompatible"
+                || root.localSetupInProgress(familyItem)
     }
 
     function useSelectedFamily() {
         var familyItem = detailPanel.f
-        if (!familyItem || !familyItem.ready) return
+        if (!root.hasFamilyValue(familyItem) || !root.localFamilyReady(familyItem)) return
         if (root.modalMode) {
             var runtimeId = root.pendingRuntimeId !== "" ? root.pendingRuntimeId : familyItem.preferredRuntimeId
             var runtimeVersion = root.pendingRuntimeVersion !== "" ? root.pendingRuntimeVersion : familyItem.preferredRuntimeVersion
@@ -299,8 +378,8 @@ Rectangle {
 
     function installSelectedFamily() {
         var familyItem = detailPanel.f
-        if (!familyItem || root.remoteFirstMode) return
-        if (root.setupInProgress(familyItem)) {
+        if (!root.hasFamilyValue(familyItem) || root.remoteFirstMode) return
+        if (root.localSetupInProgress(familyItem)) {
             Theme.requestShowDownloads()
             return
         }
@@ -312,7 +391,7 @@ Rectangle {
                 root.selectedFilesForFamily(familyItem))
         }
         root.runWithLicenseConsent(familyItem, function() {
-            if (AppController.downloadInstall.enqueueRecommendedSetup(familyItem)) {
+            if (AppController.downloadInstall.enqueueRecommendedSetup(root.localInstallFamilyItem(familyItem))) {
                 Theme.requestShowDownloads()
             }
         })
@@ -320,8 +399,8 @@ Rectangle {
 
     function runPrimaryAction() {
         var familyItem = detailPanel.f
-        if (!familyItem) return
-        if (familyItem.ready) root.useSelectedFamily()
+        if (!root.hasFamilyValue(familyItem)) return
+        if (root.localFamilyReady(familyItem)) root.useSelectedFamily()
         else if (!root.remoteFirstMode) root.installSelectedFamily()
     }
 
@@ -1235,6 +1314,63 @@ Rectangle {
 
                     Rectangle {
                         Layout.fillWidth: true
+                        implicitHeight: colabModelLayout.implicitHeight + Theme.paddingLarge * 2
+                        radius: 8
+                        color: Qt.rgba(0.49, 0.30, 1.0, 0.10)
+                        border.color: Qt.rgba(0.49, 0.30, 1.0, 0.45)
+                        border.width: 1
+                        visible: detailPanel.hasFamily && root.hasColabModelAction(detailPanel.f)
+
+                        RowLayout {
+                            id: colabModelLayout
+                            anchors.fill: parent
+                            anchors.margins: Theme.paddingLarge
+                            spacing: Theme.paddingMedium
+
+                            LineIcon {
+                                name: "cloud"
+                                color: Theme.accentLight
+                                Layout.preferredWidth: 22
+                                Layout.preferredHeight: 22
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 3
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Run this exact model on Colab GPU")
+                                    color: Theme.textPrimary
+                                    font.pixelSize: Theme.fontMedium
+                                    font.bold: true
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Selects %1 without downloading or loading the model on this PC. The notebook and worker must report the same model ID.").arg(detailPanel.f.familyId)
+                                    color: Theme.textSecondary
+                                    font.pixelSize: Theme.fontSmall
+                                    wrapMode: Text.WordWrap
+                                }
+                            }
+
+                            PrimaryButton {
+                                text: qsTr("Select for Colab")
+                                iconName: "check"
+                                implicitWidth: 142
+                                onClicked: root.selectFamilyForColab(false)
+                            }
+
+                            PrimaryButton {
+                                text: qsTr("Select + open notebook")
+                                iconName: "cloud"
+                                implicitWidth: 190
+                                onClicked: root.selectFamilyForColab(true)
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
                         implicitHeight: licenseLayout.implicitHeight + Theme.paddingMedium * 2
                         radius: 7
                         color: Qt.rgba(1, 1, 1, 0.025)
@@ -1445,13 +1581,16 @@ Rectangle {
                             Layout.fillWidth: true
                             spacing: 2
                             Text {
-                                text: qsTr("Runtime")
+                                text: root.hasColabModelAction(detailPanel.f)
+                                      ? qsTr("Local CPU runtime") : qsTr("Runtime")
                                 color: Theme.textPrimary
                                 font.pixelSize: Theme.fontMedium
                                 font.bold: true
                             }
                             Text {
-                                text: qsTr("Compatibility is evaluated from detected CPU and GPU capabilities.")
+                                text: root.hasColabModelAction(detailPanel.f)
+                                      ? qsTr("Local execution is limited to CPU; GPU execution uses the model-specific Colab notebook above.")
+                                      : qsTr("Compatibility is evaluated from detected CPU and GPU capabilities.")
                                 color: Theme.textSecondary
                                 font.pixelSize: 11
                             }
@@ -1485,7 +1624,7 @@ Rectangle {
                     }
 
                     Repeater {
-                        model: detailPanel.hasFamily ? (detailPanel.f.runtimeOptions || []) : []
+                        model: detailPanel.hasFamily ? root.localRuntimeOptions(detailPanel.f) : []
 
                         delegate: Rectangle {
                             id: runtimeRow

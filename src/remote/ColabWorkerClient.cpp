@@ -124,7 +124,8 @@ void ColabWorkerClient::clear()
     m_bearerToken.clear();
 }
 
-bool ColabWorkerClient::transcribeWav(const QByteArray &wavData, const QString &language,
+bool ColabWorkerClient::transcribeWav(const QByteArray &wavData, const QString &model,
+                                      const QString &language,
                                       const std::shared_ptr<std::atomic_bool> &cancelToken,
                                       QJsonObject *response, QString *errorMessage)
 {
@@ -137,6 +138,11 @@ bool ColabWorkerClient::transcribeWav(const QByteArray &wavData, const QString &
         if (errorMessage) *errorMessage = QStringLiteral("Audio input is empty");
         return false;
     }
+    const QString normalizedModel = model.trimmed();
+    if (normalizedModel.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab STT model is required");
+        return false;
+    }
 
     QNetworkAccessManager manager;
     QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v1/audio/transcriptions")));
@@ -145,7 +151,7 @@ bool ColabWorkerClient::transcribeWav(const QByteArray &wavData, const QString &
     request.setRawHeader("Accept", "application/json");
 
     auto *multipart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
-    multipart->append(formField("model", "colab"));
+    multipart->append(formField("model", normalizedModel.toUtf8()));
     multipart->append(formField("response_format", "verbose_json"));
     if (!language.trimmed().isEmpty() && language.compare(QStringLiteral("auto"), Qt::CaseInsensitive) != 0) {
         multipart->append(formField("language", language.trimmed().toUtf8()));
