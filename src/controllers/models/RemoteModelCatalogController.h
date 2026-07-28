@@ -4,8 +4,10 @@
 #include "remote/GatewayModelCatalog.h"
 
 #include <QFutureWatcher>
+#include <QMap>
 #include <QObject>
 #include <QPointer>
+#include <QStringList>
 #include <QVariantList>
 
 namespace LAStudio {
@@ -30,6 +32,13 @@ class RemoteModelCatalogController final : public QObject
 public:
     explicit RemoteModelCatalogController(Settings *settings, ColabSession *colabSession,
                                           QObject *parent = nullptr);
+    // Every entry is a separately authenticated temporary worker session. The
+    // aggregate catalog is presentation-only; it never creates a shared route
+    // or reuses a credential from one capability for another.
+    RemoteModelCatalogController(Settings *settings,
+                                 const QMap<QString, ColabSession *> &colabSessions,
+                                 QObject *parent = nullptr,
+                                 bool allowInsecureLocalhostForTesting = false);
 
     bool gatewayRefreshing() const { return m_gatewayRefreshing; }
     bool gatewayAvailable() const { return m_gatewayAvailable; }
@@ -53,13 +62,20 @@ signals:
     void colabModelsChanged();
 
 private:
+    struct ColabCatalogBatchResult {
+        QVariantList models;
+        QStringList errors;
+        int successfulSessions = 0;
+    };
+
     void clearGatewayCatalog();
     void clearColabCatalog();
 
     QPointer<Settings> m_settings;
-    QPointer<ColabSession> m_colabSession;
+    QMap<QString, QPointer<ColabSession>> m_colabSessions;
+    bool m_allowInsecureLocalhostForTesting = false;
     QFutureWatcher<GatewayModelCatalog::Result> m_gatewayWatcher;
-    QFutureWatcher<ColabCapabilityCatalog::Result> m_colabWatcher;
+    QFutureWatcher<ColabCatalogBatchResult> m_colabWatcher;
     QVariantList m_gatewayModels;
     QVariantList m_colabModels;
     QString m_gatewayError;

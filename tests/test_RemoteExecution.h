@@ -26,6 +26,8 @@ private slots:
     void gatewayAndColabFailuresRemainIndependent();
     void gatewayModelCatalogUsesGatewayOnly();
     void colabCapabilityCatalogUsesDirectWorkerOnly();
+    void remoteModelCatalogAggregatesIndependentColabSessions();
+    void remoteModelCatalogRetainsHealthyWorkerWhenAnotherFails();
 };
 
 } // namespace LAStudio

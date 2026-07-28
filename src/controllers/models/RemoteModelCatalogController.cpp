@@ -8,6 +8,12 @@
 namespace LAStudio {
 namespace {
 
+struct ColabCatalogRequest {
+    QString workerCapability;
+    QUrl endpoint;
+    QString bearerToken;
+};
+
 bool supportsCapability(const QVariantMap &model, const QString &requestedCapability)
 {
     const QString requested = requestedCapability.trimmed();
@@ -24,8 +30,22 @@ bool supportsCapability(const QVariantMap &model, const QString &requestedCapabi
 RemoteModelCatalogController::RemoteModelCatalogController(Settings *settings,
                                                            ColabSession *colabSession,
                                                            QObject *parent)
-    : QObject(parent), m_settings(settings), m_colabSession(colabSession)
+    : RemoteModelCatalogController(settings,
+                                   {{QStringLiteral("stt"), colabSession}}, parent)
 {
+}
+
+RemoteModelCatalogController::RemoteModelCatalogController(
+    Settings *settings, const QMap<QString, ColabSession *> &colabSessions,
+    QObject *parent, bool allowInsecureLocalhostForTesting)
+    : QObject(parent), m_settings(settings),
+      m_allowInsecureLocalhostForTesting(allowInsecureLocalhostForTesting)
+{
+    for (auto it = colabSessions.cbegin(); it != colabSessions.cend(); ++it) {
+        const QString capability = it.key().trimmed().toLower();
+        if (!capability.isEmpty() && it.value()) m_colabSessions.insert(capability, it.value());
+    }
+
     connect(&m_gatewayWatcher, &QFutureWatcher<GatewayModelCatalog::Result>::finished,
             this, [this]() {
         const GatewayModelCatalog::Result result = m_gatewayWatcher.result();
@@ -47,24 +67,18 @@ RemoteModelCatalogController::RemoteModelCatalogController(Settings *settings,
         emit gatewayModelsChanged();
         emit gatewayStateChanged();
     });
-    connect(&m_colabWatcher, &QFutureWatcher<ColabCapabilityCatalog::Result>::finished,
+    connect(&m_colabWatcher, &QFutureWatcher<ColabCatalogBatchResult>::finished,
             this, [this]() {
-        const ColabCapabilityCatalog::Result result = m_colabWatcher.result();
+        const ColabCatalogBatchResult result = m_colabWatcher.result();
         if (m_colabRequestGeneration != m_colabGeneration) {
             m_colabRefreshing = false;
             emit colabStateChanged();
             return;
         }
         m_colabRefreshing = false;
-        if (result.isSuccess()) {
-            m_colabModels = result.models;
-            m_colabError.clear();
-            m_colabAvailable = true;
-        } else {
-            m_colabModels.clear();
-            m_colabError = result.error;
-            m_colabAvailable = false;
-        }
+        m_colabModels = result.models;
+        m_colabError = result.errors.join(QLatin1Char('\n'));
+        m_colabAvailable = result.successfulSessions > 0;
         emit colabModelsChanged();
         emit colabStateChanged();
     });
@@ -75,9 +89,11 @@ RemoteModelCatalogController::RemoteModelCatalogController(Settings *settings,
         connect(m_settings, &Settings::gatewayApiKeyChanged, this,
                 &RemoteModelCatalogController::clearGatewayCatalog);
     }
-    if (m_colabSession) {
-        connect(m_colabSession, &ColabSession::sessionChanged, this,
-                &RemoteModelCatalogController::clearColabCatalog);
+    for (const QPointer<ColabSession> &session : m_colabSessions) {
+        if (session) {
+            connect(session, &ColabSession::sessionChanged, this,
+                    &RemoteModelCatalogController::clearColabCatalog);
+        }
     }
 }
 
@@ -104,35 +120,57 @@ void RemoteModelCatalogController::refreshGateway()
 void RemoteModelCatalogController::refreshColab()
 {
     if (m_colabRefreshing) return;
-    if (!m_colabSession || !m_colabSession->isActive()) {
+    QVector<ColabCatalogRequest> requests;
+    for (auto it = m_colabSessions.cbegin(); it != m_colabSessions.cend(); ++it) {
+        const QPointer<ColabSession> session = it.value();
+        if (!session || !session->isActive()) continue;
+        requests.append({it.key(), session->endpoint(), session->bearerTokenForRequest()});
+    }
+    if (requests.isEmpty()) {
         m_colabModels.clear();
-        m_colabError = QStringLiteral("Connect a Colab GPU worker before refreshing its models");
+        m_colabError = QStringLiteral("Connect at least one direct Colab GPU worker before refreshing its models");
         m_colabAvailable = false;
         emit colabModelsChanged();
         emit colabStateChanged();
         return;
     }
-    const QUrl workerUrl = m_colabSession->endpoint();
-    const QString token = m_colabSession->bearerTokenForRequest();
     m_colabRequestGeneration = ++m_colabGeneration;
     m_colabRefreshing = true;
     m_colabError.clear();
     emit colabStateChanged();
-    m_colabWatcher.setFuture(QtConcurrent::run([workerUrl, token]() {
-        return ColabCapabilityCatalog::fetch(workerUrl, token);
+    const bool allowInsecureLocalhost = m_allowInsecureLocalhostForTesting;
+    m_colabWatcher.setFuture(QtConcurrent::run([requests, allowInsecureLocalhost]() {
+        ColabCatalogBatchResult batch;
+        for (const ColabCatalogRequest &request : requests) {
+            const ColabCapabilityCatalog::Result result = ColabCapabilityCatalog::fetch(
+                request.endpoint, request.bearerToken, allowInsecureLocalhost);
+            if (!result.isSuccess()) {
+                batch.errors.append(QStringLiteral("%1 worker: %2")
+                                        .arg(request.workerCapability, result.error));
+                continue;
+            }
+            ++batch.successfulSessions;
+            for (const QVariant &entry : result.models) {
+                QVariantMap model = entry.toMap();
+                model.insert(QStringLiteral("workerCapability"), request.workerCapability);
+                batch.models.append(model);
+            }
+        }
+        return batch;
     }));
 }
 
 bool RemoteModelCatalogController::pairColab(const QString &workerUrl,
                                               const QString &bearerToken)
 {
-    if (!m_colabSession) {
+    const QPointer<ColabSession> session = m_colabSessions.value(QStringLiteral("stt"));
+    if (!session) {
         m_colabError = QStringLiteral("Colab session service is unavailable");
         emit colabStateChanged();
         return false;
     }
     QString error;
-    if (!m_colabSession->setSession(workerUrl, bearerToken, &error)) {
+    if (!session->setSession(workerUrl, bearerToken, &error)) {
         m_colabError = error;
         m_colabAvailable = false;
         emit colabStateChanged();

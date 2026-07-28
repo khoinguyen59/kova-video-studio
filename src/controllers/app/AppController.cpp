@@ -96,7 +96,16 @@ AppController::AppController(QObject *parent)
     m_modelsMigration = new ModelsPathMigrationService(m_settings, m_models, m_downloads, m_stt, m_tts, this);
     m_files     = new FileAccessService(this);
     m_downloadInstall = new DownloadInstallService(m_downloads, m_models, m_runtimes, m_settings, this);
-    m_remoteModels = new RemoteModelCatalogController(m_settings, m_colabSession, this);
+    m_remoteModels = new RemoteModelCatalogController(m_settings, {
+        {QStringLiteral("stt"), m_colabSession},
+        {QStringLiteral("tts"), m_colabTtsSession},
+        {QStringLiteral("voice-cloning"), m_colabVoiceCloneSession},
+        {QStringLiteral("voice-design"), m_colabVoiceDesignSession},
+        {QStringLiteral("forced-alignment"), m_colabAlignmentSession},
+        {QStringLiteral("voice-isolation"), m_colabSeparationSession},
+        {QStringLiteral("translation"), m_colabTranslationSession},
+        {QStringLiteral("chat"), m_colabChatSession},
+    }, this);
     m_voiceClonePresets = new VoiceClonePresetService(this);
     m_voiceDesignPresets = new VoiceDesignPresetService(this);
     m_sttSession = new SttSessionController(this);

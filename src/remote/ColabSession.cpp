@@ -25,10 +25,10 @@ bool ColabSession::isActive() const
 }
 
 bool ColabSession::setSession(const QString &workerUrl, const QString &bearerToken,
-                              QString *errorMessage)
+                              QString *errorMessage, bool allowInsecureLocalhost)
 {
     const RemoteEndpointValidation validated = validateRemoteEndpoint(
-        workerUrl, RemoteEndpointKind::ColabWorker);
+        workerUrl, RemoteEndpointKind::ColabWorker, allowInsecureLocalhost);
     const QString normalizedToken = bearerToken.trimmed();
     if (!validated.isValid()) {
         if (errorMessage) *errorMessage = validated.error;

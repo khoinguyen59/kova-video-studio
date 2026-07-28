@@ -23,8 +23,10 @@ public:
     QUrl endpoint() const;
     bool isActive() const;
 
+    // HTTP is rejected by default. The final argument exists only for loopback
+    // contract tests; production callers must not opt into it.
     bool setSession(const QString &workerUrl, const QString &bearerToken,
-                    QString *errorMessage = nullptr);
+                    QString *errorMessage = nullptr, bool allowInsecureLocalhost = false);
     void clear();
 
     // Never expose this value as a QML property or serialize it to a project.

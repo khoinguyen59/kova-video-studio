@@ -40,7 +40,9 @@ after a notebook or Colab runtime reset.
 Each capability has its own in-memory Colab session. Pairing a TTS, alignment,
 translation, or voice worker never replaces the URL/token paired for another
 capability; this is necessary because their notebooks may run as distinct
-temporary Colab workers.
+temporary Colab workers. The Remote Inference settings catalog aggregates the
+models advertised by every active worker, preserving the capability and worker
+source of each entry; it never combines their tokens or routes.
 
 | Capability | Notebook | Direct worker contract |
 | --- | --- | --- |

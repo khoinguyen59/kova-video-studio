@@ -61,6 +61,8 @@ ScrollView {
                     text: {
                         var details = []
                         if (entry.capability) details.push(entry.capability)
+                        if (entry.workerCapability && entry.workerCapability !== entry.capability)
+                            details.push(qsTr("worker %1").arg(entry.workerCapability))
                         if (entry.revision) details.push(qsTr("rev %1").arg(entry.revision))
                         if (entry.license) details.push(entry.license)
                         if (entry.device) details.push(entry.device)
@@ -184,13 +186,13 @@ ScrollView {
             }
 
             SectionPanel {
-                title: qsTr("Active STT Colab GPU Models")
+                title: qsTr("Active Colab GPU Models")
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignTop
 
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("Pairs the temporary STT worker directly with its own URL and token. Configure the workers for other capabilities in their corresponding studio settings. Worker models are never merged with Gateway models.")
+                    text: qsTr("Lists every active direct Colab worker separately by capability. Pair the STT worker here; configure other workers in their corresponding studio settings. Worker models are never merged with Gateway models or credentials.")
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fontSmall
                     wrapMode: Text.WordWrap
@@ -214,8 +216,8 @@ ScrollView {
                     spacing: Theme.paddingSmall
                     PrimaryButton {
                         Layout.fillWidth: true
-                        text: root.remoteModels.colabRefreshing ? qsTr("Refreshing worker…")
-                             : (AppController.colabSttSession.active ? qsTr("Refresh Worker") : qsTr("Pair & Refresh Worker"))
+                        text: root.remoteModels.colabRefreshing ? qsTr("Refreshing active workers…")
+                             : (AppController.colabSttSession.active ? qsTr("Refresh Active Workers") : qsTr("Pair STT & Refresh Workers"))
                         iconName: "cloud"
                         enabled: !root.remoteModels.colabRefreshing
                         onClicked: {
@@ -243,7 +245,7 @@ ScrollView {
                 Text {
                     visible: root.remoteModels.colabAvailable
                     Layout.fillWidth: true
-                    text: qsTr("%1 direct Colab model(s) reported by this session").arg(root.remoteModels.colabModels.length)
+                    text: qsTr("%1 direct Colab model(s) reported by active workers").arg(root.remoteModels.colabModels.length)
                     color: Theme.success
                     font.pixelSize: Theme.fontSmall
                 }

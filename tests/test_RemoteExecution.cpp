@@ -532,4 +532,83 @@ void TestRemoteExecution::colabCapabilityCatalogUsesDirectWorkerOnly()
     QVERIFY(server.request().toLower().contains("authorization: bearer temporary-colab-catalog-token"));
 }
 
+void TestRemoteExecution::remoteModelCatalogAggregatesIndependentColabSessions()
+{
+    CatalogMock sttServer(QByteArrayLiteral(
+        R"({"device":"cuda","capabilities":[{"id":"stt","models":[{"id":"whisper-contract","device":"cuda"}]}]})"));
+    CatalogMock ttsServer(QByteArrayLiteral(
+        R"({"device":"cuda","capabilities":[{"id":"tts","models":[{"id":"kokoro-contract","device":"cuda"}]}]})"));
+    QVERIFY(sttServer.start());
+    QVERIFY(ttsServer.start());
+
+    Settings settings;
+    ColabSession sttSession;
+    ColabSession ttsSession;
+    QString error;
+    QVERIFY2(sttSession.setSession(sttServer.baseUrl(), QStringLiteral("stt-catalog-token"),
+                                   &error, true), qPrintable(error));
+    QVERIFY2(ttsSession.setSession(ttsServer.baseUrl(), QStringLiteral("tts-catalog-token"),
+                                   &error, true), qPrintable(error));
+    RemoteModelCatalogController controller(&settings, {
+        {QStringLiteral("stt"), &sttSession},
+        {QStringLiteral("tts"), &ttsSession},
+    }, nullptr, true);
+
+    controller.refreshColab();
+    QTRY_VERIFY(!controller.colabRefreshing());
+    QVERIFY(controller.colabAvailable());
+    QCOMPARE(controller.colabModels().size(), 2);
+    QVERIFY(controller.isModelSelectable(QStringLiteral("colab-direct"),
+                                          QStringLiteral("whisper-contract"),
+                                          QStringLiteral("stt")));
+    QVERIFY(controller.isModelSelectable(QStringLiteral("colab-direct"),
+                                          QStringLiteral("kokoro-contract"),
+                                          QStringLiteral("tts")));
+    const QVariantMap sttModel = controller.colabModels().at(0).toMap();
+    QCOMPARE(sttModel.value(QStringLiteral("workerCapability")).toString(), QStringLiteral("stt"));
+    const QVariantMap ttsModel = controller.colabModels().at(1).toMap();
+    QCOMPARE(ttsModel.value(QStringLiteral("workerCapability")).toString(), QStringLiteral("tts"));
+    QVERIFY(sttServer.request().toLower().contains("authorization: bearer stt-catalog-token"));
+    QVERIFY(ttsServer.request().toLower().contains("authorization: bearer tts-catalog-token"));
+}
+
+void TestRemoteExecution::remoteModelCatalogRetainsHealthyWorkerWhenAnotherFails()
+{
+    CatalogMock ttsServer(QByteArrayLiteral(
+        R"({"device":"cuda","capabilities":[{"id":"tts","models":[{"id":"kokoro-survives-reset","device":"cuda"}]}]})"));
+    QVERIFY(ttsServer.start());
+
+    // Reserve then release a loopback port so the STT request fails immediately
+    // without making the test depend on an external network endpoint.
+    QTcpServer unavailableServer;
+    QVERIFY(unavailableServer.listen(QHostAddress::LocalHost));
+    const QString unavailableUrl = QStringLiteral("http://127.0.0.1:%1")
+        .arg(unavailableServer.serverPort());
+    unavailableServer.close();
+
+    Settings settings;
+    ColabSession sttSession;
+    ColabSession ttsSession;
+    QString error;
+    QVERIFY2(sttSession.setSession(unavailableUrl, QStringLiteral("stt-reset-token"), &error, true),
+             qPrintable(error));
+    QVERIFY2(ttsSession.setSession(ttsServer.baseUrl(), QStringLiteral("tts-survives-token"),
+                                   &error, true), qPrintable(error));
+    RemoteModelCatalogController controller(&settings, {
+        {QStringLiteral("stt"), &sttSession},
+        {QStringLiteral("tts"), &ttsSession},
+    }, nullptr, true);
+
+    controller.refreshColab();
+    QTRY_VERIFY(!controller.colabRefreshing());
+    QVERIFY(controller.colabAvailable());
+    QCOMPARE(controller.colabModels().size(), 1);
+    QCOMPARE(controller.colabModels().constFirst().toMap()
+                 .value(QStringLiteral("modelId")).toString(),
+             QStringLiteral("kokoro-survives-reset"));
+    QVERIFY(controller.colabError().contains(QStringLiteral("stt worker")));
+    QVERIFY(ttsServer.request().toLower().contains("authorization: bearer tts-survives-token"));
+    QVERIFY(!controller.colabError().contains(QStringLiteral("tts-survives-token")));
+}
+
 } // namespace LAStudio
