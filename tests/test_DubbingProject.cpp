@@ -677,6 +677,47 @@ void TestDubbingProject::colabSourceSeparationDoesNotFallbackToLocal()
              QStringLiteral("Connect a Colab GPU worker before running this Voice Isolation node."));
 }
 
+void TestDubbingProject::remoteDubbingWorkflowIsReadyWithoutLocalModels()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString mediaPath = dir.filePath(QStringLiteral("source.wav"));
+    QFile media(mediaPath);
+    QVERIFY(media.open(QIODevice::WriteOnly));
+    QVERIFY(media.write("audio-placeholder") > 0);
+    media.close();
+
+    const auto remoteNode = [](const QString &provider, const QString &modelId) {
+        const QVariantMap parameters{{QStringLiteral("executionProvider"), provider},
+                                     {QStringLiteral("modelId"), modelId}};
+        return QVariantMap{{QStringLiteral("executionProvider"), provider},
+                           {QStringLiteral("modelId"), modelId},
+                           {QStringLiteral("parameters"), parameters}};
+    };
+    DubbingProject project;
+    project.projectPath = dir.filePath(QStringLiteral("remote.ladub.json"));
+    project.sourceMediaPath = mediaPath;
+    project.targetLanguage = QStringLiteral("vi");
+    project.dubbingQuality = QStringLiteral("custom");
+    project.durationControl.insert(QStringLiteral("enabled"), false);
+    project.durationControl.insert(QStringLiteral("autoRewrite"), false);
+    project.workflowNodeConfigurations.insert(
+        QStringLiteral("source-separate"), remoteNode(QStringLiteral("colab-direct"), QStringLiteral("htdemucs")));
+    project.workflowNodeConfigurations.insert(
+        QStringLiteral("transcribe"), remoteNode(QStringLiteral("colab-direct"), QStringLiteral("faster-whisper-small")));
+    project.workflowNodeConfigurations.insert(
+        QStringLiteral("translate"), remoteNode(QStringLiteral("api-gateway"), QStringLiteral("gateway-translate")));
+    project.workflowNodeConfigurations.insert(
+        QStringLiteral("synthesize"), remoteNode(QStringLiteral("colab-direct"), QStringLiteral("kokoro")));
+    QString error;
+    QVERIFY2(project.save(&error), qPrintable(error));
+
+    DubbingController controller(nullptr, nullptr);
+    QVERIFY2(controller.openProject(project.projectPath), qPrintable(controller.lastError()));
+    QVERIFY(controller.customReady());
+    QVERIFY(controller.workflowReady());
+}
+
 void TestDubbingProject::targetLanguageUpdatesVoiceNodeLanguage()
 {
     DubbingController controller(nullptr, nullptr);

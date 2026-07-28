@@ -593,6 +593,15 @@ QVariantMap DubbingController::firstCustomSetupIssue() const
                 QStringLiteral("local-dev"))).toString();
             if (executionProviderFromId(providerId, &provider)
                 && provider != ExecutionProvider::LocalDev) {
+                const QString modelId = selected.value(
+                    QStringLiteral("modelId"), parameters.value(QStringLiteral("modelId"))).toString().trimmed();
+                if (modelId.isEmpty()) {
+                    return {{QStringLiteral("nodeId"), required.first},
+                            {QStringLiteral("setupKind"), QStringLiteral("node-model")},
+                            {QStringLiteral("message"),
+                             QStringLiteral("Choose a %1 model for the %2 node before running Custom dubbing.")
+                                 .arg(executionProviderDisplayName(provider), visibleStepForNode(required.first))}};
+                }
                 continue;
             }
         }
@@ -874,7 +883,9 @@ bool DubbingController::workflowReady() const
         QStringLiteral("executionProvider"), sttParameters.value(
         QStringLiteral("executionProvider"), QStringLiteral("local-dev"))).toString();
     const bool remoteSttSelected = executionProviderFromId(sttProviderId, &sttProvider)
-        && sttProvider != ExecutionProvider::LocalDev;
+        && sttProvider != ExecutionProvider::LocalDev
+        && !sttSelection.value(QStringLiteral("modelId"), sttParameters.value(
+            QStringLiteral("modelId"))).toString().trimmed().isEmpty();
     const bool sttReady = remoteSttSelected || (AppController::instance() && AppController::instance()->sessionRegistry()
         && AppController::instance()->sessionRegistry()->sessionForCapability(QStringLiteral("stt"))
         && AppController::instance()->sessionRegistry()->sessionForCapability(QStringLiteral("stt"))->canProcess());
@@ -890,20 +901,43 @@ bool DubbingController::workflowReady() const
     if (translationConfigured) {
         const QVariantMap selected = m_workflowNodeConfigurations
                                          .value(QStringLiteral("translate")).toMap();
-        StudioConfiguration configuration;
-        configuration.capabilityId = QStringLiteral("translation");
-        configuration.familyId = selected.value(QStringLiteral("familyId")).toString();
-        configuration.runtimeId = selected.value(QStringLiteral("runtimeId")).toString();
-        configuration.runtimeVersion = selected.value(QStringLiteral("runtimeVersion")).toString();
-        configuration.selectedFiles = selected.value(QStringLiteral("selectedFiles")).toMap();
-        configuredTranslationReady = StudioConfigurationResolver::resolve(configuration).isValid;
+        const QVariantMap parameters = selected.value(QStringLiteral("parameters")).toMap();
+        ExecutionProvider provider = ExecutionProvider::LocalDev;
+        const QString providerId = selected.value(
+            QStringLiteral("executionProvider"), parameters.value(
+            QStringLiteral("executionProvider"), QStringLiteral("local-dev"))).toString();
+        if (executionProviderFromId(providerId, &provider)
+            && provider != ExecutionProvider::LocalDev) {
+            configuredTranslationReady = !selected.value(
+                QStringLiteral("modelId"), parameters.value(QStringLiteral("modelId"))).toString().trimmed().isEmpty();
+        } else {
+            StudioConfiguration configuration;
+            configuration.capabilityId = QStringLiteral("translation");
+            configuration.familyId = selected.value(QStringLiteral("familyId")).toString();
+            configuration.runtimeId = selected.value(QStringLiteral("runtimeId")).toString();
+            configuration.runtimeVersion = selected.value(QStringLiteral("runtimeVersion")).toString();
+            configuration.selectedFiles = selected.value(QStringLiteral("selectedFiles")).toMap();
+            configuredTranslationReady = StudioConfigurationResolver::resolve(configuration).isValid;
+        }
     }
     const bool translationReady = !translationConfigured || translatedArtifactReady
         || configuredTranslationReady;
+    const QVariantMap synthesisSelection = m_workflowNodeConfigurations
+        .value(QStringLiteral("synthesize")).toMap();
+    const QVariantMap synthesisParameters = synthesisSelection.value(QStringLiteral("parameters")).toMap();
+    ExecutionProvider synthesisProvider = ExecutionProvider::LocalDev;
+    const QString synthesisProviderId = synthesisSelection.value(
+        QStringLiteral("executionProvider"), synthesisParameters.value(
+        QStringLiteral("executionProvider"), QStringLiteral("local-dev"))).toString();
+    const bool remoteTtsSelected = executionProviderFromId(synthesisProviderId, &synthesisProvider)
+        && synthesisProvider != ExecutionProvider::LocalDev
+        && !synthesisSelection.value(QStringLiteral("modelId"), synthesisParameters.value(
+            QStringLiteral("modelId"))).toString().trimmed().isEmpty();
+    const bool ttsReady = remoteTtsSelected || (m_tts && m_tts->isModelLoaded());
     return workflowGraphValid()
         && !m_project.sourceMediaPath.isEmpty()
         && !m_project.targetLanguage.trimmed().isEmpty()
-        && m_tts && m_tts->isModelLoaded()
+        && ttsReady
         && sttReady
         && translationReady;
 }

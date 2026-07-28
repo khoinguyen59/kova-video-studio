@@ -55,6 +55,7 @@ private slots:
     void remoteTtsRoutesDoNotFallbackBetweenGatewayAndColab();
     void colabDubbingVoiceCloningIsDirectAndRequiresConsent();
     void colabSourceSeparationDoesNotFallbackToLocal();
+    void remoteDubbingWorkflowIsReadyWithoutLocalModels();
 };
 
 } // namespace LAStudio
