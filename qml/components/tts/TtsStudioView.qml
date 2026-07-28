@@ -15,6 +15,9 @@ StudioShell {
     selectedFamilyId: family ? family.id : ""
     studioContext: null
     studioReady: false
+    // Let users pair independent Gateway/Colab routes without first loading
+    // a local TTS family.
+    settingsRequiresReady: false
     isSettingsOpen: true
     showLeftPanel: true
     isLeftPanelOpen: true

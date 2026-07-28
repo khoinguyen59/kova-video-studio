@@ -370,6 +370,7 @@ ColumnLayout {
                 visible: root.showColabSettings
 
                 Text { Layout.fillWidth: true; text: qsTr("This direct temporary worker is independent of API Gateway. Its token stays only in this desktop session."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                ColabNotebookLink { notebookFile: "LA_STUDIO_VOICE_GPU.ipynb" }
                 Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 GatewayField {
                     id: colabUrl

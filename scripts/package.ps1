@@ -16,6 +16,8 @@ param(
     [string] $VcpkgRoot,
     [string] $LlamaCppSourceDir,
     [string] $Version,
+    [ValidateRange(1, 64)]
+    [int] $MaxParallelJobs = 4,
     [string] $ReleaseSuffix,
     [string] $StageDir,
     [switch] $SkipInstaller,
@@ -61,7 +63,9 @@ function Ensure-Command {
 }
 
 function Ensure-MsvcEnvironment {
-    if (Test-Command "cl.exe") { return }
+    $hasCppHeaders = -not [string]::IsNullOrWhiteSpace($env:INCLUDE) -and
+        ($env:INCLUDE -split ";" | Where-Object { Test-Path (Join-Path $_ "type_traits") } | Select-Object -First 1)
+    if ((Test-Command "cl.exe") -and $hasCppHeaders) { return }
     $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
     if (-not (Test-Path -LiteralPath $vswhere)) {
         throw "cl.exe not found in PATH and vswhere.exe was not found. Install Visual Studio 2022 C++ workload."
@@ -468,7 +472,7 @@ function Ensure-Bsdtar {
         "-DENABLE_LZMA=OFF" `
         "-DENABLE_ZSTD=OFF"
     if ($LASTEXITCODE -ne 0) { throw "Failed to configure pinned bsdtar source." }
-    & cmake --build $bsdtarBuildDir --target bsdtar --parallel
+    & cmake --build $bsdtarBuildDir --target bsdtar --parallel $MaxParallelJobs
     if ($LASTEXITCODE -ne 0) { throw "Failed to build pinned bsdtar source." }
 
     $builtBsdtar = Get-ChildItem -Path $bsdtarBuildDir -Filter "bsdtar.exe" -Recurse -File |
@@ -671,6 +675,10 @@ if ($Preset -like "*mingw*") {
     $vcpkgTriplet = "x64-mingw-dynamic"
 } else {
     $vcpkgTriplet = "x64-windows"
+    # Keep the packaging configure step on the MSVC linker even when another
+    # toolchain's ld.exe appears on PATH.
+    $linkerCommand = Get-Command "link.exe" -ErrorAction Stop
+    $cmakeArgs += "-DCMAKE_LINKER=$($linkerCommand.Source.Replace('\', '/'))"
 }
 $cmakeArgs += "-DVCPKG_TARGET_TRIPLET=$vcpkgTriplet"
 $cmakeArgs += "-DLASTUDIO_VERSION=$Version"
@@ -683,7 +691,7 @@ $env:VCPKG_ROOT = $VcpkgRoot
 if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed." }
 
 Write-Host ">> Building application..." -ForegroundColor Cyan
-& cmake --build --preset $Preset --parallel
+& cmake --build --preset $Preset --parallel $MaxParallelJobs
 if ($LASTEXITCODE -ne 0) { throw "CMake build failed." }
 
 Write-Host ">> Installing to staging folder..." -ForegroundColor Cyan

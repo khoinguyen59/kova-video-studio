@@ -15,6 +15,7 @@
 #include <QRegularExpression>
 #include <QDateTime>
 #include <QTextStream>
+#include <QPointer>
 #include <functional>
 #include <utility>
 
@@ -269,9 +270,9 @@ void ModelManager::setModelsRoot(const QString &root)
     }
 }
 
-void ModelManager::scanLocalModels()
+QVector<ModelInfo> ModelManager::discoverLocalModels(const QString &modelsRoot)
 {
-    Logger::info(QStringLiteral("ModelManager"), QStringLiteral("Scanning local models from: %1").arg(m_modelsRoot));
+    Logger::info(QStringLiteral("ModelManager"), QStringLiteral("Scanning local models from: %1").arg(modelsRoot));
     QVector<ModelInfo> scannedModels;
 
     struct VirtualMetadata {
@@ -489,7 +490,7 @@ void ModelManager::scanLocalModels()
                     finalArch, finalParams, quantPublisher, quantVal, modifiedStr);
     };
 
-    QDir rootDir(m_modelsRoot);
+    QDir rootDir(modelsRoot);
 
     // Current LA Studio concrete weights:
     // <modelsRoot>/<publisher>/<repo>/*
@@ -511,18 +512,62 @@ void ModelManager::scanLocalModels()
         scanModelDir(subDir, subDirName);
     }
 
+    return scannedModels;
+}
+
+void ModelManager::applyLocalModelScan(QVector<ModelInfo> scannedModels)
+{
     beginResetModel();
     const int oldCount = m_models.size();
-    m_models = scannedModels;
+    m_models = std::move(scannedModels);
     endResetModel();
 
     if (oldCount != m_models.size()) {
         emit countChanged();
     }
-    
+
     m_version++;
     saveRegistry();
     emit registryUpdated();
+}
+
+void ModelManager::scanLocalModels()
+{
+    applyLocalModelScan(discoverLocalModels(m_modelsRoot));
+}
+
+void ModelManager::scanLocalModelsAsync()
+{
+    if (m_scanning) {
+        m_rescanRequested = true;
+        return;
+    }
+
+    m_scanning = true;
+    emit scanningChanged();
+    const QString scanRoot = m_modelsRoot;
+    const QPointer<ModelManager> guard(this);
+    QThreadPool::globalInstance()->start([guard, scanRoot] {
+        QVector<ModelInfo> scannedModels = ModelManager::discoverLocalModels(scanRoot);
+        if (!guard) return;
+        QMetaObject::invokeMethod(guard.data(),
+                                  [guard, scanRoot, scannedModels = std::move(scannedModels)]() mutable {
+            if (!guard) return;
+
+            const bool rootChanged = guard->m_modelsRoot != scanRoot;
+            const bool rescanRequested = guard->m_rescanRequested || rootChanged;
+            guard->m_rescanRequested = false;
+            guard->m_scanning = false;
+            emit guard->scanningChanged();
+
+            if (!rootChanged) {
+                guard->applyLocalModelScan(std::move(scannedModels));
+            }
+            if (rescanRequested) {
+                guard->scanLocalModelsAsync();
+            }
+        }, Qt::QueuedConnection);
+    });
 }
 
 void ModelManager::addModel(const QString &id, const QString &task, const QString &format,

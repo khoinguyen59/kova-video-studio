@@ -288,6 +288,7 @@ Rectangle {
                 font.pixelSize: Theme.fontSmall
                 wrapMode: Text.WordWrap
             }
+            ColabNotebookLink { notebookFile: root.colabNotebookForNode() }
             Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
             TextField {
                 id: colabWorkerUrl
@@ -349,6 +350,13 @@ Rectangle {
         if (root.nodeId === "translate") return AppController.colabTranslationSession
         if (root.nodeId === "synthesize") return AppController.colabTtsSession
         return null
+    }
+    function colabNotebookForNode() {
+        if (root.nodeId === "source-separate") return "LA_STUDIO_SEPARATION_GPU.ipynb"
+        if (root.nodeId === "transcribe") return "LA_STUDIO_SPEECH_GPU.ipynb"
+        if (root.nodeId === "translate") return "LA_STUDIO_LANGUAGE_GPU.ipynb"
+        if (root.nodeId === "synthesize") return "LA_STUDIO_VOICE_GPU.ipynb"
+        return ""
     }
     function openRemoteConfiguration(provider) {
         if (provider === "colab-direct") {

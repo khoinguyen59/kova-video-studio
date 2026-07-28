@@ -468,18 +468,18 @@ void HardwareManager::scheduleGpuDetection()
 {
 #ifdef Q_OS_WIN
     if (m_gpuDetectionComplete || m_gpuDetectionInFlight) return;
-    // Intel UMA adapters do not expose dedicated VRAM that affects runtime
-    // selection. Some Iris Xe drivers can indefinitely block even a simple
-    // DXGI inventory query, so keep this startup path out of DXGI entirely.
-    GpuInventory basicInventory;
-    if (queryIntelIntegratedInventory(&basicInventory)) {
-        completeGpuDetection(basicInventory.gpus, basicInventory.vramTotal, false);
-        return;
-    }
+    // GPU enumeration is advisory: local execution is CPU-only and no picker
+    // interaction may wait for a display-driver call.  EnumDisplayDevices can
+    // block just as DXGI can on some Intel Iris drivers, so *all* inventory
+    // work belongs on a worker thread.  The UI starts with CPU compatibility
+    // and refreshes after this queued result arrives.
     m_gpuDetectionInFlight = true;
     const QPointer<HardwareManager> guard(this);
     QThreadPool::globalInstance()->start([guard] {
-        const GpuInventory inventory = queryGpuInventory();
+        GpuInventory inventory;
+        if (!queryIntelIntegratedInventory(&inventory)) {
+            inventory = queryGpuInventory();
+        }
         if (!guard) return;
         QMetaObject::invokeMethod(guard.data(), [guard, inventory] {
             if (guard) {

@@ -281,6 +281,7 @@ ColumnLayout {
                 iconName: "cloud"
 
                 Text { Layout.fillWidth: true; text: qsTr("This direct Qwen3 VoiceDesign worker is independent of API Gateway. Its token remains only in this desktop session."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                ColabNotebookLink { notebookFile: "LA_STUDIO_VOICE_DESIGN_GPU.ipynb" }
                 Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 ColabField {
                     id: colabUrl

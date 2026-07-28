@@ -210,6 +210,7 @@ Rectangle {
                         iconName: "cloud"
 
                         Text { Layout.fillWidth: true; text: qsTr("This direct temporary worker is independent of API Gateway."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                        ColabNotebookLink { notebookFile: "LA_STUDIO_SPEECH_GPU.ipynb" }
                         Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                         ColabField {
                             id: colabUrl

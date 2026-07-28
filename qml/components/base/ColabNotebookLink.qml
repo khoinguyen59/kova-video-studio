@@ -1,0 +1,46 @@
+import QtQuick
+import QtQuick.Layouts
+import LAStudio
+import ".."
+
+ColumnLayout {
+    id: root
+
+    property string notebookFile: ""
+    // Internal builds publish these notebooks to the private GitHub branch
+    // used by this application. Colab can open that exact file directly when
+    // the user is signed in to GitHub; no worker token is part of this URL.
+    readonly property string colabNotebookUrl: notebookFile === "" ? ""
+        : "https://colab.research.google.com/github/khoinguyen59/kova-video-studio/blob/codex/remote-inference/notebooks/" + notebookFile
+
+    Layout.fillWidth: true
+    spacing: Theme.paddingSmall
+
+    Text {
+        Layout.fillWidth: true
+        visible: root.notebookFile !== ""
+        text: qsTr("Notebook to run in Colab: %1").arg(root.notebookFile)
+        color: Theme.textSecondary
+        font.pixelSize: Theme.fontSmall
+        wrapMode: Text.WordWrap
+    }
+
+    RowLayout {
+        Layout.fillWidth: true
+        spacing: Theme.paddingSmall
+
+        PrimaryButton {
+            text: qsTr("Open this notebook in Colab")
+            iconName: "cloud"
+            quiet: true
+            onClicked: Qt.openUrlExternally(root.colabNotebookUrl)
+        }
+        PrimaryButton {
+            text: qsTr("Open notebook folder")
+            iconName: "folder"
+            quiet: true
+            onClicked: AppController.openColabNotebooksDirectory()
+        }
+        Item { Layout.fillWidth: true }
+    }
+}

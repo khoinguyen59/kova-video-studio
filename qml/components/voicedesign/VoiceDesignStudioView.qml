@@ -15,6 +15,8 @@ StudioShell {
     selectedFamilyId: family ? family.id : ""
     studioContext: null
     studioReady: false
+    // VoiceDesign can run entirely on its Colab worker before local setup.
+    settingsRequiresReady: false
     isSettingsOpen: true
     showLeftPanel: true
     isLeftPanelOpen: true

@@ -16,6 +16,9 @@ StudioShell {
     selectedFamilyId: family ? family.id : ""
     studioContext: null
     studioReady: false
+    // Voice cloning's Colab worker is a complete execution route, so its
+    // setup cannot depend on a local model being loaded first.
+    settingsRequiresReady: false
     isSettingsOpen: true
     showLeftPanel: true
     isLeftPanelOpen: true
@@ -388,9 +391,9 @@ StudioShell {
                                                 }
                                                 searchable: model.length > 15
                                                 enabled: !root.inputsLocked
-                                                onCurrentIndexChanged: {
-                                                    if (!model || currentIndex < 0 || currentIndex >= model.length) return
-                                                    var value = model[currentIndex].value
+                                                onActivated: function(index) {
+                                                    if (!model || index < 0 || index >= model.length) return
+                                                    var value = model[index].value
                                                     if (root.selectedLanguageCode !== value) {
                                                         root.selectedLanguageCode = value
                                                     }

@@ -139,6 +139,7 @@ Item {
 
                     Text { text: qsTr("DIRECT COLAB GPU"); color: Theme.textSecondary; font.pixelSize: 10; font.bold: true; font.letterSpacing: 0.8 }
                     Text { Layout.fillWidth: true; text: qsTr("Qwen3 ForcedAligner receives only the selected audio and transcript directly from this app. This is independent of API Gateway."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                    ColabNotebookLink { notebookFile: "LA_STUDIO_ALIGNMENT_GPU.ipynb" }
                     Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                     ColabField {
                         id: colabUrl

@@ -23,6 +23,9 @@ StudioShell {
     capability: "stt"
     studioTitle: studioController ? studioController.studioHeaderTitle : qsTr("Speech-to-Text Studio")
     studioReady: (sttSession && (sttSession.colabActive || sttSession.gatewayActive)) || (studioController ? studioController.studioReady : false)
+    // Remote setup must be available before a local model is selected.  The
+    // input action remains gated by studioReady and the selected provider.
+    settingsRequiresReady: false
     isSettingsOpen: true
     showLeftPanel: true
     isLeftPanelOpen: true

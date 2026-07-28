@@ -116,6 +116,7 @@ class AppController : public QObject {
     Q_PROPERTY(QString logsDir READ logsDir CONSTANT)
     Q_PROPERTY(QString dataDir READ dataDir CONSTANT)
     Q_PROPERTY(QString licensesDir READ licensesDir CONSTANT)
+    Q_PROPERTY(QString colabNotebooksDir READ colabNotebooksDir CONSTANT)
 
 public:
     explicit AppController(QObject *parent = nullptr);
@@ -184,10 +185,12 @@ public:
     QString logsDir() const;
     QString dataDir() const;
     QString licensesDir() const;
+    QString colabNotebooksDir() const;
 
     Q_INVOKABLE void clearError();
     Q_INVOKABLE void copyToClipboard(const QString &text);
     Q_INVOKABLE QString createProblemReport();
+    Q_INVOKABLE bool openColabNotebooksDirectory();
 
 signals:
     void errorMessageChanged();

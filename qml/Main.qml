@@ -12,7 +12,6 @@ ApplicationWindow {
     y: AppController.settings.windowY
     minimumWidth: 960
     minimumHeight: 600
-    visibility: AppController.settings.windowMaximized ? ApplicationWindow.Maximized : ApplicationWindow.Windowed
     // A QML-only frameless window cannot participate fully in Windows' non-client
     // area behaviour (snap layouts, Aero Snap and the system shadow).  Keep the
     // custom chrome on other platforms, but let Windows own the frame instead.
@@ -164,6 +163,11 @@ ApplicationWindow {
     }
 
     Component.onCompleted: {
+        // Do not bind visibility directly to the persisted value: changing a
+        // native Windows window state emits onVisibilityChanged, which writes
+        // the setting back and used to create a binding loop/white window.
+        visibility = AppController.settings.windowMaximized
+                   ? ApplicationWindow.Maximized : ApplicationWindow.Windowed
         restoringWindowPlacement = false
         if (!AppController.settings.updateCheckConsentAsked)
             updateConsentDialog.open()
@@ -195,6 +199,14 @@ ApplicationWindow {
         }
     }
 
+    function qmlSmokeExerciseRoute(routeIndex) {
+        if (routeIndex === 1 && sttLoader.item
+                && sttLoader.item.qmlSmokePendingSelectionIsolated) {
+            return sttLoader.item.qmlSmokePendingSelectionIsolated()
+        }
+        return true
+    }
+
     Timer {
         id: qmlSmokeTimer
         interval: 100
@@ -221,6 +233,12 @@ ApplicationWindow {
                 return
             }
             if (root.qmlSmokeRouteLoaded(routeIndex)) {
+                if (!root.qmlSmokeExerciseRoute(routeIndex)) {
+                    console.warn("Pending model selection escaped the configuration dialog for route "
+                                 + route.id)
+                    running = false
+                    return
+                }
                 ++routeIndex
                 waitTicks = 0
                 return

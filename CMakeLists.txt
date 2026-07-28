@@ -6,7 +6,7 @@ include(cmake/RuntimeAbi.cmake)
 # automation may override it with -DLASTUDIO_VERSION=<major.minor.release.build>.
 # Internal builds use four numeric fields so each artifact has an unambiguous,
 # monotonically ordered label: 0.0.0.1 ... 0.0.0.9, then 0.0.1.0.
-set(LASTUDIO_VERSION "0.0.0.4" CACHE STRING "LA Studio application version")
+set(LASTUDIO_VERSION "0.0.0.7" CACHE STRING "LA Studio application version")
 if(NOT LASTUDIO_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$")
     message(FATAL_ERROR "LASTUDIO_VERSION must use MAJOR.MINOR.RELEASE.BUILD format; got '${LASTUDIO_VERSION}'")
 endif()
@@ -503,6 +503,7 @@ qt_add_qml_module(LAStudio
         qml/components/base/AppTextArea.qml
         qml/components/base/AppToolTip.qml
         qml/components/base/LineIcon.qml
+        qml/components/base/ColabNotebookLink.qml
         qml/components/PrimaryButton.qml
         qml/components/SearchBar.qml
         qml/components/ModelListItem.qml

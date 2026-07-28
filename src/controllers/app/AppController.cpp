@@ -25,11 +25,13 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QClipboard>
+#include <QDesktopServices>
 #include <QSaveFile>
 #include <QSysInfo>
 #include <QTextStream>
 #include "core/Logger.h"
 #include <QTimer>
+#include <QUrl>
 
 namespace LAStudio {
 
@@ -168,14 +170,14 @@ AppController::AppController(QObject *parent)
 
     connect(m_settings, &Settings::modelsPathChanged, this, [this]() {
         m_models->setModelsRoot(m_settings->modelsPath());
-        m_models->scanLocalModels();
+        m_models->scanLocalModelsAsync();
     });
 
     // Constructing AppController happens before the first QML frame.  A
     // recursive models-tree scan can be slow on network or removable storage,
     // so defer it until the application has had an opportunity to paint.
     QTimer::singleShot(250, this, [this]() {
-        if (m_models) m_models->scanLocalModels();
+        if (m_models) m_models->scanLocalModelsAsync();
     });
 
     QTimer::singleShot(2000, this, [this]() {
@@ -336,6 +338,39 @@ QString AppController::licensesDir() const
     // the UI never claims that legal documents have been installed when they
     // have not.
     return QDir::cleanPath(appDir.absoluteFilePath(QStringLiteral("licenses")));
+}
+
+QString AppController::colabNotebooksDir() const
+{
+    const QDir appDir(QCoreApplication::applicationDirPath());
+    const QStringList candidates = {
+        appDir.absoluteFilePath(QStringLiteral("docs/colab-notebooks")),
+        appDir.absoluteFilePath(QStringLiteral("../docs/colab-notebooks")),
+        appDir.absoluteFilePath(QStringLiteral("../../../notebooks")),
+        QDir::current().absoluteFilePath(QStringLiteral("notebooks")),
+    };
+
+    for (const QString &candidate : candidates) {
+        const QString cleaned = QDir::cleanPath(candidate);
+        if (QDir(cleaned).exists()) {
+            return cleaned;
+        }
+    }
+    return {};
+}
+
+bool AppController::openColabNotebooksDirectory()
+{
+    const QString directory = colabNotebooksDir();
+    if (directory.isEmpty()) {
+        onError(tr("The packaged Colab notebooks folder could not be found."));
+        return false;
+    }
+    if (!QDesktopServices::openUrl(QUrl::fromLocalFile(directory))) {
+        onError(tr("Could not open the packaged Colab notebooks folder."));
+        return false;
+    }
+    return true;
 }
 
 } // namespace LAStudio

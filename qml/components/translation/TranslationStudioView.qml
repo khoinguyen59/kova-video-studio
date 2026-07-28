@@ -41,6 +41,9 @@ StudioShell {
     studioTitle: qsTr("Translation Studio")
     studioIconName: "translate"
     studioReady: translation.gatewayActive || translation.colabActive || (studioController ? studioController.studioReady : false)
+    // API Gateway and direct Colab are standalone routes; keep their setup
+    // editable even while no local translation runtime is loaded.
+    settingsRequiresReady: false
     selectedFamilyId: studioController ? studioController.selectedFamilyId : ""
     modalSelectionMode: true
     showSwitcher: false
@@ -424,6 +427,7 @@ StudioShell {
             Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1,1,1,0.07) }
             Text { text: qsTr("Colab GPU Worker"); color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; font.bold: true }
             Text { Layout.fillWidth: true; text: qsTr("Direct temporary worker. Its URL and session token are independent from API Gateway and never use its API key."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+            ColabNotebookLink { notebookFile: "LA_STUDIO_LANGUAGE_GPU.ipynb" }
             Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
             GatewayField { id: translationColabUrl; text: AppController.colabTranslationSession.workerUrl; placeholderText: qsTr("https://…trycloudflare.com") }
             Text { text: qsTr("Session token"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }

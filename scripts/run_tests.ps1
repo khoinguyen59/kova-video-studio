@@ -12,6 +12,8 @@ param(
     [string] $Preset = "windows-msvc-release",
     [string] $QtRoot,
     [string] $VcpkgRoot,
+    [ValidateRange(1, 64)]
+    [int] $MaxParallelJobs = 4,
     [switch] $NoBuild,
     [switch] $Verbose
 )
@@ -109,7 +111,9 @@ function Resolve-VcpkgRoot {
 }
 
 function Ensure-MsvcEnvironment {
-    if (Test-Command "cl.exe") {
+    $hasCppHeaders = -not [string]::IsNullOrWhiteSpace($env:INCLUDE) -and
+        ($env:INCLUDE -split ";" | Where-Object { Test-Path (Join-Path $_ "type_traits") } | Select-Object -First 1)
+    if ((Test-Command "cl.exe") -and $hasCppHeaders) {
         return
     }
 
@@ -188,7 +192,7 @@ if (-not $NoBuild) {
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     } else {
         # Build just the unit tests target
-        cmake --build $buildDir --target LAStudioUnitTests --parallel
+        cmake --build $buildDir --target LAStudioUnitTests --parallel $MaxParallelJobs
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
 }

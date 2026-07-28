@@ -220,6 +220,7 @@ StudioShell {
                 Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1, 1, 1, 0.08) }
                 Text { text: qsTr("Colab GPU Worker"); color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; font.bold: true }
                 Text { Layout.fillWidth: true; text: qsTr("This direct temporary worker has its own URL and token. It does not use, start, or forward through API Gateway."); color: Theme.textSecondary; wrapMode: Text.WordWrap; font.pixelSize: Theme.fontSmall }
+                ColabNotebookLink { notebookFile: "LA_STUDIO_LANGUAGE_GPU.ipynb" }
                 Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 NumberField { id: colabUrl; Layout.fillWidth: true; text: AppController.colabChatSession.workerUrl; placeholderText: qsTr("https://…trycloudflare.com") }
                 Text { text: qsTr("Session token"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }

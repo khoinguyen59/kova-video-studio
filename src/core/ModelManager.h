@@ -33,6 +33,7 @@ class ModelManager : public QAbstractListModel {
     Q_PROPERTY(int count READ count NOTIFY countChanged)
     Q_PROPERTY(int version READ version NOTIFY registryUpdated)
     Q_PROPERTY(QString modelsRoot READ modelsRoot NOTIFY modelsRootChanged)
+    Q_PROPERTY(bool scanning READ scanning NOTIFY scanningChanged)
 
 public:
     enum Roles {
@@ -59,6 +60,7 @@ public:
 
     int count() const { return static_cast<int>(m_models.size()); }
     int version() const { return m_version; }
+    bool scanning() const { return m_scanning; }
 
     Q_INVOKABLE void addModel(const QString &id, const QString &task,
                                const QString &format, const QString &path,
@@ -74,7 +76,11 @@ public:
     Q_INVOKABLE bool setFileMetadata(const QString &modelId, const QString &filename, const QVariantMap &metadata);
     Q_INVOKABLE QString concreteModelDir(const QString &modelId) const;
     Q_INVOKABLE QString virtualModelDir(const QString &modelId) const;
+    // Kept synchronous for deterministic CLI/unit-test callers. Application
+    // and QML call scanLocalModelsAsync() so a large model tree never blocks
+    // the event loop.
     Q_INVOKABLE void scanLocalModels();
+    Q_INVOKABLE void scanLocalModelsAsync();
 
     QString modelsRoot() const;
     void setModelsRoot(const QString &root);
@@ -86,12 +92,17 @@ signals:
     void countChanged();
     void registryUpdated();
     void modelsRootChanged();
+    void scanningChanged();
 
 private:
     QString registryPath() const;
+    static QVector<ModelInfo> discoverLocalModels(const QString &modelsRoot);
+    void applyLocalModelScan(QVector<ModelInfo> scannedModels);
     QString m_modelsRoot;
     QVector<ModelInfo> m_models;
     int m_version = 0;
+    bool m_scanning = false;
+    bool m_rescanRequested = false;
 };
 
 } // namespace LAStudio

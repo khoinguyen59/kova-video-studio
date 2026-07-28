@@ -24,8 +24,52 @@ Item {
     }
 
     function openConfiguration(familyId) {
-        studioController.openConfiguration(familyId)
+        // A card click in the picker is only a pending choice.  Keep it local
+        // to CapabilityGallery until the user accepts the configuration;
+        // otherwise selectionChanged rebuilds the complete studio behind this
+        // modal while the pointer event is still being handled.
+        var committedFamilyId = studioController.selectedFamilyId || ""
+        var requestedFamilyId = familyId || committedFamilyId
+
+        configurationGallery.searchText = ""
+        configurationGallery.initialSelectedFiles = ({})
+        configurationGallery.selectedFamilyId = requestedFamilyId
+        configurationGallery.ensureSelection()
+
+        if (configurationGallery.selectedFamilyId === committedFamilyId) {
+            configurationGallery.pendingRuntimeId = studioController.runtimeId || ""
+            configurationGallery.pendingRuntimeVersion = studioController.runtimeVersion || ""
+            configurationGallery.initialSelectedFiles = studioController.selectedFiles || ({})
+        } else {
+            configurationGallery.syncPendingRuntime(true)
+        }
         configurationDialog.open()
+    }
+
+    // Exercised by the offscreen QML smoke test.  It reproduces the exact
+    // pre-confirmation model switch that used to freeze the real application
+    // and verifies that the controller remains untouched.
+    function qmlSmokePendingSelectionIsolated() {
+        var controllerFamilyBefore = studioController.selectedFamilyId || ""
+        var controllerCommittedBefore = studioController.selectionCommitted
+        openConfiguration(controllerFamilyBefore)
+
+        var rows = studioController.families || []
+        var currentGalleryFamily = configurationGallery.selectedFamilyId
+        var nextFamily = ""
+        for (var i = 0; i < rows.length; ++i) {
+            if (rows[i].id && rows[i].id !== currentGalleryFamily) {
+                nextFamily = rows[i].id
+                break
+            }
+        }
+        if (nextFamily !== "")
+            configurationGallery.selectedFamilyId = nextFamily
+
+        var isolated = studioController.selectedFamilyId === controllerFamilyBefore
+                && studioController.selectionCommitted === controllerCommittedBefore
+        configurationDialog.close()
+        return nextFamily === "" || isolated
     }
 
     Connections {
@@ -33,13 +77,6 @@ Item {
         
         function onConfigurationDialogClosed() {
             configurationDialog.close()
-        }
-        
-        function onConfigurationGalleryRequestReset() {
-            configurationGallery.searchText = ""
-            configurationGallery.pendingRuntimeId = studioController.runtimeId
-            configurationGallery.pendingRuntimeVersion = studioController.runtimeVersion
-            configurationGallery.initialSelectedFiles = studioController.selectedFiles
         }
     }
 
@@ -66,15 +103,11 @@ Item {
 
             CapabilityGallery {
                 id: configurationGallery
+                objectName: "configurationGallery"
                 anchors.fill: parent
                 capability: root.capabilityId
                 modalMode: true
                 familiesModel: studioController.familiesModel
-                selectedFamilyId: studioController.selectedFamilyId
-                onFamilySelected: function(familyId) {
-                    initialSelectedFiles = ({})
-                    studioController.selectFamily(familyId)
-                }
                 onConfigurationAccepted: function(familyId, runtimeId, runtimeVersion, selectedFiles) {
                     studioController.commitConfigurationSelection(familyId, runtimeId, runtimeVersion, selectedFiles)
                 }

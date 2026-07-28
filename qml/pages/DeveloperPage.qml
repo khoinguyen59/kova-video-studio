@@ -116,7 +116,17 @@ Rectangle {
 
     function openModelPicker(capability, familyId) {
         pickerCapability = capability
-        pickerController.openConfiguration(familyId)
+        var committedFamilyId = pickerController.selectedFamilyId || ""
+        modelGallery.initialSelectedFiles = ({})
+        modelGallery.selectedFamilyId = familyId || committedFamilyId
+        modelGallery.ensureSelection()
+        if (modelGallery.selectedFamilyId === committedFamilyId) {
+            modelGallery.pendingRuntimeId = pickerController.runtimeId || ""
+            modelGallery.pendingRuntimeVersion = pickerController.runtimeVersion || ""
+            modelGallery.initialSelectedFiles = pickerController.selectedFiles || ({})
+        } else {
+            modelGallery.syncPendingRuntime(true)
+        }
         modelPickerDialog.open()
     }
 
@@ -231,11 +241,6 @@ Rectangle {
                 capability: root.pickerCapability
                 modalMode: true
                 familiesModel: root.pickerController.familiesModel
-                selectedFamilyId: root.pickerController.selectedFamilyId
-                onFamilySelected: function(familyId) {
-                    initialSelectedFiles = ({})
-                    root.pickerController.selectFamily(familyId)
-                }
                 onConfigurationAccepted: function(familyId, runtimeId, runtimeVersion, selectedFiles) {
                     root.pickerController.commitConfigurationSelection(familyId, runtimeId, runtimeVersion, selectedFiles)
                 }

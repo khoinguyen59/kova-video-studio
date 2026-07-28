@@ -860,6 +860,21 @@ void TestModelsAndRuntimes::testCapabilityFamilyModelAcceptsExistingModelFiles()
 
 }
 
+void TestModelsAndRuntimes::testCapabilityFamilyModelIgnoresEmptyInitialSelection()
+{
+    CapabilityFamilyModel familyModel(nullptr, nullptr, nullptr, nullptr);
+    QSignalSpy resetSpy(&familyModel, &QAbstractItemModel::modelReset);
+    QSignalSpy revisionSpy(&familyModel, &CapabilityFamilyModel::revisionChanged);
+
+    // Gallery hosts use {} as a placeholder when the highlighted family
+    // changes.  It is not a file-selection change and must not synchronously
+    // rebuild the catalogue model.
+    familyModel.setInitialSelectedFiles(QStringLiteral("whisper.cpp"), {});
+
+    QCOMPARE(resetSpy.count(), 0);
+    QCOMPARE(revisionSpy.count(), 0);
+}
+
 void TestModelsAndRuntimes::testQwen3TtsUsesAutomaticFrameLimit()
 {
     CatalogManager catalog;

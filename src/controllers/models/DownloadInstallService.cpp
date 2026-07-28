@@ -1447,7 +1447,7 @@ void DownloadInstallService::onDownloadFinished(const QString &modelId,
                     }
 
                     // Re-scan local models
-                    weakThis->m_models->scanLocalModels();
+                    weakThis->m_models->scanLocalModelsAsync();
 
                     const QString sourceModelId = metadata.value(QStringLiteral("sourceModelId")).toString().isEmpty()
                         ? modelId

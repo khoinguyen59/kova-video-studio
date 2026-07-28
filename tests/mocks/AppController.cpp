@@ -73,7 +73,9 @@ void AppController::copyToClipboard(const QString &) {}
 QString AppController::logsDir() const { return PathUtils::logsDir(); }
 QString AppController::dataDir() const { return PathUtils::dataDir(); }
 QString AppController::licensesDir() const { return PathUtils::dataDir(); }
+QString AppController::colabNotebooksDir() const { return QString(); }
 QString AppController::createProblemReport() { return QString(); }
+bool AppController::openColabNotebooksDirectory() { return false; }
 void AppController::onError(const QString &) {}
 
 } // namespace LAStudio

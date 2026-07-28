@@ -16,6 +16,8 @@ WorkflowStudioShell {
     families: []
     capability: "forced-alignment"
     studioReady: root.colabSelected ? AppController.colabAlignment.colabActive : (studioController ? studioController.studioReady : root.configurationReady)
+    // Direct Colab alignment is configured before any local workflow setup.
+    settingsRequiresReady: false
     isSettingsOpen: true
     showLeftPanel: false
     modalSelectionMode: true
@@ -179,7 +181,17 @@ WorkflowStudioShell {
 
     function openNodeModel(nodeId) {
         if (nodeId === "stt") {
-            sttWorkflowController.openConfiguration(selectedSttFamilyId)
+            var committedFamilyId = sttWorkflowController.selectedFamilyId || ""
+            sttConfigurationGallery.initialSelectedFiles = ({})
+            sttConfigurationGallery.selectedFamilyId = selectedSttFamilyId || committedFamilyId
+            sttConfigurationGallery.ensureSelection()
+            if (sttConfigurationGallery.selectedFamilyId === committedFamilyId) {
+                sttConfigurationGallery.pendingRuntimeId = sttWorkflowController.runtimeId || ""
+                sttConfigurationGallery.pendingRuntimeVersion = sttWorkflowController.runtimeVersion || ""
+                sttConfigurationGallery.initialSelectedFiles = sttWorkflowController.selectedFiles || ({})
+            } else {
+                sttConfigurationGallery.syncPendingRuntime(true)
+            }
             sttConfigurationDialog.open()
         } else if (nodeId === "aligner") {
             workflowDialog.close()
@@ -1092,14 +1104,10 @@ WorkflowStudioShell {
             border.color: Qt.rgba(1, 1, 1, 0.10)
         }
         contentItem: CapabilityGallery {
+            id: sttConfigurationGallery
             capability: "stt"
             modalMode: true
             familiesModel: sttWorkflowController.familiesModel
-            selectedFamilyId: root.selectedSttFamilyId
-            onFamilySelected: function(familyId) {
-                root.selectedSttFamilyId = familyId
-                sttWorkflowController.selectFamily(familyId)
-            }
             onConfigurationAccepted: function(familyId, runtimeId, runtimeVersion, selectedFiles) {
                 root.selectedSttFamilyId = familyId
                 sttWorkflowController.saveConfigurationSelection(familyId, runtimeId, runtimeVersion, selectedFiles)

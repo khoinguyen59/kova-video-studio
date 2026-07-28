@@ -48,15 +48,16 @@ Rectangle {
     onSelectedFamilyIdChanged: {
         if (activeModel) {
             activeModel.setSelectedFamilyId(selectedFamilyId)
-            if (initialSelectedFiles && Object.keys(initialSelectedFiles).length > 0) {
-                activeModel.setInitialSelectedFiles(selectedFamilyId, initialSelectedFiles)
-            }
         }
         syncPendingRuntime(true)
     }
 
     onInitialSelectedFilesChanged: {
-        if (activeModel && selectedFamilyId !== "") {
+        // Hosts intentionally set this to {} while changing cards.  Do not
+        // forward that placeholder to C++: it neither selects a file nor
+        // should force a full synchronous catalogue refresh.
+        if (activeModel && selectedFamilyId !== "" && initialSelectedFiles
+                && Object.keys(initialSelectedFiles).length > 0) {
             activeModel.setInitialSelectedFiles(selectedFamilyId, initialSelectedFiles)
         }
     }
