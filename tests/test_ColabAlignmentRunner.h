@@ -11,6 +11,7 @@ class TestColabAlignmentRunner final : public QObject
 private slots:
     void testPostsDirectAlignmentContractAndValidatesSpans();
     void testRejectsNonMonotonicAndCancelledResponses();
+    void alignmentNotebookMatchesDirectColabContract();
 };
 
 } // namespace LAStudio

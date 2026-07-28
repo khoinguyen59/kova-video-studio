@@ -65,7 +65,7 @@ AppController::AppController(QObject *parent)
     Logger::info(QStringLiteral("App"), QStringLiteral("Initializing runtime services."));
     m_runtimes  = new RuntimeManager(m_catalog, m_settings, this);
     m_alignment = new AlignmentExecutionService(m_runtimes, m_models, this);
-    m_colabAlignment = new ColabAlignmentController(m_colabSession, this);
+    m_colabAlignment = new ColabAlignmentController(m_colabSession, m_settings, this);
     m_voiceIsolator = new VoiceIsolatorController(this);
     m_colabVoiceIsolator = new ColabVoiceIsolatorController(m_colabSession, m_settings, this);
     Logger::info(QStringLiteral("App"), QStringLiteral("Initializing model session registry."));

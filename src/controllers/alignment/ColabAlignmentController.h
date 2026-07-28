@@ -12,10 +12,11 @@ namespace LAStudio {
 
 class ColabSession;
 class ColabAlignmentRunner;
+class Settings;
 struct ColabAlignmentResult;
 
-// Direct Colab alignment controller. It deliberately has no Settings or
-// Gateway dependency; the temporary worker URL/token remain in ColabSession.
+// Direct Colab alignment controller. Gateway credentials never enter this
+// class; Settings only controls the explicit Remote-first execution policy.
 class ColabAlignmentController final : public QObject
 {
     Q_OBJECT
@@ -36,7 +37,7 @@ class ColabAlignmentController final : public QObject
     Q_PROPERTY(QVariantList karaokeLines READ karaokeLines NOTIFY resultChanged)
 
 public:
-    explicit ColabAlignmentController(ColabSession *session, QObject *parent = nullptr);
+    explicit ColabAlignmentController(ColabSession *session, Settings *settings, QObject *parent = nullptr);
     ~ColabAlignmentController() override;
 
     bool colabActive() const { return m_colabActive; }
@@ -71,6 +72,7 @@ signals:
 
 private slots:
     void onSessionChanged();
+    void onRemoteFirstModeChanged();
     void onRunnerProgress(int percent);
     void onRunnerFinished(const LAStudio::ColabAlignmentResult &result);
     void onRunnerFailed(const QString &error);
@@ -79,6 +81,7 @@ private:
     void setError(const QString &message);
 
     ColabSession *m_session = nullptr;
+    Settings *m_settings = nullptr;
     ColabAlignmentRunner *m_runner = nullptr;
     QThread m_thread;
     std::shared_ptr<std::atomic_bool> m_cancellation;

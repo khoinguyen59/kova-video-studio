@@ -9,6 +9,7 @@ import "../shared/settings"
 Item {
     id: root
     property string preferredAnchorModelId: ""
+    readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
     readonly property bool colabSelected: AppController.colabAlignment.colabActive
     readonly property string languageCode: languageSelector.language
     readonly property string timestampUnit: timestampUnitInput.currentIndex === 1 ? "character" : "word"
@@ -95,7 +96,7 @@ Item {
 
                 Text { text: qsTr("PROCESSING"); color: Theme.textSecondary; font.pixelSize: 10; font.bold: true; font.letterSpacing: 0.8 }
 
-                Text { Layout.fillWidth: true; text: root.colabSelected ? qsTr("Direct Colab GPU alignment is selected. It does not use API Gateway or local model downloads.") : qsTr("Local alignment uses installed models and runtimes."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                Text { Layout.fillWidth: true; text: root.colabSelected ? qsTr("Direct Colab GPU alignment is selected. It does not use API Gateway or local model downloads.") : (root.remoteFirstMode ? qsTr("Remote-first: pair a direct Colab alignment worker.") : qsTr("Local alignment uses installed models and runtimes.")); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
 
                 LanguageSelector {
                     id: languageSelector
@@ -154,10 +155,13 @@ Item {
                     Text { Layout.fillWidth: true; text: qsTr("Qwen3 ForcedAligner 0.6B (word / character timing)"); color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
                     PrimaryButton {
                         Layout.fillWidth: true
-                        text: AppController.colabAlignment.colabActive ? qsTr("Use local alignment") : (AppController.colabAlignment.colabConnected ? qsTr("Use direct Colab alignment") : qsTr("Connect direct Colab alignment"))
-                        iconName: AppController.colabAlignment.colabActive ? "close" : "cloud"
+                        enabled: !(root.remoteFirstMode && AppController.colabAlignment.colabActive)
+                        text: root.remoteFirstMode
+                              ? (AppController.colabAlignment.colabActive ? qsTr("Direct Colab alignment active") : (AppController.colabAlignment.colabConnected ? qsTr("Use direct Colab alignment") : qsTr("Connect direct Colab alignment")))
+                              : (AppController.colabAlignment.colabActive ? qsTr("Use local alignment") : (AppController.colabAlignment.colabConnected ? qsTr("Use direct Colab alignment") : qsTr("Connect direct Colab alignment")))
+                        iconName: root.remoteFirstMode || !AppController.colabAlignment.colabActive ? "cloud" : "close"
                         onClicked: {
-                            if (AppController.colabAlignment.colabActive) {
+                            if (AppController.colabAlignment.colabActive && !root.remoteFirstMode) {
                                 AppController.colabAlignment.useLocal()
                             } else if (AppController.colabAlignment.colabConnected) {
                                 AppController.colabAlignment.useColab()

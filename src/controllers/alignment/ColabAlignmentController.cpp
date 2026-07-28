@@ -1,14 +1,15 @@
 #include "ColabAlignmentController.h"
 
 #include "alignment/ColabAlignmentRunner.h"
+#include "core/Settings.h"
 #include "remote/ColabSession.h"
 
 #include <QMetaObject>
 
 namespace LAStudio {
 
-ColabAlignmentController::ColabAlignmentController(ColabSession *session, QObject *parent)
-    : QObject(parent), m_session(session)
+ColabAlignmentController::ColabAlignmentController(ColabSession *session, Settings *settings, QObject *parent)
+    : QObject(parent), m_session(session), m_settings(settings)
 {
     qRegisterMetaType<ColabAlignmentRequest>("ColabAlignmentRequest");
     qRegisterMetaType<ColabAlignmentResult>("ColabAlignmentResult");
@@ -25,7 +26,12 @@ ColabAlignmentController::ColabAlignmentController(ColabSession *session, QObjec
         connect(m_session, &ColabSession::sessionChanged,
                 this, &ColabAlignmentController::onSessionChanged);
     }
+    if (m_settings) {
+        connect(m_settings, &Settings::remoteFirstModeChanged,
+                this, &ColabAlignmentController::onRemoteFirstModeChanged);
+    }
     m_thread.start();
+    onSessionChanged();
 }
 
 ColabAlignmentController::~ColabAlignmentController()
@@ -74,6 +80,10 @@ void ColabAlignmentController::useColab()
 
 void ColabAlignmentController::useLocal()
 {
+    if (m_settings && m_settings->remoteFirstMode()) {
+        setError(QStringLiteral("Remote-first mode requires a direct Colab alignment worker. Disable Remote-first mode before selecting Local Dev alignment."));
+        return;
+    }
     if (!m_colabActive) return;
     cancel();
     m_colabActive = false;
@@ -176,8 +186,23 @@ int ColabAlignmentController::karaokeLineIndexAt(double seconds) const
 void ColabAlignmentController::onSessionChanged()
 {
     if (m_processing) cancel();
-    if (!colabConnected()) m_colabActive = false;
+    if (m_settings && m_settings->remoteFirstMode() && colabConnected()) {
+        m_colabActive = true;
+        m_statusText = QStringLiteral("Colab alignment ready");
+    } else if (!colabConnected()) {
+        m_colabActive = false;
+    }
     if (!m_colabActive) m_statusText = QStringLiteral("Colab worker not connected");
+    emit colabStateChanged();
+    emit stateChanged();
+}
+
+void ColabAlignmentController::onRemoteFirstModeChanged()
+{
+    if (m_settings && m_settings->remoteFirstMode() && colabConnected()) {
+        m_colabActive = true;
+        m_statusText = QStringLiteral("Colab alignment ready");
+    }
     emit colabStateChanged();
     emit stateChanged();
 }
