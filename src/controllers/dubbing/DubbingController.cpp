@@ -1577,6 +1577,30 @@ void DubbingController::finishAutomaticSetupFailure(const QString &message)
 void DubbingController::advanceAutomaticSetup()
 {
     if (!m_automaticSetupActive) return;
+    // Remote-first automatic runs use the graph's explicit per-node routes.
+    // They never probe, load, or download a local model as a fallback. A
+    // missing Gateway model or Colab worker therefore fails at the selected
+    // node with its own provider-specific error.
+    if (auto *app = AppController::instance(); app && app->settings()
+        && app->settings()->remoteFirstMode()) {
+        const QString outputPath = m_automaticOutputPath;
+        m_automaticSetupActive = false;
+        m_automaticDownloadsQueued.clear();
+        m_automaticConfiguredNodes.clear();
+        setAutomaticStatus(QStringLiteral("Starting independent remote workflow routes."));
+        appendAutomaticEvent(QStringLiteral("Using configured API Gateway and direct Colab routes"),
+                             QStringLiteral("completed"));
+        emit processingChanged();
+        emit workflowChanged();
+        if (m_runner) m_runner->setTranslationFixConfiguration(translationFixConfiguration());
+        setCurrentStep(QStringLiteral("ingest"));
+        if (!runWorkflow(outputPath)) {
+            setWorkflowMode(QStringLiteral("idle"));
+            setAutomaticStatus(lastError());
+            appendAutomaticEvent(lastError(), QStringLiteral("failed"));
+        }
+        return;
+    }
     if (auto *app = AppController::instance(); app && app->sessionRegistry()) {
         bool waitingForRelease = false;
         for (const QString &capabilityId : {QStringLiteral("tts"),

@@ -112,7 +112,7 @@ Rectangle {
             spacing: Theme.paddingMedium
             Text {
                 Layout.fillWidth: true
-                text: qsTr("LA Studio runs models locally. Choose a storage location with enough free space before downloading your first model.")
+                text: qsTr("LA Studio uses independent API Gateway and direct Colab GPU routes by default. Local Dev models are optional and never downloaded automatically.")
                 color: Theme.textSecondary
                 wrapMode: Text.WordWrap
             }
@@ -291,7 +291,7 @@ Rectangle {
 
                         Text {
                             Layout.fillWidth: true
-                            text: qsTr("Create, transcribe, and shape speech locally.")
+                            text: qsTr("Create, transcribe, and shape speech with independent remote GPU routes.")
                             color: Theme.textPrimary
                             font.pixelSize: root.compact ? 30 : 40
                             font.bold: true

@@ -36,7 +36,7 @@ WorkflowGraph DubbingWorkflowDefinition::create()
     graph.version = Version;
     graph.kind = QStringLiteral("system");
     graph.title = QStringLiteral("Default Dubbing");
-    graph.description = QStringLiteral("Local-first dubbing workflow with review checkpoints.");
+    graph.description = QStringLiteral("Remote-first dubbing workflow with independent Gateway and Colab routes.");
     graph.interfaceDefinition = {
         {QStringLiteral("inputs"), QVariantList{
             QVariantMap{{QStringLiteral("id"), QStringLiteral("media")}, {QStringLiteral("type"), QStringLiteral("media.source@1")}, {QStringLiteral("required"), true}},
@@ -58,15 +58,15 @@ WorkflowGraph DubbingWorkflowDefinition::create()
              {{QStringLiteral("analysisSampleRate"), 16000}, {QStringLiteral("masterSampleRate"), 48000}}),
         node(QStringLiteral("source-separate"), QStringLiteral("audio.source-separate"), QStringLiteral("Isolate Voice"),
              {{QStringLiteral("qualityPreset"), QStringLiteral("quality")}, {QStringLiteral("fallback"), QStringLiteral("original-audio")},
-              {QStringLiteral("executionProvider"), QStringLiteral("local-dev")}}),
+              {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")}}),
         node(QStringLiteral("transcribe"), QStringLiteral("audio.transcribe"), QStringLiteral("Transcribe"),
              {{QStringLiteral("language"), QStringLiteral("auto")}, {QStringLiteral("wordTimestamps"), true},
-              {QStringLiteral("executionProvider"), QStringLiteral("local-dev")}}),
+              {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")}}),
         node(QStringLiteral("review-transcript"), QStringLiteral("core.review-gate"), QStringLiteral("Review Transcript"),
              {{QStringLiteral("mode"), QStringLiteral("always")}, {QStringLiteral("editor"), QStringLiteral("dubbing.transcript")}}),
         node(QStringLiteral("translate"), QStringLiteral("text.translate-transcript"), QStringLiteral("Translate Transcript"),
              {{QStringLiteral("sourceLanguage"), QStringLiteral("auto")}, {QStringLiteral("targetLanguage"), QStringLiteral("vi")},
-              {QStringLiteral("executionProvider"), QStringLiteral("local-dev")},
+              {QStringLiteral("executionProvider"), QStringLiteral("api-gateway")},
               {QStringLiteral("qualityPreset"), QStringLiteral("balanced")},
               {QStringLiteral("durationAware"), true}, {QStringLiteral("unit"), QStringLiteral("phoneme-v1")},
               {QStringLiteral("maxPreTtsIterations"), 4}, {QStringLiteral("candidatesPerIteration"), 3},
@@ -77,7 +77,7 @@ WorkflowGraph DubbingWorkflowDefinition::create()
              {{QStringLiteral("fallbackVoicePolicy"), QStringLiteral("project-default")}}),
         node(QStringLiteral("synthesize"), QStringLiteral("dubbing.synthesize-segments"), QStringLiteral("Synthesize Segments"),
              {{QStringLiteral("cache"), QStringLiteral("auto")},
-              {QStringLiteral("executionProvider"), QStringLiteral("local-dev")}}),
+              {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")}}),
         node(QStringLiteral("fit-timing"), QStringLiteral("dubbing.fit-timing"), QStringLiteral("Fit Timing"),
              {{QStringLiteral("policy"), QStringLiteral("preserve-video")}}),
         node(QStringLiteral("review-conflicts"), QStringLiteral("core.review-gate"), QStringLiteral("Review Timing Conflicts"),

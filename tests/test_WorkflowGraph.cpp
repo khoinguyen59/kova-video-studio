@@ -136,9 +136,21 @@ void TestWorkflowGraph::buildsCanonicalDubbingWorkflowDefinition()
     QVERIFY(!graph.policies.value(QStringLiteral("offlineOnly")).toBool());
     QCOMPARE(graph.policies.value(QStringLiteral("remoteExecution")).toString(),
              QStringLiteral("explicit-per-node"));
+    QCOMPARE(graph.description,
+             QStringLiteral("Remote-first dubbing workflow with independent Gateway and Colab routes."));
     QCOMPARE(graph.nodes.at(0).id, QStringLiteral("media-input"));
     QCOMPARE(graph.nodes.at(5).typeId, QStringLiteral("text.translate-transcript"));
     QCOMPARE(graph.edges.at(0).id, QStringLiteral("l01"));
+    const auto providerFor = [&graph](const QString &nodeId) {
+        const auto found = std::find_if(graph.nodes.cbegin(), graph.nodes.cend(),
+            [&nodeId](const WorkflowGraphNode &node) { return node.id == nodeId; });
+        return found == graph.nodes.cend()
+            ? QString() : found->parameters.value(QStringLiteral("executionProvider")).toString();
+    };
+    QCOMPARE(providerFor(QStringLiteral("source-separate")), QStringLiteral("colab-direct"));
+    QCOMPARE(providerFor(QStringLiteral("transcribe")), QStringLiteral("colab-direct"));
+    QCOMPARE(providerFor(QStringLiteral("translate")), QStringLiteral("api-gateway"));
+    QCOMPARE(providerFor(QStringLiteral("synthesize")), QStringLiteral("colab-direct"));
     const auto referenceEdge = std::find_if(graph.edges.cbegin(), graph.edges.cend(),
         [](const WorkflowGraphEdge &edge) { return edge.id == QStringLiteral("l07b"); });
     QVERIFY(referenceEdge != graph.edges.cend());
