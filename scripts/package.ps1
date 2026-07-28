@@ -115,6 +115,40 @@ function Normalize-AppVersion {
     return $Value
 }
 
+function Assert-StagingDirectoryCanBeRebuilt {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $StageRoot
+    )
+
+    if (-not (Test-Path -LiteralPath $StageRoot)) { return }
+
+    $pathSeparator = [IO.Path]::DirectorySeparatorChar
+    $normalizedStageRoot = [IO.Path]::GetFullPath($StageRoot).TrimEnd($pathSeparator) + $pathSeparator
+    $blockers = @()
+    $candidates = Get-Process -Name 'LA Studio', 'LAStudioRuntimeHost' -ErrorAction SilentlyContinue
+    foreach ($candidate in $candidates) {
+        try {
+            $executablePath = $candidate.Path
+        } catch {
+            continue
+        }
+        if ([string]::IsNullOrWhiteSpace($executablePath)) { continue }
+        try {
+            $normalizedExecutablePath = [IO.Path]::GetFullPath($executablePath)
+        } catch {
+            continue
+        }
+        if ($normalizedExecutablePath.StartsWith($normalizedStageRoot, [StringComparison]::OrdinalIgnoreCase)) {
+            $blockers += "{0}.exe (PID {1})" -f $candidate.ProcessName, $candidate.Id
+        }
+    }
+
+    if ($blockers.Count -gt 0) {
+        throw "The existing staging payload is in use by $($blockers -join ', '). Close the staged application before running package.ps1 so its files are not partially replaced."
+    }
+}
+
 function Resolve-SevenZipExecutable {
     param([string] $VcpkgRoot)
 
@@ -558,6 +592,7 @@ if (-not (Test-Path $windeployqt)) {
 
 # 2. Setup folders
 $stageDir = Join-Path $RepoRoot "out\stage"
+Assert-StagingDirectoryCanBeRebuilt -StageRoot $stageDir
 if (Test-Path $stageDir) {
     Write-Host ">> Cleaning old staging directory..." -ForegroundColor Cyan
     Remove-Item $stageDir -Recurse -Force -ErrorAction SilentlyContinue
