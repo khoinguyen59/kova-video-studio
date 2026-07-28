@@ -29,6 +29,7 @@ StudioShell {
     property string referenceAudioPath: ""
     property string playingType: "none"
     property string detectedLanguage: "en"
+    readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
     readonly property bool colabActive: AppController.colabVoiceClone && AppController.colabVoiceClone.colabActive
     readonly property var activeClone: colabActive ? AppController.colabVoiceClone : null
     property bool outputReady: colabActive
@@ -558,6 +559,7 @@ StudioShell {
                                     Layout.preferredHeight: 42
                                     visible: !root.inputsLocked
                                     enabled: {
+                                        if (root.remoteFirstMode && !root.colabActive) return false
                                         if (root.colabActive) {
                                             return inputText.text.trim().length > 0 && root.referenceAudioPath !== ""
                                                 && referenceBox.referenceText.trim().length > 0 && settingsPanel.colabConsent
@@ -575,7 +577,7 @@ StudioShell {
                                             root.activeClone.cloneVoice(VoiceCloningUtils.normalizeText(inputText.text), root.referenceAudioPath,
                                                                         referenceBox.referenceText, root.selectedLanguageCode,
                                                                         settingsPanel.colabProfileName, settingsPanel.colabConsent)
-                                        } else {
+                                        } else if (!root.remoteFirstMode) {
                                             var settings = settingsPanel.getSettingsObject(root.selectedLanguageCode, inputText.text, referenceBox.referenceText)
                                             AppController.tts.cloneVoice(VoiceCloningUtils.normalizeText(inputText.text), root.referenceAudioPath, settings)
                                         }

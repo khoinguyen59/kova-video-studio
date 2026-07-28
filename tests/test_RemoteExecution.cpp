@@ -8,6 +8,7 @@
 
 #include "core/PathUtils.h"
 #include "core/Settings.h"
+#include "controllers/tts/ColabVoiceCloneController.h"
 #include "controllers/models/RemoteModelCatalogController.h"
 #include "remote/ColabCapabilityCatalog.h"
 #include "remote/ColabSession.h"
@@ -158,6 +159,30 @@ void TestRemoteExecution::remoteFirstModeIsExplicitAndPersistent()
 
     reloaded.setRemoteFirstMode(original);
     QCOMPARE(reloaded.remoteFirstMode(), original);
+}
+
+void TestRemoteExecution::remoteFirstVoiceCloneStaysDirectWhenAColabSessionIsAvailable()
+{
+    Settings settings;
+    const bool original = settings.remoteFirstMode();
+    settings.setRemoteFirstMode(false);
+    ColabSession session;
+    QString error;
+    QVERIFY(session.setSession(QStringLiteral("https://worker.example.test"),
+                               QStringLiteral("temporary-colab-token"), &error));
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    ColabVoiceCloneController controller(&session, &settings, nullptr, nullptr, nullptr);
+    QVERIFY(!controller.colabActive());
+    settings.setRemoteFirstMode(true);
+    QVERIFY(controller.colabActive());
+    QSignalSpy errors(&controller, &ColabVoiceCloneController::errorOccurred);
+    controller.useLocal();
+    QVERIFY(controller.colabActive());
+    QCOMPARE(errors.count(), 1);
+    QVERIFY(errors.takeFirst().at(0).toString().contains(QStringLiteral("Remote-first")));
+
+    settings.setRemoteFirstMode(original);
 }
 
 void TestRemoteExecution::gatewayAndColabFailuresRemainIndependent()

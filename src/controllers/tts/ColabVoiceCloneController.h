@@ -15,6 +15,7 @@ class AudioPlayer;
 class ColabSession;
 class ColabVoiceCloneRunner;
 class HistoryService;
+class Settings;
 class WaveformProvider;
 
 // Direct Colab voice-cloning controller. It uses only the temporary in-memory
@@ -35,7 +36,7 @@ class ColabVoiceCloneController final : public QObject
     Q_PROPERTY(int sampleRate READ sampleRate NOTIFY outputChanged)
 
 public:
-    explicit ColabVoiceCloneController(ColabSession *session, AudioPlayer *player,
+    explicit ColabVoiceCloneController(ColabSession *session, Settings *settings, AudioPlayer *player,
                                        WaveformProvider *waveformProvider,
                                        HistoryService *history, QObject *parent = nullptr);
     ~ColabVoiceCloneController() override;
@@ -76,6 +77,7 @@ signals:
 
 private slots:
     void onSessionChanged();
+    void onRemoteFirstModeChanged();
     void onRunnerProgress(int percent, const QString &stage);
     void onProfileReady(const QString &profileId);
     void onProfileDeleted();
@@ -87,6 +89,7 @@ private:
                                const QString &language) const;
 
     ColabSession *m_session = nullptr;
+    Settings *m_settings = nullptr;
     AudioPlayer *m_player = nullptr;
     WaveformProvider *m_waveformProvider = nullptr;
     HistoryService *m_history = nullptr;

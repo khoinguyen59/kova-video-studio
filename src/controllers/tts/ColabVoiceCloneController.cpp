@@ -5,6 +5,7 @@
 #include "audio/WavIO.h"
 #include "controllers/shared/HistoryService.h"
 #include "core/PathUtils.h"
+#include "core/Settings.h"
 #include "remote/ColabSession.h"
 #include "tts/ColabVoiceCloneRunner.h"
 
@@ -15,11 +16,12 @@
 
 namespace LAStudio {
 
-ColabVoiceCloneController::ColabVoiceCloneController(ColabSession *session, AudioPlayer *player,
+ColabVoiceCloneController::ColabVoiceCloneController(ColabSession *session, Settings *settings, AudioPlayer *player,
                                                        WaveformProvider *waveformProvider,
                                                        HistoryService *history, QObject *parent)
     : QObject(parent)
     , m_session(session)
+    , m_settings(settings)
     , m_player(player)
     , m_waveformProvider(waveformProvider)
     , m_history(history)
@@ -43,7 +45,12 @@ ColabVoiceCloneController::ColabVoiceCloneController(ColabSession *session, Audi
         connect(m_session, &ColabSession::sessionChanged,
                 this, &ColabVoiceCloneController::onSessionChanged);
     }
+    if (m_settings) {
+        connect(m_settings, &Settings::remoteFirstModeChanged,
+                this, &ColabVoiceCloneController::onRemoteFirstModeChanged);
+    }
     m_thread.start();
+    onSessionChanged();
 }
 
 ColabVoiceCloneController::~ColabVoiceCloneController()
@@ -102,6 +109,10 @@ void ColabVoiceCloneController::useColab()
 
 void ColabVoiceCloneController::useLocal()
 {
+    if (m_settings && m_settings->remoteFirstMode()) {
+        emit errorOccurred(QStringLiteral("Remote-first mode requires a direct Colab voice-cloning worker. Disable Remote-first mode before selecting Local Dev voice cloning."));
+        return;
+    }
     if (!m_colabActive) return;
     cancelProcessing();
     m_colabActive = false;
@@ -220,7 +231,19 @@ void ColabVoiceCloneController::onSessionChanged()
     ++m_sessionRevision;
     if (m_processing) cancelProcessing();
     clearProfile();
-    if (!colabConnected() && m_colabActive) m_colabActive = false;
+    if (m_settings && m_settings->remoteFirstMode() && colabConnected()) {
+        m_colabActive = true;
+    } else if (!colabConnected()) {
+        m_colabActive = false;
+    }
+    emit colabStateChanged();
+}
+
+void ColabVoiceCloneController::onRemoteFirstModeChanged()
+{
+    if (m_settings && m_settings->remoteFirstMode() && colabConnected()) {
+        m_colabActive = true;
+    }
     emit colabStateChanged();
 }
 

@@ -1,5 +1,9 @@
 #include <QtTest>
+#include <QDir>
 #include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QPointer>
 #include <QRegularExpression>
 #include <QTcpServer>
@@ -247,6 +251,39 @@ void TestColabVoiceCloneRunner::testRejectsProfileWithoutConsent()
     QCOMPARE(server.requests().size(), 0);
     workerThread.quit();
     QVERIFY(workerThread.wait(5000));
+}
+
+void TestColabVoiceCloneRunner::voiceCloneNotebookMatchesDirectColabContract()
+{
+    const QString path = QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
+        .filePath(QStringLiteral("notebooks/LA_STUDIO_VOICE_CLONE_GPU.ipynb"));
+    QFile file(path);
+    QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(path));
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
+    QVERIFY(document.isObject());
+    const QJsonObject root = document.object();
+    QCOMPARE(root.value(QStringLiteral("nbformat")).toInt(), 4);
+
+    QString source;
+    const QJsonArray cells = root.value(QStringLiteral("cells")).toArray();
+    QVERIFY(cells.size() >= 4);
+    for (const QJsonValue &cellValue : cells) {
+        const QJsonArray lines = cellValue.toObject().value(QStringLiteral("source")).toArray();
+        for (const QJsonValue &line : lines) source += line.toString();
+    }
+    QVERIFY(source.contains(QStringLiteral("REPO_REF = 'v1.0.2.1'")));
+    QVERIFY(source.contains(QStringLiteral("KOVA_VOICE_REQUIRE_CUDA': '1'")));
+    QVERIFY(source.contains(QStringLiteral("@app.get('/v1/capabilities')")));
+    QVERIFY(source.contains(QStringLiteral("'id': 'voice-cloning'")));
+    QVERIFY(source.contains(QStringLiteral("'id': 'omnivoice'")));
+    QVERIFY(source.contains(QStringLiteral("'requires_consent': True")));
+    QVERIFY(source.contains(QStringLiteral("'device': 'cuda'")));
+    QVERIFY(source.contains(QStringLiteral("app.mount('/', worker_app)")));
+    QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_VOICE_CLONE_URL")));
+    QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_VOICE_CLONE_TOKEN")));
+    QVERIFY(source.contains(QStringLiteral("cloudflared")));
+    QVERIFY(!source.contains(QStringLiteral("API_GATEWAY")));
+    QVERIFY(!source.contains(QStringLiteral("GATEWAY_BASE_URL")));
 }
 
 } // namespace LAStudio

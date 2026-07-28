@@ -19,6 +19,7 @@ ColumnLayout {
     property bool locked: false
     property bool colabConsent: false
     property string colabProfileName: "LA Studio voice"
+    readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
 
     component ColabField: TextField {
         Layout.fillWidth: true
@@ -205,11 +206,13 @@ ColumnLayout {
                 }
                 PrimaryButton {
                     Layout.fillWidth: true
-                    enabled: !root.locked
-                    text: AppController.colabVoiceClone.colabActive ? qsTr("Use local voice cloning") : (AppController.colabVoiceClone.colabConnected ? qsTr("Use Colab GPU voice cloning") : qsTr("Connect Colab GPU voice cloning"))
-                    iconName: AppController.colabVoiceClone.colabActive ? "close" : "cloud"
+                    enabled: !root.locked && !(root.remoteFirstMode && AppController.colabVoiceClone.colabActive)
+                    text: root.remoteFirstMode
+                          ? (AppController.colabVoiceClone.colabActive ? qsTr("Direct Colab GPU voice cloning active") : (AppController.colabVoiceClone.colabConnected ? qsTr("Use direct Colab GPU voice cloning") : qsTr("Connect direct Colab GPU voice cloning")))
+                          : (AppController.colabVoiceClone.colabActive ? qsTr("Use local voice cloning") : (AppController.colabVoiceClone.colabConnected ? qsTr("Use Colab GPU voice cloning") : qsTr("Connect Colab GPU voice cloning")))
+                    iconName: root.remoteFirstMode || !AppController.colabVoiceClone.colabActive ? "cloud" : "close"
                     onClicked: {
-                        if (AppController.colabVoiceClone.colabActive) {
+                        if (AppController.colabVoiceClone.colabActive && !root.remoteFirstMode) {
                             AppController.colabVoiceClone.useLocal()
                         } else if (AppController.colabVoiceClone.colabConnected) {
                             AppController.colabVoiceClone.useColab()
