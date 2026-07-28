@@ -161,6 +161,34 @@ function Get-CapabilityIds {
     return @($ids | Select-Object -Unique)
 }
 
+function Get-CapabilityModelIds {
+    param(
+        [Parameter(Mandatory)] [object] $Payload,
+        [Parameter(Mandatory)] [string] $ExpectedCapability
+    )
+
+    $modelIds = New-Object System.Collections.Generic.List[string]
+    $capabilities = Get-OptionalProperty -Object $Payload -Name 'capabilities'
+    foreach ($capability in @($capabilities)) {
+        $capabilityId = [string] (Get-OptionalProperty -Object $capability -Name 'id')
+        if (-not $capabilityId.Equals($ExpectedCapability, [StringComparison]::OrdinalIgnoreCase)) { continue }
+        foreach ($model in @(Get-OptionalProperty -Object $capability -Name 'models')) {
+            $id = [string] (Get-OptionalProperty -Object $model -Name 'id')
+            if (-not [string]::IsNullOrWhiteSpace($id)) { [void] $modelIds.Add($id.Trim()) }
+        }
+    }
+
+    # The combined language worker publishes translation and chat model arrays
+    # at the top level rather than beneath the generic capabilities array.
+    if ($ExpectedCapability -in @('translation', 'chat')) {
+        foreach ($model in @(Get-OptionalProperty -Object $Payload -Name $ExpectedCapability)) {
+            $id = [string] (Get-OptionalProperty -Object $model -Name 'id')
+            if (-not [string]::IsNullOrWhiteSpace($id)) { [void] $modelIds.Add($id.Trim()) }
+        }
+    }
+    return @($modelIds | Sort-Object -Unique)
+}
+
 function Add-Check {
     param(
         [Parameter(Mandatory)] [string] $Scope,
@@ -214,7 +242,11 @@ function Assert-WorkerCapability {
     if ($ExpectedCapability -notin $ids) {
         throw "Worker did not advertise '$ExpectedCapability'."
     }
-    return "advertises $ExpectedCapability"
+    $modelIds = Get-CapabilityModelIds -Payload $Capabilities -ExpectedCapability $ExpectedCapability
+    if ($modelIds.Count -eq 0) {
+        throw "Worker advertised '$ExpectedCapability' without a model ID."
+    }
+    return "advertises $ExpectedCapability; models=$($modelIds -join ',')"
 }
 
 function Resolve-ReportPath {

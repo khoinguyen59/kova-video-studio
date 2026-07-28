@@ -190,6 +190,14 @@ try {
     if (-not $report.succeeded -or @($report.checks).Count -ne $expectedRequestCount) {
         throw "Preflight report did not contain $expectedRequestCount successful checks."
     }
+    foreach ($worker in $workers) {
+        $capabilityCheck = @($report.checks | Where-Object {
+            $_.scope -eq "colab:$($worker.capability)" -and $_.check -eq 'capabilities'
+        })
+        if ($capabilityCheck.Count -ne 1 -or $capabilityCheck[0].detail -notmatch [Regex]::Escape("models=$($worker.capability)-contract-model")) {
+            throw "Preflight report did not record the advertised $($worker.capability) model ID."
+        }
+    }
 
     $serverJob | Wait-Job -Timeout 12 | Out-Null
     if ($serverJob.State -ne 'Completed') {

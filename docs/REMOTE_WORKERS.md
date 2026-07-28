@@ -75,7 +75,8 @@ $env:LA_STUDIO_COLAB_STT_TOKEN = '...'
 The runner checks Gateway `GET /v1/models` with the Gateway key, and the
 selected Colab worker's `/health` plus `/v1/capabilities` with that worker's
 own bearer token. It requires `ready=true`, `device=cuda`, and the expected
-capability. It writes a redacted report below `out/`; it never writes tokens,
+capability with at least one model ID. It records those advertised model IDs in
+a redacted report below `out/`; it never writes tokens,
 headers, raw API responses, URL paths, or query strings. Use `-DryRun` first to
 validate the configuration without reading credentials or making requests.
 
