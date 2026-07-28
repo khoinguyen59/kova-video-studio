@@ -132,6 +132,7 @@ void TestColabAlignmentRunner::testPostsDirectAlignmentContractAndValidatesSpans
     QVERIFY(body.contains("Hello direct Colab alignment"));
     QVERIFY(body.contains("name=\"language\""));
     QVERIFY(body.contains("name=\"audio\"; filename=\"alignment.wav\""));
+    QVERIFY(body.toLower().contains("content-type: audio/wav"));
     QVERIFY(!body.contains("gateway"));
     QVERIFY(!body.contains("/v1/chat/completions"));
     workerThread.quit();

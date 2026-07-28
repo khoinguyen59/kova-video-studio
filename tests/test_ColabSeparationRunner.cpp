@@ -133,6 +133,7 @@ void TestColabSeparationRunner::testUsesDirectJobAndArtifactContract()
     QVERIFY(requests.toLower().contains("authorization: bearer colab-separation-token"));
     QVERIFY(requests.contains("name=\"stems\"")); QVERIFY(requests.contains("vocals,background"));
     QVERIFY(requests.contains("name=\"file\"; filename=\"source.wav\""));
+    QVERIFY(requests.toLower().contains("content-type: audio/wav"));
     QVERIFY(requests.contains("GET /v1/audio/separations/job-direct/artifacts/vocals HTTP/1.1"));
     QVERIFY(requests.contains("GET /v1/audio/separations/job-direct/artifacts/background HTTP/1.1"));
     QVERIFY(!requests.contains("gateway")); QVERIFY(!requests.contains("chat/completions"));

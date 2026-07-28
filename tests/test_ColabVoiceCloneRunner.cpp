@@ -202,6 +202,7 @@ void TestColabVoiceCloneRunner::testRunsVoiceProfileAndGenerationDirectlyOnColab
     QCOMPARE(calls.size(), 5);
     QCOMPARE(calls.at(0).left(calls.at(0).indexOf("\r\n")), QByteArrayLiteral("POST /v2/jobs/profile HTTP/1.1"));
     QVERIFY(calls.at(0).toLower().contains("authorization: bearer colab-voice-token"));
+    QVERIFY(calls.at(0).toLower().contains("content-type: audio/wav"));
     QVERIFY(calls.at(0).contains("consent_confirmed"));
     QVERIFY(calls.at(0).contains("This is the exact transcript."));
     QCOMPARE(calls.at(2).left(calls.at(2).indexOf("\r\n")), QByteArrayLiteral("POST /v2/jobs/generation HTTP/1.1"));

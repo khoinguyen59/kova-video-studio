@@ -42,6 +42,18 @@ QHttpPart formField(const QByteArray &name, const QByteArray &value)
     return part;
 }
 
+QString audioMimeTypeForPath(const QString &path)
+{
+    const QString suffix = QFileInfo(path).suffix().toLower();
+    if (suffix == QStringLiteral("wav")) return QStringLiteral("audio/wav");
+    if (suffix == QStringLiteral("mp3")) return QStringLiteral("audio/mpeg");
+    if (suffix == QStringLiteral("m4a") || suffix == QStringLiteral("mp4")) return QStringLiteral("audio/mp4");
+    if (suffix == QStringLiteral("webm")) return QStringLiteral("audio/webm");
+    if (suffix == QStringLiteral("ogg")) return QStringLiteral("audio/ogg");
+    if (suffix == QStringLiteral("flac")) return QStringLiteral("audio/flac");
+    return {};
+}
+
 bool parseJsonResponse(QNetworkReply *reply, QByteArray *body, QJsonObject *response,
                        QString *errorMessage, const QString &invalidResponseMessage)
 {
@@ -335,6 +347,11 @@ bool ColabWorkerClient::alignAudioFile(const QString &audioPath, const QString &
         return false;
     }
 
+    const QString audioMimeType = audioMimeTypeForPath(audioPath);
+    if (audioMimeType.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Alignment audio must use a supported audio filename extension");
+        return false;
+    }
     QFile *audio = new QFile(audioPath);
     constexpr qint64 maxUploadBytes = 512LL * 1024LL * 1024LL;
     if (!audio->open(QIODevice::ReadOnly) || audio->size() <= 0 || audio->size() > maxUploadBytes) {
@@ -356,7 +373,7 @@ bool ColabWorkerClient::alignAudioFile(const QString &audioPath, const QString &
     const QString filename = sourceFilename.isEmpty() ? QStringLiteral("audio.wav") : sourceFilename;
     audioPart.setHeader(QNetworkRequest::ContentDispositionHeader,
                         QVariant(QStringLiteral("form-data; name=\"audio\"; filename=\"%1\"").arg(filename)));
-    audioPart.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QStringLiteral("application/octet-stream")));
+    audioPart.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(audioMimeType));
     audio->setParent(multipart);
     audioPart.setBodyDevice(audio);
     multipart->append(audioPart);
@@ -386,6 +403,11 @@ bool ColabWorkerClient::createSeparationJob(const QString &audioPath, const QStr
         if (errorMessage) *errorMessage = QStringLiteral("Colab worker is not connected");
         return false;
     }
+    const QString audioMimeType = audioMimeTypeForPath(audioPath);
+    if (audioMimeType.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Separation audio must use a supported audio filename extension");
+        return false;
+    }
     QFile *audio = new QFile(audioPath);
     constexpr qint64 maxUploadBytes = 512LL * 1024LL * 1024LL;
     if (!audio->open(QIODevice::ReadOnly) || audio->size() <= 0 || audio->size() > maxUploadBytes) {
@@ -405,7 +427,7 @@ bool ColabWorkerClient::createSeparationJob(const QString &audioPath, const QStr
     const QString filename = sourceFilename.isEmpty() ? QStringLiteral("audio.wav") : sourceFilename;
     audioPart.setHeader(QNetworkRequest::ContentDispositionHeader,
                         QVariant(QStringLiteral("form-data; name=\"file\"; filename=\"%1\"").arg(filename)));
-    audioPart.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QStringLiteral("application/octet-stream")));
+    audioPart.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(audioMimeType));
     audio->setParent(multipart);
     audioPart.setBodyDevice(audio);
     multipart->append(audioPart);
@@ -650,10 +672,17 @@ bool ColabWorkerClient::createVoiceProfileJob(const QString &referencePath, cons
         if (errorMessage) *errorMessage = QStringLiteral("Colab worker is not connected");
         return false;
     }
+    const QString referenceMimeType = audioMimeTypeForPath(referencePath);
+    const QString referenceSuffix = QFileInfo(referencePath).suffix().toLower();
+    constexpr qint64 maxReferenceUploadBytes = 256LL * 1024LL * 1024LL;
     QFile *reference = new QFile(referencePath);
-    if (!reference->open(QIODevice::ReadOnly) || reference->size() <= 0) {
+    if (referenceMimeType.isEmpty()
+        || (referenceSuffix != QStringLiteral("wav") && referenceSuffix != QStringLiteral("mp3")
+            && referenceSuffix != QStringLiteral("flac"))
+        || !reference->open(QIODevice::ReadOnly) || reference->size() <= 0
+        || reference->size() > maxReferenceUploadBytes) {
         delete reference;
-        if (errorMessage) *errorMessage = QStringLiteral("Reference audio could not be read");
+        if (errorMessage) *errorMessage = QStringLiteral("Reference audio must be a readable WAV, MP3, or FLAC file no larger than 256 MB");
         return false;
     }
     const QString normalizedName = name.trimmed();
@@ -680,7 +709,7 @@ bool ColabWorkerClient::createVoiceProfileJob(const QString &referencePath, cons
     const QString filename = sourceFilename.isEmpty() ? QStringLiteral("reference.wav") : sourceFilename;
     audioPart.setHeader(QNetworkRequest::ContentDispositionHeader,
                         QVariant(QStringLiteral("form-data; name=\"ref_audio\"; filename=\"%1\"").arg(filename)));
-    audioPart.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QStringLiteral("application/octet-stream")));
+    audioPart.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(referenceMimeType));
     reference->setParent(multipart);
     audioPart.setBodyDevice(reference);
     multipart->append(audioPart);
