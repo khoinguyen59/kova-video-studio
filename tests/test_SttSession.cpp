@@ -2,6 +2,10 @@
 #include <QtTest>
 #include <QSignalSpy>
 #include <QPointer>
+#include <QDir>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QRegularExpression>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -234,6 +238,39 @@ void TestSttSession::testColabSttRunnerPostsKovaCompatibleMultipart()
     QVERIFY(body.contains("RIFF"));
     workerThread.quit();
     QVERIFY(workerThread.wait(5000));
+}
+
+void TestSttSession::testSpeechNotebookMatchesDirectColabSttContract()
+{
+    const QString path = QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
+        .filePath(QStringLiteral("notebooks/LA_STUDIO_SPEECH_GPU.ipynb"));
+    QFile file(path);
+    QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(path));
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
+    QVERIFY(document.isObject());
+    const QJsonObject root = document.object();
+    QCOMPARE(root.value(QStringLiteral("nbformat")).toInt(), 4);
+
+    QString source;
+    const QJsonArray cells = root.value(QStringLiteral("cells")).toArray();
+    QVERIFY(cells.size() >= 4);
+    for (const QJsonValue &cellValue : cells) {
+        const QJsonArray lines = cellValue.toObject().value(QStringLiteral("source")).toArray();
+        for (const QJsonValue &line : lines) source += line.toString();
+    }
+    QVERIFY(source.contains(QStringLiteral("faster-whisper==1.1.1")));
+    QVERIFY(source.contains(QStringLiteral("ctranslate2.get_cuda_device_count() < 1")));
+    QVERIFY(source.contains(QStringLiteral("@app.post('/v1/audio/transcriptions')")));
+    QVERIFY(source.contains(QStringLiteral("response_format: str = Form(default='verbose_json')")));
+    QVERIFY(source.contains(QStringLiteral("authorization: str | None = Header(default=None)")));
+    QVERIFY(source.contains(QStringLiteral("@app.get('/v1/capabilities')")));
+    QVERIFY(source.contains(QStringLiteral("'id': 'stt'")));
+    QVERIFY(source.contains(QStringLiteral("'device': 'cuda'")));
+    QVERIFY(source.contains(QStringLiteral("cpu_fallback': False")));
+    QVERIFY(source.contains(QStringLiteral("512 * 1024 * 1024")));
+    QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_STT_URL")));
+    QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_STT_TOKEN")));
+    QVERIFY(source.contains(QStringLiteral("cloudflared")));
 }
 
 void TestSttSession::testGatewaySttRunnerPostsOpenAiCompatibleMultipart()
