@@ -29,6 +29,7 @@
 #include "ModelsPathMigrationService.h"
 #include "FileAccessService.h"
 #include "DownloadInstallService.h"
+#include "controllers/models/RemoteModelCatalogController.h"
 #include "controllers/alignment/AlignmentExecutionService.h"
 #include "controllers/alignment/ColabAlignmentController.h"
 #include "TranslationController.h"
@@ -80,6 +81,7 @@ class AppController : public QObject {
     Q_PROPERTY(ModelsPathMigrationService* modelsMigration READ modelsMigration CONSTANT)
     Q_PROPERTY(FileAccessService* files READ files CONSTANT)
     Q_PROPERTY(DownloadInstallService* downloadInstall READ downloadInstall CONSTANT)
+    Q_PROPERTY(RemoteModelCatalogController* remoteModels READ remoteModels CONSTANT)
     Q_PROPERTY(AlignmentExecutionService* alignment READ alignment CONSTANT)
     Q_PROPERTY(ColabAlignmentController* colabAlignment READ colabAlignment CONSTANT)
     Q_PROPERTY(TranslationController* translation READ translation CONSTANT)
@@ -137,6 +139,7 @@ public:
     ModelsPathMigrationService* modelsMigration() const { return m_modelsMigration; }
     FileAccessService* files() const { return m_files; }
     DownloadInstallService* downloadInstall() const { return m_downloadInstall; }
+    RemoteModelCatalogController* remoteModels() const { return m_remoteModels; }
     AlignmentExecutionService* alignment() const { return m_alignment; }
     ColabAlignmentController* colabAlignment() const { return m_colabAlignment; }
     TranslationController* translation() const { return m_translation; }
@@ -206,6 +209,7 @@ private:
     ModelsPathMigrationService* m_modelsMigration = nullptr;
     FileAccessService* m_files = nullptr;
     DownloadInstallService* m_downloadInstall = nullptr;
+    RemoteModelCatalogController* m_remoteModels = nullptr;
     AlignmentExecutionService* m_alignment = nullptr;
     ColabAlignmentController* m_colabAlignment = nullptr;
     TranslationController* m_translation = nullptr;

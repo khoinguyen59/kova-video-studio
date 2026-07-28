@@ -89,6 +89,7 @@ AppController::AppController(QObject *parent)
     m_modelsMigration = new ModelsPathMigrationService(m_settings, m_models, m_downloads, m_stt, m_tts, this);
     m_files     = new FileAccessService(this);
     m_downloadInstall = new DownloadInstallService(m_downloads, m_models, m_runtimes, this);
+    m_remoteModels = new RemoteModelCatalogController(m_settings, m_colabSession, this);
     m_voiceClonePresets = new VoiceClonePresetService(this);
     m_voiceDesignPresets = new VoiceDesignPresetService(this);
     m_sttSession = new SttSessionController(this);

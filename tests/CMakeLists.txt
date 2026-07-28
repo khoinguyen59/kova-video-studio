@@ -59,6 +59,7 @@ set(TEST_SOURCES
     ../src/controllers/shared/AppUpdateService.cpp
     ../src/controllers/shared/ExampleManager.cpp
     ../src/controllers/models/DownloadInstallService.cpp
+    ../src/controllers/models/RemoteModelCatalogController.cpp
     ../src/controllers/alignment/AlignmentExecutionService.cpp
     ../src/controllers/alignment/ColabAlignmentController.cpp
     ../src/controllers/separation/ColabVoiceIsolatorController.cpp
@@ -172,6 +173,8 @@ set(TEST_SOURCES
     ../src/remote/ColabSession.cpp
     ../src/remote/GatewayClient.cpp
     ../src/remote/ColabWorkerClient.cpp
+    ../src/remote/GatewayModelCatalog.cpp
+    ../src/remote/ColabCapabilityCatalog.cpp
     ../src/stt/ColabSttRunner.cpp
     ../src/stt/GatewaySttRunner.cpp
     ../src/tts/GatewayTtsRunner.cpp
@@ -210,6 +213,8 @@ set(TEST_SOURCES
     ../src/core/HFHubClient.h
     ../src/remote/GatewayClient.h
     ../src/remote/ColabWorkerClient.h
+    ../src/remote/GatewayModelCatalog.h
+    ../src/remote/ColabCapabilityCatalog.h
     ../src/stt/ColabSttRunner.h
     ../src/stt/GatewaySttRunner.h
     ../src/tts/GatewayTtsRunner.h
@@ -222,6 +227,7 @@ set(TEST_SOURCES
     ../src/controllers/tts/ColabTtsController.h
     ../src/controllers/tts/ColabVoiceCloneController.h
     ../src/controllers/tts/ColabVoiceDesignController.h
+    ../src/controllers/models/RemoteModelCatalogController.h
     ../src/controllers/alignment/ColabAlignmentController.h
     ../src/controllers/separation/ColabVoiceIsolatorController.h
     ../src/controllers/app/AppController.h

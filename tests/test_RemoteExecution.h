@@ -13,6 +13,8 @@ private slots:
     void apiGatewayEndpointNormalizesV1Url();
     void colabSessionIsMemoryOnlyAndCanBeCleared();
     void gatewayCredentialUsesDedicatedSecureStoreEntry();
+    void gatewayModelCatalogUsesGatewayOnly();
+    void colabCapabilityCatalogUsesDirectWorkerOnly();
 };
 
 } // namespace LAStudio

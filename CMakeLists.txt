@@ -107,6 +107,8 @@ set(LASTUDIO_SOURCES
     src/remote/ColabSession.cpp
     src/remote/GatewayClient.cpp
     src/remote/ColabWorkerClient.cpp
+    src/remote/GatewayModelCatalog.cpp
+    src/remote/ColabCapabilityCatalog.cpp
     src/api/ApiServerService.cpp
     src/core/HFHubClient.cpp
     src/core/DownloadManager.cpp
@@ -163,6 +165,7 @@ set(LASTUDIO_SOURCES
     src/controllers/shared/VoiceClonePresetService.cpp
     src/controllers/shared/VoiceDesignPresetService.cpp
     src/controllers/models/DownloadInstallService.cpp
+    src/controllers/models/RemoteModelCatalogController.cpp
     src/controllers/alignment/AlignmentExecutionService.cpp
     src/controllers/alignment/ColabAlignmentController.cpp
     src/controllers/separation/ColabVoiceIsolatorController.cpp
@@ -273,6 +276,8 @@ set(LASTUDIO_HEADERS
     src/remote/ColabSession.h
     src/remote/GatewayClient.h
     src/remote/ColabWorkerClient.h
+    src/remote/GatewayModelCatalog.h
+    src/remote/ColabCapabilityCatalog.h
     src/core/HFHubClient.h
     src/core/DownloadManager.h
     src/core/ModelManager.h
@@ -339,6 +344,7 @@ set(LASTUDIO_HEADERS
     src/controllers/shared/VoiceClonePresetService.h
     src/controllers/shared/VoiceDesignPresetService.h
     src/controllers/models/DownloadInstallService.h
+    src/controllers/models/RemoteModelCatalogController.h
     src/controllers/alignment/AlignmentExecutionService.h
     src/controllers/alignment/ColabAlignmentController.h
     src/controllers/separation/ColabVoiceIsolatorController.h
@@ -476,6 +482,7 @@ qt_add_qml_module(LAStudio
         qml/pages/settings/GeneralSettingsTab.qml
         qml/pages/settings/HardwareSettingsTab.qml
         qml/pages/settings/AboutLicensesTab.qml
+        qml/pages/settings/RemoteInferenceTab.qml
 
         qml/components/Sidebar.qml
         qml/components/AppTitleBar.qml
