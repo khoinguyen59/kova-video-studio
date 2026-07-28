@@ -5,10 +5,11 @@
     Contract test for scripts/smoke_remote_preflight.ps1.
 
 .DESCRIPTION
-    Starts a loopback-only fake Gateway and fake direct STT worker, then proves
-    that the preflight runner sends exactly three requests with the credential
-    scoped to each independent route. The JSON config is a temporary file and
-    the report must not contain either test secret.
+    Starts a loopback-only fake Gateway and all eight direct Colab capability
+    routes. It proves that every preflight request uses the credential scoped
+    to that route, including the two independent Language-worker sessions.
+    The JSON config is temporary and the report must not contain test secrets
+    or endpoint paths.
 #>
 
 [CmdletBinding()]
@@ -51,58 +52,94 @@ function Wait-ForMockReady {
     throw 'Timed out while starting loopback mock server.'
 }
 
+$workers = @(
+    [pscustomobject]@{ capability = 'stt'; route = 'stt'; environment = 'LASTUDIO_TEST_COLAB_STT_TOKEN' },
+    [pscustomobject]@{ capability = 'tts'; route = 'tts'; environment = 'LASTUDIO_TEST_COLAB_TTS_TOKEN' },
+    [pscustomobject]@{ capability = 'voice-cloning'; route = 'voice-cloning'; environment = 'LASTUDIO_TEST_COLAB_VOICE_CLONING_TOKEN' },
+    [pscustomobject]@{ capability = 'voice-design'; route = 'voice-design'; environment = 'LASTUDIO_TEST_COLAB_VOICE_DESIGN_TOKEN' },
+    [pscustomobject]@{ capability = 'forced-alignment'; route = 'forced-alignment'; environment = 'LASTUDIO_TEST_COLAB_ALIGNMENT_TOKEN' },
+    [pscustomobject]@{ capability = 'voice-isolation'; route = 'voice-isolation'; environment = 'LASTUDIO_TEST_COLAB_SEPARATION_TOKEN' },
+    [pscustomobject]@{ capability = 'translation'; route = 'language'; environment = 'LASTUDIO_TEST_COLAB_TRANSLATION_TOKEN' },
+    [pscustomobject]@{ capability = 'chat'; route = 'language'; environment = 'LASTUDIO_TEST_COLAB_CHAT_TOKEN' }
+)
+
 $port = Get-FreeLoopbackPort
 $configFile = New-TemporaryFile
 $configPath = $configFile.FullName
 $reportPath = Join-Path $RepoRoot "out\remote-live-preflight-contract-$PID.json"
 $serverJob = $null
-$previousGatewayKey = $env:LASTUDIO_TEST_GATEWAY_KEY
-$previousColabToken = $env:LASTUDIO_TEST_COLAB_STT_TOKEN
+$previousSecrets = @{}
+$gatewayEnvironment = 'LASTUDIO_TEST_GATEWAY_KEY'
+$expectedRequestCount = 1 + ($workers.Count * 2)
 
 try {
-    $config = [ordered]@{
-        gateway = [ordered]@{
-            baseUrl = "http://127.0.0.1:$port/gateway"
-            apiKeyEnvironment = 'LASTUDIO_TEST_GATEWAY_KEY'
-        }
-        colabWorkers = @(
+    $colabWorkers = @(
+        foreach ($worker in $workers) {
             [ordered]@{
-                capability = 'stt'
-                baseUrl = "http://127.0.0.1:$port/stt"
-                bearerTokenEnvironment = 'LASTUDIO_TEST_COLAB_STT_TOKEN'
+                capability = $worker.capability
+                baseUrl = "http://127.0.0.1:$port/$($worker.route)"
+                bearerTokenEnvironment = $worker.environment
             }
-        )
+        }
+    )
+    $config = [ordered]@{
+        # Including /v1 verifies the same normalisation used by the desktop.
+        gateway = [ordered]@{
+            baseUrl = "http://127.0.0.1:$port/gateway/v1"
+            apiKeyEnvironment = $gatewayEnvironment
+        }
+        colabWorkers = $colabWorkers
     } | ConvertTo-Json -Depth 5
     Set-Content -LiteralPath $configPath -Value $config -Encoding UTF8
 
     $serverJob = Start-Job -ScriptBlock {
-        param([int] $Port)
+        param([int] $Port, [int] $ExpectedCount)
 
         $listener = New-Object Net.HttpListener
         $listener.Prefixes.Add("http://127.0.0.1:$Port/")
         $requests = New-Object System.Collections.Generic.List[object]
+        $routeCapabilities = @{
+            'stt' = 'stt'
+            'tts' = 'tts'
+            'voice-cloning' = 'voice-cloning'
+            'voice-design' = 'voice-design'
+            'forced-alignment' = 'forced-alignment'
+            'voice-isolation' = 'voice-isolation'
+        }
         try {
             $listener.Start()
             Write-Output ([pscustomobject]@{ event = 'ready' })
 
-            for ($index = 0; $index -lt 3; $index++) {
+            for ($index = 0; $index -lt $ExpectedCount; $index++) {
                 $context = $listener.GetContext()
                 $path = $context.Request.Url.AbsolutePath
                 $authorization = [string] $context.Request.Headers['Authorization']
-                $payload = switch ($path) {
-                    '/gateway/v1/models' {
-                        @{ data = @(@{ id = 'gateway-contract-model' }) } | ConvertTo-Json -Compress
-                        break
+                $payload = $null
+
+                if ($path -eq '/gateway/v1/models') {
+                    $payload = @{ data = @(@{ id = 'gateway-contract-model' }) } | ConvertTo-Json -Compress
+                }
+                elseif ($path -match '^/([^/]+)/health$') {
+                    $payload = @{ ready = $true; device = 'cuda' } | ConvertTo-Json -Compress
+                }
+                elseif ($path -match '^/([^/]+)/v1/capabilities$') {
+                    $route = $Matches[1]
+                    if ($route -eq 'language') {
+                        $payload = @{
+                            device = 'cuda'
+                            translation = @(@{ id = 'translation-contract-model'; loaded = $true })
+                            chat = @(@{ id = 'chat-contract-model'; loaded = $true })
+                        } | ConvertTo-Json -Depth 5 -Compress
                     }
-                    '/stt/health' {
-                        @{ ready = $true; device = 'cuda' } | ConvertTo-Json -Compress
-                        break
+                    elseif ($routeCapabilities.ContainsKey($route)) {
+                        $capability = $routeCapabilities[$route]
+                        $payload = @{
+                            capabilities = @(@{
+                                id = $capability
+                                models = @(@{ id = "$capability-contract-model"; device = 'cuda' })
+                            })
+                        } | ConvertTo-Json -Depth 5 -Compress
                     }
-                    '/stt/v1/capabilities' {
-                        @{ capabilities = @(@{ id = 'stt'; models = @(@{ id = 'contract-stt'; device = 'cuda' }) }) } | ConvertTo-Json -Depth 5 -Compress
-                        break
-                    }
-                    default { $null }
                 }
 
                 if ($null -eq $payload) {
@@ -128,26 +165,33 @@ try {
             $listener.Close()
         }
         Write-Output ([pscustomobject]@{ event = 'complete'; requests = @($requests.ToArray()) })
-    } -ArgumentList $port
+    } -ArgumentList $port, $expectedRequestCount
 
     Wait-ForMockReady -Job $serverJob
-    $env:LASTUDIO_TEST_GATEWAY_KEY = 'gateway-live-contract-secret'
-    $env:LASTUDIO_TEST_COLAB_STT_TOKEN = 'colab-live-contract-secret'
 
-    & $RunnerPath -ConfigPath $configPath -Only gateway,stt -AllowHttpForLocalTest -ReportPath $reportPath
+    $previousSecrets[$gatewayEnvironment] = [Environment]::GetEnvironmentVariable($gatewayEnvironment, 'Process')
+    [Environment]::SetEnvironmentVariable($gatewayEnvironment, 'gateway-live-contract-secret', 'Process')
+    foreach ($worker in $workers) {
+        $previousSecrets[$worker.environment] = [Environment]::GetEnvironmentVariable($worker.environment, 'Process')
+        [Environment]::SetEnvironmentVariable($worker.environment, "colab-$($worker.capability)-live-contract-secret", 'Process')
+    }
+
+    & $RunnerPath -ConfigPath $configPath -AllowHttpForLocalTest -ReportPath $reportPath
     if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) {
         throw 'Preflight runner did not create its report.'
     }
     $reportText = Get-Content -LiteralPath $reportPath -Raw
-    if ($reportText -match 'gateway-live-contract-secret|colab-live-contract-secret|/gateway/|/stt/') {
+    $secrets = @('gateway-live-contract-secret') + @($workers | ForEach-Object { "colab-$($_.capability)-live-contract-secret" })
+    $forbiddenReportText = @($secrets | ForEach-Object { [Regex]::Escape($_) }) + @('/gateway/', '/stt/', '/tts/', '/language/')
+    if ($reportText -match ($forbiddenReportText -join '|')) {
         throw 'Preflight report leaked a secret or endpoint path.'
     }
     $report = $reportText | ConvertFrom-Json
-    if (-not $report.succeeded -or @($report.checks).Count -ne 3) {
-        throw 'Preflight report did not contain three successful checks.'
+    if (-not $report.succeeded -or @($report.checks).Count -ne $expectedRequestCount) {
+        throw "Preflight report did not contain $expectedRequestCount successful checks."
     }
 
-    $serverJob | Wait-Job -Timeout 10 | Out-Null
+    $serverJob | Wait-Job -Timeout 12 | Out-Null
     if ($serverJob.State -ne 'Completed') {
         throw "Mock server did not complete (state: $($serverJob.State))."
     }
@@ -155,8 +199,18 @@ try {
     $completeEvent = @($serverEvents | Where-Object { $_.event -eq 'complete' } | Select-Object -Last 1)
     if ($completeEvent.Count -ne 1) { throw 'Mock server did not report completed requests.' }
     $requests = @($completeEvent[0].requests)
-    $expectedPaths = @('/gateway/v1/models', '/stt/health', '/stt/v1/capabilities')
-    $expectedHeaders = @('Bearer gateway-live-contract-secret', 'Bearer colab-live-contract-secret', 'Bearer colab-live-contract-secret')
+
+    $expectedPaths = New-Object System.Collections.Generic.List[string]
+    $expectedHeaders = New-Object System.Collections.Generic.List[string]
+    [void] $expectedPaths.Add('/gateway/v1/models')
+    [void] $expectedHeaders.Add('Bearer gateway-live-contract-secret')
+    foreach ($worker in $workers) {
+        [void] $expectedPaths.Add("/$($worker.route)/health")
+        [void] $expectedPaths.Add("/$($worker.route)/v1/capabilities")
+        $header = "Bearer colab-$($worker.capability)-live-contract-secret"
+        [void] $expectedHeaders.Add($header)
+        [void] $expectedHeaders.Add($header)
+    }
     if ($requests.Count -ne $expectedPaths.Count) {
         throw "Expected $($expectedPaths.Count) requests, received $($requests.Count)."
     }
@@ -166,15 +220,16 @@ try {
         }
     }
 
-    Write-Host 'Remote live preflight contract test passed.' -ForegroundColor Green
+    Write-Host 'Remote live preflight contract test passed for Gateway and all Colab capabilities.' -ForegroundColor Green
 }
 finally {
     if ($null -ne $serverJob) {
         if ($serverJob.State -eq 'Running') { Stop-Job -Job $serverJob -ErrorAction SilentlyContinue }
         Remove-Job -Job $serverJob -Force -ErrorAction SilentlyContinue
     }
-    $env:LASTUDIO_TEST_GATEWAY_KEY = $previousGatewayKey
-    $env:LASTUDIO_TEST_COLAB_STT_TOKEN = $previousColabToken
+    foreach ($environmentName in $previousSecrets.Keys) {
+        [Environment]::SetEnvironmentVariable($environmentName, $previousSecrets[$environmentName], 'Process')
+    }
     if (Test-Path -LiteralPath $configPath) { Remove-Item -LiteralPath $configPath -Force }
     if (Test-Path -LiteralPath $reportPath) { Remove-Item -LiteralPath $reportPath -Force }
 }

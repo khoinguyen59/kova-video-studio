@@ -101,7 +101,7 @@ function Get-GatewayModelsUrl {
 
     $base = $BaseUri.AbsoluteUri.TrimEnd('/')
     $path = $BaseUri.AbsolutePath.TrimEnd('/')
-    if ($path.Equals('/v1', [StringComparison]::OrdinalIgnoreCase)) {
+    if ($path.EndsWith('/v1', [StringComparison]::OrdinalIgnoreCase)) {
         return "$base/models"
     }
     return "$base/v1/models"
@@ -247,7 +247,15 @@ catch {
     throw 'Config file is not valid JSON.'
 }
 
-$requested = @($Only | ForEach-Object { $_.Trim().ToLowerInvariant() } | Where-Object { $_ })
+$requested = @(
+    foreach ($onlyValue in @($Only)) {
+        if ($null -eq $onlyValue) { continue }
+        $normalized = ([string] $onlyValue).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($normalized)) {
+            $normalized.ToLowerInvariant()
+        }
+    }
+)
 foreach ($item in $requested) {
     if ($item -ne 'gateway' -and $item -notin $KnownCapabilities) {
         throw "Unknown -Only value '$item'. Use gateway or one of: $($KnownCapabilities -join ', ')."
