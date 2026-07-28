@@ -405,6 +405,18 @@ foreach(LASTUDIO_TEST_SUITE IN LISTS LASTUDIO_TEST_SUITES)
     )
 endforeach()
 
+if(WIN32)
+    find_program(POWERSHELL_EXECUTABLE NAMES powershell.exe powershell)
+    if(POWERSHELL_EXECUTABLE)
+        add_test(NAME RemoteLivePreflightContract
+            COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -ExecutionPolicy Bypass
+                -File "${CMAKE_CURRENT_SOURCE_DIR}/test_RemoteLivePreflightContract.ps1")
+        set_tests_properties(RemoteLivePreflightContract PROPERTIES
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+            TIMEOUT 30)
+    endif()
+endif()
+
 add_test(NAME QmlRouteSmoke COMMAND $<TARGET_FILE:LAStudio>)
 set_tests_properties(QmlRouteSmoke PROPERTIES
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
