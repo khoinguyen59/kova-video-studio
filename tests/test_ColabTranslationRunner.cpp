@@ -163,6 +163,12 @@ void TestColabTranslationRunner::languageNotebookMatchesDirectTranslationContrac
     }
     QVERIFY(source.contains(QStringLiteral("M2M100ForConditionalGeneration")));
     QVERIFY(source.contains(QStringLiteral("CPU fallback is disabled")));
+    QVERIFY(source.contains(QStringLiteral("MAX_TRANSLATION_SEGMENTS = 128")));
+    QVERIFY(source.contains(QStringLiteral("MAX_TRANSLATION_CHARS = 50000")));
+    QVERIFY(source.contains(QStringLiteral("INFERENCE_SLOTS = threading.BoundedSemaphore(1)")));
+    QVERIFY(source.contains(QStringLiteral("status_code=413")));
+    QVERIFY(source.contains(QStringLiteral("status_code=429")));
+    QVERIFY(source.contains(QStringLiteral("INFERENCE_SLOTS.release()")));
     QVERIFY(source.contains(QStringLiteral("@app.post('/v1/translations')")));
     QVERIFY(source.contains(QStringLiteral("'translation'")));
     QVERIFY(source.contains(QStringLiteral("'device': 'cuda'")));

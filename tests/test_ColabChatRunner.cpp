@@ -167,6 +167,13 @@ void TestColabChatRunner::languageNotebookMatchesDirectChatContract()
     }
     QVERIFY(source.contains(QStringLiteral("AutoModelForCausalLM")));
     QVERIFY(source.contains(QStringLiteral("CPU fallback is disabled")));
+    QVERIFY(source.contains(QStringLiteral("MAX_CHAT_MESSAGES = 64")));
+    QVERIFY(source.contains(QStringLiteral("MAX_CHAT_CHARS = 50000")));
+    QVERIFY(source.contains(QStringLiteral("MAX_CHAT_TOKENS = 4096")));
+    QVERIFY(source.contains(QStringLiteral("INFERENCE_SLOTS = threading.BoundedSemaphore(1)")));
+    QVERIFY(source.contains(QStringLiteral("status_code=413")));
+    QVERIFY(source.contains(QStringLiteral("status_code=429")));
+    QVERIFY(source.contains(QStringLiteral("INFERENCE_SLOTS.release()")));
     QVERIFY(source.contains(QStringLiteral("@app.post('/v1/chat/completions')")));
     QVERIFY(source.contains(QStringLiteral("stream=true")));
     QVERIFY(source.contains(QStringLiteral("'chat'")));
