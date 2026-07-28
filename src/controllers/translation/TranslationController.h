@@ -123,6 +123,7 @@ private:
     GatewayTranslationRunner *m_gatewayWorker = nullptr;
     ColabTranslationRunner *m_colabWorker = nullptr;
     QThread m_gatewayThread;
+    QThread m_colabThread;
     TranslationProject m_project;
     QTimer m_autosave;
     std::shared_ptr<std::atomic_bool> m_cancelToken;

@@ -24,9 +24,9 @@ TranslationController::TranslationController(TranslationEngine *engine, Translat
     m_gatewayWorker = new GatewayTranslationRunner;
     m_colabWorker = new ColabTranslationRunner;
     m_gatewayWorker->moveToThread(&m_gatewayThread);
-    m_colabWorker->moveToThread(&m_gatewayThread);
+    m_colabWorker->moveToThread(&m_colabThread);
     connect(&m_gatewayThread, &QThread::finished, m_gatewayWorker, &QObject::deleteLater);
-    connect(&m_gatewayThread, &QThread::finished, m_colabWorker, &QObject::deleteLater);
+    connect(&m_colabThread, &QThread::finished, m_colabWorker, &QObject::deleteLater);
     connect(m_gatewayWorker, &GatewayTranslationRunner::progress, this, [this](int percent) {
         if (!m_processing || m_provider != Provider::Gateway) return;
         m_progress = percent;
@@ -46,6 +46,7 @@ TranslationController::TranslationController(TranslationEngine *engine, Translat
     connect(m_colabWorker, &ColabTranslationRunner::failed,
             this, &TranslationController::failTranslation);
     m_gatewayThread.start();
+    m_colabThread.start();
     m_autosave.setSingleShot(true);
     m_autosave.setInterval(750);
     connect(&m_autosave, &QTimer::timeout, this, &TranslationController::autosave);
@@ -89,11 +90,13 @@ TranslationController::~TranslationController()
     if (m_gatewayWorker && m_gatewayThread.isRunning()) {
         QMetaObject::invokeMethod(m_gatewayWorker, "cancel", Qt::QueuedConnection);
     }
-    if (m_colabWorker && m_gatewayThread.isRunning()) {
+    if (m_colabWorker && m_colabThread.isRunning()) {
         QMetaObject::invokeMethod(m_colabWorker, "cancel", Qt::QueuedConnection);
     }
     m_gatewayThread.quit();
+    m_colabThread.quit();
     m_gatewayThread.wait();
+    m_colabThread.wait();
 }
 QString TranslationController::statusText() const { return m_processing ? QStringLiteral("Translating %1%").arg(m_progress) : (m_dirty ? QStringLiteral("Unsaved changes") : QStringLiteral("Ready")); }
 void TranslationController::setSourceLanguage(const QString &value) { if (m_project.sourceLanguage == value) return; m_project.sourceLanguage = value; markDirty(); }
