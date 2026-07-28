@@ -10,6 +10,7 @@ class TestColabVoiceDesignRunner final : public QObject
 
 private slots:
     void testPostsIndependentVoiceDesignContract();
+    void voiceDesignNotebookMatchesDirectColabContract();
 };
 
 } // namespace LAStudio

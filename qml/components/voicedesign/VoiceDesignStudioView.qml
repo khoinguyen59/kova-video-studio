@@ -27,6 +27,7 @@ StudioShell {
 
     property string playingType: "none"
     property string detectedLanguage: "en"
+    readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
     readonly property bool colabActive: AppController.colabVoiceDesign && AppController.colabVoiceDesign.colabActive
     readonly property var activeDesign: colabActive ? AppController.colabVoiceDesign : null
     property bool outputReady: colabActive
@@ -485,6 +486,7 @@ StudioShell {
                         Layout.preferredHeight: 40
                         visible: !root.inputsLocked
                         enabled: {
+                            if (root.remoteFirstMode && !root.colabActive) return false
                             if (root.colabActive) {
                                 return targetText.text.trim().length > 0
                                     && voiceDescriptionText.text.trim().length > 0
@@ -505,7 +507,7 @@ StudioShell {
                                 root.activeDesign.generate(targetText.text.normalize("NFC"), composedDescription, "",
                                                            settingsPanel.selectedLanguage, settingsPanel.colabTemperature,
                                                            settingsPanel.randomSeed ? -1 : settingsPanel.customSeed)
-                            } else {
+                            } else if (!root.remoteFirstMode) {
                                 var synSettings = settingsPanel.getSynthesisSettings(settingsPanel.selectedLanguage, voiceDescriptionText.text.normalize("NFC"))
                                 AppController.tts.designVoice(targetText.text.normalize("NFC"), synSettings)
                             }

@@ -17,6 +17,7 @@ ColumnLayout {
     property int customSeed: 42
     property bool locked: false
     property real colabTemperature: 0.9
+    readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
 
     component ColabField: TextField {
         Layout.fillWidth: true
@@ -305,11 +306,13 @@ ColumnLayout {
                 }
                 PrimaryButton {
                     Layout.fillWidth: true
-                    enabled: !root.locked
-                    text: AppController.colabVoiceDesign.colabActive ? qsTr("Use local VoiceDesign") : (AppController.colabVoiceDesign.colabConnected ? qsTr("Use Colab GPU VoiceDesign") : qsTr("Connect Colab GPU VoiceDesign"))
-                    iconName: AppController.colabVoiceDesign.colabActive ? "close" : "cloud"
+                    enabled: !root.locked && !(root.remoteFirstMode && AppController.colabVoiceDesign.colabActive)
+                    text: root.remoteFirstMode
+                          ? (AppController.colabVoiceDesign.colabActive ? qsTr("Direct Colab GPU VoiceDesign active") : (AppController.colabVoiceDesign.colabConnected ? qsTr("Use direct Colab GPU VoiceDesign") : qsTr("Connect direct Colab GPU VoiceDesign")))
+                          : (AppController.colabVoiceDesign.colabActive ? qsTr("Use local VoiceDesign") : (AppController.colabVoiceDesign.colabConnected ? qsTr("Use Colab GPU VoiceDesign") : qsTr("Connect Colab GPU VoiceDesign")))
+                    iconName: root.remoteFirstMode || !AppController.colabVoiceDesign.colabActive ? "cloud" : "close"
                     onClicked: {
-                        if (AppController.colabVoiceDesign.colabActive) {
+                        if (AppController.colabVoiceDesign.colabActive && !root.remoteFirstMode) {
                             AppController.colabVoiceDesign.useLocal()
                         } else if (AppController.colabVoiceDesign.colabConnected) {
                             AppController.colabVoiceDesign.useColab()

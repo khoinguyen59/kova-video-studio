@@ -15,6 +15,7 @@ class AudioPlayer;
 class ColabSession;
 class ColabVoiceDesignRunner;
 class HistoryService;
+class Settings;
 class WaveformProvider;
 
 // Direct Qwen3 VoiceDesign controller. The temporary Colab session is the
@@ -34,7 +35,7 @@ class ColabVoiceDesignController final : public QObject
     Q_PROPERTY(int sampleRate READ sampleRate NOTIFY outputChanged)
 
 public:
-    explicit ColabVoiceDesignController(ColabSession *session, AudioPlayer *player,
+    explicit ColabVoiceDesignController(ColabSession *session, Settings *settings, AudioPlayer *player,
                                         WaveformProvider *waveformProvider,
                                         HistoryService *history, QObject *parent = nullptr);
     ~ColabVoiceDesignController() override;
@@ -70,12 +71,14 @@ signals:
 
 private slots:
     void onSessionChanged();
+    void onRemoteFirstModeChanged();
     void onRunnerProgress(int percent);
     void onRunnerFinished(const QByteArray &pcm16, const QVector<float> &samples, int sampleRate);
     void onRunnerFailed(const QString &error);
 
 private:
     ColabSession *m_session = nullptr;
+    Settings *m_settings = nullptr;
     AudioPlayer *m_player = nullptr;
     WaveformProvider *m_waveformProvider = nullptr;
     HistoryService *m_history = nullptr;

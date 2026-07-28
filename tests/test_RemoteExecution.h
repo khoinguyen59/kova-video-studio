@@ -15,6 +15,7 @@ private slots:
     void gatewayCredentialUsesDedicatedSecureStoreEntry();
     void remoteFirstModeIsExplicitAndPersistent();
     void remoteFirstVoiceCloneStaysDirectWhenAColabSessionIsAvailable();
+    void remoteFirstVoiceDesignStaysDirectWhenAColabSessionIsAvailable();
     void gatewayAndColabFailuresRemainIndependent();
     void gatewayModelCatalogUsesGatewayOnly();
     void colabCapabilityCatalogUsesDirectWorkerOnly();

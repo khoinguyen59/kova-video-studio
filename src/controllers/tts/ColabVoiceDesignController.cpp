@@ -5,6 +5,7 @@
 #include "audio/WavIO.h"
 #include "controllers/shared/HistoryService.h"
 #include "core/PathUtils.h"
+#include "core/Settings.h"
 #include "remote/ColabSession.h"
 #include "tts/ColabVoiceDesignRunner.h"
 
@@ -14,11 +15,12 @@
 
 namespace LAStudio {
 
-ColabVoiceDesignController::ColabVoiceDesignController(ColabSession *session, AudioPlayer *player,
+ColabVoiceDesignController::ColabVoiceDesignController(ColabSession *session, Settings *settings, AudioPlayer *player,
                                                          WaveformProvider *waveformProvider,
                                                          HistoryService *history, QObject *parent)
     : QObject(parent)
     , m_session(session)
+    , m_settings(settings)
     , m_player(player)
     , m_waveformProvider(waveformProvider)
     , m_history(history)
@@ -38,7 +40,12 @@ ColabVoiceDesignController::ColabVoiceDesignController(ColabSession *session, Au
         connect(m_session, &ColabSession::sessionChanged,
                 this, &ColabVoiceDesignController::onSessionChanged);
     }
+    if (m_settings) {
+        connect(m_settings, &Settings::remoteFirstModeChanged,
+                this, &ColabVoiceDesignController::onRemoteFirstModeChanged);
+    }
     m_thread.start();
+    onSessionChanged();
 }
 
 ColabVoiceDesignController::~ColabVoiceDesignController()
@@ -97,6 +104,10 @@ void ColabVoiceDesignController::useColab()
 
 void ColabVoiceDesignController::useLocal()
 {
+    if (m_settings && m_settings->remoteFirstMode()) {
+        emit errorOccurred(QStringLiteral("Remote-first mode requires a direct Colab VoiceDesign worker. Disable Remote-first mode before selecting Local Dev VoiceDesign."));
+        return;
+    }
     if (!m_colabActive) return;
     cancelProcessing();
     m_colabActive = false;
@@ -170,7 +181,19 @@ void ColabVoiceDesignController::saveWav(const QString &path)
 void ColabVoiceDesignController::onSessionChanged()
 {
     if (m_processing) cancelProcessing();
-    if (!colabConnected()) m_colabActive = false;
+    if (m_settings && m_settings->remoteFirstMode() && colabConnected()) {
+        m_colabActive = true;
+    } else if (!colabConnected()) {
+        m_colabActive = false;
+    }
+    emit colabStateChanged();
+}
+
+void ColabVoiceDesignController::onRemoteFirstModeChanged()
+{
+    if (m_settings && m_settings->remoteFirstMode() && colabConnected()) {
+        m_colabActive = true;
+    }
     emit colabStateChanged();
 }
 
