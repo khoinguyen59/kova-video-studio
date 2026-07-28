@@ -98,6 +98,25 @@ ScrollView {
             wrapMode: Text.WordWrap
         }
 
+        SectionPanel {
+            title: qsTr("Execution policy")
+            Layout.fillWidth: true
+
+            ToggleRow {
+                Layout.fillWidth: true
+                text: qsTr("Remote-first mode")
+                checked: AppController.settings.remoteFirstMode
+                onToggled: AppController.settings.remoteFirstMode = checked
+            }
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("Enabled by default: local model and runtime installers are hidden. Already-installed local development models remain available, and neither remote source falls back to them.")
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontSmall
+                wrapMode: Text.WordWrap
+            }
+        }
+
         GridLayout {
             Layout.fillWidth: true
             columns: root.wideLayout ? 2 : 1

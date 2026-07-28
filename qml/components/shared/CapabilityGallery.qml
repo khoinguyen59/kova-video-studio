@@ -17,6 +17,9 @@ Rectangle {
     property string pendingRuntimeId: ""
     property string pendingRuntimeVersion: ""
     property var initialSelectedFiles: ({})
+    // Local installs are a deliberate development-mode choice. This gallery
+    // must not start Hugging Face/GitHub downloads while remote-first is on.
+    readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
 
     property var familiesModel: null
 
@@ -202,7 +205,7 @@ Rectangle {
     }
 
     function openRuntimeVersionManager(runtime) {
-        if (!runtime) return
+        if (!runtime || (root.remoteFirstMode && !runtime.installed)) return
         runtimeVersionDialog.engineId = runtime.id || ""
         runtimeVersionDialog.engineName = runtime.name || qsTr("Runtime")
         runtimeVersionDialog.engineFamily = runtime.engineFamily || ""
@@ -257,6 +260,7 @@ Rectangle {
     function primaryActionText(familyItem) {
         if (!familyItem) return qsTr("Use")
         if (familyItem.ready) return qsTr("Use")
+        if (root.remoteFirstMode) return qsTr("Remote-first mode")
         if (root.setupInProgress(familyItem)) return qsTr("Installing...")
         return qsTr("Quick install")
     }
@@ -264,12 +268,14 @@ Rectangle {
     function primaryActionIcon(familyItem) {
         if (!familyItem) return "check"
         if (familyItem.ready) return root.modalMode ? "check" : "chevron-right"
+        if (root.remoteFirstMode) return "cloud"
         if (root.setupInProgress(familyItem)) return "download"
         return "download"
     }
 
     function primaryActionEnabled(familyItem) {
         if (!familyItem) return false
+        if (root.remoteFirstMode && !familyItem.ready) return false
         return familyItem.ready || familyItem.statusKind !== "incompatible" || root.setupInProgress(familyItem)
     }
 
@@ -287,7 +293,7 @@ Rectangle {
 
     function installSelectedFamily() {
         var familyItem = detailPanel.f
-        if (!familyItem) return
+        if (!familyItem || root.remoteFirstMode) return
         if (root.setupInProgress(familyItem)) {
             Theme.requestShowDownloads()
             return
@@ -310,7 +316,7 @@ Rectangle {
         var familyItem = detailPanel.f
         if (!familyItem) return
         if (familyItem.ready) root.useSelectedFamily()
-        else root.installSelectedFamily()
+        else if (!root.remoteFirstMode) root.installSelectedFamily()
     }
 
     function badgeFill(tone) {
@@ -1385,8 +1391,8 @@ Rectangle {
                                     PrimaryButton {
                                         text: installState === 1 ? qsTr("Downloading") : (installState === 5 ? qsTr("Update") : qsTr("Download"))
                                         iconName: installState === 1 ? "" : "download"
-                                        enabled: installState === 0 || installState === 1 || installState === 5
-                                        visible: installState === 0 || installState === 1 || installState === 5
+                                        enabled: installState === 1 || (!root.remoteFirstMode && (installState === 0 || installState === 5))
+                                        visible: installState === 1 || (!root.remoteFirstMode && (installState === 0 || installState === 5))
                                         implicitWidth: 100
                                         implicitHeight: 32
                                         Layout.minimumWidth: 100
@@ -1601,14 +1607,16 @@ Rectangle {
                                         if (installState === 2) return "";
                                         return "download";
                                     }
-                                    enabled: modelData.compatible && (installState !== 2)
+                                    enabled: modelData.compatible && installState !== 2
+                                             && (installState === 3 || installState === 1 || !root.remoteFirstMode)
+                                    visible: installState === 3 || installState === 1 || installState === 2 || !root.remoteFirstMode
                                     implicitWidth: 108
                                     implicitHeight: 32
                                     quiet: (installState === 3 && !runtimeRow.selected) || installState === 1
                                     onClicked: {
                                         if (installState === 3) root.selectRuntime(modelData)
                                         else if (installState === 1) Theme.requestShowDownloads()
-                                        else root.runWithLicenseConsent(detailPanel.f, function() {
+                                        else if (!root.remoteFirstMode) root.runWithLicenseConsent(detailPanel.f, function() {
                                             AppController.downloadInstall.enqueueRuntime(detailPanel.f.rawMetadata, detailPanel.f.familyCapability, detailPanel.f.familyId, modelData)
                                         })
                                     }
@@ -1618,6 +1626,7 @@ Rectangle {
                                     id: runtimeMenuButton
                                     implicitWidth: 32
                                     implicitHeight: 34
+                                    visible: !root.remoteFirstMode || installState === 3
                                     onClicked: {
                                         runtimeMenu.currentRuntime = modelData
                                         runtimeMenu.rebuild()

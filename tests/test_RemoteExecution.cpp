@@ -145,6 +145,20 @@ void TestRemoteExecution::gatewayCredentialUsesDedicatedSecureStoreEntry()
 #endif
 }
 
+void TestRemoteExecution::remoteFirstModeIsExplicitAndPersistent()
+{
+    Settings settings;
+    const bool original = settings.remoteFirstMode();
+
+    settings.setRemoteFirstMode(false);
+    QVERIFY(!settings.remoteFirstMode());
+    Settings reloaded;
+    QVERIFY(!reloaded.remoteFirstMode());
+
+    reloaded.setRemoteFirstMode(original);
+    QCOMPARE(reloaded.remoteFirstMode(), original);
+}
+
 void TestRemoteExecution::gatewayModelCatalogUsesGatewayOnly()
 {
     CatalogMock server(QByteArrayLiteral(

@@ -13,6 +13,7 @@ private slots:
     void apiGatewayEndpointNormalizesV1Url();
     void colabSessionIsMemoryOnlyAndCanBeCleared();
     void gatewayCredentialUsesDedicatedSecureStoreEntry();
+    void remoteFirstModeIsExplicitAndPersistent();
     void gatewayModelCatalogUsesGatewayOnly();
     void colabCapabilityCatalogUsesDirectWorkerOnly();
 };

@@ -261,6 +261,9 @@ Settings::Settings(QObject *parent)
     m_gatewaySttModel = m_settings.value(QStringLiteral("remote/gatewaySttModel"), QString()).toString().trimmed();
     m_gatewayTtsModel = m_settings.value(QStringLiteral("remote/gatewayTtsModel"), QString()).toString().trimmed();
     m_gatewayTtsVoice = m_settings.value(QStringLiteral("remote/gatewayTtsVoice"), QStringLiteral("alloy")).toString().trimmed();
+    // New installs use remote sources by default. Local development downloads
+    // remain an explicit opt-in and are never selected as a remote fallback.
+    m_remoteFirstMode = m_settings.value(QStringLiteral("remote/remoteFirstMode"), true).toBool();
     // Network activity must be an explicit choice. Existing installs without
     // this key therefore default to no automatic update request.
     m_automaticUpdateChecks = m_settings.value(QStringLiteral("updates/automaticChecks"), false).toBool();
@@ -756,6 +759,20 @@ void Settings::setGatewayTtsVoice(const QString &v)
     m_settings.setValue(QStringLiteral("remote/gatewayTtsVoice"), normalized);
     m_settings.sync();
     emit gatewayTtsVoiceChanged();
+}
+
+bool Settings::remoteFirstMode() const
+{
+    return m_remoteFirstMode;
+}
+
+void Settings::setRemoteFirstMode(bool v)
+{
+    if (m_remoteFirstMode == v) return;
+    m_remoteFirstMode = v;
+    m_settings.setValue(QStringLiteral("remote/remoteFirstMode"), v);
+    m_settings.sync();
+    emit remoteFirstModeChanged();
 }
 
 bool Settings::automaticUpdateChecks() const

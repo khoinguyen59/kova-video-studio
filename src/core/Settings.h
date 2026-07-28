@@ -42,6 +42,7 @@ class Settings : public QObject {
     Q_PROPERTY(QString gatewaySttModel READ gatewaySttModel WRITE setGatewaySttModel NOTIFY gatewaySttModelChanged)
     Q_PROPERTY(QString gatewayTtsModel READ gatewayTtsModel WRITE setGatewayTtsModel NOTIFY gatewayTtsModelChanged)
     Q_PROPERTY(QString gatewayTtsVoice READ gatewayTtsVoice WRITE setGatewayTtsVoice NOTIFY gatewayTtsVoiceChanged)
+    Q_PROPERTY(bool remoteFirstMode READ remoteFirstMode WRITE setRemoteFirstMode NOTIFY remoteFirstModeChanged)
     Q_PROPERTY(bool automaticUpdateChecks READ automaticUpdateChecks WRITE setAutomaticUpdateChecks NOTIFY automaticUpdateChecksChanged)
     Q_PROPERTY(bool updateCheckConsentAsked READ updateCheckConsentAsked WRITE setUpdateCheckConsentAsked NOTIFY updateCheckConsentAskedChanged)
     Q_PROPERTY(bool onboardingComplete READ onboardingComplete WRITE setOnboardingComplete NOTIFY onboardingCompleteChanged)
@@ -143,6 +144,9 @@ public:
     QString gatewayTtsVoice() const;
     void setGatewayTtsVoice(const QString &v);
 
+    bool remoteFirstMode() const;
+    void setRemoteFirstMode(bool v);
+
     bool automaticUpdateChecks() const;
     void setAutomaticUpdateChecks(bool v);
 
@@ -192,6 +196,7 @@ signals:
     void gatewaySttModelChanged();
     void gatewayTtsModelChanged();
     void gatewayTtsVoiceChanged();
+    void remoteFirstModeChanged();
     void automaticUpdateChecksChanged();
     void updateCheckConsentAskedChanged();
     void onboardingCompleteChanged();
@@ -231,6 +236,7 @@ private:
     QString m_gatewaySttModel;
     QString m_gatewayTtsModel;
     QString m_gatewayTtsVoice;
+    bool m_remoteFirstMode = true;
     bool m_automaticUpdateChecks;
     bool m_updateCheckConsentAsked;
     bool m_onboardingComplete = false;
