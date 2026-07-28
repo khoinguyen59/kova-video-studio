@@ -705,8 +705,12 @@ void TestRemoteExecution::colabNotebooksAdvertiseCapabilityContractVersion()
         QStringLiteral("LA_STUDIO_VOICE_DESIGN_OMNIVOICE_GPU.ipynb"),
         QStringLiteral("LA_STUDIO_VOICE_DESIGN_QWEN3_1_7B_GPU.ipynb"),
         QStringLiteral("LA_STUDIO_VOICE_DESIGN_VOXCPM2_GPU.ipynb"),
-        QStringLiteral("LA_STUDIO_ALIGNMENT_GPU.ipynb"),
-        QStringLiteral("LA_STUDIO_SEPARATION_GPU.ipynb"),
+        QStringLiteral("LA_STUDIO_ALIGNMENT_WAV2VEC2_ZH_GPU.ipynb"),
+        QStringLiteral("LA_STUDIO_ALIGNMENT_CANARY_CTC_GPU.ipynb"),
+        QStringLiteral("LA_STUDIO_ALIGNMENT_MMS_ONNX_GPU.ipynb"),
+        QStringLiteral("LA_STUDIO_ALIGNMENT_QWEN3_0_6B_GPU.ipynb"),
+        QStringLiteral("LA_STUDIO_SEPARATION_SPLEETER_2STEMS_GPU.ipynb"),
+        QStringLiteral("LA_STUDIO_SEPARATION_UVR_VOCALS_GPU.ipynb"),
         QStringLiteral("LA_STUDIO_LANGUAGE_GPU.ipynb"),
     };
     for (const QString &notebook : notebooks) {

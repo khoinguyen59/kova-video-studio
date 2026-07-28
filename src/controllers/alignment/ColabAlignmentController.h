@@ -25,6 +25,8 @@ class ColabAlignmentController final : public QObject
 
     Q_PROPERTY(bool colabActive READ colabActive NOTIFY colabStateChanged)
     Q_PROPERTY(bool colabConnected READ colabConnected NOTIFY colabStateChanged)
+    Q_PROPERTY(QString model READ model WRITE setModel NOTIFY modelChanged)
+    Q_PROPERTY(QString colabNotebookFile READ colabNotebookFile NOTIFY modelChanged)
     Q_PROPERTY(bool processing READ processing NOTIFY stateChanged)
     Q_PROPERTY(int progress READ progress NOTIFY stateChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY stateChanged)
@@ -42,6 +44,9 @@ public:
 
     bool colabActive() const { return m_colabActive; }
     bool colabConnected() const;
+    QString model() const { return m_model; }
+    void setModel(const QString &model);
+    QString colabNotebookFile() const;
     bool processing() const { return m_processing; }
     int progress() const { return m_progress; }
     QString statusText() const { return m_statusText; }
@@ -54,6 +59,8 @@ public:
     QVariantList karaokeLines() const;
 
     Q_INVOKABLE bool connectColab(const QString &workerUrl, const QString &bearerToken);
+    Q_INVOKABLE bool selectColabModel(const QString &model);
+    Q_INVOKABLE QString notebookForColabModel(const QString &model) const;
     Q_INVOKABLE void useColab();
     Q_INVOKABLE void useLocal();
     Q_INVOKABLE bool runAlignment(const QString &audioPath, const QString &transcript,
@@ -65,6 +72,7 @@ public:
 
 signals:
     void colabStateChanged();
+    void modelChanged();
     void stateChanged();
     void resultChanged();
     void completed();
@@ -86,6 +94,7 @@ private:
     QThread m_thread;
     std::shared_ptr<std::atomic_bool> m_cancellation;
     bool m_colabActive = false;
+    QString m_model = QStringLiteral("mms-forced-aligner-onnx");
     bool m_processing = false;
     int m_progress = 0;
     QString m_statusText = QStringLiteral("Colab worker not connected");
@@ -94,6 +103,8 @@ private:
     QVariantList m_segments;
     QVariantList m_diagnostics;
     double m_duration = 0.0;
+    quint64 m_sessionRevision = 0;
+    quint64 m_activeSessionRevision = 0;
 };
 
 } // namespace LAStudio

@@ -22,6 +22,55 @@ Item {
     readonly property bool anchorModelAvailable: selectedAnchorModel() !== null
     signal closeRequested()
 
+    function colabLanguages() {
+        var model = AppController.colabAlignment.model
+        if (model === "wav2vec2-aligner-zh")
+            return [{ "name": qsTr("Chinese"), "code": "zh" }]
+        if (model === "canary-ctc-aligner")
+            return [
+                { "name": "Bulgarian", "code": "bg" }, { "name": "Czech", "code": "cs" },
+                { "name": "Danish", "code": "da" }, { "name": "German", "code": "de" },
+                { "name": "Greek", "code": "el" }, { "name": "English", "code": "en" },
+                { "name": "Spanish", "code": "es" }, { "name": "Estonian", "code": "et" },
+                { "name": "Finnish", "code": "fi" }, { "name": "French", "code": "fr" },
+                { "name": "Croatian", "code": "hr" }, { "name": "Hungarian", "code": "hu" },
+                { "name": "Italian", "code": "it" }, { "name": "Lithuanian", "code": "lt" },
+                { "name": "Latvian", "code": "lv" }, { "name": "Maltese", "code": "mt" },
+                { "name": "Dutch", "code": "nl" }, { "name": "Polish", "code": "pl" },
+                { "name": "Portuguese", "code": "pt" }, { "name": "Romanian", "code": "ro" },
+                { "name": "Russian", "code": "ru" }, { "name": "Slovak", "code": "sk" },
+                { "name": "Slovenian", "code": "sl" }, { "name": "Swedish", "code": "sv" },
+                { "name": "Ukrainian", "code": "uk" }
+            ]
+        if (model === "qwen3-forced-aligner-0.6b")
+            return [
+                { "name": "Chinese", "code": "zh" }, { "name": "English", "code": "en" },
+                { "name": "Cantonese", "code": "yue" }, { "name": "French", "code": "fr" },
+                { "name": "German", "code": "de" }, { "name": "Italian", "code": "it" },
+                { "name": "Japanese", "code": "ja" }, { "name": "Korean", "code": "ko" },
+                { "name": "Portuguese", "code": "pt" }, { "name": "Russian", "code": "ru" },
+                { "name": "Spanish", "code": "es" }
+            ]
+        return []
+    }
+
+    function defaultColabLanguage() {
+        if (AppController.colabAlignment.model === "wav2vec2-aligner-zh") return "zh"
+        if (AppController.colabAlignment.model === "mms-forced-aligner-onnx") return "vie"
+        return "en"
+    }
+
+    function syncColabLanguage() {
+        languageSelector.language = defaultColabLanguage()
+    }
+
+    Connections {
+        target: AppController.colabAlignment
+        function onModelChanged() { root.syncColabLanguage() }
+    }
+
+    Component.onCompleted: syncColabLanguage()
+
     component ColabField: TextField {
         Layout.fillWidth: true
         color: Theme.textPrimary
@@ -103,7 +152,11 @@ Item {
                     Layout.fillWidth: true
                     labelText: qsTr("Language")
                     language: "vie"
-                    family: ({ "supportedLanguageSetId": "alignment-mms-nemotron-v1" })
+                    family: {
+                        if (!root.colabSelected || AppController.colabAlignment.model === "mms-forced-aligner-onnx")
+                            return ({ "supportedLanguageSetId": "alignment-mms-nemotron-v1" })
+                        return ({ "supportedLanguages": root.colabLanguages() })
+                    }
                 }
 
                 RowLayout {
@@ -138,8 +191,8 @@ Item {
                     spacing: Theme.paddingSmall
 
                     Text { text: qsTr("DIRECT COLAB GPU"); color: Theme.textSecondary; font.pixelSize: 10; font.bold: true; font.letterSpacing: 0.8 }
-                    Text { Layout.fillWidth: true; text: qsTr("Qwen3 ForcedAligner receives only the selected audio and transcript directly from this app. This is independent of API Gateway."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
-                    ColabNotebookLink { notebookFile: "LA_STUDIO_ALIGNMENT_GPU.ipynb" }
+                    Text { Layout.fillWidth: true; text: qsTr("The exact selected aligner receives only the chosen audio and transcript. Direct Colab is independent of API Gateway."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                    ColabNotebookLink { notebookFile: AppController.colabAlignment.colabNotebookFile }
                     Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                     ColabField {
                         id: colabUrl
@@ -152,8 +205,10 @@ Item {
                         echoMode: TextInput.Password
                         placeholderText: AppController.colabAlignment.colabConnected ? qsTr("Connected â€” enter token to replace") : qsTr("Temporary token from Colab")
                     }
-                    Text { text: qsTr("Model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
-                    Text { Layout.fillWidth: true; text: qsTr("Qwen3 ForcedAligner 0.6B (word / character timing)"); color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                    Text { text: qsTr("Selected Colab model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                    Text { Layout.fillWidth: true; text: AppController.colabAlignment.model; color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                    Text { text: qsTr("Exact notebook"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                    Text { Layout.fillWidth: true; text: AppController.colabAlignment.colabNotebookFile; color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WrapAnywhere }
                     PrimaryButton {
                         Layout.fillWidth: true
                         enabled: !(root.remoteFirstMode && AppController.colabAlignment.colabActive)

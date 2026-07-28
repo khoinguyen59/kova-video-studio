@@ -12,6 +12,8 @@
 #include <QThread>
 
 #include "alignment/ColabAlignmentRunner.h"
+#include "controllers/alignment/ColabAlignmentController.h"
+#include "remote/ColabSession.h"
 #include "test_ColabAlignmentRunner.h"
 
 namespace LAStudio {
@@ -180,40 +182,93 @@ void TestColabAlignmentRunner::testRejectsNonMonotonicAndCancelledResponses()
 
 void TestColabAlignmentRunner::alignmentNotebookMatchesDirectColabContract()
 {
-    const QString path = QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
-        .filePath(QStringLiteral("notebooks/LA_STUDIO_ALIGNMENT_GPU.ipynb"));
-    QFile file(path);
-    QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(path));
-    const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
-    QVERIFY(document.isObject());
-    const QJsonObject root = document.object();
-    QCOMPARE(root.value(QStringLiteral("nbformat")).toInt(), 4);
+    struct Expectation {
+        QString model;
+        QString notebook;
+        QString upstream;
+        QString adapterNeedle;
+    };
+    const QList<Expectation> expectations{
+        {QStringLiteral("wav2vec2-aligner-zh"), QStringLiteral("LA_STUDIO_ALIGNMENT_WAV2VEC2_ZH_GPU.ipynb"),
+         QStringLiteral("cstr/wav2vec2-large-xlsr-53-chinese-zh-cn-GGUF"), QStringLiteral("--align-only")},
+        {QStringLiteral("canary-ctc-aligner"), QStringLiteral("LA_STUDIO_ALIGNMENT_CANARY_CTC_GPU.ipynb"),
+         QStringLiteral("cstr/canary-ctc-aligner-GGUF"), QStringLiteral("canary-ctc-aligner-q4_k.gguf")},
+        {QStringLiteral("mms-forced-aligner-onnx"), QStringLiteral("LA_STUDIO_ALIGNMENT_MMS_ONNX_GPU.ipynb"),
+         QStringLiteral("onnx-community/mms-300m-1130-forced-aligner-ONNX"), QStringLiteral("ort.InferenceSession")},
+        {QStringLiteral("qwen3-forced-aligner-0.6b"), QStringLiteral("LA_STUDIO_ALIGNMENT_QWEN3_0_6B_GPU.ipynb"),
+         QStringLiteral("Qwen/Qwen3-ForcedAligner-0.6B"), QStringLiteral("Qwen3ForcedAligner.from_pretrained")},
+    };
 
-    QString source;
-    const QJsonArray cells = root.value(QStringLiteral("cells")).toArray();
-    QVERIFY(cells.size() >= 4);
-    for (const QJsonValue &cellValue : cells) {
-        const QJsonArray lines = cellValue.toObject().value(QStringLiteral("source")).toArray();
-        for (const QJsonValue &line : lines) source += line.toString();
+    ColabAlignmentController controller(nullptr, nullptr);
+    for (const Expectation &expected : expectations) {
+        QCOMPARE(controller.notebookForColabModel(expected.model), expected.notebook);
+        QVERIFY2(controller.selectColabModel(expected.model), qPrintable(expected.model));
+        QCOMPARE(controller.model(), expected.model);
+        QCOMPARE(controller.colabNotebookFile(), expected.notebook);
+
+        const QString path = QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
+            .filePath(QStringLiteral("notebooks/") + expected.notebook);
+        QFile file(path);
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(path));
+        const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
+        QVERIFY2(document.isObject(), qPrintable(expected.notebook));
+        const QJsonObject root = document.object();
+        QCOMPARE(root.value(QStringLiteral("nbformat")).toInt(), 4);
+        const QJsonObject metadata = root.value(QStringLiteral("metadata")).toObject()
+                                         .value(QStringLiteral("la_studio")).toObject();
+        QCOMPARE(metadata.value(QStringLiteral("capability")).toString(), QStringLiteral("forced-alignment"));
+        QCOMPARE(metadata.value(QStringLiteral("family_id")).toString(), expected.model);
+        QCOMPARE(metadata.value(QStringLiteral("upstream_model")).toString(), expected.upstream);
+        QCOMPARE(metadata.value(QStringLiteral("device")).toString(), QStringLiteral("cuda"));
+        QVERIFY(!metadata.value(QStringLiteral("cpu_fallback")).toBool(true));
+
+        QString source;
+        const QJsonArray cells = root.value(QStringLiteral("cells")).toArray();
+        QVERIFY(cells.size() >= 4);
+        for (const QJsonValue &cellValue : cells) {
+            const QJsonArray lines = cellValue.toObject().value(QStringLiteral("source")).toArray();
+            for (const QJsonValue &line : lines) source += line.toString();
+        }
+        QVERIFY2(source.contains(expected.adapterNeedle), qPrintable(expected.notebook));
+        QVERIFY(source.contains(QStringLiteral("MODEL_ID = \"%1\"").arg(expected.model)));
+        QVERIFY(source.contains(QStringLiteral("if not torch.cuda.is_available()")));
+        QVERIFY(source.contains(QStringLiteral("@app.post(\"/v1/audio/alignments\")")));
+        QVERIFY(source.contains(QStringLiteral("@app.get(\"/v1/capabilities\")")));
+        QVERIFY(source.contains(QStringLiteral("\"id\": \"forced-alignment\"")));
+        QVERIFY(source.contains(QStringLiteral("\"device\": \"cuda\"")));
+        QVERIFY(source.contains(QStringLiteral("require_exact_model(model)")));
+        QVERIFY(source.contains(QStringLiteral("status_code=409")));
+        QVERIFY(source.contains(QStringLiteral("MAX_UPLOAD_BYTES = 512 * 1024 * 1024")));
+        QVERIFY(source.contains(QStringLiteral("MAX_AUDIO_SECONDS = 300")));
+        QVERIFY(source.contains(QStringLiteral("REQUEST_SLOTS = threading.BoundedSemaphore(1)")));
+        QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_ALIGNMENT_URL")));
+        QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_ALIGNMENT_TOKEN")));
+        QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_ALIGNMENT_MODEL")));
+        QVERIFY(source.contains(QStringLiteral("cloudflared")));
+        QVERIFY(!source.contains(QStringLiteral("API_GATEWAY")));
     }
-    QVERIFY(source.contains(QStringLiteral("qwen-asr")));
-    QVERIFY(source.contains(QStringLiteral("if not torch.cuda.is_available()")));
-    QVERIFY(source.contains(QStringLiteral("@app.post('/v1/audio/alignments')")));
-    QVERIFY(source.contains(QStringLiteral("@app.get('/v1/capabilities')")));
-    QVERIFY(source.contains(QStringLiteral("'id': 'forced-alignment'")));
-    QVERIFY(source.contains(QStringLiteral("'device': 'cuda'")));
-    QVERIFY(source.contains(QStringLiteral("MAX_UPLOAD_BYTES = 512 * 1024 * 1024")));
-    QVERIFY(source.contains(QStringLiteral("MAX_AUDIO_SECONDS = 300")));
-    QVERIFY(source.contains(QStringLiteral("ALLOWED_CONTENT_TYPES")));
-    QVERIFY(source.contains(QStringLiteral("REQUEST_SLOTS = threading.BoundedSemaphore(1)")));
-    QVERIFY(source.contains(QStringLiteral("media_duration_seconds")));
-    QVERIFY(source.contains(QStringLiteral("status_code=415")));
-    QVERIFY(source.contains(QStringLiteral("status_code=429")));
-    QVERIFY(source.contains(QStringLiteral("await audio.read(1024 * 1024)")));
-    QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_ALIGNMENT_URL")));
-    QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_ALIGNMENT_TOKEN")));
-    QVERIFY(source.contains(QStringLiteral("cloudflared")));
-    QVERIFY(!source.contains(QStringLiteral("API_GATEWAY")));
+    QVERIFY(controller.notebookForColabModel(QStringLiteral("not-a-model")).isEmpty());
+
+    ColabSession session;
+    QString error;
+    QVERIFY(session.setSession(QStringLiteral("http://127.0.0.1:3923"),
+                               QStringLiteral("temporary-token"), &error, true));
+    ColabAlignmentController sessionController(&session, nullptr);
+    QVERIFY(sessionController.selectColabModel(QStringLiteral("canary-ctc-aligner")));
+    QVERIFY2(!session.isActive(), "Changing the alignment model must discard the previous model worker.");
+
+    QFile page(QDir(QStringLiteral(LASTUDIO_SOURCE_DIR)).filePath(QStringLiteral("qml/pages/AlignmentPage.qml")));
+    QVERIFY(page.open(QIODevice::ReadOnly));
+    const QByteArray pageSource = page.readAll();
+    QVERIFY(pageSource.contains("colabModelSelectionEnabled: true"));
+    QVERIFY(pageSource.contains("AppController.colabAlignment.selectColabModel(familyId)"));
+
+    QFile settings(QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
+                       .filePath(QStringLiteral("qml/components/alignment/AlignmentSetupPanel.qml")));
+    QVERIFY(settings.open(QIODevice::ReadOnly));
+    const QByteArray settingsSource = settings.readAll();
+    QVERIFY(settingsSource.contains("AppController.colabAlignment.colabNotebookFile"));
+    QVERIFY(settingsSource.contains("Selected Colab model"));
 }
 
 } // namespace LAStudio

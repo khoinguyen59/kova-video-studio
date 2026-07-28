@@ -49,6 +49,55 @@ bool ColabAlignmentController::colabConnected() const
     return m_session && m_session->isActive();
 }
 
+QString ColabAlignmentController::notebookForColabModel(const QString &model) const
+{
+    const QString normalized = model.trimmed().toLower();
+    if (normalized == QStringLiteral("wav2vec2-aligner-zh"))
+        return QStringLiteral("LA_STUDIO_ALIGNMENT_WAV2VEC2_ZH_GPU.ipynb");
+    if (normalized == QStringLiteral("canary-ctc-aligner"))
+        return QStringLiteral("LA_STUDIO_ALIGNMENT_CANARY_CTC_GPU.ipynb");
+    if (normalized == QStringLiteral("mms-forced-aligner-onnx"))
+        return QStringLiteral("LA_STUDIO_ALIGNMENT_MMS_ONNX_GPU.ipynb");
+    if (normalized == QStringLiteral("qwen3-forced-aligner-0.6b"))
+        return QStringLiteral("LA_STUDIO_ALIGNMENT_QWEN3_0_6B_GPU.ipynb");
+    return {};
+}
+
+QString ColabAlignmentController::colabNotebookFile() const
+{
+    return notebookForColabModel(m_model);
+}
+
+void ColabAlignmentController::setModel(const QString &model)
+{
+    const QString normalized = model.trimmed().toLower();
+    if (notebookForColabModel(normalized).isEmpty()) {
+        setError(QStringLiteral("No Colab notebook is mapped for forced-alignment model '%1'.").arg(model));
+        return;
+    }
+    if (normalized == m_model) return;
+    cancel();
+    clearResult();
+    if (m_session && m_session->isActive()) {
+        m_colabActive = false;
+        m_session->clear();
+        emit colabStateChanged();
+    }
+    m_model = normalized;
+    emit modelChanged();
+}
+
+bool ColabAlignmentController::selectColabModel(const QString &model)
+{
+    const QString normalized = model.trimmed().toLower();
+    if (notebookForColabModel(normalized).isEmpty()) {
+        setError(QStringLiteral("No Colab notebook is mapped for forced-alignment model '%1'.").arg(model));
+        return false;
+    }
+    setModel(normalized);
+    return m_model == normalized;
+}
+
 bool ColabAlignmentController::connectColab(const QString &workerUrl, const QString &bearerToken)
 {
     if (!m_session) {
@@ -118,7 +167,9 @@ bool ColabAlignmentController::runAlignment(const QString &audioPath, const QStr
     request.transcript = transcript.trimmed();
     request.language = language.trimmed().isEmpty() ? QStringLiteral("en") : language.trimmed();
     request.outputFormat = outputFormat.trimmed().isEmpty() ? QStringLiteral("json") : outputFormat.trimmed();
+    request.model = m_model;
     request.cancellation = InferenceCancellationToken(m_cancellation);
+    m_activeSessionRevision = m_sessionRevision;
     QMetaObject::invokeMethod(m_runner, "align", Qt::QueuedConnection,
                               Q_ARG(ColabAlignmentRequest, request));
     return true;
@@ -185,6 +236,7 @@ int ColabAlignmentController::karaokeLineIndexAt(double seconds) const
 
 void ColabAlignmentController::onSessionChanged()
 {
+    ++m_sessionRevision;
     if (m_processing) cancel();
     if (m_settings && m_settings->remoteFirstMode() && colabConnected()) {
         m_colabActive = true;
@@ -220,6 +272,13 @@ void ColabAlignmentController::onRunnerProgress(int percent)
 void ColabAlignmentController::onRunnerFinished(const ColabAlignmentResult &result)
 {
     if (!m_processing || (m_cancellation && m_cancellation->load(std::memory_order_relaxed))) return;
+    if (m_activeSessionRevision != m_sessionRevision) {
+        m_processing = false;
+        m_progress = 0;
+        m_statusText = QStringLiteral("Colab worker changed; discarded the previous alignment");
+        emit stateChanged();
+        return;
+    }
     m_processing = false;
     m_progress = 100;
     m_statusText = QStringLiteral("Colab alignment completed");
@@ -237,6 +296,11 @@ void ColabAlignmentController::onRunnerFailed(const QString &error)
     const bool wasProcessing = m_processing;
     m_processing = false;
     m_progress = 0;
+    if (m_activeSessionRevision != m_sessionRevision) {
+        m_statusText = QStringLiteral("Colab worker changed; discarded the previous alignment");
+        if (wasProcessing) emit stateChanged();
+        return;
+    }
     m_statusText = QStringLiteral("Colab alignment failed");
     if (!error.contains(QStringLiteral("cancelled"), Qt::CaseInsensitive)) {
         m_errorMessage = error;

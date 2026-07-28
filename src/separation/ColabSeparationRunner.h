@@ -14,7 +14,7 @@ struct ColabSeparationRequest {
     QString bearerToken;
     QString audioPath;
     QString outputRoot;
-    QString model = QStringLiteral("htdemucs");
+    QString model = QStringLiteral("sherpa-onnx-spleeter-2stems-fp16");
     InferenceCancellationToken cancellation;
     bool allowInsecureLocalhost = false;
 };

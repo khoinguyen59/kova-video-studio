@@ -46,6 +46,51 @@ bool ColabVoiceIsolatorController::colabConnected() const
     return m_session && m_session->isActive();
 }
 
+QString ColabVoiceIsolatorController::notebookForColabModel(const QString &model) const
+{
+    const QString normalized = model.trimmed().toLower();
+    if (normalized == QStringLiteral("sherpa-onnx-spleeter-2stems-fp16"))
+        return QStringLiteral("LA_STUDIO_SEPARATION_SPLEETER_2STEMS_GPU.ipynb");
+    if (normalized == QStringLiteral("sherpa-onnx-uvr-vocals-ft"))
+        return QStringLiteral("LA_STUDIO_SEPARATION_UVR_VOCALS_GPU.ipynb");
+    return {};
+}
+
+QString ColabVoiceIsolatorController::colabNotebookFile() const
+{
+    return notebookForColabModel(m_model);
+}
+
+void ColabVoiceIsolatorController::setModel(const QString &model)
+{
+    const QString normalized = model.trimmed().toLower();
+    if (notebookForColabModel(normalized).isEmpty()) {
+        setError(QStringLiteral("No Colab notebook is mapped for voice-isolation model '%1'.").arg(model));
+        return;
+    }
+    if (normalized == m_model) return;
+    cancel();
+    clearResult();
+    if (m_session && m_session->isActive()) {
+        m_colabActive = false;
+        m_session->clear();
+        emit colabStateChanged();
+    }
+    m_model = normalized;
+    emit modelChanged();
+}
+
+bool ColabVoiceIsolatorController::selectColabModel(const QString &model)
+{
+    const QString normalized = model.trimmed().toLower();
+    if (notebookForColabModel(normalized).isEmpty()) {
+        setError(QStringLiteral("No Colab notebook is mapped for voice-isolation model '%1'.").arg(model));
+        return false;
+    }
+    setModel(normalized);
+    return m_model == normalized;
+}
+
 void ColabVoiceIsolatorController::setSourcePath(const QString &path)
 {
     const QString normalized = PathUtils::urlToLocalPath(path);
@@ -101,7 +146,9 @@ void ColabVoiceIsolatorController::isolate(bool)
     request.bearerToken = m_session->bearerTokenForRequest();
     request.audioPath = m_sourcePath;
     request.outputRoot = m_tempDir->path();
+    request.model = m_model;
     request.cancellation = InferenceCancellationToken(m_cancellation);
+    m_activeSessionRevision = m_sessionRevision;
     QMetaObject::invokeMethod(m_runner, "separate", Qt::QueuedConnection,
                               Q_ARG(ColabSeparationRequest, request));
 }
@@ -145,6 +192,7 @@ void ColabVoiceIsolatorController::openRecent(const QString &vocalsPath, const Q
 
 void ColabVoiceIsolatorController::onSessionChanged()
 {
+    ++m_sessionRevision;
     if (m_processing) cancel();
     if (m_settings && m_settings->remoteFirstMode() && colabConnected()) {
         m_colabActive = true;
@@ -171,6 +219,13 @@ void ColabVoiceIsolatorController::onRunnerProgress(int percent)
 void ColabVoiceIsolatorController::onRunnerFinished(const ColabSeparationResult &result)
 {
     if (!m_processing || (m_cancellation && m_cancellation->load(std::memory_order_relaxed))) return;
+    if (m_activeSessionRevision != m_sessionRevision) {
+        m_processing = false;
+        m_progress = 0;
+        m_warning = QStringLiteral("Colab worker changed; discarded the previous separation result.");
+        emit stateChanged();
+        return;
+    }
     m_processing = false; m_progress = 100; m_lastError.clear();
     m_vocalsPath = result.vocalsPath; m_backgroundPath = result.backgroundPath;
     loadSamples(m_vocalsPath, &m_vocalsSamples, true);
@@ -185,6 +240,11 @@ void ColabVoiceIsolatorController::onRunnerFailed(const QString &error)
 {
     const bool wasProcessing = m_processing;
     m_processing = false; m_progress = 0;
+    if (m_activeSessionRevision != m_sessionRevision) {
+        m_warning = QStringLiteral("Colab worker changed; discarded the previous separation result.");
+        if (wasProcessing) emit stateChanged();
+        return;
+    }
     if (!error.contains(QStringLiteral("cancelled"), Qt::CaseInsensitive)) {
         m_lastError = error;
         emit errorOccurred(error);

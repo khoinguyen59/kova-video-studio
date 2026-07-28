@@ -16,7 +16,7 @@ must never be sent through Gateway.
 | --- | --- | --- |
 | Portable launch stability | Pass for the prior `0.0.0.5` package | The packaged EXE remained alive and responsive at 5, 10, 20, and 30 seconds (about 273 MB working set). |
 | Existing automated suite | Pass before the new audit fixes | `ctest --test-dir out/build/windows-msvc-release --output-on-failure`: **34/34** tests passed, including all Colab runners, Gateway TTS, remote contract and QML route smoke. |
-| Notebook packaging | Pass | All 7 source notebooks are present in `out/LA-Studio-0.0.0.5/docs/colab-notebooks`. |
+| Notebook source inventory | Pass for current source | 34 source notebooks are present, including exact-model workers for STT, TTS, Voice Clone, Voice Design, Forced Alignment and Voice Isolation. The prior `0.0.0.5` package predates this inventory and is not acceptance evidence. |
 | Notebook-to-feature mapping | Pass | STT, TTS, Clone, Design, Alignment, Isolation, Translation and Chat panels reference the intended notebook names. |
 | Current source compile and test suite | Pass | Rebuilt with the MSVC environment; `ctest --test-dir out/build/windows-msvc-release --output-on-failure` passed **34/34** after the stability changes. |
 | Current remote UI contract gate | Pass | `scripts/verify_remote_feature_surface.ps1` verified **8/8** direct Colab routes, including notebook, URL/token fields, CUDA guard and endpoint surface. |
@@ -37,8 +37,8 @@ feature regression pass is complete.
 | Text to Speech | `LA_STUDIO_VOICE_GPU.ipynb`; `kokoro`, listed voices/languages | `/v1/audio/speech` | Separate Gateway and Colab URL/token/model/voice fields | Needs live smoke. Only Kokoro is covered by this Colab worker. |
 | Voice Cloning | Six exact-model notebooks for OmniVoice, Qwen3 Base 0.6B/1.7B, VieNeu v2/v3 Turbo and VoxCPM2; profile and generation requests both carry the model ID | No supported Gateway adapter in this codebase | Gallery action opens the exact notebook; settings show selected model, notebook, URL/token, consent and profile fields | Source contract, compile, QML and desktop HTTP tests pass; each model still needs a consented live Colab GPU generation. |
 | Voice Design | Three exact-model notebooks for OmniVoice, Qwen3 VoiceDesign 1.7B and VoxCPM2 | No supported Gateway adapter in this codebase | Gallery action opens the exact notebook; settings show selected model/notebook and URL/token | Source contract, compile, QML and desktop HTTP tests pass; each model still needs live Colab GPU generation. |
-| Forced Alignment | `LA_STUDIO_ALIGNMENT_GPU.ipynb`; `qwen3-forced-aligner-0.6b` | No supported Gateway adapter in this codebase | Colab notebook, URL/token and alignment options | Needs live audio + transcript test. |
-| Voice Isolation | `LA_STUDIO_SEPARATION_GPU.ipynb`; `htdemucs` | No supported Gateway adapter in this codebase | Colab notebook, URL/token and separation workflow | Needs live stem-artifact test. |
+| Forced Alignment | Four exact-model workers: Wav2Vec2 Chinese, Canary CTC, MMS ONNX and Qwen3 Forced Aligner 0.6B | No supported Gateway adapter in this codebase | Gallery selection opens the exact notebook; settings show selected model/notebook, model-valid language choices, URL/token and alignment options | Source contract, compile, QML and desktop HTTP tests pass; every model still needs a live Colab GPU audio + transcript test. |
+| Voice Isolation | Two exact-model workers: Spleeter 2-stem FP16 and UVR Vocals FT | No supported Gateway adapter in this codebase | Gallery selection opens the exact notebook; settings show selected model/notebook, URL/token and output workflow | Source contract, compile, QML and desktop HTTP tests pass; both models still need a live Colab GPU stem-artifact test. |
 | Translation | `LA_STUDIO_LANGUAGE_GPU.ipynb`; `m2m100-418m` | Gateway chat-completions route with strict JSON patch validation | Independent Gateway and Colab URL/token/model fields | Needs live translation and error-contract tests. |
 | LLM Chat | `LA_STUDIO_LANGUAGE_GPU.ipynb`; `qwen2.5-1.5b-instruct`, `qwen2.5-3b-instruct` | Gateway chat-completions route | Independent Gateway and Colab URL/token/model fields | Needs live streaming response/cancel test. |
 | Video Dubbing | Reuses Separation, STT, Translation and TTS workers per node | Per-node Gateway option for compatible STT/translation/TTS paths | Per-node route selector plus inline Gateway/Colab dialog | Needs complete source-to-export live workflow after the individual routes pass. |
@@ -49,8 +49,9 @@ or cosmetic API option would be a UX defect, not feature coverage.
 
 ## Notebook contract findings
 
-All seven notebooks were read directly.  Each one has the following required
-properties:
+The active exact-model notebooks and retained legacy notebooks were inspected.
+The exact-model notebooks used by the current feature routes have the following
+required properties:
 
 - Rejects CPU fallback and checks CUDA before serving requests.
 - Creates a fresh random bearer token for the current Colab runtime.
