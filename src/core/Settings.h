@@ -236,7 +236,7 @@ private:
     QString m_gatewaySttModel;
     QString m_gatewayTtsModel;
     QString m_gatewayTtsVoice;
-    bool m_remoteFirstMode = true;
+    bool m_remoteFirstMode = false;
     bool m_automaticUpdateChecks;
     bool m_updateCheckConsentAsked;
     bool m_onboardingComplete = false;

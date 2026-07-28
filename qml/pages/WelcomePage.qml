@@ -112,7 +112,7 @@ Rectangle {
             spacing: Theme.paddingMedium
             Text {
                 Layout.fillWidth: true
-                text: qsTr("LA Studio uses independent API Gateway and direct Colab GPU routes by default. Local Dev models are optional and never downloaded automatically.")
+                text: qsTr("LA Studio starts with local CPU processing and no required API configuration. For GPU features, connect the direct Colab worker from that feature's settings using its temporary URL and token.")
                 color: Theme.textSecondary
                 wrapMode: Text.WordWrap
             }

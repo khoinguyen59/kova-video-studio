@@ -24,6 +24,29 @@ bool ColabSession::isActive() const
     return m_endpoint.isValid() && !m_bearerToken.isEmpty();
 }
 
+bool ColabSession::connectTemporaryWorker(const QString &workerUrl,
+                                          const QString &bearerToken)
+{
+    QString error;
+    if (!setSession(workerUrl, bearerToken, &error)) {
+        if (m_lastError != error) {
+            m_lastError = error;
+            emit sessionErrorChanged();
+        }
+        return false;
+    }
+    if (!m_lastError.isEmpty()) {
+        m_lastError.clear();
+        emit sessionErrorChanged();
+    }
+    return true;
+}
+
+void ColabSession::disconnectTemporaryWorker()
+{
+    clear();
+}
+
 bool ColabSession::setSession(const QString &workerUrl, const QString &bearerToken,
                               QString *errorMessage, bool allowInsecureLocalhost)
 {
@@ -42,6 +65,10 @@ bool ColabSession::setSession(const QString &workerUrl, const QString &bearerTok
     const bool changed = m_endpoint != validated.normalizedUrl || m_bearerToken != normalizedToken;
     m_endpoint = validated.normalizedUrl;
     m_bearerToken = normalizedToken;
+    if (!m_lastError.isEmpty()) {
+        m_lastError.clear();
+        emit sessionErrorChanged();
+    }
     if (changed) emit sessionChanged();
     return true;
 }
@@ -51,6 +78,10 @@ void ColabSession::clear()
     if (!m_endpoint.isValid() && m_bearerToken.isEmpty()) return;
     m_endpoint = {};
     m_bearerToken.clear();
+    if (!m_lastError.isEmpty()) {
+        m_lastError.clear();
+        emit sessionErrorChanged();
+    }
     emit sessionChanged();
 }
 

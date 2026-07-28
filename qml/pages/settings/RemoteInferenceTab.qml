@@ -94,29 +94,10 @@ ScrollView {
 
         Text {
             Layout.fillWidth: true
-            text: qsTr("Gateway and Colab are independent inference sources. Refreshing, pairing, or a failure in one never changes the other source's credentials, session, or model list.")
+            text: qsTr("Local work starts on this computer's CPU and needs no network configuration. GPU work is connected directly from the studio that needs it: paste that Colab worker's URL and temporary token there. API Gateway is optional and never starts automatically.")
             color: Theme.textSecondary
             font.pixelSize: Theme.fontSmall
             wrapMode: Text.WordWrap
-        }
-
-        SectionPanel {
-            title: qsTr("Execution policy")
-            Layout.fillWidth: true
-
-            ToggleRow {
-                Layout.fillWidth: true
-                text: qsTr("Remote-first mode")
-                checked: AppController.settings.remoteFirstMode
-                onToggled: AppController.settings.remoteFirstMode = checked
-            }
-            Text {
-                Layout.fillWidth: true
-                text: qsTr("Enabled by default: local model and runtime installers are hidden. Already-installed local development models remain available, and neither remote source falls back to them.")
-                color: Theme.textSecondary
-                font.pixelSize: Theme.fontSmall
-                wrapMode: Text.WordWrap
-            }
         }
 
         GridLayout {
@@ -126,13 +107,13 @@ ScrollView {
             rowSpacing: Theme.paddingLarge
 
             SectionPanel {
-                title: qsTr("API Gateway Models")
+                title: qsTr("Optional API Gateway Models")
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignTop
 
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("Uses only the Gateway URL and encrypted Gateway API key. The model list is fetched directly from /v1/models; no Colab worker is contacted.")
+                    text: qsTr("This is optional. Leave these fields empty to use local CPU and direct Colab GPU only. When configured, it uses only the Gateway URL and encrypted API key; no Colab worker is contacted.")
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fontSmall
                     wrapMode: Text.WordWrap
@@ -186,32 +167,35 @@ ScrollView {
             }
 
             SectionPanel {
-                title: qsTr("Active Colab GPU Models")
+                title: qsTr("Active Colab GPU Connections")
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignTop
 
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("Lists every active direct Colab worker separately by capability. Pair the STT worker here; configure other workers in their corresponding studio settings. Worker models are never merged with Gateway models or credentials.")
+                    text: qsTr("This is an overview only. Connect each GPU worker from the exact studio that uses it (Speech-to-Text, Text-to-Speech, Voice Clone, Voice Design, Isolation, Alignment, Translation, or Chat). Worker models are never merged with Gateway credentials.")
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fontSmall
                     wrapMode: Text.WordWrap
                 }
-                Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                Text { visible: false; text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 RemoteField {
                     id: colabUrl
+                    visible: false
                     text: AppController.colabSttSession.workerUrl
                     placeholderText: qsTr("https://…trycloudflare.com")
                 }
-                Text { text: qsTr("Session token"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                Text { visible: false; text: qsTr("Session token"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 RemoteField {
                     id: colabToken
+                    visible: false
                     echoMode: TextInput.Password
                     placeholderText: AppController.colabSttSession.active
                                      ? qsTr("Connected — enter to replace")
                                      : qsTr("Temporary token from Colab")
                 }
                 RowLayout {
+                    visible: false
                     Layout.fillWidth: true
                     spacing: Theme.paddingSmall
                     PrimaryButton {
@@ -233,6 +217,13 @@ ScrollView {
                         quiet: true
                         onClicked: Qt.openUrlExternally("https://colab.research.google.com/")
                     }
+                }
+                PrimaryButton {
+                    Layout.fillWidth: true
+                    text: root.remoteModels.colabRefreshing ? qsTr("Refreshing active connections...") : qsTr("Refresh active connections")
+                    iconName: "reload"
+                    enabled: !root.remoteModels.colabRefreshing
+                    onClicked: root.remoteModels.refreshColab()
                 }
                 Text {
                     visible: root.remoteModels.colabError !== ""
@@ -257,12 +248,12 @@ ScrollView {
         }
 
         SectionPanel {
-            title: qsTr("Local Dev Models")
+            title: qsTr("Local CPU Models")
             Layout.fillWidth: true
 
             Text {
                 Layout.fillWidth: true
-                text: qsTr("These are already installed local development models. Remote routes do not download them automatically and never fall back to them.")
+                text: qsTr("These installed models run on this computer's CPU. Configure a direct Colab worker at a GPU feature when that feature requires GPU acceleration.")
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fontSmall
                 wrapMode: Text.WordWrap
@@ -288,7 +279,7 @@ ScrollView {
                         anchors.verticalCenter: parent.verticalCenter
                         anchors.margins: Theme.paddingMedium
                         Text { Layout.fillWidth: true; text: model.id; color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; elide: Text.ElideRight }
-                        Text { text: qsTr("Local Dev"); color: Theme.textSecondary; font.pixelSize: 10; font.bold: true }
+                        Text { text: qsTr("Local CPU"); color: Theme.textSecondary; font.pixelSize: 10; font.bold: true }
                     }
                 }
             }

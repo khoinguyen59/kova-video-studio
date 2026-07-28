@@ -12,6 +12,7 @@ private slots:
     void remoteEndpointsRequireHttpsByDefault();
     void apiGatewayEndpointNormalizesV1Url();
     void colabSessionIsMemoryOnlyAndCanBeCleared();
+    void temporaryColabWorkerWrapperValidatesAndRemainsEphemeral();
     void appControllerScopesColabSessionsPerCapability();
     void gatewayCredentialUsesDedicatedSecureStoreEntry();
     void remoteFirstModeIsExplicitAndPersistent();

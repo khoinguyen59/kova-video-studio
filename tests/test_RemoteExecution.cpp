@@ -168,6 +168,27 @@ void TestRemoteExecution::colabSessionIsMemoryOnlyAndCanBeCleared()
     QVERIFY(session.bearerTokenForRequest().isEmpty());
 }
 
+void TestRemoteExecution::temporaryColabWorkerWrapperValidatesAndRemainsEphemeral()
+{
+    ColabSession session;
+    QVERIFY(!session.connectTemporaryWorker(QStringLiteral("not-a-worker-url"),
+                                            QStringLiteral("temporary-colab-token")));
+    QVERIFY(!session.lastError().isEmpty());
+    QVERIFY(!session.isActive());
+
+    QVERIFY(session.connectTemporaryWorker(QStringLiteral("https://worker.example.test"),
+                                           QStringLiteral("temporary-colab-token")));
+    QVERIFY(session.lastError().isEmpty());
+    QVERIFY(session.isActive());
+
+    QSettings settings(PathUtils::dataDir() + QStringLiteral("/settings.ini"), QSettings::IniFormat);
+    QVERIFY(!settings.contains(QStringLiteral("remote/colabWorkerUrl")));
+    QVERIFY(!settings.contains(QStringLiteral("secrets/colab-worker")));
+
+    session.disconnectTemporaryWorker();
+    QVERIFY(!session.isActive());
+}
+
 void TestRemoteExecution::appControllerScopesColabSessionsPerCapability()
 {
     AppController *app = AppController::instance();

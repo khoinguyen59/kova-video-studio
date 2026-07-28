@@ -10,12 +10,18 @@ credentials between them, or treats a failure on one route as permission to use
 the other. Selecting a route changes only the route for the current feature.
 Disconnecting a route does not alter the other route's configuration or session.
 
-## Remote-first mode
+## Local CPU and direct Colab GPU
 
-Remote-first mode is enabled by default. It prevents automatic local model
-downloads and local inference for the supported heavy capabilities. Local Dev is
-available only after explicitly disabling Remote-first mode, for development or
-offline comparison.
+LA Studio starts without a remote route. Installed local models run on the
+computer's CPU, and no API URL, API key, or Colab token is needed to open the
+application or use those local capabilities. Local GPU offload is disabled.
+
+When a feature requires GPU acceleration, open that feature's own settings,
+run its matching Colab notebook, then paste the temporary worker URL and bearer
+token into the Colab fields shown there. Connecting a worker selects direct
+Colab GPU only for that feature; it does not change any other feature's route.
+The general GPU & Optional API page is an overview of already-connected workers,
+not the place where workers are paired.
 
 ## API Gateway
 
@@ -40,7 +46,7 @@ after a notebook or Colab runtime reset.
 Each capability has its own in-memory Colab session. Pairing a TTS, alignment,
 translation, or voice worker never replaces the URL/token paired for another
 capability; this is necessary because their notebooks may run as distinct
-temporary Colab workers. The Remote Inference settings catalog aggregates the
+temporary Colab workers. The GPU & Optional API settings catalog aggregates the
 models advertised by every active worker, preserving the capability and worker
 source of each entry; it never combines their tokens or routes.
 
@@ -90,11 +96,11 @@ requires a consented reference recording and must not use an unconsented sample.
 
 ## Selecting a route
 
-For each capability, choose either **API Gateway** or **Colab GPU** in that
-studio. Both can be configured at the same time, but only the selected route is
-used for a request. For example, in Speech-to-Text a paired Colab worker remains
-paired when Gateway is selected; turning off Gateway leaves no selected remote
-route until the user explicitly selects Colab again.
+For a GPU capability, use **Colab GPU** in that studio. The Worker URL and
+Session token fields are immediately next to the GPU configuration so the model
+and its execution location are set together. API Gateway remains an optional,
+independent route for a later deployment; leaving its fields empty never blocks
+local CPU or direct Colab GPU work.
 
 Video Dubbing composes the same feature controllers. Each stage uses its chosen
 provider directly, and a failed stage reports that provider's error without

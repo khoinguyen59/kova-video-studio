@@ -15,6 +15,7 @@ class ColabSession : public QObject {
 
     Q_PROPERTY(QString workerUrl READ workerUrl NOTIFY sessionChanged)
     Q_PROPERTY(bool active READ isActive NOTIFY sessionChanged)
+    Q_PROPERTY(QString lastError READ lastError NOTIFY sessionErrorChanged)
 
 public:
     explicit ColabSession(QObject *parent = nullptr);
@@ -22,6 +23,14 @@ public:
     QString workerUrl() const;
     QUrl endpoint() const;
     bool isActive() const;
+    QString lastError() const { return m_lastError; }
+
+    // Feature-local QML, including the dubbing workflow nodes, uses this
+    // wrapper to pair a temporary Colab worker without ever exposing or
+    // persisting its bearer token.
+    Q_INVOKABLE bool connectTemporaryWorker(const QString &workerUrl,
+                                            const QString &bearerToken);
+    Q_INVOKABLE void disconnectTemporaryWorker();
 
     // HTTP is rejected by default. The final argument exists only for loopback
     // contract tests; production callers must not opt into it.
@@ -34,10 +43,12 @@ public:
 
 signals:
     void sessionChanged();
+    void sessionErrorChanged();
 
 private:
     QUrl m_endpoint;
     QString m_bearerToken;
+    QString m_lastError;
 };
 
 } // namespace LAStudio

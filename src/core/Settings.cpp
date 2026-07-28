@@ -19,7 +19,10 @@ namespace LAStudio {
 
 namespace {
 
-constexpr int kSettingsSchemaVersion = 1;
+// Schema 2 deliberately moves existing installations to the same safe
+// execution policy as a fresh install: CPU for local work and no implicit
+// remote route. GPU work is selected explicitly from the relevant Colab panel.
+constexpr int kSettingsSchemaVersion = 2;
 
 QString settingsFilePath()
 {
@@ -191,6 +194,14 @@ Settings::Settings(QObject *parent)
                           QStringLiteral("Settings schema version %1 is newer than this application supports (%2)")
                               .arg(storedVersion).arg(kSettingsSchemaVersion));
         } else if (storedVersion < kSettingsSchemaVersion) {
+            if (storedVersion < 2) {
+                // Older builds defaulted to remote-first and could retain a
+                // local GPU cache-offload preference. Neither is appropriate
+                // for the CPU-local / Colab-GPU workflow.
+                m_settings.setValue(QStringLiteral("engine/device"), QStringLiteral("cpu"));
+                m_settings.setValue(QStringLiteral("hardware/offloadKvCache"), false);
+                m_settings.setValue(QStringLiteral("remote/remoteFirstMode"), false);
+            }
             m_settings.setValue(QStringLiteral("meta/schemaVersion"), kSettingsSchemaVersion);
             m_settings.sync();
             if (m_settings.status() != QSettings::NoError) {
@@ -202,7 +213,10 @@ Settings::Settings(QObject *parent)
     }
 
     // Initialize cached values from QSettings
-    m_device = m_settings.value(QStringLiteral("engine/device"), QStringLiteral("cpu")).toString();
+    // Local execution is intentionally CPU-only. GPU workloads are run by the
+    // direct Colab workers configured at the feature that needs them.
+    m_device = QStringLiteral("cpu");
+    m_settings.setValue(QStringLiteral("engine/device"), m_device);
     m_threads = m_settings.value(QStringLiteral("engine/threads"), 4).toInt();
     m_language = m_settings.value(QStringLiteral("engine/language"), QStringLiteral("en")).toString();
     m_uiLanguage = m_settings.value(QStringLiteral("ui/language"), QStringLiteral("en")).toString();
@@ -238,7 +252,8 @@ Settings::Settings(QObject *parent)
     m_sttLanguage = m_settings.value(QStringLiteral("stt/language"), QStringLiteral("auto")).toString();
     m_sttThreads = m_settings.value(QStringLiteral("stt/threads"), 0).toInt();
     m_sttTranslate = m_settings.value(QStringLiteral("stt/translate"), false).toBool();
-    m_offloadKvCache = m_settings.value(QStringLiteral("hardware/offloadKvCache"), true).toBool();
+    m_offloadKvCache = false;
+    m_settings.setValue(QStringLiteral("hardware/offloadKvCache"), false);
     m_guardrailMode = m_settings.value(QStringLiteral("hardware/guardrailMode"), 3).toInt(); // Default to Strict (index 3)
     m_apiServerEnabled = m_settings.value(QStringLiteral("api/serverEnabled"), false).toBool();
     m_apiServerAllowLan = m_settings.value(QStringLiteral("api/serverAllowLan"), false).toBool();
@@ -261,9 +276,9 @@ Settings::Settings(QObject *parent)
     m_gatewaySttModel = m_settings.value(QStringLiteral("remote/gatewaySttModel"), QString()).toString().trimmed();
     m_gatewayTtsModel = m_settings.value(QStringLiteral("remote/gatewayTtsModel"), QString()).toString().trimmed();
     m_gatewayTtsVoice = m_settings.value(QStringLiteral("remote/gatewayTtsVoice"), QStringLiteral("alloy")).toString().trimmed();
-    // New installs use remote sources by default. Local development downloads
-    // remain an explicit opt-in and are never selected as a remote fallback.
-    m_remoteFirstMode = m_settings.value(QStringLiteral("remote/remoteFirstMode"), true).toBool();
+    // Local CPU is always usable without any API or remote-worker setup. A
+    // feature switches to its Colab GPU worker only when the user connects it.
+    m_remoteFirstMode = m_settings.value(QStringLiteral("remote/remoteFirstMode"), false).toBool();
     // Network activity must be an explicit choice. Existing installs without
     // this key therefore default to no automatic update request.
     m_automaticUpdateChecks = m_settings.value(QStringLiteral("updates/automaticChecks"), false).toBool();
@@ -283,9 +298,11 @@ QString Settings::device() const
 
 void Settings::setDevice(const QString &v)
 {
-    if (m_device != v) {
-        m_device = v;
-        m_settings.setValue(QStringLiteral("engine/device"), v);
+    Q_UNUSED(v);
+    const QString cpu = QStringLiteral("cpu");
+    if (m_device != cpu) {
+        m_device = cpu;
+        m_settings.setValue(QStringLiteral("engine/device"), cpu);
         m_settings.sync();
         emit deviceChanged();
     }
@@ -556,9 +573,10 @@ bool Settings::offloadKvCache() const
 
 void Settings::setOffloadKvCache(bool v)
 {
-    if (m_offloadKvCache != v) {
-        m_offloadKvCache = v;
-        m_settings.setValue(QStringLiteral("hardware/offloadKvCache"), v);
+    Q_UNUSED(v);
+    if (m_offloadKvCache) {
+        m_offloadKvCache = false;
+        m_settings.setValue(QStringLiteral("hardware/offloadKvCache"), false);
         m_settings.sync();
         emit offloadKvCacheChanged();
     }

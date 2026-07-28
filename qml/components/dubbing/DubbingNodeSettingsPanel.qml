@@ -108,6 +108,8 @@ Rectangle {
                 root.dubbing.setWorkflowNodeParameters(root.nodeId,
                                                        { "executionProvider": model[index].id,
                                                          "modelId": "" })
+                if (model[index].id !== "local-dev")
+                    root.openRemoteConfiguration(model[index].id)
             }
         }
         ComboBox {
@@ -158,6 +160,165 @@ Rectangle {
             font.pixelSize: 10
             wrapMode: Text.WordWrap
         }
+        PrimaryButton {
+            visible: translationProvider.currentIndex !== 0
+            text: qsTr("Configure route")
+            iconName: "settings"
+            quiet: true
+            enabled: !root.dubbing.processing
+            onClicked: root.openRemoteConfiguration(translationProvider.model[translationProvider.currentIndex].id)
+        }
+    }
+
+    Dialog {
+        id: apiGatewayDialog
+        parent: Overlay.overlay
+        modal: true
+        title: qsTr("API Gateway for %1").arg(root.nodeTitle)
+        width: Math.min(520, Overlay.overlay.width - Theme.paddingXL * 2)
+        anchors.centerIn: parent
+        standardButtons: Dialog.Ok | Dialog.Cancel
+
+        onOpened: {
+            apiGatewayUrl.text = AppController.settings.gatewayUrl
+            apiGatewayKey.text = ""
+            apiGatewayError.text = ""
+        }
+        onAccepted: {
+            var url = apiGatewayUrl.text.trim()
+            var key = apiGatewayKey.text.trim()
+            if (url === "") {
+                apiGatewayError.text = qsTr("Enter the API Gateway URL.")
+                apiGatewayDialog.open()
+                return
+            }
+            AppController.settings.gatewayUrl = url
+            if (key !== "") AppController.settings.setGatewayApiKey(key)
+            if (!AppController.settings.gatewayApiKeyConfigured) {
+                apiGatewayError.text = qsTr("Enter an API key, or configure one in Settings first.")
+                apiGatewayDialog.open()
+                return
+            }
+            root.updateRemoteModel(apiGatewayModel.text)
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.paddingSmall
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("Use the shared Gateway configuration below, or enter it here for this workflow. The key is stored securely on this device and is not sent to Colab.")
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontSmall
+                wrapMode: Text.WordWrap
+            }
+            Text { text: qsTr("Gateway URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+            TextField {
+                id: apiGatewayUrl
+                Layout.fillWidth: true
+                placeholderText: qsTr("https://gateway.example/v1")
+                selectByMouse: true
+            }
+            Text { text: qsTr("API key"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+            TextField {
+                id: apiGatewayKey
+                Layout.fillWidth: true
+                echoMode: TextInput.Password
+                placeholderText: AppController.settings.gatewayApiKeyConfigured
+                                 ? qsTr("Saved key available — enter to replace")
+                                 : qsTr("Enter API key")
+                selectByMouse: true
+            }
+            Text { text: qsTr("Model ID"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+            TextField {
+                id: apiGatewayModel
+                Layout.fillWidth: true
+                text: root.currentRemoteModel()
+                placeholderText: qsTr("Model exposed by the API Gateway")
+                selectByMouse: true
+            }
+            Text {
+                id: apiGatewayError
+                Layout.fillWidth: true
+                visible: text !== ""
+                color: Theme.danger
+                font.pixelSize: Theme.fontSmall
+                wrapMode: Text.WordWrap
+            }
+        }
+    }
+
+    Dialog {
+        id: colabWorkerDialog
+        parent: Overlay.overlay
+        modal: true
+        title: qsTr("Colab GPU for %1").arg(root.nodeTitle)
+        width: Math.min(520, Overlay.overlay.width - Theme.paddingXL * 2)
+        anchors.centerIn: parent
+        standardButtons: Dialog.Ok | Dialog.Cancel
+
+        onOpened: {
+            var session = root.colabSessionForNode()
+            colabWorkerUrl.text = session ? session.workerUrl : ""
+            colabWorkerToken.text = ""
+            colabWorkerModel.text = root.currentRemoteModel()
+            colabWorkerError.text = ""
+        }
+        onAccepted: {
+            var session = root.colabSessionForNode()
+            if (!session) {
+                colabWorkerError.text = qsTr("This workflow node has no Colab worker route.")
+                colabWorkerDialog.open()
+                return
+            }
+            if (!session.connectTemporaryWorker(colabWorkerUrl.text.trim(), colabWorkerToken.text)) {
+                colabWorkerError.text = session.lastError
+                colabWorkerDialog.open()
+                return
+            }
+            root.updateRemoteModel(colabWorkerModel.text)
+            colabWorkerToken.text = ""
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.paddingSmall
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("Run this GPU node directly on its matching Colab worker. The temporary URL and token stay only in memory and are never forwarded through API Gateway.")
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontSmall
+                wrapMode: Text.WordWrap
+            }
+            Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+            TextField {
+                id: colabWorkerUrl
+                Layout.fillWidth: true
+                placeholderText: qsTr("https://…trycloudflare.com")
+                selectByMouse: true
+            }
+            Text { text: qsTr("Session token"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+            TextField {
+                id: colabWorkerToken
+                Layout.fillWidth: true
+                echoMode: TextInput.Password
+                placeholderText: qsTr("Temporary token from Colab")
+                selectByMouse: true
+            }
+            Text { text: qsTr("Model ID"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+            TextField {
+                id: colabWorkerModel
+                Layout.fillWidth: true
+                placeholderText: qsTr("Model served by this Colab worker")
+                selectByMouse: true
+            }
+            Text {
+                id: colabWorkerError
+                Layout.fillWidth: true
+                visible: text !== ""
+                color: Theme.danger
+                font.pixelSize: Theme.fontSmall
+                wrapMode: Text.WordWrap
+            }
+        }
     }
 
     function modelState() { return root.node && root.node.modelState !== undefined ? root.node.modelState : 0 }
@@ -174,6 +335,31 @@ Rectangle {
         if (provider === "api-gateway") return AppController.remoteModels.gatewayAvailable
         if (provider === "colab-direct") return AppController.remoteModels.colabAvailable
         return false
+    }
+    function currentRemoteModel() {
+        return (root.node && root.node.parameters && root.node.parameters.modelId) || ""
+    }
+    function updateRemoteModel(modelId) {
+        root.dubbing.setWorkflowNodeParameters(root.nodeId,
+                                               { "modelId": modelId.trim() })
+    }
+    function colabSessionForNode() {
+        if (root.nodeId === "source-separate") return AppController.colabSeparationSession
+        if (root.nodeId === "transcribe") return AppController.colabSttSession
+        if (root.nodeId === "translate") return AppController.colabTranslationSession
+        if (root.nodeId === "synthesize") return AppController.colabTtsSession
+        return null
+    }
+    function openRemoteConfiguration(provider) {
+        if (provider === "colab-direct") {
+            colabWorkerDialog.open()
+            return
+        }
+        if (provider === "api-gateway"
+                && (AppController.settings.gatewayUrl === ""
+                    || !AppController.settings.gatewayApiKeyConfigured)) {
+            apiGatewayDialog.open()
+        }
     }
     function remoteModelOptions() {
         var provider = (root.node && root.node.parameters && root.node.parameters.executionProvider) || "local-dev"
