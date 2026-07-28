@@ -322,7 +322,13 @@ void TestSttSession::testSpeechNotebookMatchesDirectColabSttContract()
     QVERIFY(source.contains(QStringLiteral("'id': 'stt'")));
     QVERIFY(source.contains(QStringLiteral("'device': 'cuda'")));
     QVERIFY(source.contains(QStringLiteral("cpu_fallback': False")));
-    QVERIFY(source.contains(QStringLiteral("512 * 1024 * 1024")));
+    QVERIFY(source.contains(QStringLiteral("MAX_UPLOAD_BYTES = 512 * 1024 * 1024")));
+    QVERIFY(source.contains(QStringLiteral("MAX_AUDIO_SECONDS = 30 * 60")));
+    QVERIFY(source.contains(QStringLiteral("ALLOWED_CONTENT_TYPES")));
+    QVERIFY(source.contains(QStringLiteral("REQUEST_SLOTS = threading.BoundedSemaphore(1)")));
+    QVERIFY(source.contains(QStringLiteral("status_code=415")));
+    QVERIFY(source.contains(QStringLiteral("status_code=429")));
+    QVERIFY(source.contains(QStringLiteral("await file.read(1024 * 1024)")));
     QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_STT_URL")));
     QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_STT_TOKEN")));
     QVERIFY(source.contains(QStringLiteral("cloudflared")));
