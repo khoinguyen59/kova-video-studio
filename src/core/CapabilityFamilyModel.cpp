@@ -627,6 +627,8 @@ CapabilityFamilyModel::CapabilityFamilyModel(ModelManager *models, RuntimeManage
     if (m_runtimes) {
         connect(m_runtimes, &RuntimeManager::registryUpdated, this, &CapabilityFamilyModel::refresh);
     }
+    connect(HardwareManager::instance(), &HardwareManager::hardwareInfoChanged,
+            this, &CapabilityFamilyModel::refresh);
     if (m_settings) {
         connect(m_settings, &Settings::selectedTtsRuntimeChanged, this, &CapabilityFamilyModel::refresh);
         connect(m_settings, &Settings::selectedTtsRuntimeVersionChanged, this, &CapabilityFamilyModel::refresh);

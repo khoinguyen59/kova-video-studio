@@ -1,9 +1,13 @@
 #include "HardwareManager.h"
 #include "Logger.h"
 #include <QDebug>
+#include <QMutex>
+#include <QMutexLocker>
+#include <QPointer>
 #include <QSysInfo>
 #include <QStringList>
 #include <QSet>
+#include <QThreadPool>
 #include <algorithm>
 
 #ifdef Q_OS_WIN
@@ -94,22 +98,147 @@ QString driverVersionString(const LARGE_INTEGER &version)
     return QStringLiteral("%1.%2.%3.%4")
         .arg(HIWORD(high)).arg(LOWORD(high)).arg(HIWORD(low)).arg(LOWORD(low));
 }
+
+struct GpuInventory {
+    QVariantList gpus;
+    double vramTotal = 0.0;
+    bool canPollVramUsage = false;
+};
+
+bool queryIntelIntegratedInventory(GpuInventory *inventory)
+{
+    bool foundIntelAdapter = false;
+    QSet<QString> seenNames;
+    for (DWORD index = 0;; ++index) {
+        DISPLAY_DEVICEW device{};
+        device.cb = sizeof(device);
+        if (!EnumDisplayDevicesW(nullptr, index, &device, 0)) break;
+        if ((device.StateFlags & DISPLAY_DEVICE_MIRRORING_DRIVER) != 0) continue;
+
+        const QString name = QString::fromWCharArray(device.DeviceString).trimmed();
+        if (name.isEmpty()
+            || name.contains(QStringLiteral("Microsoft"), Qt::CaseInsensitive)) {
+            continue;
+        }
+        if (!name.contains(QStringLiteral("Intel"), Qt::CaseInsensitive)) {
+            return false;
+        }
+
+        const QString key = name.toCaseFolded();
+        if (seenNames.contains(key)) continue;
+        seenNames.insert(key);
+        QVariantMap gpu;
+        gpu.insert(QStringLiteral("name"), name);
+        gpu.insert(QStringLiteral("vram"), 0.0);
+        inventory->gpus.append(gpu);
+        foundIntelAdapter = true;
+    }
+    return foundIntelAdapter;
+}
+
+bool isIntelIntegratedAdapter(const DXGI_ADAPTER_DESC1 &desc)
+{
+    return QString::fromWCharArray(desc.Description)
+               .contains(QStringLiteral("Intel"), Qt::CaseInsensitive)
+        && desc.DedicatedVideoMemory < 1024ull * 1024ull * 1024ull;
+}
+
+GpuInventory queryGpuInventory()
+{
+    GpuInventory inventory;
+    IDXGIFactory1 *factory = nullptr;
+    if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1),
+                                  reinterpret_cast<void **>(&factory)))) {
+        return inventory;
+    }
+
+    IDXGIAdapter1 *adapter = nullptr;
+    for (UINT index = 0;
+         factory->EnumAdapters1(index, &adapter) != DXGI_ERROR_NOT_FOUND;
+         ++index) {
+        DXGI_ADAPTER_DESC1 desc{};
+        if (FAILED(adapter->GetDesc1(&desc)) || (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)) {
+            adapter->Release();
+            continue;
+        }
+
+        QVariantMap gpu;
+        gpu.insert(QStringLiteral("name"), QString::fromWCharArray(desc.Description));
+        gpu.insert(QStringLiteral("vram"),
+                   static_cast<double>(desc.DedicatedVideoMemory)
+                       / (1024.0 * 1024.0 * 1024.0));
+        LARGE_INTEGER driverVersion{};
+        if (SUCCEEDED(adapter->CheckInterfaceSupport(__uuidof(IDXGIDevice), &driverVersion))) {
+            gpu.insert(QStringLiteral("driverVersion"), driverVersionString(driverVersion));
+        }
+        inventory.vramTotal += gpu.value(QStringLiteral("vram")).toDouble();
+        inventory.gpus.append(gpu);
+
+        // DXGI's dynamic local-memory query is unreliable on UMA Intel adapters.
+        // The UI does not need that number to select a runtime, so do not poll it.
+        if (!isIntelIntegratedAdapter(desc)) {
+            inventory.canPollVramUsage = true;
+        }
+        adapter->Release();
+    }
+    factory->Release();
+    return inventory;
+}
+
+double queryDiscreteVramUsage()
+{
+    double vramUsed = 0.0;
+    IDXGIFactory1 *factory = nullptr;
+    if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1),
+                                  reinterpret_cast<void **>(&factory)))) {
+        return vramUsed;
+    }
+
+    IDXGIAdapter1 *adapter = nullptr;
+    for (UINT index = 0;
+         factory->EnumAdapters1(index, &adapter) != DXGI_ERROR_NOT_FOUND;
+         ++index) {
+        DXGI_ADAPTER_DESC1 desc{};
+        if (FAILED(adapter->GetDesc1(&desc)) || (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
+            || isIntelIntegratedAdapter(desc)) {
+            adapter->Release();
+            continue;
+        }
+
+        IDXGIAdapter3 *adapter3 = nullptr;
+        if (SUCCEEDED(adapter->QueryInterface(__uuidof(IDXGIAdapter3),
+                                              reinterpret_cast<void **>(&adapter3)))) {
+            DXGI_QUERY_VIDEO_MEMORY_INFO memInfo{};
+            if (SUCCEEDED(adapter3->QueryVideoMemoryInfo(
+                    0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &memInfo))) {
+                vramUsed += static_cast<double>(memInfo.CurrentUsage)
+                    / (1024.0 * 1024.0 * 1024.0);
+            }
+            adapter3->Release();
+        }
+        adapter->Release();
+    }
+    factory->Release();
+    return vramUsed;
+}
 #endif
 
 } // namespace
 
 static HardwareManager* s_instance = nullptr;
+static QMutex s_instanceMutex;
 
 HardwareManager::HardwareManager(QObject *parent) : QObject(parent) {
     s_instance = this;
     detectHardware();
-    
+
     m_usageTimer = new QTimer(this);
     connect(m_usageTimer, &QTimer::timeout, this, &HardwareManager::updateResourceUsage);
-    m_usageTimer->start(2000); // Update every 2 seconds
+    m_usageTimer->start(2000);
 }
 
 HardwareManager* HardwareManager::instance() {
+    QMutexLocker locker(&s_instanceMutex);
     if (!s_instance) {
         s_instance = new HardwareManager();
     }
@@ -324,43 +453,56 @@ void HardwareManager::detectHardware() {
         m_ramTotal = static_cast<double>(memStatus.ullTotalPhys) / (1024.0 * 1024.0 * 1024.0);
     }
 
-    // GPUs
-    m_gpus.clear();
-    m_vramTotal = 0;
-    
-    IDXGIFactory1* pFactory = nullptr;
-    if (SUCCEEDED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), (void**)&pFactory))) {
-        IDXGIAdapter1* pAdapter = nullptr;
-        for (UINT i = 0; pFactory->EnumAdapters1(i, &pAdapter) != DXGI_ERROR_NOT_FOUND; ++i) {
-            DXGI_ADAPTER_DESC1 desc;
-            pAdapter->GetDesc1(&desc);
-            
-            // Skip basic render drivers
-            if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) {
-                pAdapter->Release();
-                continue;
-            }
-
-            QVariantMap gpu;
-            gpu["name"] = QString::fromWCharArray(desc.Description);
-            gpu["vram"] = static_cast<double>(desc.DedicatedVideoMemory) / (1024.0 * 1024.0 * 1024.0);
-            LARGE_INTEGER driverVersion{};
-            if (SUCCEEDED(pAdapter->CheckInterfaceSupport(__uuidof(IDXGIDevice), &driverVersion))) {
-                gpu["driverVersion"] = driverVersionString(driverVersion);
-            }
-            m_gpus.append(gpu);
-            
-            m_vramTotal += gpu["vram"].toDouble();
-            pAdapter->Release();
-        }
-        pFactory->Release();
-    }
 #else
     m_cpuName = QSysInfo::prettyProductName();
     m_cpuArchitecture = QSysInfo::currentCpuArchitecture();
     m_cpuFlags = "Unknown";
 #endif
-    // Log detected hardware info
+    // CPU and RAM calls are cheap and need to be immediately available to the
+    // runtime chooser. DXGI can synchronously block in a graphics driver, so it
+    // is deliberately isolated from the GUI thread below.
+    scheduleGpuDetection();
+}
+
+void HardwareManager::scheduleGpuDetection()
+{
+#ifdef Q_OS_WIN
+    if (m_gpuDetectionComplete || m_gpuDetectionInFlight) return;
+    // Intel UMA adapters do not expose dedicated VRAM that affects runtime
+    // selection. Some Iris Xe drivers can indefinitely block even a simple
+    // DXGI inventory query, so keep this startup path out of DXGI entirely.
+    GpuInventory basicInventory;
+    if (queryIntelIntegratedInventory(&basicInventory)) {
+        completeGpuDetection(basicInventory.gpus, basicInventory.vramTotal, false);
+        return;
+    }
+    m_gpuDetectionInFlight = true;
+    const QPointer<HardwareManager> guard(this);
+    QThreadPool::globalInstance()->start([guard] {
+        const GpuInventory inventory = queryGpuInventory();
+        if (!guard) return;
+        QMetaObject::invokeMethod(guard.data(), [guard, inventory] {
+            if (guard) {
+                guard->completeGpuDetection(inventory.gpus, inventory.vramTotal,
+                                            inventory.canPollVramUsage);
+            }
+        }, Qt::QueuedConnection);
+    });
+#else
+    completeGpuDetection({}, 0.0, false);
+#endif
+}
+
+void HardwareManager::completeGpuDetection(const QVariantList &gpus, double vramTotal,
+                                           bool canPollVramUsage)
+{
+    if (m_gpuDetectionComplete) return;
+    m_gpuDetectionInFlight = false;
+    m_gpuDetectionComplete = true;
+    m_gpus = gpus;
+    m_vramTotal = vramTotal;
+    m_canPollVramUsage = canPollVramUsage;
+
     Logger::info(QStringLiteral("Hardware"), QStringLiteral("Hardware Detection Finished:"));
     Logger::info(QStringLiteral("Hardware"), QStringLiteral("  CPU: %1 (%2)").arg(m_cpuName, m_cpuArchitecture));
     Logger::info(QStringLiteral("Hardware"), QStringLiteral("  CPU Flags: %1").arg(m_cpuFlags));
@@ -377,7 +519,7 @@ void HardwareManager::detectHardware() {
 void HardwareManager::updateResourceUsage() {
     updateCpuUsage();
     updateRamUsage();
-    updateVramUsage();
+    scheduleVramUsageUpdate();
     emit resourceUsageChanged();
 }
 
@@ -417,35 +559,28 @@ void HardwareManager::updateRamUsage() {
 #endif
 }
 
-void HardwareManager::updateVramUsage() {
+void HardwareManager::scheduleVramUsageUpdate() {
 #ifdef Q_OS_WIN
-    m_vramUsed = 0;
-    IDXGIFactory1* pFactory = nullptr;
-    if (SUCCEEDED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), (void**)&pFactory))) {
-        IDXGIAdapter1* pAdapter = nullptr;
-        for (UINT i = 0; pFactory->EnumAdapters1(i, &pAdapter) != DXGI_ERROR_NOT_FOUND; ++i) {
-            DXGI_ADAPTER_DESC1 desc;
-            pAdapter->GetDesc1(&desc);
-            
-            if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) {
-                pAdapter->Release();
-                continue;
-            }
-
-            // For DXGI 1.4+ we can get query video memory info
-            IDXGIAdapter3* pAdapter3 = nullptr;
-            if (SUCCEEDED(pAdapter->QueryInterface(__uuidof(IDXGIAdapter3), (void**)&pAdapter3))) {
-                DXGI_QUERY_VIDEO_MEMORY_INFO memInfo;
-                if (SUCCEEDED(pAdapter3->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &memInfo))) {
-                    m_vramUsed += static_cast<double>(memInfo.CurrentUsage) / (1024.0 * 1024.0 * 1024.0);
-                }
-                pAdapter3->Release();
-            }
-            pAdapter->Release();
-        }
-        pFactory->Release();
-    }
+    if (!m_gpuDetectionComplete || !m_canPollVramUsage || m_vramUsageProbeInFlight) return;
+    m_vramUsageProbeInFlight = true;
+    const QPointer<HardwareManager> guard(this);
+    QThreadPool::globalInstance()->start([guard] {
+        const double vramUsed = queryDiscreteVramUsage();
+        if (!guard) return;
+        QMetaObject::invokeMethod(guard.data(), [guard, vramUsed] {
+            if (guard) guard->completeVramUsageUpdate(vramUsed);
+        }, Qt::QueuedConnection);
+    });
 #endif
+}
+
+void HardwareManager::completeVramUsageUpdate(double vramUsed)
+{
+    m_vramUsageProbeInFlight = false;
+    if (!qFuzzyCompare(m_vramUsed + 1.0, vramUsed + 1.0)) {
+        m_vramUsed = vramUsed;
+        emit resourceUsageChanged();
+    }
 }
 
 } // namespace LAStudio

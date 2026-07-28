@@ -54,9 +54,13 @@ private slots:
 
 private:
     void detectHardware();
+    void scheduleGpuDetection();
+    void completeGpuDetection(const QVariantList &gpus, double vramTotal,
+                              bool canPollVramUsage);
     void updateCpuUsage();
     void updateRamUsage();
-    void updateVramUsage();
+    void scheduleVramUsageUpdate();
+    void completeVramUsageUpdate(double vramUsed);
 
     QString m_cpuName;
     QString m_cpuArchitecture;
@@ -70,7 +74,11 @@ private:
     double m_vramTotal = 0;
     double m_vramUsed = 0;
 
-    QTimer* m_usageTimer;
+    QTimer* m_usageTimer = nullptr;
+    bool m_gpuDetectionComplete = false;
+    bool m_gpuDetectionInFlight = false;
+    bool m_vramUsageProbeInFlight = false;
+    bool m_canPollVramUsage = false;
     
     // For CPU usage calculation
     unsigned long long m_lastIdleTime = 0;

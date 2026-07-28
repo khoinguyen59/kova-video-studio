@@ -8,6 +8,7 @@ class TestHardwareManager final : public QObject {
     Q_OBJECT
 
 private slots:
+    void sharesOneInstanceWithQmlFactory();
     void rejectsRuntimeWithMissingRequiredCpuFeature();
 };
 
