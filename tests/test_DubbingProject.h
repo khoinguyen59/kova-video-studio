@@ -56,6 +56,8 @@ private slots:
     void colabDubbingVoiceCloningIsDirectAndRequiresConsent();
     void colabSourceSeparationDoesNotFallbackToLocal();
     void remoteDubbingWorkflowIsReadyWithoutLocalModels();
+    void dubbingColabModelsMapToExactNotebooks();
+    void dubbingUiUsesExactModelWorkers();
 };
 
 } // namespace LAStudio

@@ -105,11 +105,20 @@ Rectangle {
             }
             enabled: !root.dubbing.processing
             onActivated: function(index) {
-                root.dubbing.setWorkflowNodeParameters(root.nodeId,
-                                                       { "executionProvider": model[index].id,
-                                                         "modelId": "" })
-                if (model[index].id !== "local-dev")
-                    root.openRemoteConfiguration(model[index].id)
+                var provider = model[index].id
+                if (provider === "colab-direct") {
+                    var selected = root.currentRemoteModel()
+                    if (root.dubbing.colabNotebookForNode(root.nodeId, selected) === "")
+                        selected = root.dubbing.defaultColabModelForNode(root.nodeId)
+                    if (root.dubbing.selectWorkflowColabModel(root.nodeId, selected))
+                        root.openRemoteConfiguration(provider)
+                    return
+                }
+                root.dubbing.setWorkflowNodeParameters(
+                    root.nodeId,
+                    { "executionProvider": provider, "modelId": "" })
+                if (provider === "api-gateway")
+                    root.openRemoteConfiguration(provider)
             }
         }
         ComboBox {
@@ -125,13 +134,19 @@ Rectangle {
             }
             enabled: !root.dubbing.processing
             onActivated: function(index) {
-                root.dubbing.setWorkflowNodeParameters(root.nodeId,
-                                                       { "modelId": model[index].modelId })
+                var provider = (root.node && root.node.parameters
+                                && root.node.parameters.executionProvider) || "local-dev"
+                if (provider === "colab-direct")
+                    root.dubbing.selectWorkflowColabModel(root.nodeId,
+                                                          model[index].modelId)
+                else
+                    root.dubbing.setWorkflowNodeParameters(
+                        root.nodeId, { "modelId": model[index].modelId })
             }
         }
         TextField {
             id: translationModel
-            visible: translationProvider.currentIndex !== 0
+            visible: root.currentExecutionProvider() === "api-gateway"
                      && root.remoteModelOptions().length === 0
                      && !root.remoteCatalogAvailable()
             Layout.fillWidth: true
@@ -151,7 +166,7 @@ Rectangle {
             }
         }
         Text {
-            visible: translationProvider.currentIndex !== 0
+            visible: root.currentExecutionProvider() === "api-gateway"
                      && root.remoteModelOptions().length === 0
                      && root.remoteCatalogAvailable()
             Layout.fillWidth: true
@@ -257,13 +272,23 @@ Rectangle {
         standardButtons: Dialog.Ok | Dialog.Cancel
 
         onOpened: {
+            var selected = root.currentRemoteModel()
+            if (root.dubbing.colabNotebookForNode(root.nodeId, selected) === "") {
+                selected = root.dubbing.defaultColabModelForNode(root.nodeId)
+                root.dubbing.selectWorkflowColabModel(root.nodeId, selected)
+            }
             var session = root.colabSessionForNode()
             colabWorkerUrl.text = session ? session.workerUrl : ""
             colabWorkerToken.text = ""
-            colabWorkerModel.text = root.currentRemoteModel()
             colabWorkerError.text = ""
         }
         onAccepted: {
+            var selected = root.currentRemoteModel()
+            if (!root.dubbing.selectWorkflowColabModel(root.nodeId, selected)) {
+                colabWorkerError.text = qsTr("Select one of the exact Colab models listed for this node.")
+                colabWorkerDialog.open()
+                return
+            }
             var session = root.colabSessionForNode()
             if (!session) {
                 colabWorkerError.text = qsTr("This workflow node has no Colab worker route.")
@@ -275,7 +300,6 @@ Rectangle {
                 colabWorkerDialog.open()
                 return
             }
-            root.updateRemoteModel(colabWorkerModel.text)
             colabWorkerToken.text = ""
         }
 
@@ -304,12 +328,23 @@ Rectangle {
                 placeholderText: qsTr("Temporary token from Colab")
                 selectByMouse: true
             }
-            Text { text: qsTr("Model ID"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
-            TextField {
+            Text { text: qsTr("Exact worker model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+            Text {
                 id: colabWorkerModel
                 Layout.fillWidth: true
-                placeholderText: qsTr("Model served by this Colab worker")
-                selectByMouse: true
+                text: root.currentRemoteModel()
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fontSmall
+                wrapMode: Text.WrapAnywhere
+            }
+            Text {
+                Layout.fillWidth: true
+                text: root.colabNotebookForNode() === ""
+                      ? qsTr("Choose a model before opening Colab.")
+                      : qsTr("This notebook loads only the selected model and rejects mismatched requests.")
+                color: root.colabNotebookForNode() === "" ? Theme.warning : Theme.textSecondary
+                font.pixelSize: 10
+                wrapMode: Text.WordWrap
             }
             Text {
                 id: colabWorkerError
@@ -334,15 +369,23 @@ Rectangle {
     function remoteCatalogAvailable() {
         var provider = (root.node && root.node.parameters && root.node.parameters.executionProvider) || "local-dev"
         if (provider === "api-gateway") return AppController.remoteModels.gatewayAvailable
-        if (provider === "colab-direct") return AppController.remoteModels.colabAvailable
+        if (provider === "colab-direct") return true
         return false
     }
     function currentRemoteModel() {
         return (root.node && root.node.parameters && root.node.parameters.modelId) || ""
     }
+    function currentExecutionProvider() {
+        return (root.node && root.node.parameters
+                && root.node.parameters.executionProvider) || "local-dev"
+    }
     function updateRemoteModel(modelId) {
-        root.dubbing.setWorkflowNodeParameters(root.nodeId,
-                                               { "modelId": modelId.trim() })
+        var provider = (root.node && root.node.parameters && root.node.parameters.executionProvider) || "local-dev"
+        if (provider === "colab-direct")
+            root.dubbing.selectWorkflowColabModel(root.nodeId, modelId.trim())
+        else
+            root.dubbing.setWorkflowNodeParameters(root.nodeId,
+                                                   { "modelId": modelId.trim() })
     }
     function colabSessionForNode() {
         if (root.nodeId === "source-separate") return AppController.colabSeparationSession
@@ -352,11 +395,8 @@ Rectangle {
         return null
     }
     function colabNotebookForNode() {
-        if (root.nodeId === "source-separate") return "LA_STUDIO_SEPARATION_GPU.ipynb"
-        if (root.nodeId === "transcribe") return "LA_STUDIO_SPEECH_GPU.ipynb"
-        if (root.nodeId === "translate") return "LA_STUDIO_LANGUAGE_GPU.ipynb"
-        if (root.nodeId === "synthesize") return "LA_STUDIO_VOICE_GPU.ipynb"
-        return ""
+        return root.dubbing.colabNotebookForNode(root.nodeId,
+                                                 root.currentRemoteModel())
     }
     function openRemoteConfiguration(provider) {
         if (provider === "colab-direct") {
@@ -371,8 +411,10 @@ Rectangle {
     }
     function remoteModelOptions() {
         var provider = (root.node && root.node.parameters && root.node.parameters.executionProvider) || "local-dev"
-        var candidates = provider === "api-gateway" ? AppController.remoteModels.gatewayModels
-                       : (provider === "colab-direct" ? AppController.remoteModels.colabModels : [])
+        if (provider === "colab-direct")
+            return root.dubbing.colabModelOptionsForNode(root.nodeId)
+        var candidates = provider === "api-gateway"
+                       ? AppController.remoteModels.gatewayModels : []
         var capability = root.remoteCapabilityId()
         var options = []
         for (var i = 0; i < candidates.length; ++i) {

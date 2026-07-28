@@ -32,6 +32,14 @@ Rectangle {
     readonly property bool voiceCloningAvailable: nodeId === "synthesize"
                                                 && node
                                                 && (node.supportsVoiceCloning === true || isDirectColabSynthesis)
+    readonly property bool isRemoteTranscription: nodeId === "transcribe"
+                                                  && String(dynamicSettings.executionProvider || "local-dev").toLowerCase() !== "local-dev"
+    readonly property string voiceCloneModelId:
+        String(dynamicSettings.voiceCloneModelId
+               || dubbing.defaultColabModelForNode("voice-clone"))
+    readonly property string alignmentModelId:
+        String(dynamicSettings.alignmentModelId
+               || dubbing.defaultColabModelForNode("alignment"))
 
     signal closeRequested()
     signal rewriteSetupRequested()
@@ -197,7 +205,12 @@ Rectangle {
                                  ? root.dynamicSettings.autoSelectVoiceReference === true
                                  : root.isOmniVoice
                         enabled: !root.dubbing.processing
-                        onToggled: root.updateParameter("autoSelectVoiceReference", checked)
+                        onToggled: {
+                            root.updateParameter("autoSelectVoiceReference", checked)
+                            if (checked && root.isDirectColabSynthesis)
+                                root.dubbing.selectWorkflowColabModel(
+                                    "voice-clone", root.voiceCloneModelId)
+                        }
                     }
 
                     ToggleRow {
@@ -217,6 +230,130 @@ Rectangle {
                         color: Theme.textSecondary
                         font.pixelSize: 10
                         wrapMode: Text.WordWrap
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.paddingSmall
+                        visible: root.isDirectColabSynthesis
+                                 && root.dynamicSettings.autoSelectVoiceReference === true
+
+                        Text {
+                            text: qsTr("Voice-cloning model")
+                            color: Theme.textSecondary
+                            font.pixelSize: 10
+                        }
+                        ComboBox {
+                            Layout.fillWidth: true
+                            textRole: "displayName"
+                            model: root.dubbing.colabModelOptionsForNode("voice-clone")
+                            currentIndex: {
+                                for (var i = 0; i < model.length; ++i)
+                                    if (model[i].modelId === root.voiceCloneModelId) return i
+                                return -1
+                            }
+                            enabled: !root.dubbing.processing
+                            onActivated: function(index) {
+                                root.dubbing.selectWorkflowColabModel(
+                                    "voice-clone", model[index].modelId)
+                            }
+                        }
+                        ColabNotebookLink {
+                            notebookFile: root.dubbing.colabNotebookForNode(
+                                              "voice-clone",
+                                              root.voiceCloneModelId)
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text {
+                                Layout.fillWidth: true
+                                text: AppController.colabVoiceCloneSession.active
+                                      ? qsTr("Clone worker connected")
+                                      : qsTr("Clone worker not connected")
+                                color: AppController.colabVoiceCloneSession.active
+                                       ? Theme.success : Theme.warning
+                                font.pixelSize: 10
+                            }
+                            PrimaryButton {
+                                text: AppController.colabVoiceCloneSession.active
+                                      ? qsTr("Reconnect") : qsTr("Connect")
+                                iconName: "link"
+                                quiet: true
+                                enabled: !root.dubbing.processing
+                                onClicked: voiceCloneColabDialog.open()
+                            }
+                        }
+                    }
+                }
+
+                SettingsSection {
+                    title: qsTr("Forced alignment")
+                    iconName: "clock"
+                    visible: root.isRemoteTranscription
+
+                    ToggleRow {
+                        text: qsTr("Refine STT timestamps on Colab")
+                        checked: root.dynamicSettings.refineAlignmentWithColab === true
+                        enabled: !root.dubbing.processing
+                        onToggled: {
+                            root.updateParameter("refineAlignmentWithColab", checked)
+                            if (checked)
+                                root.dubbing.selectWorkflowColabModel(
+                                    "alignment", root.alignmentModelId)
+                        }
+                    }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.paddingSmall
+                        visible: root.dynamicSettings.refineAlignmentWithColab === true
+
+                        ComboBox {
+                            Layout.fillWidth: true
+                            textRole: "displayName"
+                            model: root.dubbing.colabModelOptionsForNode("alignment")
+                            currentIndex: {
+                                for (var i = 0; i < model.length; ++i)
+                                    if (model[i].modelId === root.alignmentModelId) return i
+                                return -1
+                            }
+                            enabled: !root.dubbing.processing
+                            onActivated: function(index) {
+                                root.dubbing.selectWorkflowColabModel(
+                                    "alignment", model[index].modelId)
+                            }
+                        }
+                        ColabNotebookLink {
+                            notebookFile: root.dubbing.colabNotebookForNode(
+                                              "alignment",
+                                              root.alignmentModelId)
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text {
+                                Layout.fillWidth: true
+                                text: AppController.colabAlignmentSession.active
+                                      ? qsTr("Alignment worker connected")
+                                      : qsTr("Alignment worker not connected")
+                                color: AppController.colabAlignmentSession.active
+                                       ? Theme.success : Theme.warning
+                                font.pixelSize: 10
+                            }
+                            PrimaryButton {
+                                text: AppController.colabAlignmentSession.active
+                                      ? qsTr("Reconnect") : qsTr("Connect")
+                                iconName: "link"
+                                quiet: true
+                                enabled: !root.dubbing.processing
+                                onClicked: alignmentColabDialog.open()
+                            }
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: qsTr("This is a separate temporary Colab worker. If disabled, Dubbing keeps the timestamps returned by STT and does not load an alignment model locally.")
+                            color: Theme.textSecondary
+                            font.pixelSize: 10
+                            wrapMode: Text.WordWrap
+                        }
                     }
                 }
 
@@ -386,6 +523,140 @@ Rectangle {
                 }
 
                 Item { Layout.fillHeight: true }
+            }
+        }
+    }
+
+    Dialog {
+        id: voiceCloneColabDialog
+        parent: Overlay.overlay
+        modal: true
+        anchors.centerIn: parent
+        width: Math.min(520, Overlay.overlay.width - Theme.paddingXL * 2)
+        title: qsTr("Voice-cloning Colab worker")
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onOpened: {
+            voiceCloneWorkerUrl.text = AppController.colabVoiceCloneSession.workerUrl
+            voiceCloneWorkerToken.text = ""
+            voiceCloneWorkerError.text = ""
+        }
+        onAccepted: {
+            if (!root.dubbing.selectWorkflowColabModel(
+                    "voice-clone", root.voiceCloneModelId)) {
+                voiceCloneWorkerError.text = qsTr("Select an exact voice-cloning model.")
+                voiceCloneColabDialog.open()
+                return
+            }
+            if (!AppController.colabVoiceCloneSession.connectTemporaryWorker(
+                    voiceCloneWorkerUrl.text.trim(),
+                    voiceCloneWorkerToken.text)) {
+                voiceCloneWorkerError.text =
+                    AppController.colabVoiceCloneSession.lastError
+                voiceCloneColabDialog.open()
+                return
+            }
+            voiceCloneWorkerToken.text = ""
+        }
+        contentItem: ColumnLayout {
+            spacing: Theme.paddingSmall
+            ColabNotebookLink {
+                notebookFile: root.dubbing.colabNotebookForNode(
+                                  "voice-clone", root.voiceCloneModelId)
+            }
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("Exact model: %1").arg(root.voiceCloneModelId)
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fontSmall
+                wrapMode: Text.WrapAnywhere
+            }
+            TextField {
+                id: voiceCloneWorkerUrl
+                Layout.fillWidth: true
+                placeholderText: qsTr("https://…trycloudflare.com")
+                selectByMouse: true
+            }
+            TextField {
+                id: voiceCloneWorkerToken
+                Layout.fillWidth: true
+                echoMode: TextInput.Password
+                placeholderText: qsTr("Temporary token from Colab")
+                selectByMouse: true
+            }
+            Text {
+                id: voiceCloneWorkerError
+                Layout.fillWidth: true
+                visible: text !== ""
+                color: Theme.danger
+                font.pixelSize: Theme.fontSmall
+                wrapMode: Text.WordWrap
+            }
+        }
+    }
+
+    Dialog {
+        id: alignmentColabDialog
+        parent: Overlay.overlay
+        modal: true
+        anchors.centerIn: parent
+        width: Math.min(520, Overlay.overlay.width - Theme.paddingXL * 2)
+        title: qsTr("Forced-alignment Colab worker")
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onOpened: {
+            alignmentWorkerUrl.text = AppController.colabAlignmentSession.workerUrl
+            alignmentWorkerToken.text = ""
+            alignmentWorkerError.text = ""
+        }
+        onAccepted: {
+            if (!root.dubbing.selectWorkflowColabModel(
+                    "alignment", root.alignmentModelId)) {
+                alignmentWorkerError.text = qsTr("Select an exact alignment model.")
+                alignmentColabDialog.open()
+                return
+            }
+            if (!AppController.colabAlignmentSession.connectTemporaryWorker(
+                    alignmentWorkerUrl.text.trim(),
+                    alignmentWorkerToken.text)) {
+                alignmentWorkerError.text =
+                    AppController.colabAlignmentSession.lastError
+                alignmentColabDialog.open()
+                return
+            }
+            alignmentWorkerToken.text = ""
+        }
+        contentItem: ColumnLayout {
+            spacing: Theme.paddingSmall
+            ColabNotebookLink {
+                notebookFile: root.dubbing.colabNotebookForNode(
+                                  "alignment", root.alignmentModelId)
+            }
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("Exact model: %1").arg(root.alignmentModelId)
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fontSmall
+                wrapMode: Text.WrapAnywhere
+            }
+            TextField {
+                id: alignmentWorkerUrl
+                Layout.fillWidth: true
+                placeholderText: qsTr("https://…trycloudflare.com")
+                selectByMouse: true
+            }
+            TextField {
+                id: alignmentWorkerToken
+                Layout.fillWidth: true
+                echoMode: TextInput.Password
+                placeholderText: qsTr("Temporary token from Colab")
+                selectByMouse: true
+            }
+            Text {
+                id: alignmentWorkerError
+                Layout.fillWidth: true
+                visible: text !== ""
+                color: Theme.danger
+                font.pixelSize: Theme.fontSmall
+                wrapMode: Text.WordWrap
             }
         }
     }

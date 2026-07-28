@@ -1,6 +1,7 @@
 # Remote feature acceptance audit
 
-**Status:** not accepted for a new release build yet.  This document is the
+**Status:** source implementation and automated contracts pass; live GPU/API
+acceptance is still required before a new release package. This document is the
 feature-by-feature gate for the API Gateway + direct Colab GPU migration.  A
 passing unit test, a successful package, or a CPU fallback is not considered
 feature acceptance on its own.
@@ -18,8 +19,10 @@ must never be sent through Gateway.
 | Existing automated suite | Pass before the new audit fixes | `ctest --test-dir out/build/windows-msvc-release --output-on-failure`: **34/34** tests passed, including all Colab runners, Gateway TTS, remote contract and QML route smoke. |
 | Notebook source inventory | Pass for current source | 38 source notebooks are present, including exact-model workers for STT, TTS, Voice Clone, Voice Design, Forced Alignment, Voice Isolation, Translation and LLM Chat. The prior `0.0.0.5` package predates this inventory and is not acceptance evidence. |
 | Notebook-to-feature mapping | Pass | STT, TTS, Clone, Design, Alignment, Isolation, Translation and Chat panels reference the intended notebook names. |
-| Current source compile and test suite | Pass | Rebuilt with the MSVC environment; `ctest --test-dir out/build/windows-msvc-release --output-on-failure` passed **34/34** after the stability changes. |
+| Current source compile and test suite | Pass | Rebuilt with the MSVC environment; `ctest --test-dir out/build/windows-msvc-release -C Release --output-on-failure` passed **34/34** after exact Dubbing routing. |
 | Current remote UI contract gate | Pass | `scripts/verify_remote_feature_surface.ps1` verified **8/8** direct Colab routes, including notebook, URL/token fields, CUDA guard and endpoint surface. |
+| Dubbing exact-route contract | Pass | **27** exact routes are mapped across isolation, STT, translation, TTS, clone and optional alignment; `TestDubbingProject` passed **52/52**. |
+| Public notebook inventory | Pass | All **27/27** exact notebooks used by Dubbing are visible on public branch `codex/remote-inference`. |
 | Model-picker stability: open | Pass | Rebuilt executable opened the STT model picker immediately; its UI rendered CPU Whisper.cpp as compatible and CUDA unavailable without loading/downloading any model. |
 | Model-picker stability: switching card | Pending rerun | The first automated switch attempt lost foreground focus to Codex; no state-changing selection is accepted as evidence. Rerun in an isolated LA Studio window is required. |
 | Live Gateway/Colab inference | Not run | There is no active `LASTUDIO_*` credential/configuration in this session. A real Gateway key and active GPU Colab sessions are required; mock/local HTTP tests cannot replace this gate. |
@@ -33,15 +36,15 @@ feature regression pass is complete.
 
 | Feature | Direct Colab notebook and advertised CUDA model(s) | API Gateway route | Current UI route surface | Acceptance state |
 | --- | --- | --- | --- | --- |
-| Speech to Text | `LA_STUDIO_SPEECH_GPU.ipynb`; worker loads `faster-whisper-large-v3` | `/v1/audio/transcriptions`; model selected from Gateway STT configuration | Notebook, URL, token and Gateway fields are in STT settings | Needs live worker + Gateway smoke; Colab model is fixed by notebook and was not visible enough in UI. |
-| Text to Speech | `LA_STUDIO_VOICE_GPU.ipynb`; `kokoro`, listed voices/languages | `/v1/audio/speech` | Separate Gateway and Colab URL/token/model/voice fields | Needs live smoke. Only Kokoro is covered by this Colab worker. |
+| Speech to Text | Four exact workers: Nemotron 3.5 ASR Streaming 0.6B, Whisper.cpp, Qwen3-ASR 0.6B and Qwen3-ASR 1.7B | `/v1/audio/transcriptions`; model selected from Gateway STT configuration | Gallery and Dubbing select the model before opening its exact notebook; independent URL/token and Gateway fields remain available | Exact source/QML/HTTP contracts pass; each model still needs live Colab GPU inference. |
+| Text to Speech | Eight exact workers: Kokoro, Kokoro Vietnamese, OmniVoice, Qwen3 CustomVoice 1.7B, VibeVoice 0.5B, VieNeu v2/v3 Turbo and VoxCPM2 | `/v1/audio/speech` | Gallery and Dubbing select the model before opening its exact notebook; model-specific defaults are shown | Exact source/QML/HTTP contracts pass; each model still needs live Colab GPU inference. |
 | Voice Cloning | Six exact-model notebooks for OmniVoice, Qwen3 Base 0.6B/1.7B, VieNeu v2/v3 Turbo and VoxCPM2; profile and generation requests both carry the model ID | No supported Gateway adapter in this codebase | Gallery action opens the exact notebook; settings show selected model, notebook, URL/token, consent and profile fields | Source contract, compile, QML and desktop HTTP tests pass; each model still needs a consented live Colab GPU generation. |
 | Voice Design | Three exact-model notebooks for OmniVoice, Qwen3 VoiceDesign 1.7B and VoxCPM2 | No supported Gateway adapter in this codebase | Gallery action opens the exact notebook; settings show selected model/notebook and URL/token | Source contract, compile, QML and desktop HTTP tests pass; each model still needs live Colab GPU generation. |
 | Forced Alignment | Four exact-model workers: Wav2Vec2 Chinese, Canary CTC, MMS ONNX and Qwen3 Forced Aligner 0.6B | No supported Gateway adapter in this codebase | Gallery selection opens the exact notebook; settings show selected model/notebook, model-valid language choices, URL/token and alignment options | Source contract, compile, QML and desktop HTTP tests pass; every model still needs a live Colab GPU audio + transcript test. |
 | Voice Isolation | Two exact-model workers: Spleeter 2-stem FP16 and UVR Vocals FT | No supported Gateway adapter in this codebase | Gallery selection opens the exact notebook; settings show selected model/notebook, URL/token and output workflow | Source contract, compile, QML and desktop HTTP tests pass; both models still need a live Colab GPU stem-artifact test. |
 | Translation | Three exact-model workers: M2M-100 418M, MADLAD-400 3B MT and Tencent Hy-MT2 1.8B | Gateway chat-completions route with strict JSON patch validation | Gallery selection opens the exact notebook; feature settings retain independent Gateway and Colab URL/token/model surfaces | Exact mapping, compile, QML, direct-worker HTTP and Gateway JSON-contract tests pass; each model still needs live Colab GPU translation. |
 | LLM Chat | Exact `Qwen3.5 2B` worker | Gateway chat-completions route using the model ID configured in Settings or this feature | Gallery selection opens the Qwen3.5 notebook; feature settings retain independent Gateway and Colab URL/token/model surfaces | Exact mapping, compile, QML, streaming/cancel and Gateway tests pass; live Colab GPU streaming remains pending. |
-| Video Dubbing | Reuses Separation, STT, Translation and TTS workers per node | Per-node Gateway option for compatible STT/translation/TTS paths | Per-node route selector plus inline Gateway/Colab dialog | Needs complete source-to-export live workflow after the individual routes pass. |
+| Video Dubbing | 27 exact routes across Separation, STT, optional Alignment, Translation, TTS and Voice Clone | Per-node Gateway option for compatible STT/translation/TTS paths; remote-first duration rewrite uses Gateway LLM | Per-node exact model selector; exact notebook; separate URL/token for primary worker, clone and optional alignment | Compile, 52 Dubbing tests, 34 CTest tests, QML and public-notebook inventory pass; complete live source-to-export workflow remains pending. |
 
 The specialist features correctly do **not** pretend to offer an API Gateway
 option when this project has no compatible Gateway adapter.  Adding a disabled
@@ -83,9 +86,9 @@ into the matching studio; no token is persisted in Settings.
 2. **“Open Colab” opened a blank Colab page.** The button now builds an exact
    `colab.research.google.com/github/khoinguyen59/kova-video-studio/...`
    link for the selected notebook on `codex/remote-inference`, rather than a
-   generic home page.  The private repository must remain reachable to the
-    signed-in GitHub account for this internal-build route to work.  The
-    packaged notebook-folder button remains as an offline fallback.
+   generic home page. The repository is temporarily public for Colab testing
+   and must be returned to private after live acceptance. The packaged
+   notebook-folder button remains as an offline fallback.
 
 3. **Choosing a model could white-screen the application.** The root blocking
    path was the first Intel display-adapter query (`EnumDisplayDevices`) on the
@@ -117,21 +120,7 @@ into the matching studio; no token is persisted in Settings.
    asynchronous per-feature preflight state (`checking`, `ready`, `failed`)
    and must not enable execution after a failed preflight.
 
-2. **Model coverage is partial, not universal.** The bundled Colab workers
-   cover the models in the table above.  They do not automatically run every
-   local catalog family: most visibly, the Colab TTS worker only supports
-   Kokoro while the app also advertises Qwen3, VieNeu, VibeVoice, VoxCPM2 and
-   OmniVoice families.  Each remaining family must either gain a tested Colab
-   adapter, gain a tested Gateway adapter, or be explicitly labelled
-   CPU-local-only rather than appearing as a GPU-ready choice.
-
-3. **Feature-level model discovery needs to drive the controls.** The worker
-   capabilities endpoint advertises model IDs, but the STT Colab form does not
-   yet show its fixed `faster-whisper-large-v3` model and other feature forms
-   still rely partly on manually typed defaults.  After preflight, the UI must
-   display only model/voice/language values accepted by that specific worker.
-
-4. **No external live evidence exists yet.** A real Colab GPU session and a
+2. **No external live evidence exists yet.** A real Colab GPU session and a
    configured 9Router/API Gateway are not present in this workspace.  The
    required tests cannot be substituted by a mock: the actual notebook must
    run, print URL/token, return `ready=true`, `device=cuda`, the expected

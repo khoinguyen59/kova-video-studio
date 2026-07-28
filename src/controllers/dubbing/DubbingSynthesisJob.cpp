@@ -1,5 +1,6 @@
 #include "controllers/dubbing/DubbingSynthesisJob.h"
 
+#include "controllers/dubbing/DubbingColabModelRoutes.h"
 #include "audio/WavIO.h"
 #include "core/Logger.h"
 #include "core/Settings.h"
@@ -206,14 +207,33 @@ bool DubbingSynthesisJob::start(const QVariantList &segments, const QString &pro
         return false;
     }
     if (remote) {
-        QString model = settings.value(QStringLiteral("modelId")).toString().trimmed();
+        QString model = settings.value(QStringLiteral("modelId")).toString().trimmed().toLower();
         QString voice = settings.value(QStringLiteral("voice")).toString().trimmed();
         if (m_executionProvider == ExecutionProvider::ApiGateway && m_gatewaySettings) {
             if (model.isEmpty()) model = m_gatewaySettings->gatewayTtsModel();
             if (voice.isEmpty()) voice = m_gatewaySettings->gatewayTtsVoice();
         } else if (m_executionProvider == ExecutionProvider::ColabDirect) {
-            if (model.isEmpty()) model = QStringLiteral("kokoro");
-            if (voice.isEmpty()) voice = QStringLiteral("af_heart");
+            if (!DubbingColabModelRoutes::supports(QStringLiteral("synthesize"), model)) {
+                fail(QStringLiteral("Select an exact Colab TTS model before running this node."));
+                return false;
+            }
+            if (voice.isEmpty())
+                voice = DubbingColabModelRoutes::defaultVoiceForTtsModel(model);
+            if (m_useVoiceCloning) {
+                const QString cloneModel = settings.value(
+                    QStringLiteral("voiceCloneModelId")).toString().trimmed().toLower();
+                if (!DubbingColabModelRoutes::supports(QStringLiteral("voice-clone"),
+                                                       cloneModel)) {
+                    fail(QStringLiteral("Select an exact Colab voice-cloning model before enabling automatic voice cloning."));
+                    return false;
+                }
+                if (!m_colabVoiceCloneSession || !m_colabVoiceCloneSession->isActive()) {
+                    fail(QStringLiteral("Connect a Colab voice-cloning worker before running this TTS node."));
+                    return false;
+                }
+                m_cacheSettings.insert(QStringLiteral("effectiveVoiceCloneModel"),
+                                       cloneModel);
+            }
         }
         m_cacheSettings.insert(QStringLiteral("effectiveRemoteModel"), model);
         m_cacheSettings.insert(QStringLiteral("effectiveRemoteVoice"), voice);
@@ -411,12 +431,18 @@ void DubbingSynthesisJob::startRemoteSynthesis(const QString &text,
             startColabVoiceClone(text, requestSettings, requestId);
             return;
         }
-        QString model = requestSettings.value(QStringLiteral("modelId")).toString().trimmed();
+        QString model = requestSettings.value(QStringLiteral("modelId")).toString().trimmed().toLower();
         QString voice = requestSettings.value(QStringLiteral("voice")).toString().trimmed();
-        if (model.isEmpty()) model = QStringLiteral("kokoro");
-        if (voice.isEmpty()) voice = QStringLiteral("af_heart");
-        const QString language = requestSettings.value(QStringLiteral("lang")).toString().trimmed();
-        if (model.isEmpty() || voice.isEmpty()) { fail(QStringLiteral("Colab TTS model and voice are required.")); return; }
+        if (!DubbingColabModelRoutes::supports(QStringLiteral("synthesize"), model)) {
+            fail(QStringLiteral("Select an exact Colab TTS model before running this node."));
+            return;
+        }
+        if (voice.isEmpty())
+            voice = DubbingColabModelRoutes::defaultVoiceForTtsModel(model);
+        QString language = requestSettings.value(QStringLiteral("lang")).toString().trimmed();
+        if (language.isEmpty())
+            language = DubbingColabModelRoutes::defaultLanguageForTtsModel(model);
+        if (voice.isEmpty()) { fail(QStringLiteral("Colab TTS voice is required.")); return; }
         m_remoteProgressConnection = connect(m_colabRunner, &ColabTtsRunner::progress, this,
                                              [this, requestId](int progress) { onRemoteProgress(progress, requestId); });
         m_remoteFinishedConnection = connect(m_colabRunner, &ColabTtsRunner::finished, this,
@@ -469,6 +495,12 @@ void DubbingSynthesisJob::startColabVoiceClone(const QString &text,
     }
     const QString language = requestSettings.value(QStringLiteral("lang")).toString().trimmed().isEmpty()
         ? QStringLiteral("vi") : requestSettings.value(QStringLiteral("lang")).toString().trimmed();
+    const QString model = requestSettings.value(
+        QStringLiteral("voiceCloneModelId")).toString().trimmed().toLower();
+    if (!DubbingColabModelRoutes::supports(QStringLiteral("voice-clone"), model)) {
+        fail(QStringLiteral("Select an exact Colab voice-cloning model before starting voice cloning."));
+        return;
+    }
     m_remoteProgressConnection = connect(m_colabVoiceCloneRunner, &ColabVoiceCloneRunner::progress, this,
                                          [this, requestId](int progress, const QString &) {
         onRemoteProgress(progress, requestId);
@@ -489,6 +521,7 @@ void DubbingSynthesisJob::startColabVoiceClone(const QString &text,
     ColabVoiceCloneRequest request;
     request.workerUrl = m_colabVoiceCloneSession->endpoint();
     request.bearerToken = m_colabVoiceCloneSession->bearerTokenForRequest();
+    request.model = model;
     request.referencePath = m_voiceReference.audioPath;
     request.referenceName = QStringLiteral("LA Studio Dubbing Voice");
     request.referenceText = m_voiceReference.referenceText;

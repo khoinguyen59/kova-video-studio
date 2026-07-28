@@ -52,8 +52,8 @@ source of each entry; it never combines their tokens or routes.
 
 | Capability | Notebook | Direct worker contract |
 | --- | --- | --- |
-| Speech-to-Text | `LA_STUDIO_SPEECH_GPU.ipynb` | `/v1/audio/transcriptions` |
-| Text-to-Speech | `LA_STUDIO_VOICE_GPU.ipynb` | `/v1/audio/speech` |
+| Speech-to-Text | One exact-model notebook selected from the four `LA_STUDIO_STT_*_GPU.ipynb` workers | model-bound `/v1/audio/transcriptions` |
+| Text-to-Speech | One exact-model notebook selected from the eight `LA_STUDIO_TTS_*_GPU.ipynb` workers | model-bound `/v1/audio/speech` |
 | Voice Cloning | One exact-model `LA_STUDIO_VOICE_CLONE_*_GPU.ipynb` notebook selected from the model gallery | model-bound profile and generation jobs |
 | Voice Design | One exact-model `LA_STUDIO_VOICE_DESIGN_*_GPU.ipynb` notebook selected from the model gallery | model-bound voice design jobs |
 | Voice Isolation | Exact-model notebook selected from `LA_STUDIO_SEPARATION_SPLEETER_2STEMS_GPU.ipynb` or `LA_STUDIO_SEPARATION_UVR_VOCALS_GPU.ipynb` | model-bound separation jobs |
@@ -104,7 +104,10 @@ local CPU or direct Colab GPU work.
 
 Video Dubbing composes the same feature controllers. Each stage uses its chosen
 provider directly, and a failed stage reports that provider's error without
-switching provider.
+switching provider. Dubbing shows the exact model before a worker is paired and
+opens that model's notebook. Voice cloning and optional forced alignment have
+their own temporary sessions inside Dubbing; they never reuse or overwrite the
+TTS or STT session. See `docs/DUBBING_REMOTE_EXECUTION_AUDIT.md`.
 
 ## Security and troubleshooting
 

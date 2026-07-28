@@ -1,5 +1,6 @@
 #include "controllers/dubbing/DubbingTranslationJob.h"
 
+#include "controllers/dubbing/DubbingColabModelRoutes.h"
 #include "controllers/models/StudioConfigurationResolver.h"
 #include "core/ModelManager.h"
 #include "core/RuntimeManager.h"
@@ -365,8 +366,11 @@ void DubbingTranslationJob::startRemoteTranslation(const QString &providerId, co
             fail(QStringLiteral("Connect a Colab GPU worker before running this Translation node."));
             return;
         }
-        const QString model = configuredModelId.isEmpty()
-            ? QStringLiteral("m2m100-418m") : configuredModelId;
+        const QString model = configuredModelId.trimmed().toLower();
+        if (!DubbingColabModelRoutes::supports(QStringLiteral("translate"), model)) {
+            fail(QStringLiteral("Select an exact Colab translation model before running this node."));
+            return;
+        }
         m_remoteProgressConnection = connect(m_colabRunner, &ColabTranslationRunner::progress, this,
                                              [this, generation](int progress) { onRemoteProgress(progress, generation); });
         m_remoteFinishedConnection = connect(m_colabRunner, &ColabTranslationRunner::finished, this,

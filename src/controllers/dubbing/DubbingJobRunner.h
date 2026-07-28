@@ -65,7 +65,8 @@ public:
                           const QVariantMap &modelConfiguration = QVariantMap());
     void setRemoteServices(Settings *settings, ColabSession *translationSession,
                            ColabSession *ttsSession, ColabSession *voiceCloneSession,
-                           ColabSession *separationSession);
+                           ColabSession *separationSession,
+                           ColabSession *alignmentSession);
     void setTranslationFixConfiguration(const QVariantMap &configuration);
     void startAudioGeneration(const QVariantList &segments, const QString &projectPath,
                               const QVariantMap &synthesisSettings = QVariantMap());

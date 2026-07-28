@@ -114,7 +114,8 @@ AppController::AppController(QObject *parent)
     m_subtitleVoice = new SubtitleVoiceController(m_tts, m_player, m_history, this);
     m_dubbing = new DubbingController(m_sttSession, m_tts, m_translationEngine, m_models, m_runtimes, this);
     m_dubbing->setRemoteServices(m_settings, m_colabTranslationSession, m_colabTtsSession,
-                                 m_colabVoiceCloneSession, m_colabSeparationSession);
+                                 m_colabVoiceCloneSession, m_colabSeparationSession,
+                                 m_colabAlignmentSession);
     m_updates = new AppUpdateService(m_downloads, this);
     m_examples = new ExampleManager(this);
     m_workflows = new WorkflowActivityManager(m_sessionRegistry, m_tts, m_sttSession, m_alignment, m_dubbing, this);

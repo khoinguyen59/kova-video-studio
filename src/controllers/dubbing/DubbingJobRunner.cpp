@@ -1,4 +1,5 @@
 #include "controllers/dubbing/DubbingJobRunner.h"
+#include "controllers/dubbing/DubbingColabModelRoutes.h"
 #include "dubbing/AudioTimelineMixer.h"
 #include "controllers/dubbing/SourceSeparationConfigurationResolver.h"
 #include "controllers/dubbing/DubbingTranscriptionJob.h"
@@ -244,10 +245,12 @@ void DubbingJobRunner::setTranslationFixConfiguration(const QVariantMap &configu
 
 void DubbingJobRunner::setRemoteServices(Settings *settings, ColabSession *translationSession,
                                          ColabSession *ttsSession, ColabSession *voiceCloneSession,
-                                         ColabSession *separationSession)
+                                         ColabSession *separationSession,
+                                         ColabSession *alignmentSession)
 {
     if (m_translationJob) m_translationJob->setRemoteServices(settings, translationSession);
     if (m_synthesisJob) m_synthesisJob->setRemoteServices(settings, ttsSession, voiceCloneSession);
+    if (m_transcriptionJob) m_transcriptionJob->setAlignmentSession(alignmentSession);
     m_colabSeparationSession = separationSession;
 }
 
@@ -343,8 +346,12 @@ void DubbingJobRunner::startSourceSeparation(const QString &audioPath,
                 .arg(m_run.runId(), m_run.nodeRunId()));
         request.model = modelConfiguration.value(
             QStringLiteral("modelId"), parameters.value(
-            QStringLiteral("modelId"), QStringLiteral("htdemucs"))).toString().trimmed();
-        if (request.model.isEmpty()) request.model = QStringLiteral("htdemucs");
+            QStringLiteral("modelId"))).toString().trimmed().toLower();
+        if (!DubbingColabModelRoutes::supports(QStringLiteral("source-separate"),
+                                               request.model)) {
+            setError(QStringLiteral("Select an exact Colab voice-isolation model before running this node."));
+            return;
+        }
         request.cancellation = InferenceCancellationToken(m_colabSeparationCancellation);
         Logger::info(QStringLiteral("DubbingPipeline"),
                      QStringLiteral("[source-separate] direct Colab run=%1 node=%2 model=%3")

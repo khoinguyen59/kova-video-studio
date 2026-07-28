@@ -184,6 +184,10 @@ void SttSessionController::setColabModel(const QString &model)
 {
     const QString normalized = model.trimmed().toLower();
     if (m_colabModel == normalized) return;
+    if (processing() && m_selectedProvider == ExecutionProvider::ColabDirect)
+        cancelProcessing();
+    if (m_colabSession && m_colabSession->isActive())
+        m_colabSession->clear();
     m_colabModel = normalized;
     emit colabModelChanged();
 }

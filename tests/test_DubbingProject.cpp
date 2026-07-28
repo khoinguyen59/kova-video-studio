@@ -2,6 +2,7 @@
 
 #include "dubbing/DubbingProject.h"
 #include "controllers/dubbing/DubbingController.h"
+#include "controllers/dubbing/DubbingColabModelRoutes.h"
 #include "controllers/dubbing/DubbingJobRunner.h"
 #include "controllers/dubbing/DubbingSynthesisJob.h"
 #include "controllers/dubbing/DubbingTranslationJob.h"
@@ -137,7 +138,8 @@ void TestDubbingProject::remoteTtsRoutesDoNotFallbackBetweenGatewayAndColab()
              QStringLiteral("API Gateway configuration is unavailable."));
 
     QVERIFY(!job.start(segments, QStringLiteral("C:/temp/project.ladub.json"),
-                        QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("colab-direct")}},
+                        QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+                                    {QStringLiteral("modelId"), QStringLiteral("kokoro")}},
                         QStringLiteral("colab-only")));
     QCOMPARE(failures.count(), 1);
     QCOMPARE(failures.takeFirst().at(0).toString(),
@@ -182,6 +184,8 @@ void TestDubbingProject::colabDubbingVoiceCloningIsDirectAndRequiresConsent()
     // not silently use either API Gateway or the local TTS engine.
     QVERIFY(!job.start(segments, projectPath,
                         QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+                                    {QStringLiteral("modelId"), QStringLiteral("kokoro")},
+                                    {QStringLiteral("voiceCloneModelId"), QStringLiteral("omnivoice")},
                                     {QStringLiteral("autoSelectVoiceReference"), true},
                                     {QStringLiteral("autoReferenceSourcePath"), sourcePath}},
                         QStringLiteral("colab-without-consent")));
@@ -193,13 +197,15 @@ void TestDubbingProject::colabDubbingVoiceCloningIsDirectAndRequiresConsent()
     // the next dependency checked is only the direct Colab session.
     QVERIFY(!job.start(segments, projectPath,
                         QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+                                    {QStringLiteral("modelId"), QStringLiteral("kokoro")},
+                                    {QStringLiteral("voiceCloneModelId"), QStringLiteral("omnivoice")},
                                     {QStringLiteral("autoSelectVoiceReference"), true},
                                     {QStringLiteral("voiceCloneConsentConfirmed"), true},
                                     {QStringLiteral("autoReferenceSourcePath"), sourcePath}},
                         QStringLiteral("colab-direct-only")));
     QCOMPARE(failures.count(), 1);
     QCOMPARE(failures.takeFirst().at(0).toString(),
-             QStringLiteral("Connect a Colab GPU worker before running this TTS node."));
+             QStringLiteral("Connect a Colab voice-cloning worker before running this TTS node."));
 }
 
 void TestDubbingProject::parsesLmStudioTranslationFixResponses()
@@ -702,9 +708,12 @@ void TestDubbingProject::remoteDubbingWorkflowIsReadyWithoutLocalModels()
     project.durationControl.insert(QStringLiteral("enabled"), false);
     project.durationControl.insert(QStringLiteral("autoRewrite"), false);
     project.workflowNodeConfigurations.insert(
-        QStringLiteral("source-separate"), remoteNode(QStringLiteral("colab-direct"), QStringLiteral("htdemucs")));
+        QStringLiteral("source-separate"), remoteNode(
+            QStringLiteral("colab-direct"),
+            QStringLiteral("sherpa-onnx-spleeter-2stems-fp16")));
     project.workflowNodeConfigurations.insert(
-        QStringLiteral("transcribe"), remoteNode(QStringLiteral("colab-direct"), QStringLiteral("faster-whisper-small")));
+        QStringLiteral("transcribe"), remoteNode(
+            QStringLiteral("colab-direct"), QStringLiteral("whisper.cpp")));
     project.workflowNodeConfigurations.insert(
         QStringLiteral("translate"), remoteNode(QStringLiteral("api-gateway"), QStringLiteral("gateway-translate")));
     project.workflowNodeConfigurations.insert(
@@ -716,6 +725,105 @@ void TestDubbingProject::remoteDubbingWorkflowIsReadyWithoutLocalModels()
     QVERIFY2(controller.openProject(project.projectPath), qPrintable(controller.lastError()));
     QVERIFY(controller.customReady());
     QVERIFY(controller.workflowReady());
+}
+
+void TestDubbingProject::dubbingColabModelsMapToExactNotebooks()
+{
+    const QStringList nodes{
+        QStringLiteral("source-separate"),
+        QStringLiteral("transcribe"),
+        QStringLiteral("translate"),
+        QStringLiteral("synthesize"),
+        QStringLiteral("voice-clone"),
+        QStringLiteral("alignment")
+    };
+    int routeCount = 0;
+    for (const QString &nodeId : nodes) {
+        const QVariantList options =
+            DubbingColabModelRoutes::optionsForNode(nodeId);
+        QVERIFY2(!options.isEmpty(), qPrintable(nodeId));
+        const QString defaultModel =
+            DubbingColabModelRoutes::defaultModelForNode(nodeId);
+        QVERIFY2(DubbingColabModelRoutes::supports(nodeId, defaultModel),
+                 qPrintable(nodeId));
+        for (const QVariant &entry : options) {
+            const QVariantMap option = entry.toMap();
+            const QString model =
+                option.value(QStringLiteral("modelId")).toString();
+            const QString notebook =
+                option.value(QStringLiteral("notebook")).toString();
+            QVERIFY2(!model.isEmpty(), qPrintable(nodeId));
+            QVERIFY2(notebook.startsWith(QStringLiteral("LA_STUDIO_"))
+                         && notebook.endsWith(QStringLiteral("_GPU.ipynb")),
+                     qPrintable(notebook));
+            QCOMPARE(DubbingColabModelRoutes::notebookForModel(nodeId, model),
+                     notebook);
+            QVERIFY2(QFileInfo(QStringLiteral(LASTUDIO_SOURCE_DIR)
+                               + QStringLiteral("/notebooks/") + notebook).isFile(),
+                     qPrintable(notebook));
+            ++routeCount;
+        }
+    }
+    QCOMPARE(routeCount, 27);
+    QVERIFY(DubbingColabModelRoutes::notebookForModel(
+                QStringLiteral("transcribe"),
+                QStringLiteral("not-a-model")).isEmpty());
+}
+
+void TestDubbingProject::dubbingUiUsesExactModelWorkers()
+{
+    QFile settingsPanel(
+        QStringLiteral(LASTUDIO_SOURCE_DIR)
+        + QStringLiteral("/qml/components/dubbing/DubbingNodeSettingsPanel.qml"));
+    QVERIFY(settingsPanel.open(QIODevice::ReadOnly));
+    const QString settingsSource = QString::fromUtf8(settingsPanel.readAll());
+    QVERIFY(settingsSource.contains(
+        QStringLiteral("dubbing.colabModelOptionsForNode(root.nodeId)")));
+    QVERIFY(settingsSource.contains(
+        QStringLiteral("dubbing.selectWorkflowColabModel(root.nodeId")));
+    QVERIFY(settingsSource.contains(
+        QStringLiteral("dubbing.colabNotebookForNode(root.nodeId")));
+    QVERIFY(!settingsSource.contains(
+        QStringLiteral("LA_STUDIO_SPEECH_GPU.ipynb")));
+    QVERIFY(!settingsSource.contains(
+        QStringLiteral("LA_STUDIO_LANGUAGE_GPU.ipynb")));
+    QVERIFY(!settingsSource.contains(
+        QStringLiteral("LA_STUDIO_VOICE_GPU.ipynb")));
+
+    QFile inspector(
+        QStringLiteral(LASTUDIO_SOURCE_DIR)
+        + QStringLiteral("/qml/components/dubbing/DubbingNodeInspector.qml"));
+    QVERIFY(inspector.open(QIODevice::ReadOnly));
+    const QString inspectorSource = QString::fromUtf8(inspector.readAll());
+    QVERIFY(inspectorSource.contains(
+        QStringLiteral("\"voice-clone\", root.voiceCloneModelId")));
+    QVERIFY(inspectorSource.contains(
+        QStringLiteral("AppController.colabVoiceCloneSession.connectTemporaryWorker")));
+    QVERIFY(inspectorSource.contains(
+        QStringLiteral("\"alignment\", root.alignmentModelId")));
+    QVERIFY(inspectorSource.contains(
+        QStringLiteral("AppController.colabAlignmentSession.connectTemporaryWorker")));
+
+    QFile synthesisJob(
+        QStringLiteral(LASTUDIO_SOURCE_DIR)
+        + QStringLiteral("/src/controllers/dubbing/DubbingSynthesisJob.cpp"));
+    QVERIFY(synthesisJob.open(QIODevice::ReadOnly));
+    const QString synthesisSource = QString::fromUtf8(synthesisJob.readAll());
+    QVERIFY(synthesisSource.contains(
+        QStringLiteral("request.model = model;")));
+    QVERIFY(synthesisSource.contains(
+        QStringLiteral("voiceCloneModelId")));
+
+    QFile transcriptionJob(
+        QStringLiteral(LASTUDIO_SOURCE_DIR)
+        + QStringLiteral("/src/controllers/dubbing/DubbingTranscriptionJob.cpp"));
+    QVERIFY(transcriptionJob.open(QIODevice::ReadOnly));
+    const QString transcriptionSource =
+        QString::fromUtf8(transcriptionJob.readAll());
+    QVERIFY(transcriptionSource.contains(
+        QStringLiteral("refineAlignmentWithColab")));
+    QVERIFY(transcriptionSource.contains(
+        QStringLiteral("completeWithoutAlignment")));
 }
 
 void TestDubbingProject::targetLanguageUpdatesVoiceNodeLanguage()
