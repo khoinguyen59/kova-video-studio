@@ -154,7 +154,7 @@ jobs:
             throw "QT_ROOT_DIR was not exported by install-qt-action."
           }
           $qtRoot = Split-Path -Parent $env:QT_ROOT_DIR
-          if ($env:GITHUB_REF_NAME -notmatch '^v(\d+\.\d+\.\d+)(-(alpha|beta|rc)\.[1-9][0-9]*)?$') {
+          if ($env:GITHUB_REF_NAME -notmatch '^v(\d+\.\d+\.\d+\.\d+)(-(alpha|beta|rc)\.[1-9][0-9]*)?$') {
             throw "Unsupported release tag format: $env:GITHUB_REF_NAME"
           }
           $version = $Matches[1]

@@ -160,17 +160,21 @@ void TestStudioCapabilities::testCredentialStoreMigratesPlaintext()
 void TestStudioCapabilities::testUpdateVersionPrecedence()
 {
     QVERIFY(AppUpdateService::isUpdateVersionNewer(
-        QStringLiteral("0.2.0-beta.2"), QStringLiteral("0.2.0-beta.1")));
+        QStringLiteral("0.0.0.1-beta.2"), QStringLiteral("0.0.0.1-beta.1")));
     QVERIFY(!AppUpdateService::isUpdateVersionNewer(
-        QStringLiteral("0.2.0-beta.1"), QStringLiteral("0.2.0-beta.2")));
+        QStringLiteral("0.0.0.1-beta.1"), QStringLiteral("0.0.0.1-beta.2")));
     QVERIFY(AppUpdateService::isUpdateVersionNewer(
-        QStringLiteral("0.2.0"), QStringLiteral("0.2.0-beta.2")));
+        QStringLiteral("0.0.0.1"), QStringLiteral("0.0.0.1-beta.2")));
     QVERIFY(!AppUpdateService::isUpdateVersionNewer(
-        QStringLiteral("0.2.0-beta.2"), QStringLiteral("0.2.0")));
+        QStringLiteral("0.0.0.1-beta.2"), QStringLiteral("0.0.0.1")));
     QVERIFY(AppUpdateService::isUpdateVersionNewer(
-        QStringLiteral("0.3.0-alpha.1"), QStringLiteral("0.2.9")));
+        QStringLiteral("0.0.1.0-alpha.1"), QStringLiteral("0.0.0.9")));
+    QVERIFY(AppUpdateService::isUpdateVersionNewer(
+        QStringLiteral("0.0.0.10"), QStringLiteral("0.0.0.9")));
     QVERIFY(!AppUpdateService::isUpdateVersionNewer(
-        QStringLiteral("0.2.0-beta.01"), QStringLiteral("0.2.0-beta.1")));
+        QStringLiteral("0.0.0.1-beta.01"), QStringLiteral("0.0.0.1-beta.1")));
+    QVERIFY(!AppUpdateService::isUpdateVersionNewer(
+        QStringLiteral("0.0.1"), QStringLiteral("0.0.0.1")));
 }
 
 void TestStudioCapabilities::testUnsupportedLocalizationFallsBackAndPersists()

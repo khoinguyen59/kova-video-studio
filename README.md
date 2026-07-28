@@ -43,6 +43,10 @@ Run AI audio workflows through an API Gateway or a direct, temporary Colab GPU w
 
 ## Project Updates
 
+### 2026-07-28 - Internal build numbering
+
+Internal packages now use four numeric fields: `MAJOR.MINOR.RELEASE.BUILD`. The first remote-first package is `0.0.0.1`; increment the fourth field for each build (`0.0.0.2` through `0.0.0.9`), then roll to `0.0.1.0`. The same number is embedded in the app, Windows file metadata, installer, staging manifest, and release tag.
+
 ### 2026-07-28 - Remote-first inference
 
 Heavy inference can now use either an API Gateway or a direct Colab GPU worker. These routes are isolated: they use separate credentials, sessions, model catalogs, errors, and requests; neither route forwards to or falls back to the other. Remote-first mode blocks automatic local model downloads and local inference until Local Dev is explicitly enabled.

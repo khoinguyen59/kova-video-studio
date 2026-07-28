@@ -111,8 +111,8 @@ function Normalize-AppVersion {
             $Value = $Value.Substring(1)
         }
     }
-    if ($Value -notmatch '^\d+\.\d+\.\d+$') {
-        throw "Version must use MAJOR.MINOR.PATCH format; got '$Value'."
+    if ($Value -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+        throw "Version must use MAJOR.MINOR.RELEASE.BUILD format; got '$Value'."
     }
     return $Value
 }
