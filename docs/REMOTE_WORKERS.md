@@ -57,6 +57,32 @@ feature endpoint. The capabilities response identifies CUDA-backed models that
 the active worker can serve. The notebooks contain no Gateway URL, API key, or
 Gateway forwarding logic.
 
+## Live preflight, one route at a time
+
+Before a feature-specific live smoke test, validate the selected route without
+uploading media or generating any output. Copy
+`docs/examples/remote-live-preflight.example.json` outside the repository,
+replace only its `baseUrl` values, and set the named secrets in the current
+PowerShell session. Do not put a token or API key in the JSON file.
+
+```powershell
+$env:LA_STUDIO_GATEWAY_API_KEY = '...'
+$env:LA_STUDIO_COLAB_STT_TOKEN = '...'
+.\scripts\smoke_remote_preflight.ps1 -ConfigPath C:\secure\remote-live.json -Only gateway
+.\scripts\smoke_remote_preflight.ps1 -ConfigPath C:\secure\remote-live.json -Only stt
+```
+
+The runner checks Gateway `GET /v1/models` with the Gateway key, and the
+selected Colab worker's `/health` plus `/v1/capabilities` with that worker's
+own bearer token. It requires `ready=true`, `device=cuda`, and the expected
+capability. It writes a redacted report below `out/`; it never writes tokens,
+headers, raw API responses, URL paths, or query strings. Use `-DryRun` first to
+validate the configuration without reading credentials or making requests.
+
+This is deliberately only a connectivity/CUDA/model preflight. Run inference
+smoke separately for each selected capability; voice cloning additionally
+requires a consented reference recording and must not use an unconsented sample.
+
 ## Selecting a route
 
 For each capability, choose either **API Gateway** or **Colab GPU** in that

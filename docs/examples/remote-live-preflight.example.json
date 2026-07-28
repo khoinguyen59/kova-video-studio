@@ -1,0 +1,48 @@
+{
+  "gateway": {
+    "baseUrl": "https://gateway.example.invalid",
+    "apiKeyEnvironment": "LA_STUDIO_GATEWAY_API_KEY"
+  },
+  "colabWorkers": [
+    {
+      "capability": "stt",
+      "baseUrl": "https://stt-worker.example.invalid",
+      "bearerTokenEnvironment": "LA_STUDIO_COLAB_STT_TOKEN"
+    },
+    {
+      "capability": "tts",
+      "baseUrl": "https://tts-worker.example.invalid",
+      "bearerTokenEnvironment": "LA_STUDIO_COLAB_TTS_TOKEN"
+    },
+    {
+      "capability": "voice-cloning",
+      "baseUrl": "https://voice-clone-worker.example.invalid",
+      "bearerTokenEnvironment": "LA_STUDIO_COLAB_VOICE_CLONE_TOKEN"
+    },
+    {
+      "capability": "voice-design",
+      "baseUrl": "https://voice-design-worker.example.invalid",
+      "bearerTokenEnvironment": "LA_STUDIO_COLAB_VOICE_DESIGN_TOKEN"
+    },
+    {
+      "capability": "forced-alignment",
+      "baseUrl": "https://alignment-worker.example.invalid",
+      "bearerTokenEnvironment": "LA_STUDIO_COLAB_ALIGNMENT_TOKEN"
+    },
+    {
+      "capability": "voice-isolation",
+      "baseUrl": "https://separation-worker.example.invalid",
+      "bearerTokenEnvironment": "LA_STUDIO_COLAB_SEPARATION_TOKEN"
+    },
+    {
+      "capability": "translation",
+      "baseUrl": "https://language-worker.example.invalid",
+      "bearerTokenEnvironment": "LA_STUDIO_COLAB_TRANSLATION_TOKEN"
+    },
+    {
+      "capability": "chat",
+      "baseUrl": "https://language-worker.example.invalid",
+      "bearerTokenEnvironment": "LA_STUDIO_COLAB_CHAT_TOKEN"
+    }
+  ]
+}
