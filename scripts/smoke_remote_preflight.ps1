@@ -96,15 +96,19 @@ function Join-EndpointPath {
     return "$base/$($Path.TrimStart('/'))"
 }
 
-function Get-GatewayModelsUrl {
-    param([Parameter(Mandatory)] [Uri] $BaseUri)
+function Get-GatewayModelCatalogUrl {
+    param(
+        [Parameter(Mandatory)] [Uri] $BaseUri,
+        [Parameter(Mandatory)] [ValidateSet('llm', 'stt', 'tts')] [string] $Capability
+    )
 
     $base = $BaseUri.AbsoluteUri.TrimEnd('/')
     $path = $BaseUri.AbsolutePath.TrimEnd('/')
+    $catalogPath = if ($Capability -eq 'llm') { 'models' } else { "models/$Capability" }
     if ($path.EndsWith('/v1', [StringComparison]::OrdinalIgnoreCase)) {
-        return "$base/models"
+        return "$base/$catalogPath"
     }
-    return "$base/v1/models"
+    return "$base/v1/$catalogPath"
 }
 
 function Get-SecretFromEnvironment {
@@ -186,6 +190,24 @@ function Get-CapabilityModelIds {
             if (-not [string]::IsNullOrWhiteSpace($id)) { [void] $modelIds.Add($id.Trim()) }
         }
     }
+    return @($modelIds | Sort-Object -Unique)
+}
+
+function Get-GatewayModelIds {
+    param([Parameter(Mandatory)] [object] $Payload)
+
+    $data = Get-OptionalProperty -Object $Payload -Name 'data'
+    if ($null -eq $data) { throw 'Gateway response is missing its data array.' }
+
+    $modelIds = New-Object System.Collections.Generic.List[string]
+    foreach ($model in @($data)) {
+        $id = [string] (Get-OptionalProperty -Object $model -Name 'id')
+        if ([string]::IsNullOrWhiteSpace($id)) {
+            throw 'Gateway returned a model entry without an ID.'
+        }
+        [void] $modelIds.Add($id.Trim())
+    }
+    if ($modelIds.Count -lt 1) { throw 'Gateway returned no models.' }
     return @($modelIds | Sort-Object -Unique)
 }
 
@@ -333,11 +355,19 @@ if (-not $selectedGateway -and $selectedWorkers.Count -eq 0) {
     throw 'No configured route matched -Only.'
 }
 
+$gatewayCatalogs = @(
+    [pscustomobject]@{ check = 'models-llm'; capability = 'llm'; label = 'LLM' },
+    [pscustomobject]@{ check = 'models-stt'; capability = 'stt'; label = 'STT' },
+    [pscustomobject]@{ check = 'models-tts'; capability = 'tts'; label = 'TTS' }
+)
+
 $script:Checks = New-Object System.Collections.Generic.List[object]
 
 if ($DryRun) {
     if ($selectedGateway) {
-        Add-Check -Scope 'gateway' -Check 'models' -Passed $true -Detail "planned: Gateway model-catalog request; endpoint=$(Get-RedactedEndpoint $gatewayDefinition.endpoint)"
+        foreach ($catalog in $gatewayCatalogs) {
+            Add-Check -Scope 'gateway' -Check $catalog.check -Passed $true -Detail "planned: Gateway $($catalog.label) model-catalog request; endpoint=$(Get-RedactedEndpoint $gatewayDefinition.endpoint)"
+        }
     }
     foreach ($worker in $selectedWorkers) {
         $scope = "colab:$($worker.capability)"
@@ -348,14 +378,15 @@ if ($DryRun) {
 else {
     if ($selectedGateway) {
         $gatewayScope = 'gateway'
-        Invoke-Check -Scope $gatewayScope -Name 'models' -Action {
-            $secret = Get-SecretFromEnvironment -EnvironmentName $gatewayDefinition.apiKeyEnvironment -Context 'Gateway API key'
-            $headers = @{ Authorization = "Bearer $secret"; Accept = 'application/json' }
-            $modelsUrl = Get-GatewayModelsUrl -BaseUri $gatewayDefinition.endpoint
-            $models = Invoke-JsonGet -Uri $modelsUrl -Headers $headers
-            $data = Get-OptionalProperty -Object $models -Name 'data'
-            if ($null -eq $data -or @($data).Count -lt 1) { throw 'Gateway returned no models.' }
-            return "modelCount=$(@($data).Count); endpoint=$(Get-RedactedEndpoint $gatewayDefinition.endpoint)"
+        foreach ($catalog in $gatewayCatalogs) {
+            Invoke-Check -Scope $gatewayScope -Name $catalog.check -Action {
+                $secret = Get-SecretFromEnvironment -EnvironmentName $gatewayDefinition.apiKeyEnvironment -Context 'Gateway API key'
+                $headers = @{ Authorization = "Bearer $secret"; Accept = 'application/json' }
+                $modelsUrl = Get-GatewayModelCatalogUrl -BaseUri $gatewayDefinition.endpoint -Capability $catalog.capability
+                $models = Invoke-JsonGet -Uri $modelsUrl -Headers $headers
+                $modelIds = Get-GatewayModelIds -Payload $models
+                return "capability=$($catalog.capability); modelCount=$($modelIds.Count); models=$($modelIds -join ','); endpoint=$(Get-RedactedEndpoint $gatewayDefinition.endpoint)"
+            }
         }
     }
 

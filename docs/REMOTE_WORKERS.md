@@ -19,10 +19,11 @@ offline comparison.
 
 ## API Gateway
 
-Enter the Gateway URL and API key in Settings. The app obtains the Gateway model
-catalog from `GET /v1/models` and sends requests only to the selected Gateway
-endpoint. A Gateway connection is sufficient on its own; no Colab worker is
-required.
+Enter the Gateway URL and API key in Settings. The app obtains the Gateway LLM,
+STT, and TTS catalogs from `GET /v1/models`, `GET /v1/models/stt`, and
+`GET /v1/models/tts`, respectively, and sends requests only to the selected
+Gateway endpoint. A Gateway connection is sufficient on its own; no Colab worker
+is required.
 
 Translation batches use the Gateway chat-completions endpoint with a strict JSON
 `patches` contract. The desktop rejects prose, missing IDs, duplicate IDs, and
@@ -72,11 +73,11 @@ $env:LA_STUDIO_COLAB_STT_TOKEN = '...'
 .\scripts\smoke_remote_preflight.ps1 -ConfigPath C:\secure\remote-live.json -Only stt
 ```
 
-The runner checks Gateway `GET /v1/models` with the Gateway key, and the
+The runner checks all three Gateway catalogs with the Gateway key, and the
 selected Colab worker's `/health` plus `/v1/capabilities` with that worker's
-own bearer token. It requires `ready=true`, `device=cuda`, and the expected
-capability with at least one model ID. It records those advertised model IDs in
-a redacted report below `out/`; it never writes tokens,
+own bearer token. It requires each Gateway catalog and expected Colab capability
+to expose at least one model ID, plus `ready=true` and `device=cuda` for Colab.
+It records those advertised model IDs in a redacted report below `out/`; it never writes tokens,
 headers, raw API responses, URL paths, or query strings. Use `-DryRun` first to
 validate the configuration without reading credentials or making requests.
 

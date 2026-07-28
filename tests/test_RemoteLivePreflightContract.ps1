@@ -70,7 +70,7 @@ $reportPath = Join-Path $RepoRoot "out\remote-live-preflight-contract-$PID.json"
 $serverJob = $null
 $previousSecrets = @{}
 $gatewayEnvironment = 'LASTUDIO_TEST_GATEWAY_KEY'
-$expectedRequestCount = 1 + ($workers.Count * 2)
+$expectedRequestCount = 3 + ($workers.Count * 2)
 
 try {
     $colabWorkers = @(
@@ -117,7 +117,13 @@ try {
                 $payload = $null
 
                 if ($path -eq '/gateway/v1/models') {
-                    $payload = @{ data = @(@{ id = 'gateway-contract-model' }) } | ConvertTo-Json -Compress
+                    $payload = @{ data = @(@{ id = 'gateway-llm-contract-model' }) } | ConvertTo-Json -Compress
+                }
+                elseif ($path -eq '/gateway/v1/models/stt') {
+                    $payload = @{ data = @(@{ id = 'gateway-stt-contract-model' }) } | ConvertTo-Json -Compress
+                }
+                elseif ($path -eq '/gateway/v1/models/tts') {
+                    $payload = @{ data = @(@{ id = 'gateway-tts-contract-model' }) } | ConvertTo-Json -Compress
                 }
                 elseif ($path -match '^/([^/]+)/health$') {
                     $payload = @{ ready = $true; device = 'cuda' } | ConvertTo-Json -Compress
@@ -190,6 +196,16 @@ try {
     if (-not $report.succeeded -or @($report.checks).Count -ne $expectedRequestCount) {
         throw "Preflight report did not contain $expectedRequestCount successful checks."
     }
+    foreach ($catalog in @(
+            [pscustomobject]@{ check = 'models-llm'; model = 'gateway-llm-contract-model' },
+            [pscustomobject]@{ check = 'models-stt'; model = 'gateway-stt-contract-model' },
+            [pscustomobject]@{ check = 'models-tts'; model = 'gateway-tts-contract-model' }
+        )) {
+        $catalogCheck = @($report.checks | Where-Object { $_.scope -eq 'gateway' -and $_.check -eq $catalog.check })
+        if ($catalogCheck.Count -ne 1 -or $catalogCheck[0].detail -notmatch [Regex]::Escape("models=$($catalog.model)")) {
+            throw "Preflight report did not record the advertised $($catalog.check) model ID."
+        }
+    }
     foreach ($worker in $workers) {
         $capabilityCheck = @($report.checks | Where-Object {
             $_.scope -eq "colab:$($worker.capability)" -and $_.check -eq 'capabilities'
@@ -211,6 +227,10 @@ try {
     $expectedPaths = New-Object System.Collections.Generic.List[string]
     $expectedHeaders = New-Object System.Collections.Generic.List[string]
     [void] $expectedPaths.Add('/gateway/v1/models')
+    [void] $expectedPaths.Add('/gateway/v1/models/stt')
+    [void] $expectedPaths.Add('/gateway/v1/models/tts')
+    [void] $expectedHeaders.Add('Bearer gateway-live-contract-secret')
+    [void] $expectedHeaders.Add('Bearer gateway-live-contract-secret')
     [void] $expectedHeaders.Add('Bearer gateway-live-contract-secret')
     foreach ($worker in $workers) {
         [void] $expectedPaths.Add("/$($worker.route)/health")
