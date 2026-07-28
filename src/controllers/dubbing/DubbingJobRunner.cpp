@@ -206,6 +206,7 @@ void DubbingJobRunner::setTranslationFixConfiguration(const QVariantMap &configu
 void DubbingJobRunner::setRemoteServices(Settings *settings, ColabSession *colabSession)
 {
     if (m_translationJob) m_translationJob->setRemoteServices(settings, colabSession);
+    if (m_synthesisJob) m_synthesisJob->setRemoteServices(settings, colabSession);
 }
 
 void DubbingJobRunner::finishTranslation(const QVariantList &segments)
@@ -361,9 +362,10 @@ void DubbingJobRunner::startAudioGeneration(const QVariantList &segments, const 
     m_run.ensureRun();
     m_run.beginNode();
     Logger::info(QStringLiteral("DubbingPipeline"),
-                 QStringLiteral("[tts] start run=%1 segments=%2 voice=%3 project=%4")
+                 QStringLiteral("[tts] start run=%1 segments=%2 provider=%3 voice=%4 project=%5")
                      .arg(m_run.runId()).arg(m_activeSegments.size())
-                     .arg(synthesisSettings.value(QStringLiteral("voice")).toString(), projectPath));
+                     .arg(synthesisSettings.value(QStringLiteral("executionProvider"), QStringLiteral("local-dev")).toString(),
+                          synthesisSettings.value(QStringLiteral("voice")).toString(), projectPath));
     setProcessing(true, QStringLiteral("tts"), 0);
     if (!m_synthesisJob || !m_synthesisJob->start(segments, projectPath, synthesisSettings, m_run.runId())) return;
 }

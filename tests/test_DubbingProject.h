@@ -52,6 +52,7 @@ private slots:
     void fixesOnlyTranslationsOverPhonemeLimit();
     void ranksPartialTranslationFixesByBudgetDistance();
     void remoteTranslationRoutesDoNotFallbackBetweenGatewayAndColab();
+    void remoteTtsRoutesDoNotFallbackBetweenGatewayAndColab();
 };
 
 } // namespace LAStudio

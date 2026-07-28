@@ -26,7 +26,7 @@ Rectangle {
     signal fixRequested()
 
     Layout.fillWidth: true
-    Layout.preferredHeight: root.nodeId === "translate" ? 126 : 66
+    Layout.preferredHeight: root.remoteRouteConfigurable() ? 126 : 66
     radius: Theme.radiusSmall
     color: Theme.surfaceAlt
     border.color: Qt.rgba(1, 1, 1, 0.08)
@@ -34,7 +34,7 @@ Rectangle {
     RowLayout {
         anchors.fill: parent
         anchors.margins: Theme.paddingSmall
-        anchors.bottomMargin: root.nodeId === "translate" ? Theme.paddingXL + Theme.paddingMedium : Theme.paddingSmall
+        anchors.bottomMargin: root.remoteRouteConfigurable() ? Theme.paddingXL + Theme.paddingMedium : Theme.paddingSmall
         spacing: Theme.paddingSmall
         LineIcon { name: "settings"; color: Theme.accentLight; Layout.preferredWidth: 16; Layout.preferredHeight: 16 }
         ColumnLayout {
@@ -76,7 +76,7 @@ Rectangle {
     }
 
     RowLayout {
-        visible: root.nodeId === "translate"
+        visible: root.remoteRouteConfigurable()
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
@@ -125,6 +125,7 @@ Rectangle {
     }
 
     function modelState() { return root.node && root.node.modelState !== undefined ? root.node.modelState : 0 }
+    function remoteRouteConfigurable() { return root.nodeId === "translate" || root.nodeId === "synthesize" }
     function lifecycleBusy() { return [2, 4, 5].indexOf(root.modelState()) >= 0 || root.dubbing.processing }
     function canLoad() { return root.node && root.node.configurable === true && [1, 6].indexOf(root.modelState()) >= 0 }
     function canReload() { return root.node && root.node.configurable === true && root.modelState() === 3 }

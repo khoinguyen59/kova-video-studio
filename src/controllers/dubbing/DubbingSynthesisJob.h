@@ -3,6 +3,8 @@
 #include <QObject>
 #include <QAtomicInteger>
 #include <QByteArray>
+#include <QPointer>
+#include <QThread>
 #include <QVariantList>
 #include <QVariantMap>
 #include <QVector>
@@ -14,17 +16,26 @@
 namespace LAStudio {
 
 class TtsEngine;
+class Settings;
+class ColabSession;
+class GatewayTtsRunner;
+class ColabTtsRunner;
+enum class ExecutionProvider;
 
 class DubbingSynthesisJob final : public QObject
 {
     Q_OBJECT
 public:
     explicit DubbingSynthesisJob(TtsEngine *tts, QObject *parent = nullptr);
+    ~DubbingSynthesisJob() override;
 
     bool running() const { return m_running; }
     bool start(const QVariantList &segments, const QString &projectPath,
                const QVariantMap &settings, const QString &runId);
     void cancel();
+    // The two remote dependencies are injected together by the app, but each
+    // selected route consumes only its own dependency and credentials.
+    void setRemoteServices(Settings *settings, ColabSession *colabSession);
 
 signals:
     void progressChanged(int progress);
@@ -38,10 +49,18 @@ private slots:
 
 private:
     void startCurrentChunk();
+    void startRemoteSynthesis(const QString &text, const QVariantMap &requestSettings);
+    void commitSynthesizedAudio(const QVector<float> &samples, int sampleRate);
+    void onRemoteProgress(int progress, quint64 requestId);
     void fitGeneratedSegments();
     void fail(const QString &message);
 
     TtsEngine *m_tts = nullptr;
+    QPointer<Settings> m_gatewaySettings;
+    QPointer<ColabSession> m_colabSession;
+    GatewayTtsRunner *m_gatewayRunner = nullptr;
+    ColabTtsRunner *m_colabRunner = nullptr;
+    QThread m_remoteThread;
     bool m_running = false;
     bool m_waitingForModel = false;
     QVariantList m_pendingSegments;
@@ -52,6 +71,8 @@ private:
     QString m_projectPath;
     QVariantMap m_settings;
     QVariantMap m_cacheSettings;
+    QString m_synthesisSignature;
+    ExecutionProvider m_executionProvider;
     DubbingVoiceReference m_voiceReference;
     bool m_useVoiceCloning = false;
     bool m_forceSegmentDuration = false;
@@ -63,7 +84,12 @@ private:
     QVector<float> m_chunkSamples;
     int m_chunkSampleRate = 0;
     std::shared_ptr<QAtomicInteger<bool>> m_timingCancelled;
+    std::shared_ptr<std::atomic_bool> m_remoteCancellation;
     quint64 m_timingRequestId = 0;
+    quint64 m_remoteRequestId = 0;
+    QMetaObject::Connection m_remoteProgressConnection;
+    QMetaObject::Connection m_remoteFinishedConnection;
+    QMetaObject::Connection m_remoteFailedConnection;
 };
 
 } // namespace LAStudio

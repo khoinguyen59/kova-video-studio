@@ -48,7 +48,9 @@ WorkflowGraph DubbingWorkflowDefinition::create()
         }}
     };
     graph.policies = {{QStringLiteral("defaultFailure"), QStringLiteral("stop")},
-                      {QStringLiteral("maxParallelNodes"), 2}, {QStringLiteral("offlineOnly"), true}};
+                      {QStringLiteral("maxParallelNodes"), 2},
+                      {QStringLiteral("offlineOnly"), false},
+                      {QStringLiteral("remoteExecution"), QStringLiteral("explicit-per-node")}};
     graph.nodes = {
         node(QStringLiteral("media-input"), QStringLiteral("core.input"), QStringLiteral("Source Media"),
              {{QStringLiteral("dataType"), QStringLiteral("media.source@1")}}),
@@ -72,7 +74,8 @@ WorkflowGraph DubbingWorkflowDefinition::create()
         node(QStringLiteral("assign-voices"), QStringLiteral("dubbing.assign-voices"), QStringLiteral("Assign Voices"),
              {{QStringLiteral("fallbackVoicePolicy"), QStringLiteral("project-default")}}),
         node(QStringLiteral("synthesize"), QStringLiteral("dubbing.synthesize-segments"), QStringLiteral("Synthesize Segments"),
-             {{QStringLiteral("cache"), QStringLiteral("auto")}}),
+             {{QStringLiteral("cache"), QStringLiteral("auto")},
+              {QStringLiteral("executionProvider"), QStringLiteral("local-dev")}}),
         node(QStringLiteral("fit-timing"), QStringLiteral("dubbing.fit-timing"), QStringLiteral("Fit Timing"),
              {{QStringLiteral("policy"), QStringLiteral("preserve-video")}}),
         node(QStringLiteral("review-conflicts"), QStringLiteral("core.review-gate"), QStringLiteral("Review Timing Conflicts"),

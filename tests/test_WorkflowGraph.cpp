@@ -133,6 +133,9 @@ void TestWorkflowGraph::buildsCanonicalDubbingWorkflowDefinition()
     QCOMPARE(graph.edges.size(), 17);
     QVERIFY(graph.interfaceDefinition.value(QStringLiteral("inputs")).toList().size() == 3);
     QCOMPARE(graph.policies.value(QStringLiteral("maxParallelNodes")).toInt(), 2);
+    QVERIFY(!graph.policies.value(QStringLiteral("offlineOnly")).toBool());
+    QCOMPARE(graph.policies.value(QStringLiteral("remoteExecution")).toString(),
+             QStringLiteral("explicit-per-node"));
     QCOMPARE(graph.nodes.at(0).id, QStringLiteral("media-input"));
     QCOMPARE(graph.nodes.at(5).typeId, QStringLiteral("text.translate-transcript"));
     QCOMPARE(graph.edges.at(0).id, QStringLiteral("l01"));

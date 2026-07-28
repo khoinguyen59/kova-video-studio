@@ -3,6 +3,7 @@
 #include "dubbing/DubbingProject.h"
 #include "controllers/dubbing/DubbingController.h"
 #include "controllers/dubbing/DubbingJobRunner.h"
+#include "controllers/dubbing/DubbingSynthesisJob.h"
 #include "controllers/dubbing/DubbingTranslationJob.h"
 #include "controllers/dubbing/DubbingTranslationFixService.h"
 #include "dubbing/AlignmentRefinementService.h"
@@ -111,6 +112,35 @@ void TestDubbingProject::remoteTranslationRoutesDoNotFallbackBetweenGatewayAndCo
     QCOMPARE(failures.count(), 1);
     QCOMPARE(failures.takeFirst().at(0).toString(),
              QStringLiteral("Connect a Colab GPU worker before running this Translation node."));
+}
+
+void TestDubbingProject::remoteTtsRoutesDoNotFallbackBetweenGatewayAndColab()
+{
+    const QVariantList segments = {
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("segment-1")},
+                    {QStringLiteral("targetText"), QStringLiteral("Xin chao")},
+                    {QStringLiteral("startMs"), 0},
+                    {QStringLiteral("endMs"), 1000}}
+    };
+
+    // No local TTS engine exists.  Each remote selection must report its own
+    // missing dependency instead of using local synthesis or the other route.
+    DubbingSynthesisJob job(nullptr);
+    QSignalSpy failures(&job, &DubbingSynthesisJob::failed);
+
+    QVERIFY(!job.start(segments, QStringLiteral("C:/temp/project.ladub.json"),
+                        QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("api-gateway")}},
+                        QStringLiteral("gateway-only")));
+    QCOMPARE(failures.count(), 1);
+    QCOMPARE(failures.takeFirst().at(0).toString(),
+             QStringLiteral("API Gateway configuration is unavailable."));
+
+    QVERIFY(!job.start(segments, QStringLiteral("C:/temp/project.ladub.json"),
+                        QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("colab-direct")}},
+                        QStringLiteral("colab-only")));
+    QCOMPARE(failures.count(), 1);
+    QCOMPARE(failures.takeFirst().at(0).toString(),
+             QStringLiteral("Connect a Colab GPU worker before running this TTS node."));
 }
 
 void TestDubbingProject::parsesLmStudioTranslationFixResponses()

@@ -582,7 +582,8 @@ QVariantMap DubbingController::firstCustomSetupIssue() const
                      QStringLiteral("Choose a model for the %1 node before running Custom dubbing.")
                          .arg(visibleStepForNode(required.first))}};
         }
-        if (required.first == QStringLiteral("translate")) {
+        if (required.first == QStringLiteral("translate")
+            || required.first == QStringLiteral("synthesize")) {
             const QVariantMap parameters = selected.value(QStringLiteral("parameters")).toMap();
             ExecutionProvider provider = ExecutionProvider::LocalDev;
             const QString providerId = selected.value(
@@ -681,7 +682,17 @@ QVariantList DubbingController::workflowNodes() const
                                 && QFileInfo::exists(segment.value(QStringLiteral("clipPath")).toString()));
         hasConflict = hasConflict || segment.value(QStringLiteral("timingConflict")).toBool();
     }
-    const bool ttsReady = m_tts && m_tts->isModelLoaded();
+    const QVariantMap synthesisSelection = m_workflowNodeConfigurations
+        .value(QStringLiteral("synthesize")).toMap();
+    const QVariantMap synthesisParameters = synthesisSelection
+        .value(QStringLiteral("parameters")).toMap();
+    ExecutionProvider synthesisProvider = ExecutionProvider::LocalDev;
+    const QString synthesisProviderId = synthesisSelection.value(
+        QStringLiteral("executionProvider"), synthesisParameters.value(
+        QStringLiteral("executionProvider"), QStringLiteral("local-dev"))).toString();
+    const bool remoteTtsSelected = executionProviderFromId(synthesisProviderId, &synthesisProvider)
+        && synthesisProvider != ExecutionProvider::LocalDev;
+    const bool ttsReady = remoteTtsSelected || (m_tts && m_tts->isModelLoaded());
     const bool translationReady = !m_project.targetLanguage.trimmed().isEmpty();
     const auto node = [](const QString &id, const QString &title, const QString &state,
                          const QString &detail, const QString &provider = QString()) {
@@ -1056,10 +1067,11 @@ bool DubbingController::reloadWorkflowNodeModel(const QString &nodeId)
 bool DubbingController::setWorkflowNodeParameters(const QString &nodeId, const QVariantMap &parameters)
 {
     if (nodeId.isEmpty()) return false;
-    if (nodeId == QStringLiteral("translate") && parameters.contains(QStringLiteral("executionProvider"))) {
+    if ((nodeId == QStringLiteral("translate") || nodeId == QStringLiteral("synthesize"))
+        && parameters.contains(QStringLiteral("executionProvider"))) {
         ExecutionProvider provider = ExecutionProvider::LocalDev;
         if (!executionProviderFromId(parameters.value(QStringLiteral("executionProvider")).toString(), &provider)) {
-            setError(QStringLiteral("Unknown translation execution provider."));
+            setError(QStringLiteral("Unknown remote execution provider."));
             return false;
         }
     }
