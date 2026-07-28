@@ -4,8 +4,9 @@
 .SYNOPSIS
     Build, stage, and package LA Studio into a Windows installer.
 .DESCRIPTION
-    Compiles the project, installs files to out/stage, deploys Qt dependencies,
-    and runs Inno Setup to generate a single-file EXE installer.
+    Compiles the project, installs files to out/stage (or an explicit internal
+    staging directory), deploys Qt dependencies, and runs Inno Setup to
+    generate a single-file EXE installer.
 #>
 
 [CmdletBinding()]
@@ -16,6 +17,7 @@ param(
     [string] $LlamaCppSourceDir,
     [string] $Version,
     [string] $ReleaseSuffix,
+    [string] $StageDir,
     [switch] $SkipInstaller,
     [switch] $AllowUnsignedEspeakForInternalBuild
 )
@@ -147,6 +149,37 @@ function Assert-StagingDirectoryCanBeRebuilt {
     if ($blockers.Count -gt 0) {
         throw "The existing staging payload is in use by $($blockers -join ', '). Close the staged application before running package.ps1 so its files are not partially replaced."
     }
+}
+
+function Resolve-StageDirectory {
+    param(
+        [string] $Candidate,
+        [Parameter(Mandatory = $true)]
+        [string] $RepositoryRoot,
+        [Parameter(Mandatory = $true)]
+        [bool] $InstallerRequested
+    )
+
+    $defaultStage = Join-Path $RepositoryRoot 'out\stage'
+    if ([string]::IsNullOrWhiteSpace($Candidate)) { return $defaultStage }
+
+    if ($InstallerRequested) {
+        throw '-StageDir is for internal staging only; omit it when building an installer.'
+    }
+
+    $candidatePath = $Candidate.Trim().Trim('"')
+    $resolved = if ([IO.Path]::IsPathRooted($candidatePath)) {
+        [IO.Path]::GetFullPath($candidatePath)
+    } else {
+        [IO.Path]::GetFullPath((Join-Path $RepositoryRoot $candidatePath))
+    }
+    $outRoot = [IO.Path]::GetFullPath((Join-Path $RepositoryRoot 'out')).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    $outPrefix = $outRoot + [IO.Path]::DirectorySeparatorChar
+    if (-not $resolved.StartsWith($outPrefix, [StringComparison]::OrdinalIgnoreCase) -or
+        $resolved.TrimEnd([IO.Path]::DirectorySeparatorChar).Equals($outRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "-StageDir must be a directory below '$outRoot'."
+    }
+    return $resolved
 }
 
 function Resolve-SevenZipExecutable {
@@ -591,7 +624,7 @@ if (-not (Test-Path $windeployqt)) {
 }
 
 # 2. Setup folders
-$stageDir = Join-Path $RepoRoot "out\stage"
+$stageDir = Resolve-StageDirectory -Candidate $StageDir -RepositoryRoot $RepoRoot -InstallerRequested:(-not $SkipInstaller)
 Assert-StagingDirectoryCanBeRebuilt -StageRoot $stageDir
 if (Test-Path $stageDir) {
     Write-Host ">> Cleaning old staging directory..." -ForegroundColor Cyan

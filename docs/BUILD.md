@@ -101,6 +101,15 @@ bootstrap:
 .\scripts\bootstrap.bat -QtRoot .tools\Qt\6.9.3 -AllowUnsignedEspeakForInternalBuild
 ```
 
+To keep an already-running staged build open while validating a fresh **internal**
+payload, stage into another directory below `out/`. This option is deliberately
+rejected when an installer is requested:
+
+```powershell
+.\scripts\package.ps1 -QtRoot .tools\Qt\6.9.3 -SkipInstaller `
+  -AllowUnsignedEspeakForInternalBuild -StageDir out\stage-internal
+```
+
 This flag is intentionally opt-in and must never be used by a release build or CI release job.
 
 Actionable QML lint gate (run after a preset has been configured):
