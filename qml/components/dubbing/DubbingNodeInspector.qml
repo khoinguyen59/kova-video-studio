@@ -25,6 +25,13 @@ Rectangle {
     readonly property bool isOmniVoice: nodeId === "synthesize"
                                              && node
                                              && String(node.selectedFamilyId || "").toLowerCase().indexOf("omnivoice") !== -1
+    // Colab voice cloning is a direct, session-scoped worker capability.  It
+    // deliberately remains separate from the API Gateway route and its model.
+    readonly property bool isDirectColabSynthesis: nodeId === "synthesize"
+                                                  && String(dynamicSettings.executionProvider || "local-dev").toLowerCase() === "colab-direct"
+    readonly property bool voiceCloningAvailable: nodeId === "synthesize"
+                                                && node
+                                                && (node.supportsVoiceCloning === true || isDirectColabSynthesis)
 
     signal closeRequested()
     signal rewriteSetupRequested()
@@ -182,9 +189,7 @@ Rectangle {
                 SettingsSection {
                     title: qsTr("Voice cloning")
                     iconName: "spark"
-                    visible: root.nodeId === "synthesize"
-                             && root.node
-                             && root.node.supportsVoiceCloning === true
+                    visible: root.voiceCloningAvailable
 
                     ToggleRow {
                         text: qsTr("Auto-select a clean voice reference")
@@ -195,9 +200,20 @@ Rectangle {
                         onToggled: root.updateParameter("autoSelectVoiceReference", checked)
                     }
 
+                    ToggleRow {
+                        visible: root.isDirectColabSynthesis
+                                 && root.dynamicSettings.autoSelectVoiceReference === true
+                        text: qsTr("I have permission to clone this voice")
+                        checked: root.dynamicSettings.voiceCloneConsentConfirmed === true
+                        enabled: !root.dubbing.processing
+                        onToggled: root.updateParameter("voiceCloneConsentConfirmed", checked)
+                    }
+
                     Text {
                         Layout.fillWidth: true
-                        text: qsTr("Scores 3-15 second source speech windows, saves the best window as a reference, and uses its transcript to clone the source voice.")
+                        text: root.isDirectColabSynthesis
+                              ? qsTr("Direct Colab only: a 3-15 second reference is sent to the paired temporary worker. Its voice profile stays in that worker session and is never sent to or stored by API Gateway.")
+                              : qsTr("Scores 3-15 second source speech windows, saves the best window as a reference, and uses its transcript to clone the source voice.")
                         color: Theme.textSecondary
                         font.pixelSize: 10
                         wrapMode: Text.WordWrap

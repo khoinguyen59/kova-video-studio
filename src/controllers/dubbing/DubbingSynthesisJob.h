@@ -20,6 +20,7 @@ class Settings;
 class ColabSession;
 class GatewayTtsRunner;
 class ColabTtsRunner;
+class ColabVoiceCloneRunner;
 enum class ExecutionProvider;
 
 class DubbingSynthesisJob final : public QObject
@@ -50,6 +51,8 @@ private slots:
 private:
     void startCurrentChunk();
     void startRemoteSynthesis(const QString &text, const QVariantMap &requestSettings);
+    void startColabVoiceClone(const QString &text, const QVariantMap &requestSettings,
+                              quint64 requestId);
     void commitSynthesizedAudio(const QVector<float> &samples, int sampleRate);
     void onRemoteProgress(int progress, quint64 requestId);
     void fitGeneratedSegments();
@@ -60,6 +63,7 @@ private:
     QPointer<ColabSession> m_colabSession;
     GatewayTtsRunner *m_gatewayRunner = nullptr;
     ColabTtsRunner *m_colabRunner = nullptr;
+    ColabVoiceCloneRunner *m_colabVoiceCloneRunner = nullptr;
     QThread m_remoteThread;
     bool m_running = false;
     bool m_waitingForModel = false;
@@ -74,6 +78,8 @@ private:
     QString m_synthesisSignature;
     ExecutionProvider m_executionProvider;
     DubbingVoiceReference m_voiceReference;
+    QString m_colabVoiceProfileId;
+    QString m_colabVoiceProfileSignature;
     bool m_useVoiceCloning = false;
     bool m_forceSegmentDuration = false;
     QString m_runId;
@@ -90,6 +96,8 @@ private:
     QMetaObject::Connection m_remoteProgressConnection;
     QMetaObject::Connection m_remoteFinishedConnection;
     QMetaObject::Connection m_remoteFailedConnection;
+    QMetaObject::Connection m_remoteProfileConnection;
+    QMetaObject::Connection m_colabSessionConnection;
 };
 
 } // namespace LAStudio

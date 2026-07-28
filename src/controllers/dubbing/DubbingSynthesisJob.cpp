@@ -7,6 +7,7 @@
 #include "remote/ColabSession.h"
 #include "remote/ExecutionProvider.h"
 #include "tts/ColabTtsRunner.h"
+#include "tts/ColabVoiceCloneRunner.h"
 #include "tts/GatewayTtsRunner.h"
 #include "tts/TtsEngine.h"
 #include "workflows/WorkflowArtifact.h"
@@ -74,13 +75,17 @@ DubbingSynthesisJob::DubbingSynthesisJob(TtsEngine *tts, QObject *parent)
 {
     qRegisterMetaType<GatewayTtsRequest>("GatewayTtsRequest");
     qRegisterMetaType<ColabTtsRequest>("ColabTtsRequest");
+    qRegisterMetaType<ColabVoiceCloneRequest>("ColabVoiceCloneRequest");
     qRegisterMetaType<QVector<float>>("QVector<float>");
     m_gatewayRunner = new GatewayTtsRunner;
     m_colabRunner = new ColabTtsRunner;
+    m_colabVoiceCloneRunner = new ColabVoiceCloneRunner;
     m_gatewayRunner->moveToThread(&m_remoteThread);
     m_colabRunner->moveToThread(&m_remoteThread);
+    m_colabVoiceCloneRunner->moveToThread(&m_remoteThread);
     connect(&m_remoteThread, &QThread::finished, m_gatewayRunner, &QObject::deleteLater);
     connect(&m_remoteThread, &QThread::finished, m_colabRunner, &QObject::deleteLater);
+    connect(&m_remoteThread, &QThread::finished, m_colabVoiceCloneRunner, &QObject::deleteLater);
     m_remoteThread.start();
 
     if (m_tts) {
@@ -112,6 +117,8 @@ DubbingSynthesisJob::~DubbingSynthesisJob()
         QMetaObject::invokeMethod(m_gatewayRunner, "cancel", Qt::QueuedConnection);
     if (m_colabRunner && m_remoteThread.isRunning())
         QMetaObject::invokeMethod(m_colabRunner, "cancel", Qt::QueuedConnection);
+    if (m_colabVoiceCloneRunner && m_remoteThread.isRunning())
+        QMetaObject::invokeMethod(m_colabVoiceCloneRunner, "cancel", Qt::QueuedConnection);
     m_remoteThread.quit();
     m_remoteThread.wait();
 }
@@ -119,7 +126,28 @@ DubbingSynthesisJob::~DubbingSynthesisJob()
 void DubbingSynthesisJob::setRemoteServices(Settings *settings, ColabSession *colabSession)
 {
     m_gatewaySettings = settings;
+    QObject::disconnect(m_colabSessionConnection);
     m_colabSession = colabSession;
+    if (m_colabSession) {
+        m_colabSessionConnection = connect(m_colabSession, &ColabSession::sessionChanged, this, [this]() {
+            // Colab VM restarts invalidate worker-side profile IDs.  The local
+            // reference remains available, so the next clip recreates only its
+            // Colab profile without involving API Gateway or persisted tokens.
+            m_colabVoiceProfileId.clear();
+            m_colabVoiceProfileSignature.clear();
+            if (m_running && m_executionProvider == ExecutionProvider::ColabDirect
+                && m_useVoiceCloning) {
+                // Do not continue a cloning job against a newly paired worker:
+                // its profile belongs to the previous, temporary Colab VM.
+                ++m_remoteRequestId;
+                if (m_remoteCancellation)
+                    m_remoteCancellation->store(true, std::memory_order_relaxed);
+                if (m_colabVoiceCloneRunner)
+                    QMetaObject::invokeMethod(m_colabVoiceCloneRunner, "cancel", Qt::QueuedConnection);
+                fail(QStringLiteral("Colab GPU worker session changed while voice cloning. Pair the worker again, then rerun this TTS node."));
+            }
+        });
+    }
 }
 
 bool DubbingSynthesisJob::start(const QVariantList &segments, const QString &projectPath,
@@ -162,12 +190,17 @@ bool DubbingSynthesisJob::start(const QVariantList &segments, const QString &pro
     m_projectPath = projectPath;
     m_settings = settings;
     m_cacheSettings = settings;
-    m_useVoiceCloning = !remote && settings.value(QStringLiteral("autoSelectVoiceReference")).toBool();
+    m_useVoiceCloning = settings.value(QStringLiteral("autoSelectVoiceReference")).toBool();
     m_forceSegmentDuration = !remote && settings.value(QStringLiteral("forceSegmentDuration")).toBool()
         && settings.value(QStringLiteral("familyId")).toString()
                .contains(QStringLiteral("omnivoice"), Qt::CaseInsensitive);
-    if (remote && settings.value(QStringLiteral("autoSelectVoiceReference")).toBool()) {
-        fail(QStringLiteral("Remote Dubbing TTS does not use a local voice reference. Run the dedicated Colab voice-cloning stage first, then choose its prepared voice."));
+    if (m_useVoiceCloning && m_executionProvider == ExecutionProvider::ApiGateway) {
+        fail(QStringLiteral("API Gateway TTS does not support direct voice cloning. Select Colab GPU for this node or turn off voice cloning."));
+        return false;
+    }
+    if (m_useVoiceCloning && m_executionProvider == ExecutionProvider::ColabDirect
+        && !settings.value(QStringLiteral("voiceCloneConsentConfirmed")).toBool()) {
+        fail(QStringLiteral("Confirm permission to clone this voice before starting Colab voice cloning."));
         return false;
     }
     if (remote) {
@@ -203,6 +236,19 @@ bool DubbingSynthesisJob::start(const QVariantList &segments, const QString &pro
         m_cacheSettings.insert(QStringLiteral("selectedReferencePath"), m_voiceReference.audioPath);
         m_cacheSettings.insert(QStringLiteral("selectedReferenceText"), m_voiceReference.referenceText);
         m_cacheSettings.insert(QStringLiteral("selectedReferenceQuality"), m_voiceReference.qualityScore);
+        if (m_executionProvider == ExecutionProvider::ColabDirect) {
+            const QFileInfo referenceInfo(m_voiceReference.audioPath);
+            const QString profileSignature = QStringLiteral("%1|%2|%3|%4|%5")
+                .arg(referenceInfo.absoluteFilePath(),
+                     QString::number(referenceInfo.size()),
+                     QString::number(referenceInfo.lastModified().toMSecsSinceEpoch()),
+                     m_voiceReference.referenceText, m_settings.value(QStringLiteral("lang")).toString());
+            if (m_colabVoiceProfileSignature != profileSignature) {
+                m_colabVoiceProfileSignature = profileSignature;
+                m_colabVoiceProfileId.clear();
+            }
+            m_synthesisSignature.append(QStringLiteral("|colab-clone|%1").arg(profileSignature));
+        }
     }
     m_settings.remove(QStringLiteral("autoSelectVoiceReference"));
     m_settings.remove(QStringLiteral("autoReferenceSourcePath"));
@@ -246,8 +292,12 @@ void DubbingSynthesisJob::cancel()
         if (m_remoteCancellation) m_remoteCancellation->store(true, std::memory_order_relaxed);
         if (m_executionProvider == ExecutionProvider::ApiGateway && m_gatewayRunner)
             QMetaObject::invokeMethod(m_gatewayRunner, "cancel", Qt::QueuedConnection);
-        if (m_executionProvider == ExecutionProvider::ColabDirect && m_colabRunner)
-            QMetaObject::invokeMethod(m_colabRunner, "cancel", Qt::QueuedConnection);
+        if (m_executionProvider == ExecutionProvider::ColabDirect) {
+            if (m_useVoiceCloning && m_colabVoiceCloneRunner)
+                QMetaObject::invokeMethod(m_colabVoiceCloneRunner, "cancel", Qt::QueuedConnection);
+            else if (m_colabRunner)
+                QMetaObject::invokeMethod(m_colabRunner, "cancel", Qt::QueuedConnection);
+        }
     }
     m_remoteCancellation.reset();
     m_running = false;
@@ -309,6 +359,7 @@ void DubbingSynthesisJob::startRemoteSynthesis(const QString &text,
     QObject::disconnect(m_remoteProgressConnection);
     QObject::disconnect(m_remoteFinishedConnection);
     QObject::disconnect(m_remoteFailedConnection);
+    QObject::disconnect(m_remoteProfileConnection);
     const float speed = qBound(0.25F, requestSettings.value(QStringLiteral("speed"), 1.0F).toFloat(), 4.0F);
 
     if (m_executionProvider == ExecutionProvider::ApiGateway) {
@@ -354,6 +405,10 @@ void DubbingSynthesisJob::startRemoteSynthesis(const QString &text,
             fail(QStringLiteral("Connect a Colab GPU worker before running this TTS node."));
             return;
         }
+        if (m_useVoiceCloning) {
+            startColabVoiceClone(text, requestSettings, requestId);
+            return;
+        }
         QString model = requestSettings.value(QStringLiteral("modelId")).toString().trimmed();
         QString voice = requestSettings.value(QStringLiteral("voice")).toString().trimmed();
         if (model.isEmpty()) model = QStringLiteral("kokoro");
@@ -389,6 +444,61 @@ void DubbingSynthesisJob::startRemoteSynthesis(const QString &text,
         return;
     }
     fail(QStringLiteral("Dubbing remote TTS provider is unsupported."));
+}
+
+void DubbingSynthesisJob::startColabVoiceClone(const QString &text,
+                                                const QVariantMap &requestSettings,
+                                                quint64 requestId)
+{
+    // Voice cloning is a Colab-only route.  Its profile ID is kept only in
+    // memory for this direct worker session; it is never written to Settings
+    // or sent to API Gateway.
+    if (!m_colabVoiceCloneRunner || !m_colabSession || !m_colabSession->isActive()) {
+        fail(QStringLiteral("Connect a Colab GPU worker before running voice cloning."));
+        return;
+    }
+    if (!m_voiceReference.isValid()) {
+        fail(QStringLiteral("A valid local voice reference is required for Colab voice cloning."));
+        return;
+    }
+    if (!requestSettings.value(QStringLiteral("voiceCloneConsentConfirmed")).toBool()) {
+        fail(QStringLiteral("Confirm permission to clone this voice before starting Colab voice cloning."));
+        return;
+    }
+    const QString language = requestSettings.value(QStringLiteral("lang")).toString().trimmed().isEmpty()
+        ? QStringLiteral("vi") : requestSettings.value(QStringLiteral("lang")).toString().trimmed();
+    m_remoteProgressConnection = connect(m_colabVoiceCloneRunner, &ColabVoiceCloneRunner::progress, this,
+                                         [this, requestId](int progress, const QString &) {
+        onRemoteProgress(progress, requestId);
+    });
+    m_remoteProfileConnection = connect(m_colabVoiceCloneRunner, &ColabVoiceCloneRunner::profileReady, this,
+                                        [this, requestId](const QString &profileId) {
+        if (m_running && requestId == m_remoteRequestId && !profileId.trimmed().isEmpty())
+            m_colabVoiceProfileId = profileId.trimmed();
+    });
+    m_remoteFinishedConnection = connect(m_colabVoiceCloneRunner, &ColabVoiceCloneRunner::finished, this,
+                                         [this, requestId](const QByteArray &, const QVector<float> &samples, int rate) {
+        if (m_running && requestId == m_remoteRequestId) commitSynthesizedAudio(samples, rate);
+    });
+    m_remoteFailedConnection = connect(m_colabVoiceCloneRunner, &ColabVoiceCloneRunner::failed, this,
+                                       [this, requestId](const QString &message) {
+        if (m_running && requestId == m_remoteRequestId) fail(message);
+    });
+    ColabVoiceCloneRequest request;
+    request.workerUrl = m_colabSession->endpoint();
+    request.bearerToken = m_colabSession->bearerTokenForRequest();
+    request.referencePath = m_voiceReference.audioPath;
+    request.referenceName = QStringLiteral("LA Studio Dubbing Voice");
+    request.referenceText = m_voiceReference.referenceText;
+    request.text = text;
+    request.language = language;
+    request.speed = qBound(0.25F, requestSettings.value(QStringLiteral("speed"), 1.0F).toFloat(), 4.0F);
+    request.steps = qBound(1, requestSettings.value(QStringLiteral("voiceCloneSteps"), 32).toInt(), 100);
+    request.consentConfirmed = true;
+    request.existingProfileId = m_colabVoiceProfileId;
+    request.cancellation = InferenceCancellationToken(m_remoteCancellation);
+    QMetaObject::invokeMethod(m_colabVoiceCloneRunner, "clone", Qt::QueuedConnection,
+                              Q_ARG(ColabVoiceCloneRequest, request));
 }
 
 void DubbingSynthesisJob::onRemoteProgress(int progress, quint64 requestId)

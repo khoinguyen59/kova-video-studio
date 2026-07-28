@@ -143,6 +143,64 @@ void TestDubbingProject::remoteTtsRoutesDoNotFallbackBetweenGatewayAndColab()
              QStringLiteral("Connect a Colab GPU worker before running this TTS node."));
 }
 
+void TestDubbingProject::colabDubbingVoiceCloningIsDirectAndRequiresConsent()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    constexpr int sampleRate = 24000;
+    QVector<float> referenceSamples(sampleRate * 4);
+    constexpr double pi = 3.14159265358979323846;
+    for (int index = 0; index < referenceSamples.size(); ++index)
+        referenceSamples[index] = 0.10F * qSin(2.0 * pi * 180.0 * index / sampleRate);
+    const QString sourcePath = dir.filePath(QStringLiteral("source.wav"));
+    QVERIFY(WavIO::saveFloat(sourcePath, referenceSamples.constData(), referenceSamples.size(), sampleRate));
+
+    const QVariantList segments = {
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("segment-1")},
+                    {QStringLiteral("sourceText"), QStringLiteral("Reference speech")},
+                    {QStringLiteral("targetText"), QStringLiteral("Dubbed speech")},
+                    {QStringLiteral("startMs"), 0},
+                    {QStringLiteral("endMs"), 4000}}
+    };
+    const QString projectPath = dir.filePath(QStringLiteral("project.ladub.json"));
+    DubbingSynthesisJob job(nullptr);
+    QSignalSpy failures(&job, &DubbingSynthesisJob::failed);
+
+    // Gateway must reject voice cloning before it looks for a Colab session
+    // or attempts local voice generation.
+    QVERIFY(!job.start(segments, projectPath,
+                        QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("api-gateway")},
+                                    {QStringLiteral("autoSelectVoiceReference"), true}},
+                        QStringLiteral("gateway-clone")));
+    QCOMPARE(failures.count(), 1);
+    QCOMPARE(failures.takeFirst().at(0).toString(),
+             QStringLiteral("API Gateway TTS does not support direct voice cloning. Select Colab GPU for this node or turn off voice cloning."));
+
+    // Direct Colab requires an explicit permission acknowledgement; it must
+    // not silently use either API Gateway or the local TTS engine.
+    QVERIFY(!job.start(segments, projectPath,
+                        QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+                                    {QStringLiteral("autoSelectVoiceReference"), true},
+                                    {QStringLiteral("autoReferenceSourcePath"), sourcePath}},
+                        QStringLiteral("colab-without-consent")));
+    QCOMPARE(failures.count(), 1);
+    QCOMPARE(failures.takeFirst().at(0).toString(),
+             QStringLiteral("Confirm permission to clone this voice before starting Colab voice cloning."));
+
+    // Once consented, the selected source reference is resolved locally and
+    // the next dependency checked is only the direct Colab session.
+    QVERIFY(!job.start(segments, projectPath,
+                        QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+                                    {QStringLiteral("autoSelectVoiceReference"), true},
+                                    {QStringLiteral("voiceCloneConsentConfirmed"), true},
+                                    {QStringLiteral("autoReferenceSourcePath"), sourcePath}},
+                        QStringLiteral("colab-direct-only")));
+    QCOMPARE(failures.count(), 1);
+    QCOMPARE(failures.takeFirst().at(0).toString(),
+             QStringLiteral("Connect a Colab GPU worker before running this TTS node."));
+}
+
 void TestDubbingProject::parsesLmStudioTranslationFixResponses()
 {
     QCOMPARE(
