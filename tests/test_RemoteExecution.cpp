@@ -30,11 +30,17 @@ class CatalogMock final : public QObject
 {
 public:
     explicit CatalogMock(QByteArray response)
-        : m_response(std::move(response))
+        : CatalogMock(QList<QByteArray>{std::move(response)})
+    {
+    }
+
+    explicit CatalogMock(QList<QByteArray> responses)
+        : m_responses(std::move(responses))
     {
         connect(&m_server, &QTcpServer::newConnection, this, [this] {
             while (QTcpSocket *socket = m_server.nextPendingConnection()) {
                 m_socket = socket;
+                m_pending.clear();
                 connect(socket, &QTcpSocket::readyRead, this, [this] { consume(); });
             }
         });
@@ -43,6 +49,7 @@ public:
     bool start() { return m_server.listen(QHostAddress::LocalHost); }
     QString baseUrl() const { return QStringLiteral("http://127.0.0.1:%1").arg(m_server.serverPort()); }
     QByteArray request() const { return m_request; }
+    QList<QByteArray> requests() const { return m_requests; }
 
 private:
     void consume()
@@ -52,18 +59,21 @@ private:
         const int headerEnd = m_pending.indexOf("\r\n\r\n");
         if (headerEnd < 0) return;
         m_request = m_pending.left(headerEnd + 4);
+        const QByteArray response = m_responses.value(m_requests.size());
+        m_requests.append(m_request);
         const QByteArray wireResponse = QByteArrayLiteral("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ")
-            + QByteArray::number(m_response.size())
-            + QByteArrayLiteral("\r\nConnection: close\r\n\r\n") + m_response;
+            + QByteArray::number(response.size())
+            + QByteArrayLiteral("\r\nConnection: close\r\n\r\n") + response;
         m_socket->write(wireResponse);
         m_socket->disconnectFromHost();
     }
 
     QTcpServer m_server;
     QPointer<QTcpSocket> m_socket;
-    QByteArray m_response;
+    QList<QByteArray> m_responses;
     QByteArray m_pending;
     QByteArray m_request;
+    QList<QByteArray> m_requests;
 };
 
 } // namespace
@@ -465,21 +475,39 @@ void TestRemoteExecution::gatewayAndColabFailuresRemainIndependent()
 
 void TestRemoteExecution::gatewayModelCatalogUsesGatewayOnly()
 {
-    CatalogMock server(QByteArrayLiteral(
-        R"({"object":"list","data":[{"id":"router/chat-pro","owned_by":"9router"},{"id":"router/tts","name":"Speech API"}]})"));
+    CatalogMock server({
+        QByteArrayLiteral(R"({"object":"list","data":[{"id":"router/chat-pro","owned_by":"9router"},{"id":"router/translate","name":"Translation API"}]})"),
+        QByteArrayLiteral(R"({"object":"list","data":[{"id":"router/stt-pro","name":"Speech-to-Text API"}]})"),
+        QByteArrayLiteral(R"({"object":"list","data":[{"id":"router/tts-pro","name":"Text-to-Speech API"}]})"),
+    });
     QVERIFY(server.start());
 
     const GatewayModelCatalog::Result result = GatewayModelCatalog::fetch(
         server.baseUrl() + QStringLiteral("/v1"), QStringLiteral("gateway-catalog-token"), true);
     QVERIFY2(result.isSuccess(), qPrintable(result.error));
-    QCOMPARE(result.models.size(), 2);
+    QCOMPARE(result.models.size(), 4);
     const QVariantMap first = result.models.at(0).toMap();
     QCOMPARE(first.value(QStringLiteral("provider")).toString(), QStringLiteral("api-gateway"));
+    QCOMPARE(first.value(QStringLiteral("capability")).toString(), QStringLiteral("llm"));
     QCOMPARE(first.value(QStringLiteral("modelId")).toString(), QStringLiteral("router/chat-pro"));
     QVERIFY(first.value(QStringLiteral("selectable")).toBool());
-    QCOMPARE(server.request().left(server.request().indexOf("\r\n")),
+    const QVariantMap stt = result.models.at(2).toMap();
+    QCOMPARE(stt.value(QStringLiteral("capability")).toString(), QStringLiteral("stt"));
+    QCOMPARE(stt.value(QStringLiteral("modelId")).toString(), QStringLiteral("router/stt-pro"));
+    const QVariantMap tts = result.models.at(3).toMap();
+    QCOMPARE(tts.value(QStringLiteral("capability")).toString(), QStringLiteral("tts"));
+    QCOMPARE(tts.value(QStringLiteral("modelId")).toString(), QStringLiteral("router/tts-pro"));
+
+    const QList<QByteArray> requests = server.requests();
+    QCOMPARE(requests.size(), 3);
+    QCOMPARE(requests.at(0).left(requests.at(0).indexOf("\r\n")),
              QByteArrayLiteral("GET /v1/models HTTP/1.1"));
-    QVERIFY(server.request().toLower().contains("authorization: bearer gateway-catalog-token"));
+    QCOMPARE(requests.at(1).left(requests.at(1).indexOf("\r\n")),
+             QByteArrayLiteral("GET /v1/models/stt HTTP/1.1"));
+    QCOMPARE(requests.at(2).left(requests.at(2).indexOf("\r\n")),
+             QByteArrayLiteral("GET /v1/models/tts HTTP/1.1"));
+    for (const QByteArray &request : requests)
+        QVERIFY(request.toLower().contains("authorization: bearer gateway-catalog-token"));
 }
 
 void TestRemoteExecution::colabCapabilityCatalogUsesDirectWorkerOnly()

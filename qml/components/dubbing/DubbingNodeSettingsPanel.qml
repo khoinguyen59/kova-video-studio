@@ -184,7 +184,10 @@ Rectangle {
         for (var i = 0; i < candidates.length; ++i) {
             var item = candidates[i]
             if (item.selectable !== true) continue
-            if (provider === "colab-direct" && item.capability !== capability) continue
+            var advertised = String(item.capability || "")
+            var matches = advertised === "" || advertised === capability
+                       || (advertised === "llm" && (capability === "translation" || capability === "llm-chat"))
+            if (!matches) continue
             options.push(item)
         }
         return options

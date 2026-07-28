@@ -6,6 +6,20 @@
 #include <QtConcurrent>
 
 namespace LAStudio {
+namespace {
+
+bool supportsCapability(const QVariantMap &model, const QString &requestedCapability)
+{
+    const QString requested = requestedCapability.trimmed();
+    if (requested.isEmpty()) return true;
+    const QString advertised = model.value(QStringLiteral("capability")).toString().trimmed();
+    if (advertised.isEmpty()) return true;
+    if (advertised == requested) return true;
+    return advertised == QStringLiteral("llm")
+        && (requested == QStringLiteral("translation") || requested == QStringLiteral("llm-chat"));
+}
+
+} // namespace
 
 RemoteModelCatalogController::RemoteModelCatalogController(Settings *settings,
                                                            ColabSession *colabSession,
@@ -139,8 +153,7 @@ bool RemoteModelCatalogController::isModelSelectable(const QString &provider,
     if (!models) return false;
     for (const QVariant &value : *models) {
         const QVariantMap model = value.toMap();
-        if (providerId == QStringLiteral("colab-direct") && !capability.trimmed().isEmpty()
-            && model.value(QStringLiteral("capability")).toString() != capability.trimmed()) {
+        if (!supportsCapability(model, capability)) {
             continue;
         }
         if (model.value(QStringLiteral("modelId")).toString() == modelId.trimmed())
