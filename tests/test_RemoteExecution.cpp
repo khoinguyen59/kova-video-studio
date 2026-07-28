@@ -8,6 +8,7 @@
 
 #include "core/PathUtils.h"
 #include "core/Settings.h"
+#include "controllers/models/RemoteModelCatalogController.h"
 #include "remote/ColabCapabilityCatalog.h"
 #include "remote/ColabSession.h"
 #include "remote/ExecutionProvider.h"
@@ -157,6 +158,33 @@ void TestRemoteExecution::remoteFirstModeIsExplicitAndPersistent()
 
     reloaded.setRemoteFirstMode(original);
     QCOMPARE(reloaded.remoteFirstMode(), original);
+}
+
+void TestRemoteExecution::gatewayAndColabFailuresRemainIndependent()
+{
+    Settings settings;
+    settings.setGatewayUrl(QStringLiteral("not-a-valid-gateway-url"));
+    settings.setGatewayApiKey(QStringLiteral("gateway-test-token"));
+    ColabSession session;
+    QString error;
+    QVERIFY(session.setSession(QStringLiteral("https://worker.example.test"),
+                               QStringLiteral("temporary-colab-token"), &error));
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    RemoteModelCatalogController controller(&settings, &session);
+
+    controller.refreshGateway();
+    QTRY_VERIFY(!controller.gatewayRefreshing());
+    QVERIFY(!controller.gatewayAvailable());
+    QCOMPARE(session.workerUrl(), QStringLiteral("https://worker.example.test"));
+    QCOMPARE(session.bearerTokenForRequest(), QStringLiteral("temporary-colab-token"));
+
+    session.clear();
+    controller.refreshColab();
+    QVERIFY(!controller.colabAvailable());
+    QVERIFY(!controller.colabError().isEmpty());
+    QCOMPARE(settings.gatewayUrl(), QStringLiteral("not-a-valid-gateway-url"));
+    QCOMPARE(settings.gatewayApiKey(), QStringLiteral("gateway-test-token"));
+    settings.setGatewayApiKey(QString());
 }
 
 void TestRemoteExecution::gatewayModelCatalogUsesGatewayOnly()

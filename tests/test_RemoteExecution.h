@@ -14,6 +14,7 @@ private slots:
     void colabSessionIsMemoryOnlyAndCanBeCleared();
     void gatewayCredentialUsesDedicatedSecureStoreEntry();
     void remoteFirstModeIsExplicitAndPersistent();
+    void gatewayAndColabFailuresRemainIndependent();
     void gatewayModelCatalogUsesGatewayOnly();
     void colabCapabilityCatalogUsesDirectWorkerOnly();
 };

@@ -11,6 +11,7 @@ private slots:
     void initTestCase();
     void cleanupTestCase();
     void testDownloadInstallService();
+    void remoteFirstModeBlocksLocalDownloads();
     void testQuickInstallSelectsLatestCatalogRuntime();
     void testArchiveMemberPathsCannotEscapeExtractionDir();
 

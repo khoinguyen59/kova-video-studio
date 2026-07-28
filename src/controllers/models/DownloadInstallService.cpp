@@ -1,5 +1,6 @@
 #include "DownloadInstallService.h"
 
+#include "core/Settings.h"
 #include "core/DownloadManager.h"
 #include "core/ModelManager.h"
 #include "core/RuntimeManager.h"
@@ -512,11 +513,13 @@ QVariantMap DownloadInstallService::latestSupportedRuntime(const QVariantMap &ru
 DownloadInstallService::DownloadInstallService(DownloadManager *downloads,
                                                ModelManager *models,
                                                RuntimeManager *runtimes,
+                                               Settings *settings,
                                                QObject *parent)
     : QObject(parent)
     , m_downloads(downloads)
     , m_models(models)
     , m_runtimes(runtimes)
+    , m_settings(settings)
 {
     if (m_downloads) {
         connect(m_downloads, &DownloadManager::finished, this, &DownloadInstallService::onDownloadFinished);
@@ -525,6 +528,20 @@ DownloadInstallService::DownloadInstallService(DownloadManager *downloads,
                     emit errorOccurred(message);
                 });
     }
+}
+
+bool DownloadInstallService::localDownloadsAllowed() const
+{
+    return !m_settings || !m_settings->remoteFirstMode();
+}
+
+bool DownloadInstallService::rejectLocalDownloadInRemoteFirstMode()
+{
+    if (localDownloadsAllowed()) return false;
+    emit errorOccurred(QStringLiteral(
+        "Remote-first mode disables local model and runtime downloads. "
+        "Configure API Gateway or a direct Colab worker, or explicitly enable Local Dev models in Remote Inference settings."));
+    return true;
 }
 
 bool DownloadInstallService::isSafeArchiveMemberPath(const QString &memberPath)
@@ -708,6 +725,7 @@ bool DownloadInstallService::writeVirtualModelFiles(const QVariantMap &metadata)
 
 bool DownloadInstallService::enqueueModelFile(const QVariantMap &family, const QVariantMap &requirement)
 {
+    if (rejectLocalDownloadInRemoteFirstMode()) return false;
     if (!m_downloads || !m_models) {
         emit errorOccurred(QStringLiteral("Download services are not available"));
         return false;
@@ -786,6 +804,7 @@ bool DownloadInstallService::enqueueRuntime(const QVariantMap &family,
                                             const QString &familyId,
                                             const QVariantMap &runtime)
 {
+    if (rejectLocalDownloadInRemoteFirstMode()) return false;
     if (!m_downloads || !m_runtimes) {
         emit errorOccurred(QStringLiteral("Runtime download services are not available"));
         return false;
@@ -855,6 +874,7 @@ bool DownloadInstallService::enqueueRuntime(const QVariantMap &family,
 
 bool DownloadInstallService::enqueueRecommendedSetup(const QVariantMap &familyItem)
 {
+    if (rejectLocalDownloadInRemoteFirstMode()) return false;
     QVariantMap family = familyItem.value(QStringLiteral("rawMetadata")).toMap();
     if (family.isEmpty()) {
         family = familyItem;

@@ -40,6 +40,7 @@ WorkflowStudioShell {
     property bool sttDefaultCommitted: false
     property var pendingAlignmentRequest: null
     readonly property bool colabSelected: AppController.colabAlignment.colabActive
+    readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
     readonly property var alignmentExecution: colabSelected ? AppController.colabAlignment : AppController.alignment
     readonly property bool processing: alignmentExecution.processing
     property string selectedModelName: qsTr("No alignment model selected")
@@ -62,7 +63,10 @@ WorkflowStudioShell {
     workflowReady: colabSelected ? sessionReady : (AppController.alignment.workflowReady && executionBackendReady && sessionReady)
     workflowBusy: defaultSetupActive || (studioController ? studioController.statusText === "Loading" : false)
     workflowProgress: defaultSetupProgress()
-    workflowStatusText: workflowReady ? qsTr("Workflow ready") : qsTr("Setup required")
+    workflowStatusText: workflowReady ? qsTr("Workflow ready")
+                        : (remoteFirstMode && !colabSelected
+                           ? qsTr("Remote-first: pair a direct Colab alignment worker")
+                           : qsTr("Setup required"))
     workflowActionText: workflowReady ? qsTr("View workflow") : qsTr("Set up workflow")
     readonly property string inputStatusText: audioPath === ""
                                               ? qsTr("Audio required")
@@ -150,6 +154,10 @@ WorkflowStudioShell {
     }
 
     function loadDefaultWorkflow() {
+        if (remoteFirstMode && !colabSelected) {
+            defaultSetupActive = false
+            return
+        }
         defaultSetupActive = true
         alignmentDefaultCommitted = false
         sttDefaultCommitted = false

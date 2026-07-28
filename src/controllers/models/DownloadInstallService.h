@@ -13,6 +13,7 @@ namespace LAStudio {
 class DownloadManager;
 class ModelManager;
 class RuntimeManager;
+class Settings;
 
 class DownloadInstallService : public QObject {
     Q_OBJECT
@@ -33,6 +34,7 @@ public:
     explicit DownloadInstallService(DownloadManager *downloads,
                                    ModelManager *models,
                                    RuntimeManager *runtimes,
+                                   Settings *settings,
                                    QObject *parent = nullptr);
     ~DownloadInstallService() override = default;
 
@@ -68,12 +70,15 @@ private:
                                       QString *errorMessage);
     static bool extractedTreeIsContained(const QString &extractDir, QString *errorMessage);
     void scheduleModelFileUpdateCheck(const QString &modelId, const QString &filename, bool acceptRemoteAsBaseline = false) const;
+    bool localDownloadsAllowed() const;
+    bool rejectLocalDownloadInRemoteFirstMode();
 
     friend class TestDownloadInstallService;
 
     DownloadManager *m_downloads = nullptr;
     ModelManager *m_models = nullptr;
     RuntimeManager *m_runtimes = nullptr;
+    Settings *m_settings = nullptr;
 
     mutable QSet<QString> m_activeExtractions; // Tracks "runtimeId::version"
     mutable QSet<QString> m_activeUpdateChecks;

@@ -29,7 +29,7 @@ AppController::AppController(QObject *parent)
     m_history = new HistoryService(m_tts, m_recorder, this);
     m_modelsMigration = new ModelsPathMigrationService(m_settings, m_models, m_downloads, m_stt, m_tts, this);
     m_files = new FileAccessService(this);
-    m_downloadInstall = new DownloadInstallService(m_downloads, m_models, m_runtimes, this);
+    m_downloadInstall = new DownloadInstallService(m_downloads, m_models, m_runtimes, m_settings, this);
     m_alignment = new AlignmentExecutionService(m_runtimes, m_models, this);
     m_voiceIsolator = new VoiceIsolatorController(this);
     m_sessionRegistry = new ModelSessionRegistry(m_stt, m_tts, m_alignment, m_voiceIsolator, this);
