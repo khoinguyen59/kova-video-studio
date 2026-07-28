@@ -10,6 +10,7 @@ class TestColabTtsRunner final : public QObject
 
 private slots:
     void testPostsDirectWorkerSpeechRequest();
+    void testTtsModelNotebookMapping();
     void ttsNotebookMatchesDirectColabContract();
 };
 

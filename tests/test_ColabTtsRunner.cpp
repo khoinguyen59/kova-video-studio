@@ -13,6 +13,7 @@
 #include <cstring>
 
 #include "tts/ColabTtsRunner.h"
+#include "controllers/tts/ColabTtsController.h"
 #include "test_ColabTtsRunner.h"
 
 namespace LAStudio {
@@ -138,40 +139,115 @@ void TestColabTtsRunner::testPostsDirectWorkerSpeechRequest()
     QVERIFY(workerThread.wait(5000));
 }
 
+void TestColabTtsRunner::testTtsModelNotebookMapping()
+{
+    ColabTtsController controller(nullptr, nullptr, nullptr, nullptr, nullptr);
+    const QList<QPair<QString, QString>> models{
+        {QStringLiteral("kokoro"), QStringLiteral("LA_STUDIO_TTS_KOKORO_GPU.ipynb")},
+        {QStringLiteral("kokoro-vietnamese"), QStringLiteral("LA_STUDIO_TTS_KOKORO_VIETNAMESE_GPU.ipynb")},
+        {QStringLiteral("omnivoice"), QStringLiteral("LA_STUDIO_TTS_OMNIVOICE_GPU.ipynb")},
+        {QStringLiteral("qwen3-tts-1.7b-customvoice"), QStringLiteral("LA_STUDIO_TTS_QWEN3_CUSTOMVOICE_1_7B_GPU.ipynb")},
+        {QStringLiteral("vibevoice"), QStringLiteral("LA_STUDIO_TTS_VIBEVOICE_0_5B_GPU.ipynb")},
+        {QStringLiteral("vieneu-tts-v2-turbo"), QStringLiteral("LA_STUDIO_TTS_VIENEU_V2_TURBO_GPU.ipynb")},
+        {QStringLiteral("vieneu-tts-v3-turbo"), QStringLiteral("LA_STUDIO_TTS_VIENEU_V3_TURBO_GPU.ipynb")},
+        {QStringLiteral("voxcpm2"), QStringLiteral("LA_STUDIO_TTS_VOXCPM2_GPU.ipynb")},
+    };
+    for (const auto &[model, notebook] : models) {
+        QVERIFY2(controller.selectColabModel(model), qPrintable(model));
+        QCOMPARE(controller.colabModel(), model);
+        QCOMPARE(controller.colabNotebookFile(), notebook);
+        QCOMPARE(controller.notebookForColabModel(model), notebook);
+    }
+    QSignalSpy failures(&controller, &ColabTtsController::errorOccurred);
+    QVERIFY(!controller.selectColabModel(QStringLiteral("unknown-tts")));
+    QCOMPARE(failures.count(), 1);
+}
+
 void TestColabTtsRunner::ttsNotebookMatchesDirectColabContract()
 {
-    const QString path = QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
-        .filePath(QStringLiteral("notebooks/LA_STUDIO_VOICE_GPU.ipynb"));
-    QFile file(path);
-    QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(path));
-    const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
-    QVERIFY(document.isObject());
-    const QJsonObject root = document.object();
-    QCOMPARE(root.value(QStringLiteral("nbformat")).toInt(), 4);
+    struct NotebookExpectation {
+        QString fileName;
+        QString familyId;
+        QString upstreamModel;
+        QString adapterNeedle;
+    };
+    const QList<NotebookExpectation> expectations{
+        {QStringLiteral("LA_STUDIO_TTS_KOKORO_GPU.ipynb"), QStringLiteral("kokoro"),
+         QStringLiteral("hexgrad/Kokoro-82M"), QStringLiteral("KPipeline")},
+        {QStringLiteral("LA_STUDIO_TTS_KOKORO_VIETNAMESE_GPU.ipynb"), QStringLiteral("kokoro-vietnamese"),
+         QStringLiteral("contextboxai/Kokoro-Vietnamese"), QStringLiteral("KokoroVietnameseONNX")},
+        {QStringLiteral("LA_STUDIO_TTS_OMNIVOICE_GPU.ipynb"), QStringLiteral("omnivoice"),
+         QStringLiteral("k2-fsa/OmniVoice"), QStringLiteral("OmniVoice.from_pretrained")},
+        {QStringLiteral("LA_STUDIO_TTS_QWEN3_CUSTOMVOICE_1_7B_GPU.ipynb"), QStringLiteral("qwen3-tts-1.7b-customvoice"),
+         QStringLiteral("Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"), QStringLiteral("generate_custom_voice")},
+        {QStringLiteral("LA_STUDIO_TTS_VIBEVOICE_0_5B_GPU.ipynb"), QStringLiteral("vibevoice"),
+         QStringLiteral("microsoft/VibeVoice-Realtime-0.5B"), QStringLiteral("VibeVoiceStreamingForConditionalGenerationInference")},
+        {QStringLiteral("LA_STUDIO_TTS_VIENEU_V2_TURBO_GPU.ipynb"), QStringLiteral("vieneu-tts-v2-turbo"),
+         QStringLiteral("pnnbao-ump/VieNeu-TTS-v2-Turbo"), QStringLiteral("mode=\"turbo_gpu\"")},
+        {QStringLiteral("LA_STUDIO_TTS_VIENEU_V3_TURBO_GPU.ipynb"), QStringLiteral("vieneu-tts-v3-turbo"),
+         QStringLiteral("pnnbao-ump/VieNeu-TTS-v3-Turbo"), QStringLiteral("mode=\"v3turbo\"")},
+        {QStringLiteral("LA_STUDIO_TTS_VOXCPM2_GPU.ipynb"), QStringLiteral("voxcpm2"),
+         QStringLiteral("openbmb/VoxCPM2"), QStringLiteral("VoxCPM.from_pretrained")},
+    };
 
-    QString source;
-    const QJsonArray cells = root.value(QStringLiteral("cells")).toArray();
-    QVERIFY(cells.size() >= 4);
-    for (const QJsonValue &cellValue : cells) {
-        const QJsonArray lines = cellValue.toObject().value(QStringLiteral("source")).toArray();
-        for (const QJsonValue &line : lines) source += line.toString();
+    for (const NotebookExpectation &expected : expectations) {
+        const QString path = QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
+            .filePath(QStringLiteral("notebooks/") + expected.fileName);
+        QFile file(path);
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(path));
+        const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
+        QVERIFY2(document.isObject(), qPrintable(expected.fileName));
+        const QJsonObject root = document.object();
+        QCOMPARE(root.value(QStringLiteral("nbformat")).toInt(), 4);
+        const QJsonObject metadata = root.value(QStringLiteral("metadata")).toObject()
+                                         .value(QStringLiteral("la_studio")).toObject();
+        QCOMPARE(metadata.value(QStringLiteral("capability")).toString(), QStringLiteral("tts"));
+        QCOMPARE(metadata.value(QStringLiteral("family_id")).toString(), expected.familyId);
+        QCOMPARE(metadata.value(QStringLiteral("upstream_model")).toString(), expected.upstreamModel);
+        QCOMPARE(metadata.value(QStringLiteral("device")).toString(), QStringLiteral("cuda"));
+        QVERIFY(!metadata.value(QStringLiteral("cpu_fallback")).toBool(true));
+
+        QString source;
+        const QJsonArray cells = root.value(QStringLiteral("cells")).toArray();
+        QVERIFY(cells.size() >= 4);
+        for (const QJsonValue &cellValue : cells) {
+            const QJsonArray lines = cellValue.toObject().value(QStringLiteral("source")).toArray();
+            for (const QJsonValue &line : lines) source += line.toString();
+        }
+        QVERIFY2(source.contains(expected.adapterNeedle), qPrintable(expected.fileName));
+        QVERIFY(source.contains(QStringLiteral("if not torch.cuda.is_available()")));
+        QVERIFY(source.contains(QStringLiteral("@app.post(\"/v1/audio/speech\")")));
+        QVERIFY(source.contains(QStringLiteral("@app.get(\"/v1/capabilities\")")));
+        QVERIFY(source.contains(QStringLiteral("\"id\": \"tts\"")));
+        QVERIFY(source.contains(QStringLiteral("\"device\": \"cuda\"")));
+        QVERIFY(source.contains(QStringLiteral("MAX_INPUT_CHARS = 4000")));
+        QVERIFY(source.contains(QStringLiteral("MAX_OUTPUT_SECONDS = 300")));
+        QVERIFY(source.contains(QStringLiteral("REQUEST_SLOTS = threading.BoundedSemaphore(1)")));
+        QVERIFY(source.contains(QStringLiteral("if request.model.strip().lower() != MODEL_ID")));
+        QVERIFY(source.contains(QStringLiteral("status_code=409")));
+        QVERIFY(source.contains(QStringLiteral("status_code=429")));
+        QVERIFY(source.contains(QStringLiteral("status_code=413")));
+        QVERIFY(source.contains(QStringLiteral("REQUEST_SLOTS.release()")));
+        QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_TTS_URL")));
+        QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_TTS_TOKEN")));
+        QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_TTS_MODEL")));
+        QVERIFY(source.contains(QStringLiteral("cloudflared")));
+        QVERIFY(!source.contains(QStringLiteral("API_GATEWAY")));
     }
-    QVERIFY(source.contains(QStringLiteral("kokoro")));
-    QVERIFY(source.contains(QStringLiteral("if not torch.cuda.is_available()")));
-    QVERIFY(source.contains(QStringLiteral("@app.post('/v1/audio/speech')")));
-    QVERIFY(source.contains(QStringLiteral("@app.get('/v1/capabilities')")));
-    QVERIFY(source.contains(QStringLiteral("'id': 'tts'")));
-    QVERIFY(source.contains(QStringLiteral("'device': 'cuda'")));
-    QVERIFY(source.contains(QStringLiteral("MAX_INPUT_CHARS = 4000")));
-    QVERIFY(source.contains(QStringLiteral("MAX_OUTPUT_SECONDS = 300")));
-    QVERIFY(source.contains(QStringLiteral("SYNTHESIS_SLOTS = threading.BoundedSemaphore(1)")));
-    QVERIFY(source.contains(QStringLiteral("status_code=429")));
-    QVERIFY(source.contains(QStringLiteral("status_code=413")));
-    QVERIFY(source.contains(QStringLiteral("SYNTHESIS_SLOTS.release()")));
-    QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_TTS_URL")));
-    QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_TTS_TOKEN")));
-    QVERIFY(source.contains(QStringLiteral("cloudflared")));
-    QVERIFY(!source.contains(QStringLiteral("API_GATEWAY")));
+
+    QFile page(QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
+                   .filePath(QStringLiteral("qml/pages/TtsPage.qml")));
+    QVERIFY(page.open(QIODevice::ReadOnly));
+    const QByteArray pageSource = page.readAll();
+    QVERIFY(pageSource.contains("colabModelSelectionEnabled: true"));
+    QVERIFY(pageSource.contains("AppController.colabTts.selectColabModel(familyId)"));
+
+    QFile settings(QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
+                       .filePath(QStringLiteral("qml/components/tts/TtsSettingsPanel.qml")));
+    QVERIFY(settings.open(QIODevice::ReadOnly));
+    const QByteArray settingsSource = settings.readAll();
+    QVERIFY(settingsSource.contains("AppController.colabTts.colabNotebookFile"));
+    QVERIFY(settingsSource.contains("Selected Colab model"));
 }
 
 } // namespace LAStudio

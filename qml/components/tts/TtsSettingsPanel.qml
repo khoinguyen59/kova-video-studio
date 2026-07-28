@@ -370,7 +370,16 @@ ColumnLayout {
                 visible: root.showColabSettings
 
                 Text { Layout.fillWidth: true; text: qsTr("This direct temporary worker is independent of API Gateway. Its token stays only in this desktop session."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
-                ColabNotebookLink { notebookFile: "LA_STUDIO_VOICE_GPU.ipynb" }
+                Text {
+                    Layout.fillWidth: true
+                    text: AppController.colabTts.colabModel !== ""
+                          ? qsTr("Selected Colab model: %1").arg(AppController.colabTts.colabModel)
+                          : qsTr("No Colab model selected. Open Load Model and use Select for Colab.")
+                    color: AppController.colabTts.colabModel !== "" ? Theme.success : Theme.warning
+                    font.pixelSize: Theme.fontSmall
+                    wrapMode: Text.WordWrap
+                }
+                ColabNotebookLink { notebookFile: AppController.colabTts.colabNotebookFile }
                 Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 GatewayField {
                     id: colabUrl
@@ -382,12 +391,6 @@ ColumnLayout {
                     id: colabToken
                     echoMode: TextInput.Password
                     placeholderText: AppController.colabTts.colabConnected ? qsTr("Connected — enter token to replace") : qsTr("Temporary token from Colab")
-                }
-                Text { text: qsTr("Colab model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
-                GatewayField {
-                    text: AppController.colabTts.colabModel
-                    placeholderText: qsTr("kokoro")
-                    onEditingFinished: AppController.colabTts.colabModel = text.trim()
                 }
                 Text { text: qsTr("Voice"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 GatewayField {
@@ -403,7 +406,8 @@ ColumnLayout {
                 }
                 PrimaryButton {
                     Layout.fillWidth: true
-                    enabled: !root.locked && !(root.remoteFirstMode && AppController.colabTts.colabActive && root.selectedRemoteProvider === "colab")
+                    enabled: !root.locked && AppController.colabTts.colabModel !== ""
+                             && !(root.remoteFirstMode && AppController.colabTts.colabActive && root.selectedRemoteProvider === "colab")
                     text: root.remoteFirstMode
                           ? (AppController.colabTts.colabActive
                              ? (root.selectedRemoteProvider === "colab" ? qsTr("Direct Colab GPU TTS selected") : qsTr("Select direct Colab GPU TTS"))

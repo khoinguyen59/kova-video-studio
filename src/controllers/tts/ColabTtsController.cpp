@@ -52,10 +52,76 @@ bool ColabTtsController::colabConnected() const
 
 void ColabTtsController::setColabModel(const QString &model)
 {
-    const QString normalized = model.trimmed();
+    const QString normalized = model.trimmed().toLower();
+    if (notebookForColabModel(normalized).isEmpty()) {
+        emit errorOccurred(QStringLiteral("No Colab notebook is mapped for TTS model '%1'.").arg(model));
+        return;
+    }
     if (normalized == m_colabModel) return;
+    if (m_session && m_session->isActive()) {
+        m_colabActive = false;
+        m_session->clear();
+        emit colabStateChanged();
+    }
     m_colabModel = normalized;
     emit colabModelChanged();
+    if (normalized == QStringLiteral("kokoro")) {
+        setColabVoice(QStringLiteral("af_heart"));
+        setColabLanguage(QStringLiteral("en"));
+    } else if (normalized == QStringLiteral("kokoro-vietnamese")) {
+        setColabVoice(QStringLiteral("diem_trinh"));
+        setColabLanguage(QStringLiteral("vi"));
+    } else if (normalized == QStringLiteral("qwen3-tts-1.7b-customvoice")) {
+        setColabVoice(QStringLiteral("Aiden"));
+        setColabLanguage(QStringLiteral("en"));
+    } else if (normalized == QStringLiteral("vibevoice")) {
+        setColabVoice(QStringLiteral("carter"));
+        setColabLanguage(QStringLiteral("en"));
+    } else if (normalized.startsWith(QStringLiteral("vieneu-tts-"))) {
+        setColabVoice(QStringLiteral("Phạm Tuyên"));
+        setColabLanguage(QStringLiteral("vi"));
+    } else {
+        setColabVoice(QStringLiteral("auto"));
+        setColabLanguage(QStringLiteral("auto"));
+    }
+}
+
+QString ColabTtsController::notebookForColabModel(const QString &model) const
+{
+    const QString normalized = model.trimmed().toLower();
+    if (normalized == QStringLiteral("kokoro"))
+        return QStringLiteral("LA_STUDIO_TTS_KOKORO_GPU.ipynb");
+    if (normalized == QStringLiteral("kokoro-vietnamese"))
+        return QStringLiteral("LA_STUDIO_TTS_KOKORO_VIETNAMESE_GPU.ipynb");
+    if (normalized == QStringLiteral("omnivoice"))
+        return QStringLiteral("LA_STUDIO_TTS_OMNIVOICE_GPU.ipynb");
+    if (normalized == QStringLiteral("qwen3-tts-1.7b-customvoice"))
+        return QStringLiteral("LA_STUDIO_TTS_QWEN3_CUSTOMVOICE_1_7B_GPU.ipynb");
+    if (normalized == QStringLiteral("vibevoice"))
+        return QStringLiteral("LA_STUDIO_TTS_VIBEVOICE_0_5B_GPU.ipynb");
+    if (normalized == QStringLiteral("vieneu-tts-v2-turbo"))
+        return QStringLiteral("LA_STUDIO_TTS_VIENEU_V2_TURBO_GPU.ipynb");
+    if (normalized == QStringLiteral("vieneu-tts-v3-turbo"))
+        return QStringLiteral("LA_STUDIO_TTS_VIENEU_V3_TURBO_GPU.ipynb");
+    if (normalized == QStringLiteral("voxcpm2"))
+        return QStringLiteral("LA_STUDIO_TTS_VOXCPM2_GPU.ipynb");
+    return {};
+}
+
+QString ColabTtsController::colabNotebookFile() const
+{
+    return notebookForColabModel(m_colabModel);
+}
+
+bool ColabTtsController::selectColabModel(const QString &model)
+{
+    const QString normalized = model.trimmed().toLower();
+    if (notebookForColabModel(normalized).isEmpty()) {
+        emit errorOccurred(QStringLiteral("No Colab notebook is mapped for TTS model '%1'.").arg(model));
+        return false;
+    }
+    setColabModel(normalized);
+    return m_colabModel == normalized;
 }
 
 void ColabTtsController::setColabVoice(const QString &voice)

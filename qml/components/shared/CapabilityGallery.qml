@@ -127,8 +127,9 @@ Rectangle {
     }
 
     function hasColabModelAction(familyItem) {
-        return root.colabModelSelectionEnabled && root.capability === "stt"
-                && root.hasFamilyValue(familyItem) && familyItem.familyCapability === "stt"
+        return root.colabModelSelectionEnabled
+                && root.hasFamilyValue(familyItem)
+                && familyItem.familyCapability === root.capability
     }
 
     function localRuntimeOptions(familyItem) {

@@ -32,7 +32,7 @@ function Assert-Contains {
 
 $features = @(
     @{ id = 'stt'; qml = 'qml/components/stt/SttSettingsPanel.qml'; shell = 'qml/components/stt/SttStudioView.qml'; notebook = 'LA_STUDIO_STT_WHISPER_GPU.ipynb'; qmlNeedle = 'colabNotebookFile'; cudaGuard = 'torch.cuda.is_available()'; capability = 'MODEL_ID'; endpoint = '/v1/audio/transcriptions'; url = 'LA_STUDIO_COLAB_STT_URL'; token = 'LA_STUDIO_COLAB_STT_TOKEN' },
-    @{ id = 'tts'; qml = 'qml/components/tts/TtsSettingsPanel.qml'; shell = 'qml/components/tts/TtsStudioView.qml'; notebook = 'LA_STUDIO_VOICE_GPU.ipynb'; cudaGuard = 'torch.cuda.is_available()'; capability = "'tts'"; endpoint = '/v1/audio/speech'; url = 'LA_STUDIO_COLAB_TTS_URL'; token = 'LA_STUDIO_COLAB_TTS_TOKEN' },
+    @{ id = 'tts'; qml = 'qml/components/tts/TtsSettingsPanel.qml'; shell = 'qml/components/tts/TtsStudioView.qml'; notebook = 'LA_STUDIO_TTS_KOKORO_GPU.ipynb'; qmlNeedle = 'colabNotebookFile'; cudaGuard = 'torch.cuda.is_available()'; capability = '"capability": "tts"'; endpoint = '/v1/audio/speech'; url = 'LA_STUDIO_COLAB_TTS_URL'; token = 'LA_STUDIO_COLAB_TTS_TOKEN' },
     @{ id = 'voice-cloning'; qml = 'qml/components/voicecloning/VoiceSettingsPanel.qml'; shell = 'qml/components/voicecloning/VoiceCloningStudioView.qml'; notebook = 'LA_STUDIO_VOICE_CLONE_GPU.ipynb'; cudaGuard = 'torch.cuda.is_available()'; capability = "'voice-cloning'"; endpoint = '/v2/jobs/profile'; url = 'LA_STUDIO_COLAB_VOICE_CLONE_URL'; token = 'LA_STUDIO_COLAB_VOICE_CLONE_TOKEN' },
     @{ id = 'voice-design'; qml = 'qml/components/voicedesign/VoiceDesignSettingsPanel.qml'; shell = 'qml/components/voicedesign/VoiceDesignStudioView.qml'; notebook = 'LA_STUDIO_VOICE_DESIGN_GPU.ipynb'; cudaGuard = 'torch.cuda.is_available()'; capability = "'voice-design'"; endpoint = '/v1/audio/voice_designs'; url = 'LA_STUDIO_COLAB_VOICE_DESIGN_URL'; token = 'LA_STUDIO_COLAB_VOICE_DESIGN_TOKEN' },
     @{ id = 'forced-alignment'; qml = 'qml/components/alignment/AlignmentSetupPanel.qml'; shell = 'qml/components/alignment/AlignmentStudioView.qml'; notebook = 'LA_STUDIO_ALIGNMENT_GPU.ipynb'; cudaGuard = 'torch.cuda.is_available()'; capability = "'forced-alignment'"; endpoint = '/v1/audio/alignments'; url = 'LA_STUDIO_COLAB_ALIGNMENT_URL'; token = 'LA_STUDIO_COLAB_ALIGNMENT_TOKEN' },
@@ -81,6 +81,25 @@ foreach ($entry in $sttNotebooks) {
     Assert-Contains $source $entry.model "stt notebook $($entry.file)"
     Assert-Contains $source 'if model.strip().lower() != MODEL_ID' "stt notebook $($entry.file)"
     Assert-Contains $source 'LA_STUDIO_COLAB_STT_MODEL' "stt notebook $($entry.file)"
+}
+
+$ttsNotebooks = @(
+    @{ file = 'LA_STUDIO_TTS_KOKORO_GPU.ipynb'; model = 'kokoro' },
+    @{ file = 'LA_STUDIO_TTS_KOKORO_VIETNAMESE_GPU.ipynb'; model = 'kokoro-vietnamese' },
+    @{ file = 'LA_STUDIO_TTS_OMNIVOICE_GPU.ipynb'; model = 'omnivoice' },
+    @{ file = 'LA_STUDIO_TTS_QWEN3_CUSTOMVOICE_1_7B_GPU.ipynb'; model = 'qwen3-tts-1.7b-customvoice' },
+    @{ file = 'LA_STUDIO_TTS_VIBEVOICE_0_5B_GPU.ipynb'; model = 'vibevoice' },
+    @{ file = 'LA_STUDIO_TTS_VIENEU_V2_TURBO_GPU.ipynb'; model = 'vieneu-tts-v2-turbo' },
+    @{ file = 'LA_STUDIO_TTS_VIENEU_V3_TURBO_GPU.ipynb'; model = 'vieneu-tts-v3-turbo' },
+    @{ file = 'LA_STUDIO_TTS_VOXCPM2_GPU.ipynb'; model = 'voxcpm2' }
+)
+foreach ($entry in $ttsNotebooks) {
+    $path = Join-Path $repoRoot (Join-Path 'notebooks' $entry.file)
+    if (-not (Test-Path -LiteralPath $path)) { throw "tts: notebook is missing: $($entry.file)" }
+    $source = Get-Content -LiteralPath $path -Raw
+    Assert-Contains $source $entry.model "tts notebook $($entry.file)"
+    Assert-Contains $source 'if request.model.strip().lower() != MODEL_ID' "tts notebook $($entry.file)"
+    Assert-Contains $source 'LA_STUDIO_COLAB_TTS_MODEL' "tts notebook $($entry.file)"
 }
 
 Write-Host "Remote feature surface verified: $passed/$($features.Count) direct Colab routes." -ForegroundColor Green

@@ -26,6 +26,7 @@ class ColabTtsController final : public QObject
     Q_PROPERTY(bool colabActive READ colabActive NOTIFY colabStateChanged)
     Q_PROPERTY(bool colabConnected READ colabConnected NOTIFY colabStateChanged)
     Q_PROPERTY(QString colabModel READ colabModel WRITE setColabModel NOTIFY colabModelChanged)
+    Q_PROPERTY(QString colabNotebookFile READ colabNotebookFile NOTIFY colabModelChanged)
     Q_PROPERTY(QString colabVoice READ colabVoice WRITE setColabVoice NOTIFY colabVoiceChanged)
     Q_PROPERTY(QString colabLanguage READ colabLanguage WRITE setColabLanguage NOTIFY colabLanguageChanged)
     Q_PROPERTY(bool processing READ processing NOTIFY processingChanged)
@@ -46,6 +47,7 @@ public:
     bool colabConnected() const;
     QString colabModel() const { return m_colabModel; }
     void setColabModel(const QString &model);
+    QString colabNotebookFile() const;
     QString colabVoice() const { return m_colabVoice; }
     void setColabVoice(const QString &voice);
     QString colabLanguage() const { return m_colabLanguage; }
@@ -59,6 +61,8 @@ public:
     int sampleRate() const { return m_sampleRate; }
 
     Q_INVOKABLE bool connectColab(const QString &workerUrl, const QString &bearerToken);
+    Q_INVOKABLE bool selectColabModel(const QString &model);
+    Q_INVOKABLE QString notebookForColabModel(const QString &model) const;
     Q_INVOKABLE void useColab();
     Q_INVOKABLE void useLocal();
     Q_INVOKABLE void deactivateColab();
