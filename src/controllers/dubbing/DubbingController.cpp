@@ -19,6 +19,7 @@
 #include "core/DownloadManager.h"
 #include "core/ModelManager.h"
 #include "core/RuntimeManager.h"
+#include "remote/ExecutionProvider.h"
 
 #include <QFileInfo>
 #include <QFile>
@@ -581,6 +582,17 @@ QVariantMap DubbingController::firstCustomSetupIssue() const
                      QStringLiteral("Choose a model for the %1 node before running Custom dubbing.")
                          .arg(visibleStepForNode(required.first))}};
         }
+        if (required.first == QStringLiteral("translate")) {
+            const QVariantMap parameters = selected.value(QStringLiteral("parameters")).toMap();
+            ExecutionProvider provider = ExecutionProvider::LocalDev;
+            const QString providerId = selected.value(
+                QStringLiteral("executionProvider"), parameters.value(QStringLiteral("executionProvider"),
+                QStringLiteral("local-dev"))).toString();
+            if (executionProviderFromId(providerId, &provider)
+                && provider != ExecutionProvider::LocalDev) {
+                continue;
+            }
+        }
         StudioConfiguration configuration;
         configuration.capabilityId = required.second;
         configuration.familyId = selected.value(QStringLiteral("familyId")).toString();
@@ -648,6 +660,11 @@ QString DubbingController::exportPath() const
     return m_runner->exportPath();
 }
 
+void DubbingController::setRemoteServices(Settings *settings, ColabSession *colabSession)
+{
+    if (m_runner) m_runner->setRemoteServices(settings, colabSession);
+}
+
 QVariantList DubbingController::workflowNodes() const
 {
     const bool hasMedia = !m_project.sourceMediaPath.trimmed().isEmpty();
@@ -702,7 +719,7 @@ QVariantList DubbingController::workflowNodes() const
         } else if (definition.id == QStringLiteral("translate")) {
             state = !translationReady ? QStringLiteral("blocked") : (hasTargets ? QStringLiteral("completed") : (hasSegments ? QStringLiteral("ready") : QStringLiteral("missing")));
             detail = !translationReady ? QStringLiteral("Choose a target language") : (hasTargets ? QStringLiteral("Target text available") : QStringLiteral("Translate with CrispASR"));
-            provider = QStringLiteral("CrispASR text translation");
+            provider = QStringLiteral("Local translation runtime");
         } else if (definition.id == QStringLiteral("review-translation")) {
             state = hasTargets ? QStringLiteral("completed") : QStringLiteral("blocked");
             detail = hasTargets ? QStringLiteral("Translated transcript available for review") : QStringLiteral("Translate the transcript first");
@@ -797,6 +814,22 @@ QVariantList DubbingController::workflowNodes() const
             for (auto it = customParameters.cbegin(); it != customParameters.cend(); ++it)
                 parameters.insert(it.key(), it.value());
             item.insert(QStringLiteral("parameters"), parameters);
+            const QString providerId = selected.value(
+                QStringLiteral("executionProvider"),
+                customParameters.value(QStringLiteral("executionProvider"), QStringLiteral("local-dev"))).toString();
+            ExecutionProvider executionProvider = ExecutionProvider::LocalDev;
+            if (executionProviderFromId(providerId, &executionProvider)
+                && executionProvider != ExecutionProvider::LocalDev) {
+                const QString modelId = selected.value(
+                    QStringLiteral("modelId"), customParameters.value(QStringLiteral("modelId"))).toString();
+                item.insert(QStringLiteral("executionProvider"), executionProviderId(executionProvider));
+                item.insert(QStringLiteral("providerName"),
+                            modelId.isEmpty() ? executionProviderDisplayName(executionProvider)
+                                              : QStringLiteral("%1 · %2").arg(executionProviderDisplayName(executionProvider), modelId));
+                item.insert(QStringLiteral("providerState"), QStringLiteral("selected"));
+            } else {
+                item.insert(QStringLiteral("executionProvider"), QStringLiteral("local-dev"));
+            }
             QVariantList runtimeSchema;
             if (capabilityId == QStringLiteral("tts") && m_tts) {
                 const QString signature = selected.value(QStringLiteral("configurationSignature")).toString();
@@ -1023,6 +1056,13 @@ bool DubbingController::reloadWorkflowNodeModel(const QString &nodeId)
 bool DubbingController::setWorkflowNodeParameters(const QString &nodeId, const QVariantMap &parameters)
 {
     if (nodeId.isEmpty()) return false;
+    if (nodeId == QStringLiteral("translate") && parameters.contains(QStringLiteral("executionProvider"))) {
+        ExecutionProvider provider = ExecutionProvider::LocalDev;
+        if (!executionProviderFromId(parameters.value(QStringLiteral("executionProvider")).toString(), &provider)) {
+            setError(QStringLiteral("Unknown translation execution provider."));
+            return false;
+        }
+    }
     QVariantMap selected = m_workflowNodeConfigurations.value(nodeId).toMap();
     QVariantMap current = selected.value(QStringLiteral("parameters")).toMap();
     for (auto it = parameters.cbegin(); it != parameters.cend(); ++it)

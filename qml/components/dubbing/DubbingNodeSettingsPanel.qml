@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import "../base"
 import LAStudio
@@ -25,7 +26,7 @@ Rectangle {
     signal fixRequested()
 
     Layout.fillWidth: true
-    Layout.preferredHeight: 66
+    Layout.preferredHeight: root.nodeId === "translate" ? 126 : 66
     radius: Theme.radiusSmall
     color: Theme.surfaceAlt
     border.color: Qt.rgba(1, 1, 1, 0.08)
@@ -33,6 +34,7 @@ Rectangle {
     RowLayout {
         anchors.fill: parent
         anchors.margins: Theme.paddingSmall
+        anchors.bottomMargin: root.nodeId === "translate" ? Theme.paddingXL + Theme.paddingMedium : Theme.paddingSmall
         spacing: Theme.paddingSmall
         LineIcon { name: "settings"; color: Theme.accentLight; Layout.preferredWidth: 16; Layout.preferredHeight: 16 }
         ColumnLayout {
@@ -71,6 +73,55 @@ Rectangle {
             onClicked: root.fixRequested()
         }
         PrimaryButton { visible: root.nextNodeId !== "" && root.nextReady; text: qsTr("Next"); iconName: "chevron-right"; enabled: !root.dubbing.processing; onClicked: root.nextRequested() }
+    }
+
+    RowLayout {
+        visible: root.nodeId === "translate"
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.margins: Theme.paddingSmall
+        spacing: Theme.paddingSmall
+
+        Text { text: qsTr("Route"); color: Theme.textSecondary; font.pixelSize: 10 }
+        ComboBox {
+            id: translationProvider
+            Layout.preferredWidth: 132
+            textRole: "label"
+            model: [
+                { "id": "local-dev", "label": qsTr("Local Dev") },
+                { "id": "api-gateway", "label": qsTr("API Gateway") },
+                { "id": "colab-direct", "label": qsTr("Colab GPU") }
+            ]
+            currentIndex: {
+                var requested = (root.node && root.node.parameters && root.node.parameters.executionProvider) || "local-dev"
+                for (var i = 0; i < model.length; ++i) if (model[i].id === requested) return i
+                return 0
+            }
+            enabled: !root.dubbing.processing
+            onActivated: function(index) {
+                root.dubbing.setWorkflowNodeParameters(root.nodeId,
+                                                       { "executionProvider": model[index].id })
+            }
+        }
+        TextField {
+            id: translationModel
+            Layout.fillWidth: true
+            color: Theme.textPrimary
+            placeholderText: translationProvider.currentIndex === 0
+                ? qsTr("Local model selected above")
+                : qsTr("Remote model ID (optional)")
+            text: (root.node && root.node.parameters && root.node.parameters.modelId) || ""
+            enabled: !root.dubbing.processing && translationProvider.currentIndex !== 0
+            selectByMouse: true
+            onEditingFinished: root.dubbing.setWorkflowNodeParameters(root.nodeId,
+                                                                        { "modelId": text.trim() })
+            background: Rectangle {
+                radius: Theme.radiusSmall
+                color: Qt.rgba(1, 1, 1, 0.035)
+                border.color: translationModel.activeFocus ? Theme.accent : Qt.rgba(1, 1, 1, 0.09)
+            }
+        }
     }
 
     function modelState() { return root.node && root.node.modelState !== undefined ? root.node.modelState : 0 }

@@ -24,6 +24,8 @@ class TranslationEngine;
 class DubbingJobRunner;
 class DubbingTranslationFixService;
 class CapabilityFamilyModel;
+class Settings;
+class ColabSession;
 
 class DubbingController : public QObject
 {
@@ -93,6 +95,7 @@ public:
                       ModelManager *models = nullptr, RuntimeManager *runtimes = nullptr,
                       QObject *parent = nullptr);
     ~DubbingController() override;
+    void setRemoteServices(Settings *settings, ColabSession *colabSession);
 
     bool hasProject() const { return !m_project.projectPath.isEmpty(); }
     QString projectPath() const { return m_project.projectPath; }

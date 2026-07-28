@@ -203,6 +203,11 @@ void DubbingJobRunner::setTranslationFixConfiguration(const QVariantMap &configu
     m_translationFixConfiguration = configuration;
 }
 
+void DubbingJobRunner::setRemoteServices(Settings *settings, ColabSession *colabSession)
+{
+    if (m_translationJob) m_translationJob->setRemoteServices(settings, colabSession);
+}
+
 void DubbingJobRunner::finishTranslation(const QVariantList &segments)
 {
     if (!m_run.processing() || m_run.stageId() != DubbingStage::Translation) return;

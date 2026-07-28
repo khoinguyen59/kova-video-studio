@@ -3,6 +3,7 @@
 #include "dubbing/DubbingProject.h"
 #include "controllers/dubbing/DubbingController.h"
 #include "controllers/dubbing/DubbingJobRunner.h"
+#include "controllers/dubbing/DubbingTranslationJob.h"
 #include "controllers/dubbing/DubbingTranslationFixService.h"
 #include "dubbing/AlignmentRefinementService.h"
 #include "dubbing/DubbingSegmentNormalizer.h"
@@ -82,6 +83,34 @@ void TestDubbingProject::normalizesLmStudioTranslationFixConfiguration()
     QCOMPARE(cliConfig.value(QStringLiteral("cliAgent")).toString(), QStringLiteral("codex"));
     QCOMPARE(cliConfig.value(QStringLiteral("model")).toString(), QStringLiteral("gpt-4o"));
     QVERIFY(cliConfig.value(QStringLiteral("configured")).toBool());
+}
+
+void TestDubbingProject::remoteTranslationRoutesDoNotFallbackBetweenGatewayAndColab()
+{
+    const QVariantList segments = {
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("segment-1")},
+                    {QStringLiteral("sourceText"), QStringLiteral("Hello")}}
+    };
+
+    // Neither case provides a local TranslationEngine.  Each selected remote
+    // route must fail only for its own missing configuration, never by loading
+    // local inference or switching to the other remote route.
+    DubbingTranslationJob job(nullptr, nullptr, nullptr, nullptr);
+    QSignalSpy failures(&job, &DubbingTranslationJob::failed);
+
+    QVERIFY(!job.start(QStringLiteral("en"), QStringLiteral("vi"), segments,
+                        QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("api-gateway")}},
+                        QStringLiteral("gateway-only")));
+    QCOMPARE(failures.count(), 1);
+    QCOMPARE(failures.takeFirst().at(0).toString(),
+             QStringLiteral("API Gateway configuration is unavailable."));
+
+    QVERIFY(!job.start(QStringLiteral("en"), QStringLiteral("vi"), segments,
+                        QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("colab-direct")}},
+                        QStringLiteral("colab-only")));
+    QCOMPARE(failures.count(), 1);
+    QCOMPARE(failures.takeFirst().at(0).toString(),
+             QStringLiteral("Connect a Colab GPU worker before running this Translation node."));
 }
 
 void TestDubbingProject::parsesLmStudioTranslationFixResponses()

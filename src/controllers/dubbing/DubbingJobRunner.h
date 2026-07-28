@@ -26,6 +26,8 @@ class DubbingSynthesisJob;
 class DubbingExportJob;
 class DubbingTranslationJob;
 class DubbingTranslationFixService;
+class Settings;
+class ColabSession;
 
 class DubbingJobRunner : public QObject
 {
@@ -57,6 +59,7 @@ public:
                             const QString &fallbackAudioPath = QString());
     void startTranslation(const QString &sourceLanguage, const QString &targetLanguage, const QVariantList &segments,
                           const QVariantMap &modelConfiguration = QVariantMap());
+    void setRemoteServices(Settings *settings, ColabSession *colabSession);
     void setTranslationFixConfiguration(const QVariantMap &configuration);
     void startAudioGeneration(const QVariantList &segments, const QString &projectPath,
                               const QVariantMap &synthesisSettings = QVariantMap());

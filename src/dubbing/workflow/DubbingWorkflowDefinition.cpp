@@ -62,6 +62,7 @@ WorkflowGraph DubbingWorkflowDefinition::create()
              {{QStringLiteral("mode"), QStringLiteral("always")}, {QStringLiteral("editor"), QStringLiteral("dubbing.transcript")}}),
         node(QStringLiteral("translate"), QStringLiteral("text.translate-transcript"), QStringLiteral("Translate Transcript"),
              {{QStringLiteral("sourceLanguage"), QStringLiteral("auto")}, {QStringLiteral("targetLanguage"), QStringLiteral("vi")},
+              {QStringLiteral("executionProvider"), QStringLiteral("local-dev")},
               {QStringLiteral("qualityPreset"), QStringLiteral("balanced")},
               {QStringLiteral("durationAware"), true}, {QStringLiteral("unit"), QStringLiteral("phoneme-v1")},
               {QStringLiteral("maxPreTtsIterations"), 4}, {QStringLiteral("candidatesPerIteration"), 3},

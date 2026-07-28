@@ -51,6 +51,7 @@ private slots:
     void discoversCliModelsFromLocalConfiguration();
     void fixesOnlyTranslationsOverPhonemeLimit();
     void ranksPartialTranslationFixesByBudgetDistance();
+    void remoteTranslationRoutesDoNotFallbackBetweenGatewayAndColab();
 };
 
 } // namespace LAStudio
