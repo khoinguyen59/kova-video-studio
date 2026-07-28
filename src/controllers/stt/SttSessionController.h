@@ -49,6 +49,7 @@ class SttSessionController : public QObject {
     Q_PROPERTY(QVariantList history READ history NOTIFY historyChanged)
     Q_PROPERTY(QString playbackPath READ playbackPath NOTIFY playbackPathChanged)
     Q_PROPERTY(bool colabActive READ colabActive NOTIFY colabStateChanged)
+    Q_PROPERTY(bool colabPaired READ colabPaired NOTIFY colabStateChanged)
     Q_PROPERTY(bool gatewayActive READ gatewayActive NOTIFY gatewayStateChanged)
     Q_PROPERTY(QString gatewayModel READ gatewayModel WRITE setGatewayModel NOTIFY gatewayModelChanged)
 
@@ -79,7 +80,8 @@ public:
     QVariantList history() const;
     QString playbackPath() const;
     bool colabActive() const;
-    bool gatewayActive() const { return m_gatewayActive; }
+    bool colabPaired() const;
+    bool gatewayActive() const { return m_selectedProvider == ExecutionProvider::ApiGateway; }
     QString gatewayModel() const;
 
     QString language() const;
@@ -114,8 +116,10 @@ public:
     Q_INVOKABLE void stopPlayback();
     Q_INVOKABLE bool connectColab(const QString &workerUrl, const QString &bearerToken);
     Q_INVOKABLE void disconnectColab();
+    Q_INVOKABLE void useColab();
     Q_INVOKABLE void useGateway();
     Q_INVOKABLE void disconnectGateway();
+    Q_INVOKABLE void useLocal();
 
 signals:
     void inputPathChanged();
@@ -161,6 +165,7 @@ private slots:
 
 private:
     void updateWaveform(const QVector<float> &samples);
+    void selectProvider(ExecutionProvider provider);
 
     SttEngine* m_engine = nullptr;
     AudioRecorder* m_recorder = nullptr;
@@ -192,7 +197,7 @@ private:
     std::shared_ptr<std::atomic_bool> m_gatewayCancellation;
     bool m_gatewayProcessing = false;
     int m_gatewayProgress = 0;
-    bool m_gatewayActive = false;
+    ExecutionProvider m_selectedProvider = ExecutionProvider::LocalDev;
     ExecutionProvider m_activeProvider = ExecutionProvider::LocalDev;
 };
 

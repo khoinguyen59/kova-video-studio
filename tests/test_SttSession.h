@@ -18,6 +18,8 @@ private slots:
     void testSpeechNotebookMatchesDirectColabSttContract();
     void testGatewaySttRunnerPostsOpenAiCompatibleMultipart();
     void testExplicitProviderRoutingDoesNotFallback();
+    void testRemoteFirstBlocksLocalStt();
+    void testSttRouteSelectionDoesNotFallbackAcrossGatewayAndColab();
 };
 
 } // namespace LAStudio

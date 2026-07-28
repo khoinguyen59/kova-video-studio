@@ -224,16 +224,24 @@ Rectangle {
                         }
                         PrimaryButton {
                             Layout.fillWidth: true
-                            text: root.sttSession && root.sttSession.colabActive ? qsTr("Disconnect Colab") : qsTr("Connect Colab GPU")
-                            iconName: root.sttSession && root.sttSession.colabActive ? "close" : "cloud"
+                            text: root.sttSession && root.sttSession.colabActive ? qsTr("Using Colab GPU") : qsTr("Use or connect Colab GPU")
+                            iconName: root.sttSession && root.sttSession.colabActive ? "check" : "cloud"
                             onClicked: {
                                 if (!root.sttSession) return
-                                if (root.sttSession.colabActive) {
-                                    root.sttSession.disconnectColab()
+                                if (root.sttSession.colabPaired) {
+                                    root.sttSession.useColab()
                                 } else if (root.sttSession.connectColab(colabUrl.text.trim(), colabToken.text)) {
                                     colabToken.text = ""
                                 }
                             }
+                        }
+                        PrimaryButton {
+                            Layout.fillWidth: true
+                            visible: root.sttSession && root.sttSession.colabPaired
+                            text: qsTr("Disconnect Colab worker")
+                            iconName: "close"
+                            quiet: true
+                            onClicked: if (root.sttSession) root.sttSession.disconnectColab()
                         }
                     }
 

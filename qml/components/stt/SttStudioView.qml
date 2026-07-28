@@ -8,6 +8,7 @@ StudioShell {
     id: root
 
     property var sttSession: null
+    readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
 
     family: {
         if (!studioController) return null
@@ -102,7 +103,7 @@ StudioShell {
                             Text {
                                 Layout.fillWidth: true
                                 horizontalAlignment: Text.AlignHCenter
-                                text: qsTr("The studio stays lightweight until you choose a compatible STT configuration.")
+                                text: root.remoteFirstMode ? qsTr("Remote-first: select API Gateway or pair and select a direct Colab STT worker.") : qsTr("The studio stays lightweight until you choose a compatible STT configuration.")
                                 color: Theme.textSecondary
                                 font.pixelSize: Theme.fontSmall
                                 wrapMode: Text.WordWrap

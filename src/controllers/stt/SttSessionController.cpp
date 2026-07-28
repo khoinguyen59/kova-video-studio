@@ -153,6 +153,11 @@ QString SttSessionController::playbackPath() const
 
 bool SttSessionController::colabActive() const
 {
+    return m_selectedProvider == ExecutionProvider::ColabDirect && colabPaired();
+}
+
+bool SttSessionController::colabPaired() const
+{
     return m_colabSession && m_colabSession->isActive();
 }
 
@@ -280,8 +285,7 @@ void SttSessionController::stopRecording()
 
 void SttSessionController::transcribeInput()
 {
-    const ExecutionProvider provider = m_gatewayActive ? ExecutionProvider::ApiGateway
-        : (colabActive() ? ExecutionProvider::ColabDirect : ExecutionProvider::LocalDev);
+    const ExecutionProvider provider = m_selectedProvider;
     transcribeInputForProvider(provider,
                                provider == ExecutionProvider::ApiGateway ? gatewayModel() : QString(),
                                language(), translate());
@@ -369,8 +373,7 @@ void SttSessionController::transcribeInputForProvider(ExecutionProvider provider
 
 bool SttSessionController::canTranscribe() const
 {
-    const ExecutionProvider provider = m_gatewayActive ? ExecutionProvider::ApiGateway
-        : (colabActive() ? ExecutionProvider::ColabDirect : ExecutionProvider::LocalDev);
+    const ExecutionProvider provider = m_selectedProvider;
     return canTranscribeForProvider(provider,
                                     provider == ExecutionProvider::ApiGateway ? gatewayModel() : QString());
 }
@@ -406,6 +409,10 @@ bool SttSessionController::canTranscribeForProvider(ExecutionProvider provider,
             return false;
         }
         return true;
+    }
+    if (m_settings && m_settings->remoteFirstMode()) {
+        if (error) *error = QStringLiteral("Remote-first mode requires API Gateway or a direct Colab STT worker.");
+        return false;
     }
     if (!m_engine || m_engine->state() != SttEngine::Ready) {
         if (error) *error = QStringLiteral("The STT model is not ready. Wait for model loading to finish and try again.");
@@ -568,12 +575,25 @@ bool SttSessionController::connectColab(const QString &workerUrl, const QString 
     }
     // Pairing a direct worker only establishes the temporary Colab session.
     // It must not modify the independently configured API Gateway route.
+    useColab();
     return true;
 }
 
 void SttSessionController::disconnectColab()
 {
-    if (!m_colabProcessing && m_colabSession) m_colabSession->clear();
+    if (m_colabProcessing || !m_colabSession) return;
+    const bool wasSelected = m_selectedProvider == ExecutionProvider::ColabDirect;
+    m_colabSession->clear();
+    if (wasSelected) selectProvider(ExecutionProvider::LocalDev);
+}
+
+void SttSessionController::useColab()
+{
+    if (!colabPaired()) {
+        emit transcriptionFailed(QStringLiteral("Connect a Colab GPU worker before selecting Colab STT."));
+        return;
+    }
+    selectProvider(ExecutionProvider::ColabDirect);
 }
 
 void SttSessionController::useGateway()
@@ -583,15 +603,34 @@ void SttSessionController::useGateway()
     if (!endpoint.isValid()) { emit transcriptionFailed(endpoint.error); return; }
     if (!m_settings->gatewayApiKeyConfigured()) { emit transcriptionFailed(QStringLiteral("API Gateway key is required.")); return; }
     if (gatewayModel().isEmpty()) { emit transcriptionFailed(QStringLiteral("API Gateway STT model is required.")); return; }
-    if (!m_gatewayActive) { m_gatewayActive = true; emit gatewayStateChanged(); }
+    // Selecting Gateway does not disconnect or overwrite the direct Colab session.
+    selectProvider(ExecutionProvider::ApiGateway);
 }
 
 void SttSessionController::disconnectGateway()
 {
-    if (!m_gatewayProcessing && m_gatewayActive) {
-        m_gatewayActive = false;
-        emit gatewayStateChanged();
+    if (!m_gatewayProcessing && m_selectedProvider == ExecutionProvider::ApiGateway)
+        selectProvider(ExecutionProvider::LocalDev);
+}
+
+void SttSessionController::useLocal()
+{
+    if (m_settings && m_settings->remoteFirstMode()) {
+        emit transcriptionFailed(QStringLiteral("Remote-first mode requires API Gateway or a direct Colab STT worker. Disable Remote-first mode before selecting Local Dev STT."));
+        return;
     }
+    selectProvider(ExecutionProvider::LocalDev);
+}
+
+void SttSessionController::selectProvider(ExecutionProvider provider)
+{
+    if (m_selectedProvider == provider) return;
+    const ExecutionProvider previous = m_selectedProvider;
+    m_selectedProvider = provider;
+    if (previous == ExecutionProvider::ColabDirect || provider == ExecutionProvider::ColabDirect)
+        emit colabStateChanged();
+    if (previous == ExecutionProvider::ApiGateway || provider == ExecutionProvider::ApiGateway)
+        emit gatewayStateChanged();
 }
 
 void SttSessionController::onColabProgress(int percent)

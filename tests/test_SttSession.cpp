@@ -17,6 +17,7 @@
 #include "controllers/stt/SttSessionController.h"
 #include "controllers/stt/SttAudioDecoder.h"
 #include "controllers/models/ModelLifecycleController.h"
+#include "core/Settings.h"
 #include "core/StudioCapabilityRegistry.h"
 #include "stt/SttEngine.h"
 #include "stt/ColabSttRunner.h"
@@ -202,6 +203,60 @@ void TestSttSession::testExplicitProviderRoutingDoesNotFallback()
     QVERIFY(gatewayError.contains(QStringLiteral("Gateway")));
     QVERIFY(colabError.contains(QStringLiteral("Colab")));
     QVERIFY(gatewayError != colabError);
+}
+
+void TestSttSession::testRemoteFirstBlocksLocalStt()
+{
+    SttSessionController session;
+    Settings *settings = AppController::instance()->settings();
+    QVERIFY(settings != nullptr);
+    const bool original = settings->remoteFirstMode();
+    settings->setRemoteFirstMode(true);
+
+    QString error;
+    QVERIFY(!session.canTranscribeForProvider(ExecutionProvider::LocalDev, QString(), &error));
+    QVERIFY(error.contains(QStringLiteral("Remote-first")));
+
+    settings->setRemoteFirstMode(original);
+}
+
+void TestSttSession::testSttRouteSelectionDoesNotFallbackAcrossGatewayAndColab()
+{
+    SttSessionController session;
+    Settings *settings = AppController::instance()->settings();
+    QVERIFY(settings != nullptr);
+    const bool originalRemoteFirst = settings->remoteFirstMode();
+    const QString originalGatewayUrl = settings->gatewayUrl();
+    const QString originalGatewayKey = settings->gatewayApiKey();
+    const QString originalGatewayModel = settings->gatewaySttModel();
+    settings->setRemoteFirstMode(false);
+    settings->setGatewayUrl(QStringLiteral("https://gateway.example.test/v1"));
+    settings->setGatewayApiKey(QStringLiteral("gateway-test-token"));
+    settings->setGatewaySttModel(QStringLiteral("gateway-stt"));
+
+    QVERIFY(session.connectColab(QStringLiteral("https://worker.example.test"),
+                                 QStringLiteral("temporary-colab-token")));
+    QVERIFY(session.colabPaired());
+    QVERIFY(session.colabActive());
+
+    session.useGateway();
+    QVERIFY(session.gatewayActive());
+    QVERIFY(session.colabPaired());
+    QVERIFY(!session.colabActive());
+
+    session.disconnectGateway();
+    QVERIFY(!session.gatewayActive());
+    QVERIFY(session.colabPaired());
+    QVERIFY(!session.colabActive());
+
+    session.useColab();
+    QVERIFY(session.colabActive());
+    session.disconnectColab();
+
+    settings->setGatewayUrl(originalGatewayUrl);
+    settings->setGatewayApiKey(originalGatewayKey);
+    settings->setGatewaySttModel(originalGatewayModel);
+    settings->setRemoteFirstMode(originalRemoteFirst);
 }
 
 void TestSttSession::testColabSttRunnerPostsKovaCompatibleMultipart()
