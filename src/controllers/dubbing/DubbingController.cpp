@@ -672,9 +672,14 @@ QString DubbingController::exportPath() const
     return m_runner->exportPath();
 }
 
-void DubbingController::setRemoteServices(Settings *settings, ColabSession *colabSession)
+void DubbingController::setRemoteServices(Settings *settings, ColabSession *translationSession,
+                                          ColabSession *ttsSession, ColabSession *voiceCloneSession,
+                                          ColabSession *separationSession)
 {
-    if (m_runner) m_runner->setRemoteServices(settings, colabSession);
+    if (m_runner) {
+        m_runner->setRemoteServices(settings, translationSession, ttsSession,
+                                    voiceCloneSession, separationSession);
+    }
 }
 
 QVariantList DubbingController::workflowNodes() const

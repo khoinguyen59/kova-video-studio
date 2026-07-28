@@ -36,6 +36,11 @@ prints a temporary HTTPS URL and token. Pair those values in the corresponding
 studio settings. Colab session values stay in memory and must be paired again
 after a notebook or Colab runtime reset.
 
+Each capability has its own in-memory Colab session. Pairing a TTS, alignment,
+translation, or voice worker never replaces the URL/token paired for another
+capability; this is necessary because their notebooks may run as distinct
+temporary Colab workers.
+
 | Capability | Notebook | Direct worker contract |
 | --- | --- | --- |
 | Speech-to-Text | `LA_STUDIO_SPEECH_GPU.ipynb` | `/v1/audio/transcriptions` |

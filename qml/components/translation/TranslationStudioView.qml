@@ -425,7 +425,7 @@ StudioShell {
             Text { text: qsTr("Colab GPU Worker"); color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; font.bold: true }
             Text { Layout.fillWidth: true; text: qsTr("Direct temporary worker. Its URL and session token are independent from API Gateway and never use its API key."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
             Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
-            GatewayField { id: translationColabUrl; text: AppController.colabSession.workerUrl; placeholderText: qsTr("https://…trycloudflare.com") }
+            GatewayField { id: translationColabUrl; text: AppController.colabTranslationSession.workerUrl; placeholderText: qsTr("https://…trycloudflare.com") }
             Text { text: qsTr("Session token"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
             GatewayField { id: translationColabToken; echoMode: TextInput.Password; placeholderText: translation.colabActive ? qsTr("Connected — enter token to replace") : qsTr("Temporary token from Colab") }
             Text { text: qsTr("Translation model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }

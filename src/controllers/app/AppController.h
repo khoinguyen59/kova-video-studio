@@ -74,6 +74,14 @@ class AppController : public QObject {
     Q_PROPERTY(LlmChatEngine* llmEngine READ llmEngine CONSTANT)
     Q_PROPERTY(LlmChatController* llmChat READ llmChat CONSTANT)
     Q_PROPERTY(ColabSession* colabSession READ colabSession CONSTANT)
+    Q_PROPERTY(ColabSession* colabSttSession READ colabSttSession CONSTANT)
+    Q_PROPERTY(ColabSession* colabTtsSession READ colabTtsSession CONSTANT)
+    Q_PROPERTY(ColabSession* colabVoiceCloneSession READ colabVoiceCloneSession CONSTANT)
+    Q_PROPERTY(ColabSession* colabVoiceDesignSession READ colabVoiceDesignSession CONSTANT)
+    Q_PROPERTY(ColabSession* colabAlignmentSession READ colabAlignmentSession CONSTANT)
+    Q_PROPERTY(ColabSession* colabSeparationSession READ colabSeparationSession CONSTANT)
+    Q_PROPERTY(ColabSession* colabTranslationSession READ colabTranslationSession CONSTANT)
+    Q_PROPERTY(ColabSession* colabChatSession READ colabChatSession CONSTANT)
     Q_PROPERTY(AudioRecorder*   recorder  READ recorder  CONSTANT)
     Q_PROPERTY(AudioPlayer*     player    READ player    CONSTANT)
     Q_PROPERTY(AudioPreviewService* preview READ preview CONSTANT)
@@ -132,6 +140,14 @@ public:
     LlmChatEngine* llmEngine() const { return m_llmEngine; }
     LlmChatController* llmChat() const { return m_llmChat; }
     ColabSession* colabSession() const { return m_colabSession; }
+    ColabSession* colabSttSession() const { return m_colabSession; }
+    ColabSession* colabTtsSession() const { return m_colabTtsSession; }
+    ColabSession* colabVoiceCloneSession() const { return m_colabVoiceCloneSession; }
+    ColabSession* colabVoiceDesignSession() const { return m_colabVoiceDesignSession; }
+    ColabSession* colabAlignmentSession() const { return m_colabAlignmentSession; }
+    ColabSession* colabSeparationSession() const { return m_colabSeparationSession; }
+    ColabSession* colabTranslationSession() const { return m_colabTranslationSession; }
+    ColabSession* colabChatSession() const { return m_colabChatSession; }
     AudioRecorder*   recorder()  const { return m_recorder; }
     AudioPlayer*     player()    const { return m_player; }
     AudioPreviewService* preview() const { return m_preview; }
@@ -200,7 +216,16 @@ private:
     TranslationEngine* m_translationEngine = nullptr;
     LlmChatEngine* m_llmEngine = nullptr;
     LlmChatController* m_llmChat = nullptr;
+    // Each temporary Colab credential is scoped to the feature whose notebook
+    // created it. m_colabSession remains the STT/legacy catalog session.
     ColabSession* m_colabSession = nullptr;
+    ColabSession* m_colabTtsSession = nullptr;
+    ColabSession* m_colabVoiceCloneSession = nullptr;
+    ColabSession* m_colabVoiceDesignSession = nullptr;
+    ColabSession* m_colabAlignmentSession = nullptr;
+    ColabSession* m_colabSeparationSession = nullptr;
+    ColabSession* m_colabTranslationSession = nullptr;
+    ColabSession* m_colabChatSession = nullptr;
     AudioRecorder*   m_recorder = nullptr;
     AudioPlayer*     m_player = nullptr;
     WaveformProvider* m_waveformProvider = nullptr;

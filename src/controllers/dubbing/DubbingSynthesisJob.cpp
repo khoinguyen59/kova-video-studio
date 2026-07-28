@@ -123,13 +123,15 @@ DubbingSynthesisJob::~DubbingSynthesisJob()
     m_remoteThread.wait();
 }
 
-void DubbingSynthesisJob::setRemoteServices(Settings *settings, ColabSession *colabSession)
+void DubbingSynthesisJob::setRemoteServices(Settings *settings, ColabSession *ttsSession,
+                                             ColabSession *voiceCloneSession)
 {
     m_gatewaySettings = settings;
-    QObject::disconnect(m_colabSessionConnection);
-    m_colabSession = colabSession;
-    if (m_colabSession) {
-        m_colabSessionConnection = connect(m_colabSession, &ColabSession::sessionChanged, this, [this]() {
+    QObject::disconnect(m_colabVoiceCloneSessionConnection);
+    m_colabTtsSession = ttsSession;
+    m_colabVoiceCloneSession = voiceCloneSession;
+    if (m_colabVoiceCloneSession) {
+        m_colabVoiceCloneSessionConnection = connect(m_colabVoiceCloneSession, &ColabSession::sessionChanged, this, [this]() {
             // Colab VM restarts invalidate worker-side profile IDs.  The local
             // reference remains available, so the next clip recreates only its
             // Colab profile without involving API Gateway or persisted tokens.
@@ -401,7 +403,7 @@ void DubbingSynthesisJob::startRemoteSynthesis(const QString &text,
     if (m_executionProvider == ExecutionProvider::ColabDirect) {
         // This branch receives only the temporary direct Colab session.  It
         // never reads a Gateway URL, key, model or voice setting.
-        if (!m_colabSession || !m_colabSession->isActive()) {
+        if (!m_colabTtsSession || !m_colabTtsSession->isActive()) {
             fail(QStringLiteral("Connect a Colab GPU worker before running this TTS node."));
             return;
         }
@@ -426,8 +428,8 @@ void DubbingSynthesisJob::startRemoteSynthesis(const QString &text,
             if (m_running && requestId == m_remoteRequestId) fail(message);
         });
         ColabTtsRequest request;
-        request.workerUrl = m_colabSession->endpoint();
-        request.bearerToken = m_colabSession->bearerTokenForRequest();
+        request.workerUrl = m_colabTtsSession->endpoint();
+        request.bearerToken = m_colabTtsSession->bearerTokenForRequest();
         request.model = model;
         request.text = text;
         request.voice = voice;
@@ -453,7 +455,7 @@ void DubbingSynthesisJob::startColabVoiceClone(const QString &text,
     // Voice cloning is a Colab-only route.  Its profile ID is kept only in
     // memory for this direct worker session; it is never written to Settings
     // or sent to API Gateway.
-    if (!m_colabVoiceCloneRunner || !m_colabSession || !m_colabSession->isActive()) {
+    if (!m_colabVoiceCloneRunner || !m_colabVoiceCloneSession || !m_colabVoiceCloneSession->isActive()) {
         fail(QStringLiteral("Connect a Colab GPU worker before running voice cloning."));
         return;
     }
@@ -485,8 +487,8 @@ void DubbingSynthesisJob::startColabVoiceClone(const QString &text,
         if (m_running && requestId == m_remoteRequestId) fail(message);
     });
     ColabVoiceCloneRequest request;
-    request.workerUrl = m_colabSession->endpoint();
-    request.bearerToken = m_colabSession->bearerTokenForRequest();
+    request.workerUrl = m_colabVoiceCloneSession->endpoint();
+    request.bearerToken = m_colabVoiceCloneSession->bearerTokenForRequest();
     request.referencePath = m_voiceReference.audioPath;
     request.referenceName = QStringLiteral("LA Studio Dubbing Voice");
     request.referenceText = m_voiceReference.referenceText;

@@ -213,7 +213,7 @@ Rectangle {
                         Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                         ColabField {
                             id: colabUrl
-                            text: AppController.colabSession.workerUrl
+                            text: AppController.colabSttSession.workerUrl
                             placeholderText: qsTr("https://….trycloudflare.com")
                         }
                         Text { text: qsTr("Session token"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }

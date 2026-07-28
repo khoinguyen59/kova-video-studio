@@ -284,7 +284,7 @@ ColumnLayout {
                 Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 ColabField {
                     id: colabUrl
-                    text: AppController.colabSession.workerUrl
+                    text: AppController.colabVoiceDesignSession.workerUrl
                     placeholderText: qsTr("https://…trycloudflare.com")
                     enabled: !root.locked
                 }

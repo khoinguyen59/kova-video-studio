@@ -34,9 +34,10 @@ public:
     bool start(const QVariantList &segments, const QString &projectPath,
                const QVariantMap &settings, const QString &runId);
     void cancel();
-    // The two remote dependencies are injected together by the app, but each
-    // selected route consumes only its own dependency and credentials.
-    void setRemoteServices(Settings *settings, ColabSession *colabSession);
+    // Each direct worker keeps its own temporary URL/token. Gateway settings
+    // are independent and no route reads credentials from another route.
+    void setRemoteServices(Settings *settings, ColabSession *ttsSession,
+                           ColabSession *voiceCloneSession);
 
 signals:
     void progressChanged(int progress);
@@ -60,7 +61,8 @@ private:
 
     TtsEngine *m_tts = nullptr;
     QPointer<Settings> m_gatewaySettings;
-    QPointer<ColabSession> m_colabSession;
+    QPointer<ColabSession> m_colabTtsSession;
+    QPointer<ColabSession> m_colabVoiceCloneSession;
     GatewayTtsRunner *m_gatewayRunner = nullptr;
     ColabTtsRunner *m_colabRunner = nullptr;
     ColabVoiceCloneRunner *m_colabVoiceCloneRunner = nullptr;
@@ -97,7 +99,7 @@ private:
     QMetaObject::Connection m_remoteFinishedConnection;
     QMetaObject::Connection m_remoteFailedConnection;
     QMetaObject::Connection m_remoteProfileConnection;
-    QMetaObject::Connection m_colabSessionConnection;
+    QMetaObject::Connection m_colabVoiceCloneSessionConnection;
 };
 
 } // namespace LAStudio

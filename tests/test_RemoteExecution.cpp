@@ -8,6 +8,7 @@
 
 #include "core/PathUtils.h"
 #include "core/Settings.h"
+#include "controllers/app/AppController.h"
 #include "controllers/tts/ColabVoiceCloneController.h"
 #include "controllers/tts/ColabVoiceDesignController.h"
 #include "controllers/separation/ColabVoiceIsolatorController.h"
@@ -131,6 +132,40 @@ void TestRemoteExecution::colabSessionIsMemoryOnlyAndCanBeCleared()
     session.clear();
     QVERIFY(!session.isActive());
     QVERIFY(session.bearerTokenForRequest().isEmpty());
+}
+
+void TestRemoteExecution::appControllerScopesColabSessionsPerCapability()
+{
+    AppController *app = AppController::instance();
+    QVERIFY(app);
+    QVERIFY(app->colabSttSession());
+    QVERIFY(app->colabTtsSession());
+    QVERIFY(app->colabTranslationSession());
+    QVERIFY(app->colabVoiceCloneSession());
+    QVERIFY(app->colabSeparationSession());
+    QVERIFY(app->colabSttSession() != app->colabTtsSession());
+    QVERIFY(app->colabTtsSession() != app->colabTranslationSession());
+    QVERIFY(app->colabVoiceCloneSession() != app->colabSeparationSession());
+
+    ColabSession *tts = app->colabTtsSession();
+    ColabSession *translation = app->colabTranslationSession();
+    tts->clear();
+    translation->clear();
+
+    QString error;
+    QVERIFY(tts->setSession(QStringLiteral("https://tts-worker.example.test"),
+                            QStringLiteral("tts-session-token"), &error));
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QVERIFY(translation->setSession(QStringLiteral("https://translation-worker.example.test"),
+                                    QStringLiteral("translation-session-token"), &error));
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    tts->clear();
+    QVERIFY(!tts->isActive());
+    QVERIFY(translation->isActive());
+    QCOMPARE(translation->workerUrl(), QStringLiteral("https://translation-worker.example.test"));
+    QCOMPARE(translation->bearerTokenForRequest(), QStringLiteral("translation-session-token"));
+    translation->clear();
 }
 
 void TestRemoteExecution::gatewayCredentialUsesDedicatedSecureStoreEntry()

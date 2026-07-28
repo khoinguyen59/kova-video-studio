@@ -184,13 +184,13 @@ ScrollView {
             }
 
             SectionPanel {
-                title: qsTr("Active Colab GPU Models")
+                title: qsTr("Active STT Colab GPU Models")
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignTop
 
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("Pairs a temporary worker directly with its own URL and token. The worker reports /v1/capabilities; its models are never merged with Gateway models.")
+                    text: qsTr("Pairs the temporary STT worker directly with its own URL and token. Configure the workers for other capabilities in their corresponding studio settings. Worker models are never merged with Gateway models.")
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fontSmall
                     wrapMode: Text.WordWrap
@@ -198,14 +198,14 @@ ScrollView {
                 Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 RemoteField {
                     id: colabUrl
-                    text: AppController.colabSession.workerUrl
+                    text: AppController.colabSttSession.workerUrl
                     placeholderText: qsTr("https://…trycloudflare.com")
                 }
                 Text { text: qsTr("Session token"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 RemoteField {
                     id: colabToken
                     echoMode: TextInput.Password
-                    placeholderText: AppController.colabSession.active
+                    placeholderText: AppController.colabSttSession.active
                                      ? qsTr("Connected — enter to replace")
                                      : qsTr("Temporary token from Colab")
                 }
@@ -215,11 +215,11 @@ ScrollView {
                     PrimaryButton {
                         Layout.fillWidth: true
                         text: root.remoteModels.colabRefreshing ? qsTr("Refreshing worker…")
-                             : (AppController.colabSession.active ? qsTr("Refresh Worker") : qsTr("Pair & Refresh Worker"))
+                             : (AppController.colabSttSession.active ? qsTr("Refresh Worker") : qsTr("Pair & Refresh Worker"))
                         iconName: "cloud"
                         enabled: !root.remoteModels.colabRefreshing
                         onClicked: {
-                            if (AppController.colabSession.active && colabToken.text.trim() === "")
+                            if (AppController.colabSttSession.active && colabToken.text.trim() === "")
                                 root.remoteModels.refreshColab()
                             else if (root.remoteModels.pairColab(colabUrl.text.trim(), colabToken.text))
                                 colabToken.text = ""

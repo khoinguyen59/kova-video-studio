@@ -62,20 +62,27 @@ AppController::AppController(QObject *parent)
     m_translationEngine = new TranslationEngine({}, this);
     m_llmEngine = new LlmChatEngine(this);
     m_colabSession = new ColabSession(this);
+    m_colabTtsSession = new ColabSession(this);
+    m_colabVoiceCloneSession = new ColabSession(this);
+    m_colabVoiceDesignSession = new ColabSession(this);
+    m_colabAlignmentSession = new ColabSession(this);
+    m_colabSeparationSession = new ColabSession(this);
+    m_colabTranslationSession = new ColabSession(this);
+    m_colabChatSession = new ColabSession(this);
     Logger::info(QStringLiteral("App"), QStringLiteral("Initializing runtime services."));
     m_runtimes  = new RuntimeManager(m_catalog, m_settings, this);
     m_alignment = new AlignmentExecutionService(m_runtimes, m_models, this);
-    m_colabAlignment = new ColabAlignmentController(m_colabSession, m_settings, this);
+    m_colabAlignment = new ColabAlignmentController(m_colabAlignmentSession, m_settings, this);
     m_voiceIsolator = new VoiceIsolatorController(this);
-    m_colabVoiceIsolator = new ColabVoiceIsolatorController(m_colabSession, m_settings, this);
+    m_colabVoiceIsolator = new ColabVoiceIsolatorController(m_colabSeparationSession, m_settings, this);
     Logger::info(QStringLiteral("App"), QStringLiteral("Initializing model session registry."));
     m_sessionRegistry = new ModelSessionRegistry(m_stt, m_tts, m_translationEngine, m_llmEngine, m_alignment, m_voiceIsolator, this);
     m_translation = new TranslationController(m_translationEngine,
         qobject_cast<TranslationModelSession*>(m_sessionRegistry->sessionForCapability(QStringLiteral("translation"))),
-        m_settings, m_colabSession, this);
+        m_settings, m_colabTranslationSession, this);
     m_llmChat = new LlmChatController(m_llmEngine,
         qobject_cast<LlmChatModelSession*>(m_sessionRegistry->sessionForCapability(QStringLiteral("llm-chat"))),
-        m_settings, m_colabSession, this);
+        m_settings, m_colabChatSession, this);
     m_recorder  = new AudioRecorder(this);
     m_player    = new AudioPlayer(this);
     m_waveformProvider = new WaveformProvider();
@@ -83,9 +90,9 @@ AppController::AppController(QObject *parent)
     m_preview   = new AudioPreviewService(m_tts, m_player, m_waveformProvider, this);
     m_history   = new HistoryService(m_tts, m_recorder, this);
     m_gatewayTts = new GatewayTtsController(m_settings, m_player, m_waveformProvider, m_history, this);
-    m_colabTts = new ColabTtsController(m_colabSession, m_settings, m_player, m_waveformProvider, m_history, this);
-    m_colabVoiceClone = new ColabVoiceCloneController(m_colabSession, m_settings, m_player, m_waveformProvider, m_history, this);
-    m_colabVoiceDesign = new ColabVoiceDesignController(m_colabSession, m_settings, m_player, m_waveformProvider, m_history, this);
+    m_colabTts = new ColabTtsController(m_colabTtsSession, m_settings, m_player, m_waveformProvider, m_history, this);
+    m_colabVoiceClone = new ColabVoiceCloneController(m_colabVoiceCloneSession, m_settings, m_player, m_waveformProvider, m_history, this);
+    m_colabVoiceDesign = new ColabVoiceDesignController(m_colabVoiceDesignSession, m_settings, m_player, m_waveformProvider, m_history, this);
     m_modelsMigration = new ModelsPathMigrationService(m_settings, m_models, m_downloads, m_stt, m_tts, this);
     m_files     = new FileAccessService(this);
     m_downloadInstall = new DownloadInstallService(m_downloads, m_models, m_runtimes, m_settings, this);
@@ -95,7 +102,8 @@ AppController::AppController(QObject *parent)
     m_sttSession = new SttSessionController(this);
     m_subtitleVoice = new SubtitleVoiceController(m_tts, m_player, m_history, this);
     m_dubbing = new DubbingController(m_sttSession, m_tts, m_translationEngine, m_models, m_runtimes, this);
-    m_dubbing->setRemoteServices(m_settings, m_colabSession);
+    m_dubbing->setRemoteServices(m_settings, m_colabTranslationSession, m_colabTtsSession,
+                                 m_colabVoiceCloneSession, m_colabSeparationSession);
     m_updates = new AppUpdateService(m_downloads, this);
     m_examples = new ExampleManager(this);
     m_workflows = new WorkflowActivityManager(m_sessionRegistry, m_tts, m_sttSession, m_alignment, m_dubbing, this);

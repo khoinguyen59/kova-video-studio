@@ -242,11 +242,13 @@ void DubbingJobRunner::setTranslationFixConfiguration(const QVariantMap &configu
     m_translationFixConfiguration = configuration;
 }
 
-void DubbingJobRunner::setRemoteServices(Settings *settings, ColabSession *colabSession)
+void DubbingJobRunner::setRemoteServices(Settings *settings, ColabSession *translationSession,
+                                         ColabSession *ttsSession, ColabSession *voiceCloneSession,
+                                         ColabSession *separationSession)
 {
-    if (m_translationJob) m_translationJob->setRemoteServices(settings, colabSession);
-    if (m_synthesisJob) m_synthesisJob->setRemoteServices(settings, colabSession);
-    m_colabSession = colabSession;
+    if (m_translationJob) m_translationJob->setRemoteServices(settings, translationSession);
+    if (m_synthesisJob) m_synthesisJob->setRemoteServices(settings, ttsSession, voiceCloneSession);
+    m_colabSeparationSession = separationSession;
 }
 
 void DubbingJobRunner::finishTranslation(const QVariantList &segments)
@@ -319,7 +321,7 @@ void DubbingJobRunner::startSourceSeparation(const QString &audioPath,
         return;
     }
     if (provider == ExecutionProvider::ColabDirect) {
-        if (!m_colabSession || !m_colabSession->isActive()) {
+        if (!m_colabSeparationSession || !m_colabSeparationSession->isActive()) {
             setError(QStringLiteral("Connect a Colab GPU worker before running this Voice Isolation node."));
             return;
         }
@@ -333,8 +335,8 @@ void DubbingJobRunner::startSourceSeparation(const QString &audioPath,
         setProcessing(true, QStringLiteral("source-separation"), 0);
         m_colabSeparationCancellation = std::make_shared<std::atomic_bool>(false);
         ColabSeparationRequest request;
-        request.workerUrl = m_colabSession->endpoint();
-        request.bearerToken = m_colabSession->bearerTokenForRequest();
+        request.workerUrl = m_colabSeparationSession->endpoint();
+        request.bearerToken = m_colabSeparationSession->bearerTokenForRequest();
         request.audioPath = audioPath;
         request.outputRoot = QDir(PathUtils::cacheDir()).filePath(
             QStringLiteral("dubbing/colab-separation/%1/%2")

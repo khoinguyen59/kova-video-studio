@@ -95,7 +95,9 @@ public:
                       ModelManager *models = nullptr, RuntimeManager *runtimes = nullptr,
                       QObject *parent = nullptr);
     ~DubbingController() override;
-    void setRemoteServices(Settings *settings, ColabSession *colabSession);
+    void setRemoteServices(Settings *settings, ColabSession *translationSession,
+                           ColabSession *ttsSession, ColabSession *voiceCloneSession,
+                           ColabSession *separationSession);
 
     bool hasProject() const { return !m_project.projectPath.isEmpty(); }
     QString projectPath() const { return m_project.projectPath; }

@@ -221,7 +221,7 @@ StudioShell {
                 Text { text: qsTr("Colab GPU Worker"); color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; font.bold: true }
                 Text { Layout.fillWidth: true; text: qsTr("This direct temporary worker has its own URL and token. It does not use, start, or forward through API Gateway."); color: Theme.textSecondary; wrapMode: Text.WordWrap; font.pixelSize: Theme.fontSmall }
                 Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
-                NumberField { id: colabUrl; Layout.fillWidth: true; text: AppController.colabSession.workerUrl; placeholderText: qsTr("https://…trycloudflare.com") }
+                NumberField { id: colabUrl; Layout.fillWidth: true; text: AppController.colabChatSession.workerUrl; placeholderText: qsTr("https://…trycloudflare.com") }
                 Text { text: qsTr("Session token"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 NumberField { id: colabToken; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: chat.colabActive ? qsTr("Connected — enter token to replace") : qsTr("Temporary token from Colab") }
                 Text { text: qsTr("Chat model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }

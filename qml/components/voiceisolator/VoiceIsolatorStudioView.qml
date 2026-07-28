@@ -204,7 +204,7 @@ StudioShell {
                     Text { text: qsTr("DIRECT COLAB GPU"); color: Theme.textSecondary; font.pixelSize: 10; font.bold: true; font.letterSpacing: 0.8 }
                     Text { Layout.fillWidth: true; text: qsTr("The worker receives the selected media directly and returns vocals/background WAV artifacts. It never uses API Gateway."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
                     Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
-                    ColabField { id: colabUrl; text: AppController.colabSession.workerUrl; placeholderText: qsTr("https://â€¦trycloudflare.com") }
+                    ColabField { id: colabUrl; text: AppController.colabSeparationSession.workerUrl; placeholderText: qsTr("https://â€¦trycloudflare.com") }
                     Text { text: qsTr("Session token"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                     ColabField { id: colabToken; echoMode: TextInput.Password; placeholderText: AppController.colabVoiceIsolator.colabConnected ? qsTr("Connected â€” enter token to replace") : qsTr("Temporary token from Colab") }
                     Text { text: qsTr("Model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
