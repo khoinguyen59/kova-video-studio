@@ -11,6 +11,7 @@ class TestColabChatRunner final : public QObject
 private slots:
     void streamsDirectColabChatOnly();
     void cancellationAbortsDirectStream();
+    void languageNotebookMatchesDirectChatContract();
 };
 
 } // namespace LAStudio

@@ -13,6 +13,8 @@
 #include "controllers/separation/ColabVoiceIsolatorController.h"
 #include "controllers/alignment/ColabAlignmentController.h"
 #include "controllers/tts/ColabTtsController.h"
+#include "controllers/translation/TranslationController.h"
+#include "controllers/llm/LlmChatController.h"
 #include "controllers/models/RemoteModelCatalogController.h"
 #include "remote/ColabCapabilityCatalog.h"
 #include "remote/ColabSession.h"
@@ -286,6 +288,65 @@ void TestRemoteExecution::remoteFirstTtsBlocksLocalButPreservesIndependentRoutes
     QCOMPARE(session.workerUrl(), QStringLiteral("https://worker.example.test"));
     QCOMPARE(session.bearerTokenForRequest(), QStringLiteral("temporary-colab-token"));
 
+    settings.setRemoteFirstMode(original);
+}
+
+void TestRemoteExecution::remoteFirstTranslationBlocksLocalExecution()
+{
+    Settings settings;
+    const bool original = settings.remoteFirstMode();
+    settings.setRemoteFirstMode(false);
+    ColabSession session;
+    QString error;
+    QVERIFY(session.setSession(QStringLiteral("https://worker.example.test"),
+                               QStringLiteral("temporary-colab-token"), &error));
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    TranslationController controller(nullptr, nullptr, &settings, &session);
+    controller.useColab();
+    QVERIFY(controller.colabActive());
+    settings.setRemoteFirstMode(true);
+    controller.useLocal();
+    QVERIFY(controller.colabActive());
+    QVERIFY(controller.errorText().contains(QStringLiteral("Remote-first")));
+
+    settings.setRemoteFirstMode(false);
+    controller.useLocal();
+    QVERIFY(!controller.colabActive());
+    QVERIFY(controller.importText(QStringLiteral("Remote execution only.")));
+    settings.setRemoteFirstMode(true);
+    controller.translateAll();
+    QVERIFY(controller.errorText().contains(QStringLiteral("Remote-first")));
+    QVERIFY(!controller.processing());
+    settings.setRemoteFirstMode(original);
+}
+
+void TestRemoteExecution::remoteFirstChatBlocksLocalExecution()
+{
+    Settings settings;
+    const bool original = settings.remoteFirstMode();
+    settings.setRemoteFirstMode(false);
+    ColabSession session;
+    QString error;
+    QVERIFY(session.setSession(QStringLiteral("https://worker.example.test"),
+                               QStringLiteral("temporary-colab-token"), &error));
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    LlmChatController controller(nullptr, nullptr, &settings, &session);
+    controller.useColab();
+    QVERIFY(controller.colabActive());
+    settings.setRemoteFirstMode(true);
+    controller.useLocal();
+    QVERIFY(controller.colabActive());
+    QVERIFY(controller.errorText().contains(QStringLiteral("Remote-first")));
+
+    settings.setRemoteFirstMode(false);
+    controller.useLocal();
+    QVERIFY(!controller.colabActive());
+    settings.setRemoteFirstMode(true);
+    controller.sendMessage(QStringLiteral("Remote execution only."));
+    QVERIFY(controller.errorText().contains(QStringLiteral("Remote-first")));
+    QVERIFY(!controller.generating());
     settings.setRemoteFirstMode(original);
 }
 

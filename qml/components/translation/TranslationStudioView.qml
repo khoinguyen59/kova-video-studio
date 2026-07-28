@@ -9,6 +9,7 @@ import "../base"
 StudioShell {
     id: root
     property var translation: AppController.translation
+    readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
     property string editorViewMode: "bilingual"
     property string pendingHistoryDeleteId: ""
     readonly property bool showSourceEditor: editorViewMode !== "translation"
@@ -199,7 +200,7 @@ StudioShell {
                             anchors.fill: parent; anchors.margins: Theme.paddingLarge; spacing: Theme.paddingMedium
                             LineIcon { name: "gallery"; color: Theme.accent; Layout.alignment: Qt.AlignHCenter; Layout.preferredWidth: 28; Layout.preferredHeight: 28 }
                             Text { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: qsTr("Select a Translation model and runtime"); color: Theme.textPrimary; font.pixelSize: Theme.fontLarge; font.bold: true; wrapMode: Text.WordWrap }
-                            Text { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: qsTr("Translation stays local and uses the installed translation runtime."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                            Text { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: root.remoteFirstMode ? qsTr("Remote-first: choose API Gateway or pair a direct Colab translation worker in settings.") : qsTr("Translation stays local and uses the installed translation runtime."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
                         }
                     }
                     PrimaryButton { Layout.fillWidth: true; text: qsTr("Choose model and runtime"); iconName: "gallery"; onClicked: root.backToGallery() }
@@ -419,7 +420,7 @@ StudioShell {
                 enabled: !translation.processing && !translation.gatewayActive
                 onClicked: translation.useGateway()
             }
-            Text { Layout.fillWidth: true; text: translation.gatewayActive ? qsTr("Translation requests go directly to 9Router.") : qsTr("Choose a local model from the header to process on this device."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+            Text { Layout.fillWidth: true; text: translation.gatewayActive ? qsTr("Translation requests go directly to 9Router.") : (root.remoteFirstMode ? qsTr("Remote-first: choose API Gateway or direct Colab GPU; local translation is disabled.") : qsTr("Choose a local model from the header to process on this device.")); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
             Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1,1,1,0.07) }
             Text { text: qsTr("Colab GPU Worker"); color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; font.bold: true }
             Text { Layout.fillWidth: true; text: qsTr("Direct temporary worker. Its URL and session token are independent from API Gateway and never use its API key."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }

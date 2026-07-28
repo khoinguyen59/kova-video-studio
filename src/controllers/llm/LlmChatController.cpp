@@ -159,6 +159,10 @@ void LlmChatController::sendMessage(const QString &text)
 {
     const QString content = text.trimmed();
     const bool directColab = colabActive();
+    if (m_provider == Provider::Local && m_settings && m_settings->remoteFirstMode()) {
+        setError(QStringLiteral("Remote-first mode requires API Gateway or a direct Colab chat worker."));
+        return;
+    }
     if (content.isEmpty() || m_generating || (!directColab && (!m_engine || !m_engine->isModelLoaded()))) {
         if (!directColab && (!m_engine || !m_engine->isModelLoaded())) {
             setError(QStringLiteral("Load an LLM model or connect a Colab GPU worker before sending a message."));
@@ -226,6 +230,10 @@ void LlmChatController::useColab()
 }
 void LlmChatController::useLocal()
 {
+    if (m_settings && m_settings->remoteFirstMode()) {
+        setError(QStringLiteral("Remote-first mode requires API Gateway or a direct Colab chat worker. Disable Remote-first mode before selecting Local Dev chat."));
+        return;
+    }
     if (!m_generating) selectProvider(Provider::Local);
 }
 void LlmChatController::regenerateLastResponse()

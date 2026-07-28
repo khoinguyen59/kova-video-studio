@@ -11,6 +11,7 @@ class TestColabTranslationRunner final : public QObject
 private slots:
     void postsBatchToDirectWorkerOnly();
     void cancellationAbortsDirectWorkerRequest();
+    void languageNotebookMatchesDirectTranslationContract();
 };
 
 } // namespace LAStudio

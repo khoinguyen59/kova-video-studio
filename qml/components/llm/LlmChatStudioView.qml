@@ -8,6 +8,7 @@ import "../base"
 StudioShell {
     id: root
     property var chat: AppController.llmChat
+    readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
     signal backToGallery()
     onRequestBack: root.backToGallery()
     onRequestConfigurationPicker: root.backToGallery()
@@ -112,8 +113,8 @@ StudioShell {
             }
             RowLayout {
                 Layout.fillWidth: true; spacing: Theme.paddingSmall
-                AppTextArea { id: composer; Layout.fillWidth: true; Layout.minimumHeight: Theme.paddingXL * 3; placeholderText: chat.colabActive ? qsTr("Message the direct Colab model...") : (chat.gatewayActive ? qsTr("Message the 9Router model...") : qsTr("Message the local model...")); enabled: !chat.generating; Keys.onReturnPressed: function(event) { if (!(event.modifiers & Qt.ShiftModifier)) { chat.sendMessage(text); text = ""; event.accepted = true } } }
-                PrimaryButton { text: chat.generating ? qsTr("Stop") : qsTr("Send"); iconName: chat.generating ? "stop" : "send"; enabled: chat.generating || composer.text.trim() !== ""; onClicked: chat.generating ? chat.stopGeneration() : (chat.sendMessage(composer.text), composer.text = "") }
+                AppTextArea { id: composer; Layout.fillWidth: true; Layout.minimumHeight: Theme.paddingXL * 3; placeholderText: chat.colabActive ? qsTr("Message the direct Colab model...") : (chat.gatewayActive ? qsTr("Message the 9Router model...") : (root.remoteFirstMode ? qsTr("Connect API Gateway or a direct Colab worker...") : qsTr("Message the local model..."))); enabled: !chat.generating; Keys.onReturnPressed: function(event) { if (!(event.modifiers & Qt.ShiftModifier)) { chat.sendMessage(text); text = ""; event.accepted = true } } }
+                PrimaryButton { text: chat.generating ? qsTr("Stop") : qsTr("Send"); iconName: chat.generating ? "stop" : "send"; enabled: chat.generating || ((!root.remoteFirstMode || chat.gatewayActive || chat.colabActive) && composer.text.trim() !== ""); onClicked: chat.generating ? chat.stopGeneration() : (chat.sendMessage(composer.text), composer.text = "") }
             }
             Text { visible: chat.errorText !== ""; Layout.fillWidth: true; text: chat.errorText; color: Theme.danger; wrapMode: Text.Wrap; font.pixelSize: Theme.fontSmall }
         }
@@ -241,7 +242,7 @@ StudioShell {
                     Layout.fillWidth: true
                     spacing: Theme.paddingSmall
                     LineIcon { name: "cpu"; color: Theme.success; Layout.preferredWidth: 16; Layout.preferredHeight: 16 }
-                    Text { Layout.fillWidth: true; text: qsTr("Choose a local model from the model picker to switch back to llama.cpp."); color: Theme.textSecondary; wrapMode: Text.WordWrap; font.pixelSize: Theme.fontSmall }
+                    Text { Layout.fillWidth: true; text: root.remoteFirstMode ? qsTr("Remote-first is enabled: choose API Gateway or direct Colab GPU for chat.") : qsTr("Choose a local model from the model picker to switch back to llama.cpp."); color: Theme.textSecondary; wrapMode: Text.WordWrap; font.pixelSize: Theme.fontSmall }
                 }
                 Item { Layout.preferredHeight: Theme.paddingSmall }
             }

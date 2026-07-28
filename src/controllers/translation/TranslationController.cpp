@@ -184,6 +184,10 @@ void TranslationController::useColab()
 }
 void TranslationController::useLocal()
 {
+    if (m_settings && m_settings->remoteFirstMode()) {
+        setError(QStringLiteral("Remote-first mode requires API Gateway or a direct Colab translation worker. Disable Remote-first mode before selecting Local Dev translation."));
+        return;
+    }
     if (m_processing || m_provider == Provider::Local) return;
     const Provider previous = m_provider;
     m_provider = Provider::Local;
@@ -197,6 +201,10 @@ void TranslationController::markDirty() { m_dirty = true; m_error.clear(); if (!
 void TranslationController::setError(const QString &message) { m_error = message; if (m_session) m_session->setError(message); emit errorTextChanged(); }
 void TranslationController::startTranslation(const QVariantList &segments, const QString &activeSegmentId)
 {
+    if (m_provider == Provider::Local && m_settings && m_settings->remoteFirstMode()) {
+        setError(QStringLiteral("Remote-first mode requires API Gateway or a direct Colab translation worker."));
+        return;
+    }
     if (m_processing) { setError(QStringLiteral("A translation request is already running.")); return; }
     if (m_provider == Provider::Local && (!m_engine || !m_session || !m_session->activeConfiguration())) {
         setError(QStringLiteral("Select and load a Translation model and runtime first."));

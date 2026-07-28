@@ -2,6 +2,11 @@
 
 #include "llm/ColabChatRunner.h"
 
+#include <QDir>
+#include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QPointer>
 #include <QRegularExpression>
 #include <QSignalSpy>
@@ -140,6 +145,36 @@ void TestColabChatRunner::cancellationAbortsDirectStream()
     QCOMPARE(cancelled.takeFirst().at(0).toString(), QStringLiteral("cancel-request"));
     thread.quit();
     QVERIFY(thread.wait(5000));
+}
+
+void TestColabChatRunner::languageNotebookMatchesDirectChatContract()
+{
+    const QString path = QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
+        .filePath(QStringLiteral("notebooks/LA_STUDIO_LANGUAGE_GPU.ipynb"));
+    QFile file(path);
+    QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(path));
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
+    QVERIFY(document.isObject());
+    const QJsonObject root = document.object();
+    QCOMPARE(root.value(QStringLiteral("nbformat")).toInt(), 4);
+
+    QString source;
+    const QJsonArray cells = root.value(QStringLiteral("cells")).toArray();
+    QVERIFY(cells.size() >= 4);
+    for (const QJsonValue &cellValue : cells) {
+        const QJsonArray lines = cellValue.toObject().value(QStringLiteral("source")).toArray();
+        for (const QJsonValue &line : lines) source += line.toString();
+    }
+    QVERIFY(source.contains(QStringLiteral("AutoModelForCausalLM")));
+    QVERIFY(source.contains(QStringLiteral("CPU fallback is disabled")));
+    QVERIFY(source.contains(QStringLiteral("@app.post('/v1/chat/completions')")));
+    QVERIFY(source.contains(QStringLiteral("stream=true")));
+    QVERIFY(source.contains(QStringLiteral("'chat'")));
+    QVERIFY(source.contains(QStringLiteral("'device': 'cuda'")));
+    QVERIFY(source.contains(QStringLiteral("LA_STUDIO_LANGUAGE_URL")));
+    QVERIFY(source.contains(QStringLiteral("LA_STUDIO_LANGUAGE_TOKEN")));
+    QVERIFY(source.contains(QStringLiteral("cloudflared")));
+    QVERIFY(!source.contains(QStringLiteral("API_GATEWAY")));
 }
 
 } // namespace LAStudio
