@@ -1,7 +1,9 @@
 #include "TranslationController.h"
 #include "TranslationModelSession.h"
 #include "core/Settings.h"
+#include "remote/ColabSession.h"
 #include "remote/ExecutionProvider.h"
+#include "translation/ColabTranslationRunner.h"
 #include "translation/GatewayTranslationRunner.h"
 #include "translation/TranslationService.h"
 #include <QFile>
@@ -15,21 +17,33 @@
 
 namespace LAStudio {
 TranslationController::TranslationController(TranslationEngine *engine, TranslationModelSession *session,
-                                             Settings *settings, QObject *parent)
-    : QObject(parent), m_engine(engine), m_session(session), m_settings(settings)
+                                             Settings *settings, ColabSession *colabSession, QObject *parent)
+    : QObject(parent), m_engine(engine), m_session(session), m_settings(settings), m_colabSession(colabSession)
 {
     qRegisterMetaType<TranslationInferenceRequest>("TranslationInferenceRequest");
     m_gatewayWorker = new GatewayTranslationRunner;
+    m_colabWorker = new ColabTranslationRunner;
     m_gatewayWorker->moveToThread(&m_gatewayThread);
+    m_colabWorker->moveToThread(&m_gatewayThread);
     connect(&m_gatewayThread, &QThread::finished, m_gatewayWorker, &QObject::deleteLater);
+    connect(&m_gatewayThread, &QThread::finished, m_colabWorker, &QObject::deleteLater);
     connect(m_gatewayWorker, &GatewayTranslationRunner::progress, this, [this](int percent) {
-        if (!m_processing || !m_gatewayActive) return;
+        if (!m_processing || m_provider != Provider::Gateway) return;
         m_progress = percent;
         emit processingChanged();
     });
     connect(m_gatewayWorker, &GatewayTranslationRunner::finished,
             this, &TranslationController::completeTranslation);
     connect(m_gatewayWorker, &GatewayTranslationRunner::failed,
+            this, &TranslationController::failTranslation);
+    connect(m_colabWorker, &ColabTranslationRunner::progress, this, [this](int percent) {
+        if (!m_processing || m_provider != Provider::Colab) return;
+        m_progress = percent;
+        emit processingChanged();
+    });
+    connect(m_colabWorker, &ColabTranslationRunner::finished,
+            this, &TranslationController::completeTranslation);
+    connect(m_colabWorker, &ColabTranslationRunner::failed,
             this, &TranslationController::failTranslation);
     m_gatewayThread.start();
     m_autosave.setSingleShot(true);
@@ -48,9 +62,17 @@ TranslationController::TranslationController(TranslationEngine *engine, Translat
     }
     if (m_session) {
         connect(m_session, &IModelSession::activeConfigurationChanged, this, [this] {
-            if (!m_gatewayActive) return;
-            m_gatewayActive = false;
+            if (m_provider != Provider::Gateway) return;
+            m_provider = Provider::Local;
             emit gatewayStateChanged();
+        });
+    }
+    if (m_colabSession) {
+        connect(m_colabSession, &ColabSession::sessionChanged, this, [this] {
+            if (m_provider != Provider::Colab) return;
+            if (m_processing) cancel();
+            if (!m_colabSession->isActive()) m_provider = Provider::Local;
+            emit colabStateChanged();
         });
     }
     if (m_settings) {
@@ -67,6 +89,9 @@ TranslationController::~TranslationController()
     if (m_gatewayWorker && m_gatewayThread.isRunning()) {
         QMetaObject::invokeMethod(m_gatewayWorker, "cancel", Qt::QueuedConnection);
     }
+    if (m_colabWorker && m_gatewayThread.isRunning()) {
+        QMetaObject::invokeMethod(m_colabWorker, "cancel", Qt::QueuedConnection);
+    }
     m_gatewayThread.quit();
     m_gatewayThread.wait();
 }
@@ -75,6 +100,14 @@ void TranslationController::setSourceLanguage(const QString &value) { if (m_proj
 void TranslationController::setTargetLanguage(const QString &value) { if (m_project.targetLanguage == value) return; m_project.targetLanguage = value; markDirty(); }
 QString TranslationController::gatewayModel() const { return m_settings ? (m_settings->gatewayTranslationModel().isEmpty() ? m_settings->gatewayLlmModel() : m_settings->gatewayTranslationModel()) : QString(); }
 void TranslationController::setGatewayModel(const QString &value) { if (m_settings) m_settings->setGatewayTranslationModel(value); }
+bool TranslationController::colabActive() const { return m_provider == Provider::Colab && m_colabSession && m_colabSession->isActive(); }
+void TranslationController::setColabModel(const QString &value)
+{
+    const QString normalized = value.trimmed();
+    if (normalized.isEmpty() || normalized == m_colabModel) return;
+    m_colabModel = normalized;
+    emit colabModelChanged();
+}
 void TranslationController::newProject() { if (m_processing) return; m_project = TranslationProject(); m_dirty = false; m_error.clear(); emit projectChanged(); emit errorTextChanged(); }
 bool TranslationController::openProject(const QString &path) { if (m_processing) return false; TranslationProject project; QString error; if (!TranslationProject::load(path, project, &error)) { setError(error); return false; } m_project = std::move(project); m_dirty = false; emit projectChanged(); return true; }
 bool TranslationController::importText(const QString &text) { if (m_processing) return false; QString error; if (!TranslationProject::importText(text, m_project, &error)) { setError(error); return false; } m_project.sourcePath.clear(); markDirty(); return true; }
@@ -88,7 +121,18 @@ void TranslationController::addSegment() { if (m_processing) return; m_project.s
 void TranslationController::swapLanguages() { const QString source = m_project.sourceLanguage; m_project.sourceLanguage = m_project.targetLanguage; m_project.targetLanguage = source; markDirty(); }
 void TranslationController::translateAll() { startTranslation(m_project.segments); }
 void TranslationController::translateSegment(int index) { if (index >= 0 && index < m_project.segments.size()) { const QVariantMap segment = m_project.segments.at(index).toMap(); startTranslation({segment}, segment.value(QStringLiteral("id")).toString()); } }
-void TranslationController::cancel() { if (!m_processing) return; if (m_cancelToken) m_cancelToken->store(true, std::memory_order_relaxed); if (m_gatewayActive && m_gatewayWorker) QMetaObject::invokeMethod(m_gatewayWorker, "cancel", Qt::QueuedConnection); else if (m_engine) m_engine->cancelProcessing(); }
+void TranslationController::cancel()
+{
+    if (!m_processing) return;
+    if (m_cancelToken) m_cancelToken->store(true, std::memory_order_relaxed);
+    if (m_provider == Provider::Gateway && m_gatewayWorker) {
+        QMetaObject::invokeMethod(m_gatewayWorker, "cancel", Qt::QueuedConnection);
+    } else if (m_provider == Provider::Colab && m_colabWorker) {
+        QMetaObject::invokeMethod(m_colabWorker, "cancel", Qt::QueuedConnection);
+    } else if (m_engine) {
+        m_engine->cancelProcessing();
+    }
+}
 void TranslationController::useGateway()
 {
     if (!m_settings) { setError(QStringLiteral("API Gateway configuration is unavailable.")); return; }
@@ -96,9 +140,55 @@ void TranslationController::useGateway()
     if (!endpoint.isValid()) { setError(endpoint.error); return; }
     if (!m_settings->gatewayApiKeyConfigured()) { setError(QStringLiteral("API Gateway key is required.")); return; }
     if (gatewayModel().isEmpty()) { setError(QStringLiteral("API Gateway translation model is required.")); return; }
-    if (!m_gatewayActive) { m_gatewayActive = true; emit gatewayStateChanged(); }
+    if (m_provider != Provider::Gateway) {
+        const bool colabWasSelected = m_provider == Provider::Colab;
+        m_provider = Provider::Gateway;
+        emit gatewayStateChanged();
+        if (colabWasSelected) emit colabStateChanged();
+    }
     m_error.clear();
     emit errorTextChanged();
+}
+bool TranslationController::connectColab(const QString &workerUrl, const QString &bearerToken)
+{
+    if (!m_colabSession) {
+        setError(QStringLiteral("Colab session is unavailable."));
+        return false;
+    }
+    QString error;
+    if (!m_colabSession->setSession(workerUrl, bearerToken, &error)) {
+        setError(error);
+        return false;
+    }
+    useColab();
+    return colabActive();
+}
+void TranslationController::useColab()
+{
+    if (!m_colabSession || !m_colabSession->isActive()) {
+        setError(QStringLiteral("Connect a Colab GPU worker first."));
+        return;
+    }
+    if (m_colabModel.trimmed().isEmpty()) {
+        setError(QStringLiteral("Colab translation model is required."));
+        return;
+    }
+    if (m_provider != Provider::Colab) {
+        const bool gatewayWasSelected = m_provider == Provider::Gateway;
+        m_provider = Provider::Colab;
+        emit colabStateChanged();
+        if (gatewayWasSelected) emit gatewayStateChanged();
+    }
+    m_error.clear();
+    emit errorTextChanged();
+}
+void TranslationController::useLocal()
+{
+    if (m_processing || m_provider == Provider::Local) return;
+    const Provider previous = m_provider;
+    m_provider = Provider::Local;
+    if (previous == Provider::Gateway) emit gatewayStateChanged();
+    if (previous == Provider::Colab) emit colabStateChanged();
 }
 bool TranslationController::loadHistoryItem(const QString &id) { if (id.isEmpty() || m_processing) return false; for (const QVariant &historyValue : std::as_const(m_history)) { const QVariantMap item = historyValue.toMap(); if (item.value(QStringLiteral("id")).toString() != id) continue; TranslationProject project; project.sourceLanguage = item.value(QStringLiteral("sourceLanguage"), QStringLiteral("en")).toString(); project.targetLanguage = item.value(QStringLiteral("targetLanguage"), QStringLiteral("vi")).toString(); project.sourceFormat = item.value(QStringLiteral("sourceFormat"), QStringLiteral("text")).toString(); project.segments = item.value(QStringLiteral("segments")).toList(); if (project.segments.isEmpty()) return false; m_project = std::move(project); m_dirty = true; m_error.clear(); emit projectChanged(); emit errorTextChanged(); return true; } return false; }
 bool TranslationController::deleteHistoryItem(const QString &id) { if (id.isEmpty()) return false; for (int index = 0; index < m_history.size(); ++index) { if (m_history.at(index).toMap().value(QStringLiteral("id")).toString() != id) continue; QVariantList updatedHistory = m_history; updatedHistory.removeAt(index); QSaveFile file(historyPath()); if (!file.open(QIODevice::WriteOnly)) return false; file.write(QJsonDocument::fromVariant(updatedHistory).toJson()); if (!file.commit()) return false; m_history = std::move(updatedHistory); emit historyChanged(); return true; } return false; }
@@ -108,12 +198,12 @@ void TranslationController::setError(const QString &message) { m_error = message
 void TranslationController::startTranslation(const QVariantList &segments, const QString &activeSegmentId)
 {
     if (m_processing) { setError(QStringLiteral("A translation request is already running.")); return; }
-    if (!m_gatewayActive && (!m_engine || !m_session || !m_session->activeConfiguration())) {
+    if (m_provider == Provider::Local && (!m_engine || !m_session || !m_session->activeConfiguration())) {
         setError(QStringLiteral("Select and load a Translation model and runtime first."));
         return;
     }
     int maxTokens = 4096;
-    if (!m_gatewayActive) {
+    if (m_provider == Provider::Local) {
         TranslationRequest prepared;
         QString error;
         if (!TranslationService::prepareConfiguration(*m_session->activeConfiguration(),
@@ -139,11 +229,21 @@ void TranslationController::startTranslation(const QVariantList &segments, const
     if (m_session) m_session->clearError();
     emit errorTextChanged();
     emit processingChanged();
-    if (m_gatewayActive) {
+    if (m_provider == Provider::Gateway) {
         QMetaObject::invokeMethod(m_gatewayWorker, "translate", Qt::QueuedConnection,
                                   Q_ARG(QString, m_settings->gatewayUrl()),
                                   Q_ARG(QString, m_settings->gatewayApiKey()),
                                   Q_ARG(QString, gatewayModel()),
+                                  Q_ARG(TranslationInferenceRequest, request), Q_ARG(bool, false));
+    } else if (m_provider == Provider::Colab) {
+        if (!m_colabSession || !m_colabSession->isActive()) {
+            failTranslation(QStringLiteral("Colab worker is no longer connected."));
+            return;
+        }
+        QMetaObject::invokeMethod(m_colabWorker, "translate", Qt::QueuedConnection,
+                                  Q_ARG(QUrl, m_colabSession->endpoint()),
+                                  Q_ARG(QString, m_colabSession->bearerTokenForRequest()),
+                                  Q_ARG(QString, m_colabModel),
                                   Q_ARG(TranslationInferenceRequest, request), Q_ARG(bool, false));
     } else {
         m_engine->translate(request);

@@ -38,7 +38,7 @@ StudioShell {
     capability: "llm-chat"
     studioTitle: qsTr("LLM Chat Studio")
     studioIconName: "chat"
-    studioReady: studioController ? studioController.studioReady : false
+    studioReady: chat.gatewayActive || chat.colabActive || (studioController ? studioController.studioReady : false)
     showLeftPanel: true
     isLeftPanelOpen: true
     showSettingsPanel: true
@@ -85,8 +85,8 @@ StudioShell {
             RowLayout {
                 Layout.fillWidth: true
                 LineIcon { name: "chat"; color: Theme.accentLight; Layout.preferredWidth: Theme.iconSize; Layout.preferredHeight: Theme.iconSize }
-                Text { text: chat.gatewayActive ? qsTr("9Router conversation") : qsTr("Local conversation"); color: Theme.textPrimary; font.pixelSize: Theme.fontLarge; font.bold: true; Layout.fillWidth: true }
-                Text { text: chat.generating ? qsTr("Generating") : (chat.gatewayActive || (studioController && studioController.studioReady) ? qsTr("Ready") : qsTr("Setup required")); color: chat.generating ? Theme.warning : (chat.gatewayActive || (studioController && studioController.studioReady) ? Theme.success : Theme.warning); font.pixelSize: Theme.fontSmall; font.bold: true }
+                Text { text: chat.colabActive ? qsTr("Direct Colab conversation") : (chat.gatewayActive ? qsTr("9Router conversation") : qsTr("Local conversation")); color: Theme.textPrimary; font.pixelSize: Theme.fontLarge; font.bold: true; Layout.fillWidth: true }
+                Text { text: chat.generating ? qsTr("Generating") : (chat.colabActive || chat.gatewayActive || (studioController && studioController.studioReady) ? qsTr("Ready") : qsTr("Setup required")); color: chat.generating ? Theme.warning : (chat.colabActive || chat.gatewayActive || (studioController && studioController.studioReady) ? Theme.success : Theme.warning); font.pixelSize: Theme.fontSmall; font.bold: true }
                 PrimaryButton { text: qsTr("Clear"); iconName: "trash"; quiet: true; enabled: !chat.generating; onClicked: chat.clearConversation() }
             }
             Rectangle { Layout.fillWidth: true; Layout.fillHeight: true; radius: Theme.radiusSmall; color: Qt.rgba(0,0,0,0.12); border.color: Qt.rgba(1,1,1,0.07); border.width: 1
@@ -112,7 +112,7 @@ StudioShell {
             }
             RowLayout {
                 Layout.fillWidth: true; spacing: Theme.paddingSmall
-                AppTextArea { id: composer; Layout.fillWidth: true; Layout.minimumHeight: Theme.paddingXL * 3; placeholderText: chat.gatewayActive ? qsTr("Message the 9Router model...") : qsTr("Message the local model..."); enabled: !chat.generating; Keys.onReturnPressed: function(event) { if (!(event.modifiers & Qt.ShiftModifier)) { chat.sendMessage(text); text = ""; event.accepted = true } } }
+                AppTextArea { id: composer; Layout.fillWidth: true; Layout.minimumHeight: Theme.paddingXL * 3; placeholderText: chat.colabActive ? qsTr("Message the direct Colab model...") : (chat.gatewayActive ? qsTr("Message the 9Router model...") : qsTr("Message the local model...")); enabled: !chat.generating; Keys.onReturnPressed: function(event) { if (!(event.modifiers & Qt.ShiftModifier)) { chat.sendMessage(text); text = ""; event.accepted = true } } }
                 PrimaryButton { text: chat.generating ? qsTr("Stop") : qsTr("Send"); iconName: chat.generating ? "stop" : "send"; enabled: chat.generating || composer.text.trim() !== ""; onClicked: chat.generating ? chat.stopGeneration() : (chat.sendMessage(composer.text), composer.text = "") }
             }
             Text { visible: chat.errorText !== ""; Layout.fillWidth: true; text: chat.errorText; color: Theme.danger; wrapMode: Text.Wrap; font.pixelSize: Theme.fontSmall }
@@ -214,6 +214,26 @@ StudioShell {
                     iconName: "cloud"
                     enabled: !chat.generating && !chat.gatewayActive
                     onClicked: chat.useGateway()
+                }
+
+                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1, 1, 1, 0.08) }
+                Text { text: qsTr("Colab GPU Worker"); color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; font.bold: true }
+                Text { Layout.fillWidth: true; text: qsTr("This direct temporary worker has its own URL and token. It does not use, start, or forward through API Gateway."); color: Theme.textSecondary; wrapMode: Text.WordWrap; font.pixelSize: Theme.fontSmall }
+                Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                NumberField { id: colabUrl; Layout.fillWidth: true; text: AppController.colabSession.workerUrl; placeholderText: qsTr("https://…trycloudflare.com") }
+                Text { text: qsTr("Session token"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                NumberField { id: colabToken; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: chat.colabActive ? qsTr("Connected — enter token to replace") : qsTr("Temporary token from Colab") }
+                Text { text: qsTr("Chat model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                NumberField { Layout.fillWidth: true; text: chat.colabModel; placeholderText: qsTr("qwen2.5-3b-instruct"); onEditingFinished: chat.colabModel = text.trim() }
+                PrimaryButton {
+                    Layout.fillWidth: true
+                    text: chat.colabActive ? qsTr("Using Colab GPU") : qsTr("Connect Colab GPU")
+                    iconName: "cloud"
+                    enabled: !chat.generating
+                    onClicked: {
+                        if (chat.colabActive) chat.useColab()
+                        else if (chat.connectColab(colabUrl.text.trim(), colabToken.text)) colabToken.text = ""
+                    }
                 }
 
                 Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1, 1, 1, 0.08) }

@@ -1,8 +1,10 @@
 #include "LlmChatController.h"
+#include "llm/ColabChatRunner.h"
 #include "llm/LlmChatEngine.h"
 #include "core/Settings.h"
 #include "core/PathUtils.h"
 #include "core/Logger.h"
+#include "remote/ColabSession.h"
 #include <QClipboard>
 #include <QGuiApplication>
 #include <QDateTime>
@@ -21,22 +23,50 @@ QString storePath() { return QDir(PathUtils::dataDir()).filePath(QStringLiteral(
 }
 
 LlmChatController::LlmChatController(LlmChatEngine *engine, LlmChatModelSession *session,
-                                     Settings *settings, QObject *parent)
-    : QObject(parent), m_engine(engine), m_session(session), m_settings(settings)
+                                     Settings *settings, ColabSession *colabSession, QObject *parent)
+    : QObject(parent), m_engine(engine), m_session(session), m_settings(settings), m_colabSession(colabSession)
 {
+    qRegisterMetaType<ColabChatRequest>("ColabChatRequest");
     if (m_engine) {
         connect(m_engine, &LlmChatEngine::tokenGenerated, this, &LlmChatController::onToken);
         connect(m_engine, &LlmChatEngine::generationFinished, this, &LlmChatController::onFinished);
         connect(m_engine, &LlmChatEngine::generationCancelled, this, &LlmChatController::onCancelled);
         connect(m_engine, &LlmChatEngine::errorOccurred, this, &LlmChatController::onEngineError);
         connect(m_engine, &LlmChatEngine::gatewayActiveChanged, this, &LlmChatController::gatewayStateChanged);
+        connect(m_engine, &LlmChatEngine::modelLoadedChanged,
+                this, &LlmChatController::onEngineModelLoadedChanged);
     }
     if (m_settings) {
         connect(m_settings, &Settings::gatewayLlmModelChanged,
                 this, &LlmChatController::gatewayModelChanged);
     }
+    m_colabRunner = new ColabChatRunner;
+    m_colabRunner->moveToThread(&m_colabThread);
+    connect(&m_colabThread, &QThread::finished, m_colabRunner, &QObject::deleteLater);
+    connect(m_colabRunner, &ColabChatRunner::tokenGenerated, this, &LlmChatController::onToken);
+    connect(m_colabRunner, &ColabChatRunner::finished, this, &LlmChatController::onFinished);
+    connect(m_colabRunner, &ColabChatRunner::cancelled, this, &LlmChatController::onCancelled);
+    connect(m_colabRunner, &ColabChatRunner::failed, this, &LlmChatController::onColabError);
+    m_colabThread.start();
+    if (m_colabSession) {
+        connect(m_colabSession, &ColabSession::sessionChanged, this, [this] {
+            if (m_provider != Provider::Colab) return;
+            if (m_generating) stopGeneration();
+            if (!m_colabSession->isActive()) m_provider = Provider::Local;
+            emit colabStateChanged();
+            emit gatewayStateChanged();
+        });
+    }
     load();
     ensureActive();
+}
+LlmChatController::~LlmChatController()
+{
+    if (m_colabRunner && m_colabThread.isRunning()) {
+        QMetaObject::invokeMethod(m_colabRunner, "cancel", Qt::QueuedConnection);
+    }
+    m_colabThread.quit();
+    m_colabThread.wait();
 }
 void LlmChatController::setSystemPrompt(const QString &v) { if (m_systemPrompt == v) return; m_systemPrompt = v; emit settingsChanged(); persist(); }
 void LlmChatController::setContextTokens(int v) { v = qBound(512, v, 131072); if (m_contextTokens == v) return; m_contextTokens = v; emit settingsChanged(); persist(); }
@@ -48,7 +78,7 @@ void LlmChatController::setRepeatPenalty(double v) { v = qBound(0.8, v, 2.0); if
 
 bool LlmChatController::gatewayActive() const
 {
-    return m_engine && m_engine->isGatewayActive();
+    return m_provider == Provider::Gateway && m_engine && m_engine->isGatewayActive();
 }
 
 QString LlmChatController::gatewayModel() const
@@ -59,6 +89,25 @@ QString LlmChatController::gatewayModel() const
 void LlmChatController::setGatewayModel(const QString &value)
 {
     if (m_settings) m_settings->setGatewayLlmModel(value);
+}
+bool LlmChatController::colabActive() const
+{
+    return m_provider == Provider::Colab && m_colabSession && m_colabSession->isActive();
+}
+void LlmChatController::setColabModel(const QString &value)
+{
+    const QString normalized = value.trimmed();
+    if (normalized.isEmpty() || normalized == m_colabModel) return;
+    m_colabModel = normalized;
+    emit colabModelChanged();
+}
+void LlmChatController::selectProvider(Provider provider)
+{
+    if (m_provider == provider) return;
+    const Provider previous = m_provider;
+    m_provider = provider;
+    if (previous == Provider::Gateway || provider == Provider::Gateway) emit gatewayStateChanged();
+    if (previous == Provider::Colab || provider == Provider::Colab) emit colabStateChanged();
 }
 
 QString LlmChatController::newId() const { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
@@ -109,7 +158,13 @@ void LlmChatController::clearConversation() { if (m_generating) return; m_messag
 void LlmChatController::sendMessage(const QString &text)
 {
     const QString content = text.trimmed();
-    if (content.isEmpty() || m_generating || !m_engine || !m_engine->isModelLoaded()) { if (!m_engine || !m_engine->isModelLoaded()) setError(QStringLiteral("Load an LLM model before sending a message.")); return; }
+    const bool directColab = colabActive();
+    if (content.isEmpty() || m_generating || (!directColab && (!m_engine || !m_engine->isModelLoaded()))) {
+        if (!directColab && (!m_engine || !m_engine->isModelLoaded())) {
+            setError(QStringLiteral("Load an LLM model or connect a Colab GPU worker before sending a message."));
+        }
+        return;
+    }
     QVariantMap user{{QStringLiteral("role"), QStringLiteral("user")}, {QStringLiteral("content"), content}, {QStringLiteral("timestamp"), QDateTime::currentDateTimeUtc().toString(Qt::ISODate)}};
     m_messages.append(user);
     QVariantMap assistant{{QStringLiteral("role"), QStringLiteral("assistant")}, {QStringLiteral("content"), QString()}, {QStringLiteral("streaming"), true}};
@@ -121,17 +176,57 @@ void LlmChatController::sendMessage(const QString &text)
     for (const QVariant &value : m_messages) { const QVariantMap msg = value.toMap(); if (msg.value(QStringLiteral("role")).toString() != QStringLiteral("assistant") || !msg.value(QStringLiteral("streaming")).toBool()) requestMessages.append(msg); }
     QList<QVariantMap> messages; for (const QVariant &value : requestMessages) messages.append(value.toMap());
     m_requestId = newId(); setGenerating(true); m_error.clear(); emit errorTextChanged(); emit messagesChanged(); persist();
-    m_engine->generate(messages, m_contextTokens, m_maxTokens, float(m_temperature), float(m_topP), m_topK, float(m_repeatPenalty), m_requestId);
+    if (directColab) {
+        ColabChatRequest request;
+        request.workerUrl = m_colabSession->endpoint();
+        request.bearerToken = m_colabSession->bearerTokenForRequest();
+        request.model = m_colabModel;
+        request.messages = messages;
+        request.maxTokens = m_maxTokens;
+        request.temperature = float(m_temperature);
+        request.topP = float(m_topP);
+        request.requestId = m_requestId;
+        QMetaObject::invokeMethod(m_colabRunner, "generate", Qt::QueuedConnection,
+                                  Q_ARG(ColabChatRequest, request));
+    } else {
+        m_engine->generate(messages, m_contextTokens, m_maxTokens, float(m_temperature), float(m_topP), m_topK, float(m_repeatPenalty), m_requestId);
+    }
 }
-void LlmChatController::stopGeneration() { if (m_engine && m_generating) m_engine->cancel(); }
+void LlmChatController::stopGeneration()
+{
+    if (!m_generating) return;
+    if (colabActive() && m_colabRunner) QMetaObject::invokeMethod(m_colabRunner, "cancel", Qt::QueuedConnection);
+    else if (m_engine) m_engine->cancel();
+}
 void LlmChatController::useGateway()
 {
     if (!m_engine || !m_settings) {
         setError(QStringLiteral("API Gateway configuration is unavailable."));
         return;
     }
+    selectProvider(Provider::Gateway);
     m_engine->loadGateway(m_settings->gatewayUrl(), m_settings->gatewayApiKey(),
                           m_settings->gatewayLlmModel());
+}
+bool LlmChatController::connectColab(const QString &workerUrl, const QString &bearerToken)
+{
+    if (!m_colabSession) { setError(QStringLiteral("Colab session is unavailable.")); return false; }
+    QString error;
+    if (!m_colabSession->setSession(workerUrl, bearerToken, &error)) { setError(error); return false; }
+    useColab();
+    return colabActive();
+}
+void LlmChatController::useColab()
+{
+    if (!m_colabSession || !m_colabSession->isActive()) { setError(QStringLiteral("Connect a Colab GPU worker first.")); return; }
+    if (m_colabModel.trimmed().isEmpty()) { setError(QStringLiteral("Colab chat model is required.")); return; }
+    selectProvider(Provider::Colab);
+    m_error.clear();
+    emit errorTextChanged();
+}
+void LlmChatController::useLocal()
+{
+    if (!m_generating) selectProvider(Provider::Local);
 }
 void LlmChatController::regenerateLastResponse()
 {
@@ -189,6 +284,21 @@ void LlmChatController::onEngineError(const QString &message)
     }
     m_streamingMessageIndex = -1;
     emit messagesChanged(); persist();
+}
+void LlmChatController::onColabError(const QString &requestId, const QString &message)
+{
+    if (requestId != m_requestId) return;
+    onEngineError(message);
+}
+void LlmChatController::onEngineModelLoadedChanged()
+{
+    // A local-model reload coming from the model picker is an explicit local
+    // selection. It leaves the Colab session in memory but routes new chat
+    // messages back to the local engine.
+    if (m_provider == Provider::Colab && m_engine && m_engine->isModelLoaded()
+        && !m_engine->isGatewayActive()) {
+        selectProvider(Provider::Local);
+    }
 }
 
 void LlmChatController::load()

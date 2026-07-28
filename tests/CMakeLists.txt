@@ -22,6 +22,10 @@ set(TEST_SOURCES
     test_ColabAlignmentRunner.h
     test_ColabSeparationRunner.cpp
     test_ColabSeparationRunner.h
+    test_ColabTranslationRunner.cpp
+    test_ColabTranslationRunner.h
+    test_ColabChatRunner.cpp
+    test_ColabChatRunner.h
     test_SubtitleVoice.cpp
     test_TtsTextPreprocessor.cpp
     test_TtsRequestValidator.cpp
@@ -65,6 +69,7 @@ set(TEST_SOURCES
     ../src/translation/CrispTranslationInterface.cpp
     ../src/translation/LlamaTranslationInterface.cpp
     ../src/llm/LlmChatEngine.cpp
+    ../src/llm/ColabChatRunner.cpp
     ../src/controllers/llm/LlmChatModelSession.cpp
     ../src/controllers/llm/LlmChatController.cpp
     ../src/controllers/models/ModelsPathMigrator.cpp
@@ -82,6 +87,7 @@ set(TEST_SOURCES
     ../src/translation/TranslationEngineInstance.cpp
     ../src/translation/TranslationWorker.cpp
     ../src/translation/GatewayTranslationRunner.cpp
+    ../src/translation/ColabTranslationRunner.cpp
     ../src/translation/backends/TranslationBackendFactory.cpp
     ../src/translation/backends/CrispTranslationBackend.cpp
     ../src/translation/backends/LlamaTranslationBackend.cpp
@@ -235,6 +241,7 @@ set(TEST_SOURCES
     ../src/translation/TranslationEngineInstance.h
     ../src/translation/TranslationWorker.h
     ../src/translation/GatewayTranslationRunner.h
+    ../src/translation/ColabTranslationRunner.h
     ../src/translation/backends/TranslationBackend.h
     ../src/translation/backends/TranslationBackendFactory.h
     ../src/translation/backends/CrispTranslationBackend.h
@@ -244,6 +251,7 @@ set(TEST_SOURCES
     ../src/controllers/separation/VoiceIsolatorModelSession.h
     ../src/controllers/models/ModelSessionRegistry.h
     ../src/llm/LlmChatEngine.h
+    ../src/llm/ColabChatRunner.h
     ../src/controllers/llm/LlmChatModelSession.h
     ../src/controllers/llm/LlmChatController.h
     ../src/controllers/app/WorkflowActivityManager.h
@@ -378,6 +386,8 @@ set(LASTUDIO_TEST_SUITES
     TestColabVoiceDesignRunner
     TestColabAlignmentRunner
     TestColabSeparationRunner
+    TestColabTranslationRunner
+    TestColabChatRunner
 )
 
 foreach(LASTUDIO_TEST_SUITE IN LISTS LASTUDIO_TEST_SUITES)

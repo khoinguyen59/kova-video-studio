@@ -39,7 +39,7 @@ StudioShell {
     capability: "translation"
     studioTitle: qsTr("Translation Studio")
     studioIconName: "translate"
-    studioReady: translation.gatewayActive || (studioController ? studioController.studioReady : false)
+    studioReady: translation.gatewayActive || translation.colabActive || (studioController ? studioController.studioReady : false)
     selectedFamilyId: studioController ? studioController.selectedFamilyId : ""
     modalSelectionMode: true
     showSwitcher: false
@@ -420,6 +420,25 @@ StudioShell {
                 onClicked: translation.useGateway()
             }
             Text { Layout.fillWidth: true; text: translation.gatewayActive ? qsTr("Translation requests go directly to 9Router.") : qsTr("Choose a local model from the header to process on this device."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1,1,1,0.07) }
+            Text { text: qsTr("Colab GPU Worker"); color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; font.bold: true }
+            Text { Layout.fillWidth: true; text: qsTr("Direct temporary worker. Its URL and session token are independent from API Gateway and never use its API key."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+            Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+            GatewayField { id: translationColabUrl; text: AppController.colabSession.workerUrl; placeholderText: qsTr("https://…trycloudflare.com") }
+            Text { text: qsTr("Session token"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+            GatewayField { id: translationColabToken; echoMode: TextInput.Password; placeholderText: translation.colabActive ? qsTr("Connected — enter token to replace") : qsTr("Temporary token from Colab") }
+            Text { text: qsTr("Translation model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+            GatewayField { text: translation.colabModel; placeholderText: qsTr("m2m100-418m"); onEditingFinished: translation.colabModel = text.trim() }
+            PrimaryButton {
+                Layout.fillWidth: true
+                text: translation.colabActive ? qsTr("Using Colab GPU") : qsTr("Connect Colab GPU")
+                iconName: "cloud"
+                enabled: !translation.processing
+                onClicked: {
+                    if (translation.colabActive) translation.useColab()
+                    else if (translation.connectColab(translationColabUrl.text.trim(), translationColabToken.text)) translationColabToken.text = ""
+                }
+            }
             Item { Layout.fillHeight: true }
         }
     ]

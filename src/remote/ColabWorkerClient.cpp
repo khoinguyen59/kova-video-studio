@@ -7,6 +7,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHttpMultiPart>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkAccessManager>
@@ -67,6 +68,16 @@ bool parseJsonResponse(QNetworkReply *reply, QByteArray *body, QJsonObject *resp
     }
     if (response) *response = document.object();
     return true;
+}
+
+QString chatContent(const QJsonObject &root)
+{
+    const QJsonArray choices = root.value(QStringLiteral("choices")).toArray();
+    if (choices.isEmpty() || !choices.first().isObject()) return {};
+    const QJsonObject choice = choices.first().toObject();
+    const QJsonObject delta = choice.value(QStringLiteral("delta")).toObject();
+    if (delta.value(QStringLiteral("content")).isString()) return delta.value(QStringLiteral("content")).toString();
+    return choice.value(QStringLiteral("message")).toObject().value(QStringLiteral("content")).toString();
 }
 
 } // namespace
@@ -492,6 +503,142 @@ bool ColabWorkerClient::cancelSeparationJob(const QString &jobId, QString *error
     if (!ok && errorMessage) *errorMessage = responseError(body, statusCode);
     reply->deleteLater();
     return ok;
+}
+
+bool ColabWorkerClient::translateSegments(const QVariantList &segments, const QString &sourceLanguage,
+                                          const QString &targetLanguage, const QString &model,
+                                          const std::shared_ptr<std::atomic_bool> &cancelToken,
+                                          QJsonObject *response, QString *errorMessage)
+{
+    if (response) *response = {};
+    if (!m_workerUrl.isValid() || m_bearerToken.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab worker is not connected");
+        return false;
+    }
+    if (segments.isEmpty() || model.trimmed().isEmpty() || sourceLanguage.trimmed().isEmpty() || targetLanguage.trimmed().isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab translation requires segments, languages, and a model");
+        return false;
+    }
+    QNetworkAccessManager manager;
+    QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v1/translations")));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
+    request.setRawHeader("Accept", "application/json");
+    const QJsonObject payload{{QStringLiteral("model"), model.trimmed()},
+                              {QStringLiteral("source_language"), sourceLanguage.trimmed()},
+                              {QStringLiteral("target_language"), targetLanguage.trimmed()},
+                              {QStringLiteral("segments"), QJsonArray::fromVariantList(segments)}};
+    QNetworkReply *reply = manager.post(request, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+    m_activeReply = reply;
+    QEventLoop eventLoop;
+    QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
+    eventLoop.exec();
+    m_activeReply = nullptr;
+    if (cancelToken && cancelToken->load(std::memory_order_relaxed)) {
+        reply->deleteLater();
+        return false;
+    }
+    const bool ok = parseJsonResponse(reply, nullptr, response, errorMessage,
+                                      QStringLiteral("Colab worker returned an invalid translation response"));
+    reply->deleteLater();
+    return ok;
+}
+
+bool ColabWorkerClient::streamChat(const QList<QVariantMap> &messages, const QString &model,
+                                   int maxTokens, float temperature, float topP,
+                                   const std::shared_ptr<std::atomic_bool> &cancelToken,
+                                   const std::function<void(const QString &)> &tokenHandler,
+                                   QString *fullText, QString *errorMessage)
+{
+    if (fullText) fullText->clear();
+    if (!m_workerUrl.isValid() || m_bearerToken.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab worker is not connected");
+        return false;
+    }
+    if (model.trimmed().isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab chat model is required");
+        return false;
+    }
+    QJsonArray requestMessages;
+    for (const QVariantMap &message : messages) {
+        const QString role = message.value(QStringLiteral("role")).toString().trimmed();
+        if (!role.isEmpty()) requestMessages.append(QJsonObject{{QStringLiteral("role"), role},
+                                                                {QStringLiteral("content"), message.value(QStringLiteral("content")).toString()}});
+    }
+    if (requestMessages.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("A chat message is required");
+        return false;
+    }
+
+    QNetworkAccessManager manager;
+    QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v1/chat/completions")));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
+    request.setRawHeader("Accept", "text/event-stream, application/json");
+    const QJsonObject payload{{QStringLiteral("model"), model.trimmed()},
+                              {QStringLiteral("messages"), requestMessages},
+                              {QStringLiteral("stream"), true},
+                              {QStringLiteral("max_tokens"), qBound(1, maxTokens, 32768)},
+                              {QStringLiteral("temperature"), qBound(0.01F, temperature, 2.0F)},
+                              {QStringLiteral("top_p"), qBound(0.01F, topP, 1.0F)}};
+    QNetworkReply *reply = manager.post(request, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+    m_activeReply = reply;
+    QByteArray pending;
+    QByteArray responseBody;
+    QString accumulated;
+    QString parseError;
+    QEventLoop eventLoop;
+    const auto consumePayload = [&](QByteArray line) {
+        line = line.trimmed();
+        if (line.isEmpty() || line == QByteArrayLiteral("[DONE]")) return;
+        const QJsonDocument document = QJsonDocument::fromJson(line);
+        if (!document.isObject()) { parseError = QStringLiteral("Colab worker returned an invalid chat response"); return; }
+        const QString token = chatContent(document.object());
+        if (!token.isEmpty()) { accumulated += token; if (tokenHandler) tokenHandler(token); }
+    };
+    const auto consumeAvailable = [&]() {
+        const QByteArray bytes = reply->readAll();
+        pending += bytes;
+        responseBody += bytes;
+        while (true) {
+            const int lineEnd = pending.indexOf('\n');
+            if (lineEnd < 0) break;
+            QByteArray line = pending.left(lineEnd);
+            pending.remove(0, lineEnd + 1);
+            if (line.startsWith("data:")) line.remove(0, 5);
+            consumePayload(line);
+        }
+    };
+    QObject::connect(reply, &QNetworkReply::readyRead, &eventLoop, consumeAvailable);
+    QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
+    eventLoop.exec();
+    if (reply->error() != QNetworkReply::OperationCanceledError) consumeAvailable();
+    if (!pending.trimmed().isEmpty()) {
+        QByteArray finalPayload = pending.trimmed();
+        if (finalPayload.startsWith("data:")) finalPayload.remove(0, 5);
+        consumePayload(finalPayload);
+    }
+    const int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QNetworkReply::NetworkError networkError = reply->error();
+    const QString networkErrorText = reply->errorString();
+    m_activeReply = nullptr;
+    reply->deleteLater();
+    if (cancelToken && cancelToken->load(std::memory_order_relaxed)) {
+        if (fullText) *fullText = accumulated;
+        return false;
+    }
+    if (networkError != QNetworkReply::NoError) {
+        if (errorMessage) *errorMessage = statusCode >= 400 ? responseError(responseBody, statusCode)
+                                                             : QStringLiteral("Colab worker request failed: %1").arg(networkErrorText);
+        return false;
+    }
+    if (statusCode < 200 || statusCode >= 300) {
+        if (errorMessage) *errorMessage = responseError(responseBody, statusCode);
+        return false;
+    }
+    if (!parseError.isEmpty()) { if (errorMessage) *errorMessage = parseError; return false; }
+    if (fullText) *fullText = accumulated;
+    return true;
 }
 
 bool ColabWorkerClient::createVoiceProfileJob(const QString &referencePath, const QString &name,

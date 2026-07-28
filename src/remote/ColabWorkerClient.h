@@ -2,11 +2,14 @@
 
 #include <QByteArray>
 #include <QJsonObject>
+#include <QList>
 #include <QString>
 #include <QUrl>
+#include <QVariantList>
 #include <QVariantMap>
 
 #include <atomic>
+#include <functional>
 #include <memory>
 
 QT_BEGIN_NAMESPACE
@@ -46,6 +49,15 @@ public:
                                     const std::shared_ptr<std::atomic_bool> &cancelToken,
                                     QByteArray *wavData, QString *errorMessage);
     bool cancelSeparationJob(const QString &jobId, QString *errorMessage = nullptr);
+    bool translateSegments(const QVariantList &segments, const QString &sourceLanguage,
+                           const QString &targetLanguage, const QString &model,
+                           const std::shared_ptr<std::atomic_bool> &cancelToken,
+                           QJsonObject *response, QString *errorMessage);
+    bool streamChat(const QList<QVariantMap> &messages, const QString &model, int maxTokens,
+                    float temperature, float topP,
+                    const std::shared_ptr<std::atomic_bool> &cancelToken,
+                    const std::function<void(const QString &)> &tokenHandler,
+                    QString *fullText, QString *errorMessage);
     bool createVoiceProfileJob(const QString &referencePath, const QString &name,
                                const QString &referenceText, const QString &language,
                                bool separateMusic, QJsonObject *job, QString *errorMessage);

@@ -97,6 +97,7 @@ set(LASTUDIO_SOURCES
     src/translation/TranslationEngineInstance.cpp
     src/translation/TranslationWorker.cpp
     src/translation/GatewayTranslationRunner.cpp
+    src/translation/ColabTranslationRunner.cpp
     src/translation/backends/TranslationBackendFactory.cpp
     src/translation/backends/CrispTranslationBackend.cpp
     src/translation/backends/LlamaTranslationBackend.cpp
@@ -172,6 +173,7 @@ set(LASTUDIO_SOURCES
     src/translation/CrispTranslationInterface.cpp
     src/translation/LlamaTranslationInterface.cpp
     src/llm/LlmChatEngine.cpp
+    src/llm/ColabChatRunner.cpp
     src/controllers/llm/LlmChatModelSession.cpp
     src/controllers/llm/LlmChatController.cpp
     src/controllers/models/ModelsPathMigrator.cpp
@@ -347,6 +349,7 @@ set(LASTUDIO_HEADERS
     include/runtimes/CrispTranslationInterface.h
     include/runtimes/LlamaTranslationInterface.h
     src/llm/LlmChatEngine.h
+    src/llm/ColabChatRunner.h
     src/controllers/llm/LlmChatModelSession.h
     src/controllers/llm/LlmChatController.h
     src/controllers/models/ModelsPathMigrator.h
@@ -361,6 +364,7 @@ set(LASTUDIO_HEADERS
     src/translation/TranslationEngineInstance.h
     src/translation/TranslationWorker.h
     src/translation/GatewayTranslationRunner.h
+    src/translation/ColabTranslationRunner.h
     src/translation/backends/TranslationBackend.h
     src/translation/backends/TranslationBackendFactory.h
     src/translation/backends/CrispTranslationBackend.h

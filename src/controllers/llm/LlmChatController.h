@@ -1,15 +1,19 @@
 #pragma once
 
 #include <QObject>
+#include <QThread>
 #include <QVariantList>
 #include <QVariantMap>
 #include <QtQml/qqml.h>
 #include <QtQml/qqmlregistration.h>
 
 namespace LAStudio {
+
 class LlmChatEngine;
 class LlmChatModelSession;
 class Settings;
+class ColabSession;
+class ColabChatRunner;
 
 class LlmChatController : public QObject
 {
@@ -28,11 +32,18 @@ class LlmChatController : public QObject
     Q_PROPERTY(double topP READ topP WRITE setTopP NOTIFY settingsChanged)
     Q_PROPERTY(int topK READ topK WRITE setTopK NOTIFY settingsChanged)
     Q_PROPERTY(double repeatPenalty READ repeatPenalty WRITE setRepeatPenalty NOTIFY settingsChanged)
+    // Active is the route selected for the next request. It does not configure,
+    // clear, or forward traffic to the other provider.
     Q_PROPERTY(bool gatewayActive READ gatewayActive NOTIFY gatewayStateChanged)
     Q_PROPERTY(QString gatewayModel READ gatewayModel WRITE setGatewayModel NOTIFY gatewayModelChanged)
+    Q_PROPERTY(bool colabActive READ colabActive NOTIFY colabStateChanged)
+    Q_PROPERTY(QString colabModel READ colabModel WRITE setColabModel NOTIFY colabModelChanged)
+
 public:
     explicit LlmChatController(LlmChatEngine *engine, LlmChatModelSession *session,
-                               Settings *settings, QObject *parent = nullptr);
+                               Settings *settings, ColabSession *colabSession, QObject *parent = nullptr);
+    ~LlmChatController() override;
+
     QVariantList conversations() const { return m_conversations; }
     QVariantList messages() const { return m_messages; }
     QString activeConversationId() const { return m_activeId; }
@@ -47,6 +58,9 @@ public:
     double repeatPenalty() const { return m_repeatPenalty; }
     bool gatewayActive() const;
     QString gatewayModel() const;
+    bool colabActive() const;
+    QString colabModel() const { return m_colabModel; }
+
     void setSystemPrompt(const QString &value);
     void setContextTokens(int value);
     void setMaxTokens(int value);
@@ -55,6 +69,7 @@ public:
     void setTopK(int value);
     void setRepeatPenalty(double value);
     void setGatewayModel(const QString &value);
+    void setColabModel(const QString &value);
 
     Q_INVOKABLE void newConversation();
     Q_INVOKABLE void selectConversation(const QString &id);
@@ -66,6 +81,9 @@ public:
     Q_INVOKABLE void regenerateLastResponse();
     Q_INVOKABLE void copyMessage(const QString &text);
     Q_INVOKABLE void useGateway();
+    Q_INVOKABLE bool connectColab(const QString &workerUrl, const QString &bearerToken);
+    Q_INVOKABLE void useColab();
+    Q_INVOKABLE void useLocal();
 
 signals:
     void conversationsChanged();
@@ -77,24 +95,36 @@ signals:
     void statusChanged();
     void gatewayStateChanged();
     void gatewayModelChanged();
+    void colabStateChanged();
+    void colabModelChanged();
 
 private slots:
     void onToken(const QString &requestId, const QString &token);
     void onFinished(const QString &requestId, const QString &text);
     void onCancelled(const QString &requestId, const QString &text);
     void onEngineError(const QString &message);
+    void onColabError(const QString &requestId, const QString &message);
+    void onEngineModelLoadedChanged();
 
 private:
+    enum class Provider { Local, Gateway, Colab };
+
     void persist();
     void load();
     void setError(const QString &message);
     void setGenerating(bool value);
     QString newId() const;
     void ensureActive();
+    void selectProvider(Provider provider);
 
     LlmChatEngine *m_engine = nullptr;
     LlmChatModelSession *m_session = nullptr;
     Settings *m_settings = nullptr;
+    ColabSession *m_colabSession = nullptr;
+    ColabChatRunner *m_colabRunner = nullptr;
+    QThread m_colabThread;
+    Provider m_provider = Provider::Local;
+    QString m_colabModel = QStringLiteral("qwen2.5-3b-instruct");
     QVariantList m_conversations;
     QVariantList m_messages;
     QString m_activeId;
@@ -110,4 +140,5 @@ private:
     int m_topK = 20;
     double m_repeatPenalty = 1.05;
 };
+
 } // namespace LAStudio
