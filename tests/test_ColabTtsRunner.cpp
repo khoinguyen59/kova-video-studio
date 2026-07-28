@@ -162,6 +162,12 @@ void TestColabTtsRunner::ttsNotebookMatchesDirectColabContract()
     QVERIFY(source.contains(QStringLiteral("@app.get('/v1/capabilities')")));
     QVERIFY(source.contains(QStringLiteral("'id': 'tts'")));
     QVERIFY(source.contains(QStringLiteral("'device': 'cuda'")));
+    QVERIFY(source.contains(QStringLiteral("MAX_INPUT_CHARS = 4000")));
+    QVERIFY(source.contains(QStringLiteral("MAX_OUTPUT_SECONDS = 300")));
+    QVERIFY(source.contains(QStringLiteral("SYNTHESIS_SLOTS = threading.BoundedSemaphore(1)")));
+    QVERIFY(source.contains(QStringLiteral("status_code=429")));
+    QVERIFY(source.contains(QStringLiteral("status_code=413")));
+    QVERIFY(source.contains(QStringLiteral("SYNTHESIS_SLOTS.release()")));
     QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_TTS_URL")));
     QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_TTS_TOKEN")));
     QVERIFY(source.contains(QStringLiteral("cloudflared")));
