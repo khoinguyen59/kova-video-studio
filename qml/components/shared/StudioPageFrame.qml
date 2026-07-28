@@ -46,30 +46,85 @@ Item {
         configurationDialog.open()
     }
 
-    // Exercised by the offscreen QML smoke test.  It reproduces the exact
-    // pre-confirmation model switch that used to freeze the real application
-    // and verifies that the controller remains untouched.
+    property bool qmlSmokeSelectionRunning: false
+    property bool qmlSmokeSelectionDone: false
+    property bool qmlSmokeSelectionPassed: false
+    property int qmlSmokeSelectionIndex: 0
+    property int qmlSmokeSelectionCount: 0
+    property int qmlSmokeSelectionWaitTicks: 0
+    property string qmlSmokePendingFamilyId: ""
+    property string qmlSmokeControllerFamilyBefore: ""
+    property bool qmlSmokeControllerCommittedBefore: false
+
+    // The smoke test deliberately yields to the event loop between every
+    // model change. The former synchronous test closed the dialog before QML
+    // evaluated its detail bindings and therefore missed the real UI freeze.
     function qmlSmokePendingSelectionIsolated() {
-        var controllerFamilyBefore = studioController.selectedFamilyId || ""
-        var controllerCommittedBefore = studioController.selectionCommitted
-        openConfiguration(controllerFamilyBefore)
+        if (qmlSmokeSelectionDone)
+            return qmlSmokeSelectionPassed ? 1 : -1
+        if (qmlSmokeSelectionRunning)
+            return 0
 
-        var rows = studioController.families || []
-        var currentGalleryFamily = configurationGallery.selectedFamilyId
-        var nextFamily = ""
-        for (var i = 0; i < rows.length; ++i) {
-            if (rows[i].id && rows[i].id !== currentGalleryFamily) {
-                nextFamily = rows[i].id
-                break
-            }
-        }
-        if (nextFamily !== "")
-            configurationGallery.selectedFamilyId = nextFamily
+        qmlSmokeControllerFamilyBefore = studioController.selectedFamilyId || ""
+        qmlSmokeControllerCommittedBefore = studioController.selectionCommitted
+        qmlSmokeSelectionIndex = 0
+        qmlSmokeSelectionCount = 0
+        qmlSmokeSelectionWaitTicks = 0
+        qmlSmokePendingFamilyId = ""
+        qmlSmokeSelectionRunning = true
+        openConfiguration(qmlSmokeControllerFamilyBefore)
+        qmlSmokeSelectionTimer.start()
+        return 0
+    }
 
-        var isolated = studioController.selectedFamilyId === controllerFamilyBefore
-                && studioController.selectionCommitted === controllerCommittedBefore
+    function finishQmlSmokeSelection(passed) {
+        qmlSmokeSelectionTimer.stop()
         configurationDialog.close()
-        return nextFamily === "" || isolated
+        qmlSmokeSelectionPassed = passed
+        qmlSmokeSelectionDone = true
+        qmlSmokeSelectionRunning = false
+    }
+
+    Timer {
+        id: qmlSmokeSelectionTimer
+        interval: 100
+        repeat: true
+
+        onTriggered: {
+            var rows = studioController.families || []
+            if (rows.length < 2) {
+                ++root.qmlSmokeSelectionWaitTicks
+                if (root.qmlSmokeSelectionWaitTicks > 50)
+                    root.finishQmlSmokeSelection(false)
+                return
+            }
+
+            if (root.qmlSmokePendingFamilyId !== "") {
+                if (!configurationGallery.qmlSmokeDetailMatchesSelection()) {
+                    root.finishQmlSmokeSelection(false)
+                    return
+                }
+                root.qmlSmokePendingFamilyId = ""
+            }
+
+            while (root.qmlSmokeSelectionIndex < rows.length) {
+                var familyId = rows[root.qmlSmokeSelectionIndex].id || ""
+                ++root.qmlSmokeSelectionIndex
+                if (familyId === "")
+                    continue
+                configurationGallery.selectedFamilyId = familyId
+                root.qmlSmokePendingFamilyId = familyId
+                ++root.qmlSmokeSelectionCount
+                return
+            }
+
+            var isolated = studioController.selectedFamilyId
+                    === root.qmlSmokeControllerFamilyBefore
+                    && studioController.selectionCommitted
+                    === root.qmlSmokeControllerCommittedBefore
+            root.finishQmlSmokeSelection(isolated
+                                         && root.qmlSmokeSelectionCount === rows.length)
+        }
     }
 
     Connections {

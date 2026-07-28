@@ -204,7 +204,7 @@ ApplicationWindow {
                 && sttLoader.item.qmlSmokePendingSelectionIsolated) {
             return sttLoader.item.qmlSmokePendingSelectionIsolated()
         }
-        return true
+        return 1
     }
 
     Timer {
@@ -233,7 +233,17 @@ ApplicationWindow {
                 return
             }
             if (root.qmlSmokeRouteLoaded(routeIndex)) {
-                if (!root.qmlSmokeExerciseRoute(routeIndex)) {
+                var exerciseResult = root.qmlSmokeExerciseRoute(routeIndex)
+                if (exerciseResult === 0) {
+                    ++waitTicks
+                    if (waitTicks > 100) {
+                        console.warn("Timed out while exercising model selection for route "
+                                     + route.id)
+                        running = false
+                    }
+                    return
+                }
+                if (exerciseResult < 0) {
                     console.warn("Pending model selection escaped the configuration dialog for route "
                                  + route.id)
                     running = false

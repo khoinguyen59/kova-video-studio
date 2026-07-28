@@ -107,6 +107,11 @@ Rectangle {
         return firstId !== "" ? activeModel.itemForFamily(firstId) : null
     }
 
+    function qmlSmokeDetailMatchesSelection() {
+        return detailPanel.hasFamily
+                && detailPanel.f.familyId === selectedFamilyId
+    }
+
     function selectedFilesForFamily(familyItem) {
         return familyItem && familyItem.selectedFiles ? familyItem.selectedFiles : ({})
     }
@@ -214,10 +219,10 @@ Rectangle {
         runtimeVersionDialog.sourceUrl = runtime.source || ""
         runtimeVersionDialog.defaultVersion = runtime.latestVersion || runtime.defaultVersion || runtime.version || ""
         runtimeVersionDialog.availableVersions = runtime.availableVersions || []
-        runtimeVersionDialog.engineType = detailPanel.f && (detailPanel.f.familyCapability === "stt" || detailPanel.f.familyCapability === "voice-isolation")
-                                          ? "stt"
-                                          : (detailPanel.f && detailPanel.f.familyCapability === "forced-alignment" ? "alignment" : "tts")
-        runtimeVersionDialog.accentColor = detailPanel.f ? (detailPanel.f.accent || Theme.accent) : Theme.accent
+        runtimeVersionDialog.engineType = detailPanel.hasFamily && (detailPanel.f.familyCapability === "stt" || detailPanel.f.familyCapability === "voice-isolation")
+                                           ? "stt"
+                                           : (detailPanel.hasFamily && detailPanel.f.familyCapability === "forced-alignment" ? "alignment" : "tts")
+        runtimeVersionDialog.accentColor = detailPanel.hasFamily ? (detailPanel.f.accent || Theme.accent) : Theme.accent
         runtimeVersionDialog.open()
     }
 
@@ -925,7 +930,12 @@ Rectangle {
             border.color: Theme.surfaceAlt
             border.width: 1
 
-            property var f: root.activeModel && root.activeModel.revision >= 0
+            // Never coerce f itself to bool. It is a large QVariantMap and Qt
+            // recursively converts the whole catalog entry when a bool binding
+            // reads it, which can pin the GUI thread in QV4 conversion/GC.
+            readonly property bool hasFamily: root.activeModel !== null
+                && root.selectedFamilyId !== ""
+            property var f: hasFamily && root.activeModel.revision >= 0
                 ? root.selectedFamilyItem() : null
             readonly property int requiredFileComboWidth: root.modalMode
                 ? Math.max(220, Math.min(360, Math.round(width * 0.38)))
@@ -952,14 +962,14 @@ Rectangle {
                             Layout.preferredHeight: 54
                             radius: 8
                             color: Theme.background
-                            border.color: detailPanel.f ? (detailPanel.f.accent || Theme.accent) : Theme.accent
+                            border.color: detailPanel.hasFamily ? (detailPanel.f.accent || Theme.accent) : Theme.accent
                             border.width: 1
                             clip: true
                             Image {
                                 id: detailThumbnail
                                 anchors.fill: parent
                                 anchors.margins: 7
-                                source: detailPanel.f ? detailPanel.f.thumbnailSource : ""
+                                source: detailPanel.hasFamily ? detailPanel.f.thumbnailSource : ""
                                 fillMode: Image.PreserveAspectFit
                                 smooth: true
                                 mipmap: true
@@ -967,8 +977,8 @@ Rectangle {
                             }
                             LineIcon {
                                 anchors.centerIn: parent
-                                name: detailPanel.f ? detailPanel.f.iconName : "volume"
-                                color: detailPanel.f ? (detailPanel.f.accent || Theme.accent) : Theme.accent
+                                name: detailPanel.hasFamily ? detailPanel.f.iconName : "volume"
+                                color: detailPanel.hasFamily ? (detailPanel.f.accent || Theme.accent) : Theme.accent
                                 width: 24
                                 height: 24
                                 visible: !detailThumbnail.visible
@@ -985,8 +995,8 @@ Rectangle {
                                 spacing: Theme.paddingSmall
 
                                 Text {
-                                    width: Math.min(implicitWidth, detailNameRow.width - (detailPanel.f && detailPanel.f.isLastudioPick ? 26 : 0))
-                                    text: detailPanel.f ? detailPanel.f.displayName : ""
+                                    width: Math.min(implicitWidth, detailNameRow.width - (detailPanel.hasFamily && detailPanel.f.isLastudioPick ? 26 : 0))
+                                    text: detailPanel.hasFamily ? detailPanel.f.displayName : ""
                                     color: Theme.textPrimary
                                     font.pixelSize: Theme.fontLarge
                                     font.bold: true
@@ -1000,7 +1010,7 @@ Rectangle {
                                     color: "#3f7cff"
                                     border.color: "#a7c0ff"
                                     border.width: 1
-                                    visible: detailPanel.f && detailPanel.f.isLastudioPick
+                                    visible: detailPanel.hasFamily && detailPanel.f.isLastudioPick
 
                                     LineIcon {
                                         anchors.centerIn: parent
@@ -1015,14 +1025,14 @@ Rectangle {
 
                                     AppToolTip {
                                         visible: detailPickHover.hovered
-                                        text: detailPanel.f ? (detailPanel.f.pickReason || qsTr("LA Studio Pick")) : ""
+                                        text: detailPanel.hasFamily ? (detailPanel.f.pickReason || qsTr("LA Studio Pick")) : ""
                                     }
                                 }
                             }
 
                             Text {
                                 Layout.fillWidth: true
-                                text: detailPanel.f ? detailPanel.f.rawMetadata.modelId : ""
+                                text: detailPanel.hasFamily ? detailPanel.f.rawMetadata.modelId : ""
                                 color: Theme.textSecondary
                                 font.pixelSize: Theme.fontSmall
                                 elide: Text.ElideRight
@@ -1085,12 +1095,12 @@ Rectangle {
                         }
 
                         PrimaryButton {
-                            text: detailPanel.f && detailPanel.f.isLastudioPick ? qsTr("LA Studio Pick") : qsTr("Model Card")
-                            iconName: detailPanel.f && detailPanel.f.isLastudioPick ? "external-link" : "file"
+                            text: detailPanel.hasFamily && detailPanel.f.isLastudioPick ? qsTr("LA Studio Pick") : qsTr("Model Card")
+                            iconName: detailPanel.hasFamily && detailPanel.f.isLastudioPick ? "external-link" : "file"
                             quiet: true
-                            implicitWidth: detailPanel.f && detailPanel.f.isLastudioPick ? 148 : 122
+                            implicitWidth: detailPanel.hasFamily && detailPanel.f.isLastudioPick ? 148 : 122
                             implicitHeight: 34
-                            visible: detailPanel.f && detailPanel.f.modelCardUrl !== ""
+                            visible: detailPanel.hasFamily && detailPanel.f.modelCardUrl !== ""
                             onClicked: Qt.openUrlExternally(detailPanel.f.modelCardUrl)
                         }
                     }
@@ -1102,10 +1112,10 @@ Rectangle {
                         Flow {
                             Layout.fillWidth: true
                             spacing: Theme.paddingSmall
-                            visible: detailPanel.f && detailPanel.f.statsBadges && detailPanel.f.statsBadges.length > 0
+                            visible: detailPanel.hasFamily && detailPanel.f.statsBadges && detailPanel.f.statsBadges.length > 0
 
                             Repeater {
-                                model: detailPanel.f ? (detailPanel.f.statsBadges || []) : []
+                                model: detailPanel.hasFamily ? (detailPanel.f.statsBadges || []) : []
                                 Rectangle {
                                     implicitWidth: statRow.implicitWidth + 14
                                     implicitHeight: 26
@@ -1147,7 +1157,7 @@ Rectangle {
                             spacing: Theme.paddingMedium
 
                             Repeater {
-                                model: detailPanel.f ? (detailPanel.f.infoBadges || []) : []
+                                model: detailPanel.hasFamily ? (detailPanel.f.infoBadges || []) : []
                                 Row {
                                     spacing: 6
                                     height: 24
@@ -1181,7 +1191,7 @@ Rectangle {
                         Flow {
                             Layout.fillWidth: true
                             spacing: 6
-                            visible: detailPanel.f && detailPanel.f.capabilityBadges && detailPanel.f.capabilityBadges.length > 0
+                            visible: detailPanel.hasFamily && detailPanel.f.capabilityBadges && detailPanel.f.capabilityBadges.length > 0
 
                             Text {
                                 height: 22
@@ -1193,7 +1203,7 @@ Rectangle {
                             }
 
                             Repeater {
-                                model: detailPanel.f ? (detailPanel.f.capabilityBadges || []) : []
+                                model: detailPanel.hasFamily ? (detailPanel.f.capabilityBadges || []) : []
                                 Rectangle {
                                     implicitWidth: capabilityValue.implicitWidth + 16
                                     implicitHeight: 22
@@ -1217,7 +1227,7 @@ Rectangle {
                     // Description
                     Text {
                         Layout.fillWidth: true
-                        text: detailPanel.f ? detailPanel.f.description : ""
+                        text: detailPanel.hasFamily ? detailPanel.f.description : ""
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fontMedium
                         wrapMode: Text.WordWrap
@@ -1228,9 +1238,9 @@ Rectangle {
                         implicitHeight: licenseLayout.implicitHeight + Theme.paddingMedium * 2
                         radius: 7
                         color: Qt.rgba(1, 1, 1, 0.025)
-                        border.color: detailPanel.f && root.requiresLicenseConsent(detailPanel.f) ? Theme.warning : Theme.surfaceAlt
+                        border.color: detailPanel.hasFamily && root.requiresLicenseConsent(detailPanel.f) ? Theme.warning : Theme.surfaceAlt
                         border.width: 1
-                        visible: detailPanel.f
+                        visible: detailPanel.hasFamily
 
                         RowLayout {
                             id: licenseLayout
@@ -1250,7 +1260,7 @@ Rectangle {
                                 Text {
                                     Layout.fillWidth: true
                                     text: root.licenseSummary(detailPanel.f)
-                                    color: detailPanel.f && root.requiresLicenseConsent(detailPanel.f) ? Theme.warning : Theme.textSecondary
+                                    color: detailPanel.hasFamily && root.requiresLicenseConsent(detailPanel.f) ? Theme.warning : Theme.textSecondary
                                     font.pixelSize: 11
                                     wrapMode: Text.WordWrap
                                 }
@@ -1273,11 +1283,11 @@ Rectangle {
                         color: Theme.textPrimary
                         font.pixelSize: Theme.fontMedium
                         font.bold: true
-                        visible: !!(detailPanel.f && detailPanel.f.requiredFiles && detailPanel.f.requiredFiles.length > 0)
+                        visible: detailPanel.hasFamily && detailPanel.f.requiredFiles && detailPanel.f.requiredFiles.length > 0
                     }
 
                     Repeater {
-                        model: detailPanel.f ? (detailPanel.f.requiredFiles || []) : []
+                        model: detailPanel.hasFamily ? (detailPanel.f.requiredFiles || []) : []
 
                         delegate: Rectangle {
                             Layout.fillWidth: true
@@ -1289,7 +1299,7 @@ Rectangle {
 
                             property int modelRevision: root.activeModel ? root.activeModel.revision : 0
                             property var family: modelRevision >= 0 ? detailPanel.f : null
-                            property var familyMetadata: family ? family.rawMetadata : null
+                            property var familyMetadata: family !== null ? family.rawMetadata : null
                             property string selectedFile: modelData.selectedFile || ""
                             property int installState: {
                                 if (modelData.installState === 3) return 3; // Installed
@@ -1429,7 +1439,7 @@ Rectangle {
 
                     RowLayout {
                         Layout.fillWidth: true
-                        visible: !!(detailPanel.f && detailPanel.f.runtimeOptions && detailPanel.f.runtimeOptions.length > 0)
+                        visible: detailPanel.hasFamily && detailPanel.f.runtimeOptions && detailPanel.f.runtimeOptions.length > 0
 
                         ColumnLayout {
                             Layout.fillWidth: true
@@ -1475,7 +1485,7 @@ Rectangle {
                     }
 
                     Repeater {
-                        model: detailPanel.f ? (detailPanel.f.runtimeOptions || []) : []
+                        model: detailPanel.hasFamily ? (detailPanel.f.runtimeOptions || []) : []
 
                         delegate: Rectangle {
                             id: runtimeRow
@@ -1660,7 +1670,7 @@ Rectangle {
                         border.color: Theme.surfaceAlt
                         border.width: 1
                         clip: true
-                        visible: detailPanel.f && detailPanel.f.readmeContent !== ""
+                        visible: detailPanel.hasFamily && detailPanel.f.readmeContent !== ""
 
                         ColumnLayout {
                             id: readmeLayout
@@ -1702,10 +1712,10 @@ Rectangle {
                             Text {
                                 Layout.fillWidth: true
                                 Layout.margins: Theme.paddingMedium
-                                text: detailPanel.f ? detailPanel.f.readmeContent : ""
+                                text: detailPanel.hasFamily ? detailPanel.f.readmeContent : ""
                                 textFormat: Text.MarkdownText
                                 color: Theme.textPrimary
-                                linkColor: detailPanel.f ? (detailPanel.f.accent || Theme.accent) : Theme.accent
+                                linkColor: detailPanel.hasFamily ? (detailPanel.f.accent || Theme.accent) : Theme.accent
                                 font.pixelSize: 13
                                 lineHeight: 1.18
                                 wrapMode: Text.WordWrap
