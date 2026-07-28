@@ -125,7 +125,7 @@ Rectangle {
     }
 
     function modelState() { return root.node && root.node.modelState !== undefined ? root.node.modelState : 0 }
-    function remoteRouteConfigurable() { return root.nodeId === "translate" || root.nodeId === "synthesize" }
+    function remoteRouteConfigurable() { return root.nodeId === "transcribe" || root.nodeId === "translate" || root.nodeId === "synthesize" }
     function lifecycleBusy() { return [2, 4, 5].indexOf(root.modelState()) >= 0 || root.dubbing.processing }
     function canLoad() { return root.node && root.node.configurable === true && [1, 6].indexOf(root.modelState()) >= 0 }
     function canReload() { return root.node && root.node.configurable === true && root.modelState() === 3 }

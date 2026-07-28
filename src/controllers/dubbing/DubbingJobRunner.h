@@ -56,7 +56,8 @@ public:
     void startSourceSeparation(const QString &audioPath,
                                const QVariantMap &modelConfiguration = QVariantMap());
     void startTranscription(const QString &sourceLanguage, const QString &sourceMediaPath,
-                            const QString &fallbackAudioPath = QString());
+                            const QString &fallbackAudioPath = QString(),
+                            const QVariantMap &modelConfiguration = QVariantMap());
     void startTranslation(const QString &sourceLanguage, const QString &targetLanguage, const QVariantList &segments,
                           const QVariantMap &modelConfiguration = QVariantMap());
     void setRemoteServices(Settings *settings, ColabSession *colabSession);

@@ -16,6 +16,7 @@ private slots:
     void testSttRecordingSourceSelection();
     void testColabSttRunnerPostsKovaCompatibleMultipart();
     void testGatewaySttRunnerPostsOpenAiCompatibleMultipart();
+    void testExplicitProviderRoutingDoesNotFallback();
 };
 
 } // namespace LAStudio

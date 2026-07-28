@@ -23,7 +23,8 @@ public:
 
     bool running() const { return m_running; }
     bool start(const QString &language, const QString &audioPath,
-               const QString &fallbackAudioPath = QString());
+               const QString &fallbackAudioPath = QString(),
+               const QVariantMap &configuration = QVariantMap());
     void cancel();
 
 signals:
@@ -48,6 +49,8 @@ private:
     QString m_audioPath;
     QString m_fallbackAudioPath;
     QString m_language;
+    QString m_executionProviderId = QStringLiteral("local-dev");
+    QString m_modelId;
     bool m_waitingForInput = false;
     bool m_running = false;
     bool m_retriedWithFallback = false;

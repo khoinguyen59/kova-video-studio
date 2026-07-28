@@ -9,6 +9,7 @@
 #include <atomic>
 #include <memory>
 #include "core/StudioSelectionRepository.h"
+#include "remote/ExecutionProvider.h"
 #include "SttAudioDecoder.h"
 
 namespace LAStudio {
@@ -71,6 +72,8 @@ public:
     bool processing() const;
     int progress() const;
     bool canTranscribe() const;
+    bool canTranscribeForProvider(ExecutionProvider provider, const QString &model,
+                                  QString *error = nullptr) const;
     bool recording() const;
     double recordingLevel() const;
     QVariantList history() const;
@@ -95,6 +98,10 @@ public:
     Q_INVOKABLE void startRecording(bool systemAudio = false);
     Q_INVOKABLE void stopRecording();
     Q_INVOKABLE void transcribeInput();
+    // Used by composite workflows.  This is per-request routing: it neither
+    // changes the UI's selected route nor falls back to another provider.
+    void transcribeInputForProvider(ExecutionProvider provider, const QString &model,
+                                    const QString &language, bool translate = false);
     Q_INVOKABLE void cancelProcessing();
     Q_INVOKABLE void clearTranscript();
     Q_INVOKABLE void copyTranscript();
@@ -186,6 +193,7 @@ private:
     bool m_gatewayProcessing = false;
     int m_gatewayProgress = 0;
     bool m_gatewayActive = false;
+    ExecutionProvider m_activeProvider = ExecutionProvider::LocalDev;
 };
 
 } // namespace LAStudio

@@ -4,6 +4,7 @@
 #include "core/Logger.h"
 #include "dubbing/AlignmentRefinementService.h"
 #include "dubbing/DubbingSegmentNormalizer.h"
+#include "remote/ExecutionProvider.h"
 
 #include <QFileInfo>
 #include <QRegularExpression>
@@ -41,7 +42,12 @@ DubbingTranscriptionJob::DubbingTranscriptionJob(SttSessionController *stt,
         if (!m_stt->inputError().isEmpty()) return;
         m_waitingForInput = false;
         emit progressChanged(5);
-        m_stt->transcribeInput();
+        ExecutionProvider provider = ExecutionProvider::LocalDev;
+        if (!executionProviderFromId(m_executionProviderId, &provider)) {
+            fail(QStringLiteral("Unknown dubbing STT provider: %1").arg(m_executionProviderId));
+            return;
+        }
+        m_stt->transcribeInputForProvider(provider, m_modelId, m_language, false);
     });
 }
 
@@ -55,7 +61,8 @@ DubbingTranscriptionJob::~DubbingTranscriptionJob()
 }
 
 bool DubbingTranscriptionJob::start(const QString &language, const QString &audioPath,
-                                    const QString &fallbackAudioPath)
+                                    const QString &fallbackAudioPath,
+                                    const QVariantMap &configuration)
 {
     if (m_running || (m_stt && m_stt->processing())) {
         fail(QStringLiteral("Speech transcription is already running."));
@@ -65,8 +72,22 @@ bool DubbingTranscriptionJob::start(const QString &language, const QString &audi
         fail(QStringLiteral("Import media before starting transcription."));
         return false;
     }
-    if (!m_stt->canTranscribe()) {
-        fail(QStringLiteral("The STT model is not ready. Wait for model loading to finish and try again."));
+    const QVariantMap parameters = configuration.value(QStringLiteral("parameters")).toMap();
+    m_executionProviderId = configuration.value(
+        QStringLiteral("executionProvider"), parameters.value(
+        QStringLiteral("executionProvider"), QStringLiteral("local-dev"))).toString().trimmed().toLower();
+    ExecutionProvider provider = ExecutionProvider::LocalDev;
+    if (!executionProviderFromId(m_executionProviderId, &provider)) {
+        fail(QStringLiteral("Unknown dubbing STT provider: %1").arg(m_executionProviderId));
+        return false;
+    }
+    m_modelId = configuration.value(QStringLiteral("modelId"),
+                                    parameters.value(QStringLiteral("modelId"))).toString().trimmed();
+    if (provider == ExecutionProvider::ApiGateway && m_modelId.isEmpty())
+        m_modelId = m_stt->gatewayModel();
+    QString availabilityError;
+    if (!m_stt->canTranscribeForProvider(provider, m_modelId, &availabilityError)) {
+        fail(availabilityError);
         return false;
     }
     ++m_generation;
@@ -75,8 +96,6 @@ bool DubbingTranscriptionJob::start(const QString &language, const QString &audi
     m_fallbackAudioPath = fallbackAudioPath;
     m_retriedWithFallback = false;
     m_language = language;
-    m_stt->setLanguage(language);
-    m_stt->setTranslate(false);
     startAudioInput(audioPath);
     return true;
 }
@@ -89,7 +108,12 @@ void DubbingTranscriptionJob::startAudioInput(const QString &audioPath)
     if (!m_stt->inputLoading() && m_stt->inputError().isEmpty()) {
         m_waitingForInput = false;
         emit progressChanged(5);
-        m_stt->transcribeInput();
+        ExecutionProvider provider = ExecutionProvider::LocalDev;
+        if (!executionProviderFromId(m_executionProviderId, &provider)) {
+            fail(QStringLiteral("Unknown dubbing STT provider: %1").arg(m_executionProviderId));
+            return;
+        }
+        m_stt->transcribeInputForProvider(provider, m_modelId, m_language, false);
     }
 }
 

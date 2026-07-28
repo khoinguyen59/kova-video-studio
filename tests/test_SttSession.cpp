@@ -183,6 +183,23 @@ void TestSttSession::testSttRecordingSourceSelection()
     QVERIFY(!recorder->recordSystemAudio());
 }
 
+void TestSttSession::testExplicitProviderRoutingDoesNotFallback()
+{
+    SttSessionController session;
+    AppController::instance()->settings()->setGatewayUrl(
+        QStringLiteral("https://gateway.example.test/v1"));
+    QString gatewayError;
+    QString colabError;
+
+    QVERIFY(!session.canTranscribeForProvider(ExecutionProvider::ApiGateway,
+                                              QStringLiteral("gateway-stt"), &gatewayError));
+    QVERIFY(!session.canTranscribeForProvider(ExecutionProvider::ColabDirect,
+                                              QString(), &colabError));
+    QVERIFY(gatewayError.contains(QStringLiteral("Gateway")));
+    QVERIFY(colabError.contains(QStringLiteral("Colab")));
+    QVERIFY(gatewayError != colabError);
+}
+
 void TestSttSession::testColabSttRunnerPostsKovaCompatibleMultipart()
 {
     ColabSttMock server;

@@ -36,6 +36,7 @@ SttSessionController::SttSessionController(QObject *parent)
         }
     }
 
+    qRegisterMetaType<ColabSttRequest>("ColabSttRequest");
     m_colabRunner = new ColabSttRunner;
     m_colabRunner->moveToThread(&m_colabThread);
     connect(&m_colabThread, &QThread::finished, m_colabRunner, &QObject::deleteLater);
@@ -279,29 +280,44 @@ void SttSessionController::stopRecording()
 
 void SttSessionController::transcribeInput()
 {
+    const ExecutionProvider provider = m_gatewayActive ? ExecutionProvider::ApiGateway
+        : (colabActive() ? ExecutionProvider::ColabDirect : ExecutionProvider::LocalDev);
+    transcribeInputForProvider(provider,
+                               provider == ExecutionProvider::ApiGateway ? gatewayModel() : QString(),
+                               language(), translate());
+}
+
+void SttSessionController::transcribeInputForProvider(ExecutionProvider provider,
+                                                       const QString &configuredModel,
+                                                       const QString &requestLanguage,
+                                                       bool requestTranslate)
+{
     if (m_inputLoading) {
         Logger::debug(QStringLiteral("SttSession"), QStringLiteral("Transcription deferred while audio decode is still running"));
         return;
     }
-    if ((!m_engine && !m_colabSession) || m_decodedSamples.isEmpty()) {
+    if (m_decodedSamples.isEmpty()) {
         Logger::warning(QStringLiteral("SttSession"),
-                        QStringLiteral("Transcription skipped: engine=%1 samples=%2 inputError=%3")
-                            .arg(m_engine ? QStringLiteral("available") : QStringLiteral("missing"))
+                        QStringLiteral("Transcription skipped: samples=%1 inputError=%2")
                             .arg(m_decodedSamples.size()).arg(m_inputError));
         return;
     }
-    if (!canTranscribe()) {
-        const QString message = QStringLiteral("The STT model is not ready. Wait for model loading to finish and try again.");
+    QString availabilityError;
+    if (!canTranscribeForProvider(provider, configuredModel, &availabilityError)) {
+        const QString message = availabilityError.isEmpty()
+            ? QStringLiteral("The selected STT provider is not ready.") : availabilityError;
         Logger::warning(QStringLiteral("SttSession"), message);
         emit transcriptionFailed(message);
         return;
     }
 
     m_activeJob.samples = m_decodedSamples;
-    
-    QString modelName = m_gatewayActive ? QStringLiteral("API Gateway STT")
-                                        : (colabActive() ? QStringLiteral("Colab GPU STT") : QStringLiteral("Whisper"));
-    if (!m_gatewayActive && !colabActive() && m_repository) {
+    m_activeProvider = provider;
+    QString modelName = provider == ExecutionProvider::ApiGateway
+        ? QStringLiteral("API Gateway STT: %1").arg(configuredModel)
+        : (provider == ExecutionProvider::ColabDirect
+               ? QStringLiteral("Colab GPU STT") : QStringLiteral("Whisper"));
+    if (provider == ExecutionProvider::LocalDev && m_repository) {
         auto selection = m_repository->selectionFor(QStringLiteral("stt"));
         auto resolved = StudioConfigurationResolver::resolve(selection);
         if (resolved.isValid) {
@@ -310,12 +326,12 @@ void SttSessionController::transcribeInput()
     }
     m_activeJob.modelName = modelName;
     m_activeJob.inputOrigin = m_inputPath.isEmpty() ? QStringLiteral("Live Recording") : m_inputPath;
-    m_activeJob.language = language();
+    m_activeJob.language = requestLanguage.trimmed().isEmpty() ? QStringLiteral("auto") : requestLanguage;
     m_activeJob.threads = threads();
-    m_activeJob.translate = translate();
+    m_activeJob.translate = requestTranslate;
     m_activeJob.isValid = true;
 
-    if (m_gatewayActive) {
+    if (provider == ExecutionProvider::ApiGateway) {
         m_gatewayCancellation = std::make_shared<std::atomic_bool>(false);
         m_gatewayProcessing = true;
         m_gatewayProgress = 0;
@@ -324,7 +340,7 @@ void SttSessionController::transcribeInput()
         GatewaySttRequest request;
         request.gatewayUrl = m_settings->gatewayUrl();
         request.apiKey = m_settings->gatewayApiKey();
-        request.model = gatewayModel();
+        request.model = configuredModel;
         request.samples = m_activeJob.samples;
         request.language = m_activeJob.language;
         request.cancellation = InferenceCancellationToken(m_gatewayCancellation);
@@ -332,7 +348,7 @@ void SttSessionController::transcribeInput()
                                   Q_ARG(GatewaySttRequest, request));
         return;
     }
-    if (colabActive()) {
+    if (provider == ExecutionProvider::ColabDirect) {
         m_colabCancellation = std::make_shared<std::atomic_bool>(false);
         m_colabProcessing = true;
         m_colabProgress = 0;
@@ -353,7 +369,49 @@ void SttSessionController::transcribeInput()
 
 bool SttSessionController::canTranscribe() const
 {
-    return m_gatewayActive || colabActive() || (m_engine && m_engine->state() == SttEngine::Ready);
+    const ExecutionProvider provider = m_gatewayActive ? ExecutionProvider::ApiGateway
+        : (colabActive() ? ExecutionProvider::ColabDirect : ExecutionProvider::LocalDev);
+    return canTranscribeForProvider(provider,
+                                    provider == ExecutionProvider::ApiGateway ? gatewayModel() : QString());
+}
+
+bool SttSessionController::canTranscribeForProvider(ExecutionProvider provider,
+                                                     const QString &model, QString *error) const
+{
+    if (error) error->clear();
+    if (provider == ExecutionProvider::ApiGateway) {
+        if (!m_settings) {
+            if (error) *error = QStringLiteral("API Gateway configuration is unavailable.");
+            return false;
+        }
+        const RemoteEndpointValidation endpoint = validateRemoteEndpoint(
+            m_settings->gatewayUrl(), RemoteEndpointKind::ApiGateway);
+        if (!endpoint.isValid()) {
+            if (error) *error = endpoint.error;
+            return false;
+        }
+        if (!m_settings->gatewayApiKeyConfigured()) {
+            if (error) *error = QStringLiteral("API Gateway key is required.");
+            return false;
+        }
+        if (model.trimmed().isEmpty()) {
+            if (error) *error = QStringLiteral("API Gateway STT model is required.");
+            return false;
+        }
+        return true;
+    }
+    if (provider == ExecutionProvider::ColabDirect) {
+        if (!m_colabSession || !m_colabSession->isActive()) {
+            if (error) *error = QStringLiteral("Connect a Colab GPU worker before running this STT node.");
+            return false;
+        }
+        return true;
+    }
+    if (!m_engine || m_engine->state() != SttEngine::Ready) {
+        if (error) *error = QStringLiteral("The STT model is not ready. Wait for model loading to finish and try again.");
+        return false;
+    }
+    return true;
 }
 
 void SttSessionController::cancelProcessing()
@@ -508,10 +566,8 @@ bool SttSessionController::connectColab(const QString &workerUrl, const QString 
         emit transcriptionFailed(error);
         return false;
     }
-    if (m_gatewayActive) {
-        m_gatewayActive = false;
-        emit gatewayStateChanged();
-    }
+    // Pairing a direct worker only establishes the temporary Colab session.
+    // It must not modify the independently configured API Gateway route.
     return true;
 }
 

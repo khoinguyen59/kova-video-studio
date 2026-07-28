@@ -582,7 +582,8 @@ QVariantMap DubbingController::firstCustomSetupIssue() const
                      QStringLiteral("Choose a model for the %1 node before running Custom dubbing.")
                          .arg(visibleStepForNode(required.first))}};
         }
-        if (required.first == QStringLiteral("translate")
+        if (required.first == QStringLiteral("transcribe")
+            || required.first == QStringLiteral("translate")
             || required.first == QStringLiteral("synthesize")) {
             const QVariantMap parameters = selected.value(QStringLiteral("parameters")).toMap();
             ExecutionProvider provider = ExecutionProvider::LocalDev;
@@ -864,9 +865,18 @@ QVariantList DubbingController::workflowNodes() const
 
 bool DubbingController::workflowReady() const
 {
-    const bool sttReady = AppController::instance() && AppController::instance()->sessionRegistry()
+    const QVariantMap sttSelection = m_workflowNodeConfigurations
+        .value(QStringLiteral("transcribe")).toMap();
+    const QVariantMap sttParameters = sttSelection.value(QStringLiteral("parameters")).toMap();
+    ExecutionProvider sttProvider = ExecutionProvider::LocalDev;
+    const QString sttProviderId = sttSelection.value(
+        QStringLiteral("executionProvider"), sttParameters.value(
+        QStringLiteral("executionProvider"), QStringLiteral("local-dev"))).toString();
+    const bool remoteSttSelected = executionProviderFromId(sttProviderId, &sttProvider)
+        && sttProvider != ExecutionProvider::LocalDev;
+    const bool sttReady = remoteSttSelected || (AppController::instance() && AppController::instance()->sessionRegistry()
         && AppController::instance()->sessionRegistry()->sessionForCapability(QStringLiteral("stt"))
-        && AppController::instance()->sessionRegistry()->sessionForCapability(QStringLiteral("stt"))->canProcess();
+        && AppController::instance()->sessionRegistry()->sessionForCapability(QStringLiteral("stt"))->canProcess());
     const bool translationConfigured = !m_workflowNodeConfigurations.value(QStringLiteral("translate")).toMap().isEmpty();
     bool translatedArtifactReady = !m_project.segments.isEmpty();
     for (const QVariant &entry : m_project.segments) {
@@ -1067,7 +1077,8 @@ bool DubbingController::reloadWorkflowNodeModel(const QString &nodeId)
 bool DubbingController::setWorkflowNodeParameters(const QString &nodeId, const QVariantMap &parameters)
 {
     if (nodeId.isEmpty()) return false;
-    if ((nodeId == QStringLiteral("translate") || nodeId == QStringLiteral("synthesize"))
+    if ((nodeId == QStringLiteral("transcribe") || nodeId == QStringLiteral("translate")
+         || nodeId == QStringLiteral("synthesize"))
         && parameters.contains(QStringLiteral("executionProvider"))) {
         ExecutionProvider provider = ExecutionProvider::LocalDev;
         if (!executionProviderFromId(parameters.value(QStringLiteral("executionProvider")).toString(), &provider)) {
@@ -2250,7 +2261,9 @@ void DubbingController::transcribeSource()
     Logger::info(QStringLiteral("DubbingController"),
                  QStringLiteral("Starting dubbing transcription language=%1 audio=%2")
                      .arg(m_project.sourceLanguage, audioPath));
-    m_runner->startTranscription(m_project.sourceLanguage, audioPath);
+    m_runner->startTranscription(m_project.sourceLanguage, audioPath, QString(),
+                                 m_workflowNodeConfigurations
+                                     .value(QStringLiteral("transcribe")).toMap());
 }
 
 void DubbingController::translateSource()
