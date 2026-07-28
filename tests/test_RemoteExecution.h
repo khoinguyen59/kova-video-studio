@@ -19,6 +19,7 @@ private slots:
     void remoteFirstVoiceIsolationStaysDirectWhenAColabSessionIsAvailable();
     void remoteFirstAlignmentStaysDirectWhenAColabSessionIsAvailable();
     void remoteFirstTtsBlocksLocalButPreservesIndependentRoutes();
+    void gatewayAndColabTtsControllersStayIndependent();
     void remoteFirstTranslationBlocksLocalExecution();
     void remoteFirstChatBlocksLocalExecution();
     void gatewayAndColabFailuresRemainIndependent();

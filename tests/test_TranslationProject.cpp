@@ -3,6 +3,9 @@
 #include "translation/TranslationProject.h"
 #include "translation/GatewayTranslationRunner.h"
 
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QRegularExpression>
 #include <QSignalSpy>
 #include <QTcpServer>
@@ -132,7 +135,11 @@ void TestTranslationProject::gatewayRunnerTranslatesSegmentsThroughGateway()
                                       Q_ARG(QString, QStringLiteral("translation-model")),
                                       Q_ARG(TranslationInferenceRequest, request), Q_ARG(bool, true)));
 
-    QVERIFY2(finished.wait(5000), "Gateway translation worker did not finish.");
+    const bool didFinish = finished.wait(5000);
+    workerThread.quit();
+    const bool didStop = workerThread.wait(5000);
+    QVERIFY2(didFinish, "Gateway translation worker did not finish.");
+    QVERIFY2(didStop, "Gateway translation worker did not stop.");
     QCOMPARE(failures.count(), 0);
     QCOMPARE(finished.count(), 1);
     const QVariantList patches = finished.takeFirst().at(0).toList();
@@ -146,10 +153,15 @@ void TestTranslationProject::gatewayRunnerTranslatesSegmentsThroughGateway()
     QVERIFY(requestBytes.toLower().contains("authorization: bearer translation-test-key"));
     QVERIFY(requestBytes.contains("Hello"));
     QVERIFY(requestBytes.contains("Goodbye"));
-    QVERIFY(requestBytes.contains("\"patches\""));
-    QVERIFY(requestBytes.contains("strict JSON"));
-    workerThread.quit();
-    QVERIFY(workerThread.wait(5000));
+    const int headerEnd = requestBytes.indexOf("\r\n\r\n");
+    QVERIFY(headerEnd >= 0);
+    const QJsonDocument wireRequest = QJsonDocument::fromJson(requestBytes.mid(headerEnd + 4));
+    QVERIFY(wireRequest.isObject());
+    const QJsonArray messages = wireRequest.object().value(QStringLiteral("messages")).toArray();
+    QCOMPARE(messages.size(), 2);
+    const QString systemPrompt = messages.first().toObject().value(QStringLiteral("content")).toString();
+    QVERIFY(systemPrompt.contains(QStringLiteral("\"patches\"")));
+    QVERIFY(systemPrompt.contains(QStringLiteral("strict JSON")));
 }
 
 void TestTranslationProject::gatewayRunnerRejectsInvalidPatchSchema()
@@ -181,12 +193,14 @@ void TestTranslationProject::gatewayRunnerRejectsInvalidPatchSchema()
                                       Q_ARG(QString, QStringLiteral("translation-model")),
                                       Q_ARG(TranslationInferenceRequest, request), Q_ARG(bool, true)));
 
-    QVERIFY2(failures.wait(5000), "Gateway translation worker did not reject malformed patches.");
+    const bool didFail = failures.wait(5000);
+    workerThread.quit();
+    const bool didStop = workerThread.wait(5000);
+    QVERIFY2(didFail, "Gateway translation worker did not reject malformed patches.");
+    QVERIFY2(didStop, "Gateway translation worker did not stop.");
     QCOMPARE(finished.count(), 0);
     QCOMPARE(failures.count(), 1);
     QVERIFY(failures.takeFirst().at(0).toString().contains(QStringLiteral("duplicate"), Qt::CaseInsensitive));
-    workerThread.quit();
-    QVERIFY(workerThread.wait(5000));
 }
 
 } // namespace LAStudio

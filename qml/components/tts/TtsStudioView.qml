@@ -27,12 +27,20 @@ StudioShell {
 
     property string playingType: "none"
     property string detectedLanguage: "en"
+    // Selection is presentation state only.  Each remote controller owns its
+    // own connection and credentials, so choosing a route must never tear
+    // down the other one.
+    property string selectedRemoteProvider: ""
     readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
     readonly property bool gatewayActive: AppController.gatewayTts && AppController.gatewayTts.gatewayActive
     readonly property bool colabActive: AppController.colabTts && AppController.colabTts.colabActive
-    readonly property bool remoteActive: gatewayActive || colabActive
-    readonly property var remoteTts: gatewayActive ? AppController.gatewayTts : (colabActive ? AppController.colabTts : null)
-    readonly property string remoteTtsLabel: gatewayActive ? qsTr("API Gateway") : qsTr("Colab GPU")
+    readonly property var remoteTts: selectedRemoteProvider === "gateway" && gatewayActive
+                                 ? AppController.gatewayTts
+                                 : (selectedRemoteProvider === "colab" && colabActive
+                                    ? AppController.colabTts : null)
+    readonly property bool remoteActive: remoteTts !== null
+    readonly property string remoteTtsLabel: selectedRemoteProvider === "gateway"
+                                             ? qsTr("API Gateway") : qsTr("Colab GPU")
     property bool outputReady: remoteActive
                               ? remoteTts.lastSampleCount > 0
                               : (AppController.tts.lastSampleCount > 0 && !AppController.tts.isCloneAction)
@@ -53,6 +61,24 @@ StudioShell {
     signal ejectRequested()
     signal modelSwitchRequested(string familyId)
     signal runtimeSwitchRequested(string runtimeId)
+
+    function selectRemoteProvider(provider) {
+        if (provider === "gateway" && gatewayActive)
+            selectedRemoteProvider = "gateway"
+        else if (provider === "colab" && colabActive)
+            selectedRemoteProvider = "colab"
+        else if (provider === "")
+            selectedRemoteProvider = ""
+    }
+
+    onGatewayActiveChanged: {
+        if (!gatewayActive && selectedRemoteProvider === "gateway")
+            selectedRemoteProvider = ""
+    }
+    onColabActiveChanged: {
+        if (!colabActive && selectedRemoteProvider === "colab")
+            selectedRemoteProvider = ""
+    }
 
     onRequestBack: root.backToGallery()
     onRequestConfigurationPicker: root.backToGallery()
@@ -602,6 +628,8 @@ StudioShell {
                 backendType: root.resolveBackendType()
                 locked: root.inputsLocked
                 onCloseRequested: root.isSettingsOpen = false
+                selectedRemoteProvider: root.selectedRemoteProvider
+                onRemoteProviderSelected: function(provider) { root.selectRemoteProvider(provider) }
                 }
             }
 

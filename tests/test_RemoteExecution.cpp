@@ -13,6 +13,7 @@
 #include "controllers/separation/ColabVoiceIsolatorController.h"
 #include "controllers/alignment/ColabAlignmentController.h"
 #include "controllers/tts/ColabTtsController.h"
+#include "controllers/tts/GatewayTtsController.h"
 #include "controllers/translation/TranslationController.h"
 #include "controllers/llm/LlmChatController.h"
 #include "controllers/models/RemoteModelCatalogController.h"
@@ -289,6 +290,56 @@ void TestRemoteExecution::remoteFirstTtsBlocksLocalButPreservesIndependentRoutes
     QCOMPARE(session.bearerTokenForRequest(), QStringLiteral("temporary-colab-token"));
 
     settings.setRemoteFirstMode(original);
+}
+
+void TestRemoteExecution::gatewayAndColabTtsControllersStayIndependent()
+{
+    Settings settings;
+    const QString originalGatewayUrl = settings.gatewayUrl();
+    const QString originalGatewayKey = settings.gatewayApiKey();
+    const QString originalGatewayModel = settings.gatewayTtsModel();
+    const QString originalGatewayVoice = settings.gatewayTtsVoice();
+    const bool originalRemoteFirst = settings.remoteFirstMode();
+    settings.setRemoteFirstMode(true);
+    settings.setGatewayUrl(QStringLiteral("https://gateway.example.test/v1"));
+    settings.setGatewayApiKey(QStringLiteral("gateway-test-token"));
+    settings.setGatewayTtsModel(QStringLiteral("gateway-tts-model"));
+    settings.setGatewayTtsVoice(QStringLiteral("alloy"));
+
+    ColabSession session;
+    QString error;
+    QVERIFY(session.setSession(QStringLiteral("https://worker.example.test"),
+                               QStringLiteral("temporary-colab-token"), &error));
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    {
+        GatewayTtsController gateway(&settings, nullptr, nullptr, nullptr);
+        ColabTtsController colab(&session, &settings, nullptr, nullptr, nullptr);
+        gateway.useGateway();
+        colab.useColab();
+        QVERIFY(gateway.gatewayActive());
+        QVERIFY(colab.colabActive());
+
+        // Selecting or disconnecting one direct route does not clear the
+        // other route's state or its temporary Colab credentials.
+        gateway.disconnectGateway();
+        QVERIFY(!gateway.gatewayActive());
+        QVERIFY(colab.colabActive());
+        QCOMPARE(session.workerUrl(), QStringLiteral("https://worker.example.test"));
+        QCOMPARE(session.bearerTokenForRequest(), QStringLiteral("temporary-colab-token"));
+
+        gateway.useGateway();
+        colab.deactivateColab();
+        QVERIFY(gateway.gatewayActive());
+        QVERIFY(!colab.colabActive());
+        QCOMPARE(settings.gatewayApiKey(), QStringLiteral("gateway-test-token"));
+    }
+
+    settings.setGatewayUrl(originalGatewayUrl);
+    settings.setGatewayApiKey(originalGatewayKey);
+    settings.setGatewayTtsModel(originalGatewayModel);
+    settings.setGatewayTtsVoice(originalGatewayVoice);
+    settings.setRemoteFirstMode(originalRemoteFirst);
 }
 
 void TestRemoteExecution::remoteFirstTranslationBlocksLocalExecution()

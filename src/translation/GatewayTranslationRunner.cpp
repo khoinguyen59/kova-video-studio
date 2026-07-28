@@ -60,7 +60,7 @@ void GatewayTranslationRunner::translate(const QString &gatewayUrl, const QStrin
 
     const QString systemPrompt = QStringLiteral(
         "You are a professional translation engine. Translate each segment from %1 to %2. "
-        "Return exactly one JSON object with this schema and no markdown, prose, or code fence: "
+        "Return exactly one strict JSON object with this schema and no markdown, prose, or code fence: "
         "{\"patches\":[{\"id\":\"original segment id\",\"targetText\":\"translated text\"}]}. "
         "Return one patch for every input segment, preserve every id exactly once, and preserve line breaks, "
         "meaning, names, numbers, and punctuation.")
