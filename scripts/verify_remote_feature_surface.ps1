@@ -33,8 +33,8 @@ function Assert-Contains {
 $features = @(
     @{ id = 'stt'; qml = 'qml/components/stt/SttSettingsPanel.qml'; shell = 'qml/components/stt/SttStudioView.qml'; notebook = 'LA_STUDIO_STT_WHISPER_GPU.ipynb'; qmlNeedle = 'colabNotebookFile'; cudaGuard = 'torch.cuda.is_available()'; capability = 'MODEL_ID'; endpoint = '/v1/audio/transcriptions'; url = 'LA_STUDIO_COLAB_STT_URL'; token = 'LA_STUDIO_COLAB_STT_TOKEN' },
     @{ id = 'tts'; qml = 'qml/components/tts/TtsSettingsPanel.qml'; shell = 'qml/components/tts/TtsStudioView.qml'; notebook = 'LA_STUDIO_TTS_KOKORO_GPU.ipynb'; qmlNeedle = 'colabNotebookFile'; cudaGuard = 'torch.cuda.is_available()'; capability = '"capability": "tts"'; endpoint = '/v1/audio/speech'; url = 'LA_STUDIO_COLAB_TTS_URL'; token = 'LA_STUDIO_COLAB_TTS_TOKEN' },
-    @{ id = 'voice-cloning'; qml = 'qml/components/voicecloning/VoiceSettingsPanel.qml'; shell = 'qml/components/voicecloning/VoiceCloningStudioView.qml'; notebook = 'LA_STUDIO_VOICE_CLONE_GPU.ipynb'; cudaGuard = 'torch.cuda.is_available()'; capability = "'voice-cloning'"; endpoint = '/v2/jobs/profile'; url = 'LA_STUDIO_COLAB_VOICE_CLONE_URL'; token = 'LA_STUDIO_COLAB_VOICE_CLONE_TOKEN' },
-    @{ id = 'voice-design'; qml = 'qml/components/voicedesign/VoiceDesignSettingsPanel.qml'; shell = 'qml/components/voicedesign/VoiceDesignStudioView.qml'; notebook = 'LA_STUDIO_VOICE_DESIGN_GPU.ipynb'; cudaGuard = 'torch.cuda.is_available()'; capability = "'voice-design'"; endpoint = '/v1/audio/voice_designs'; url = 'LA_STUDIO_COLAB_VOICE_DESIGN_URL'; token = 'LA_STUDIO_COLAB_VOICE_DESIGN_TOKEN' },
+    @{ id = 'voice-cloning'; qml = 'qml/components/voicecloning/VoiceSettingsPanel.qml'; shell = 'qml/components/voicecloning/VoiceCloningStudioView.qml'; notebook = 'LA_STUDIO_VOICE_CLONE_OMNIVOICE_GPU.ipynb'; qmlNeedle = 'colabNotebookFile'; cudaGuard = 'torch.cuda.is_available()'; capability = '"capability": "voice-cloning"'; endpoint = '/v2/jobs/profile'; url = 'LA_STUDIO_COLAB_VOICE_CLONE_URL'; token = 'LA_STUDIO_COLAB_VOICE_CLONE_TOKEN' },
+    @{ id = 'voice-design'; qml = 'qml/components/voicedesign/VoiceDesignSettingsPanel.qml'; shell = 'qml/components/voicedesign/VoiceDesignStudioView.qml'; notebook = 'LA_STUDIO_VOICE_DESIGN_QWEN3_1_7B_GPU.ipynb'; qmlNeedle = 'colabNotebookFile'; cudaGuard = 'torch.cuda.is_available()'; capability = '"capability": "voice-design"'; endpoint = '/v1/audio/voice_designs'; url = 'LA_STUDIO_COLAB_VOICE_DESIGN_URL'; token = 'LA_STUDIO_COLAB_VOICE_DESIGN_TOKEN' },
     @{ id = 'forced-alignment'; qml = 'qml/components/alignment/AlignmentSetupPanel.qml'; shell = 'qml/components/alignment/AlignmentStudioView.qml'; notebook = 'LA_STUDIO_ALIGNMENT_GPU.ipynb'; cudaGuard = 'torch.cuda.is_available()'; capability = "'forced-alignment'"; endpoint = '/v1/audio/alignments'; url = 'LA_STUDIO_COLAB_ALIGNMENT_URL'; token = 'LA_STUDIO_COLAB_ALIGNMENT_TOKEN' },
     @{ id = 'voice-isolation'; qml = 'qml/components/voiceisolator/VoiceIsolatorStudioView.qml'; shell = 'qml/components/voiceisolator/VoiceIsolatorStudioView.qml'; notebook = 'LA_STUDIO_SEPARATION_GPU.ipynb'; cudaGuard = 'torch.cuda.is_available()'; capability = "'voice-isolation'"; endpoint = '/v1/audio/separations'; url = 'LA_STUDIO_COLAB_SEPARATION_URL'; token = 'LA_STUDIO_COLAB_SEPARATION_TOKEN' },
     @{ id = 'translation'; qml = 'qml/components/translation/TranslationStudioView.qml'; shell = 'qml/components/translation/TranslationStudioView.qml'; notebook = 'LA_STUDIO_LANGUAGE_GPU.ipynb'; cudaGuard = 'torch.cuda.is_available()'; capability = "'translation'"; endpoint = '/v1/translations'; url = 'LA_STUDIO_LANGUAGE_URL'; token = 'LA_STUDIO_LANGUAGE_TOKEN' },
@@ -100,6 +100,37 @@ foreach ($entry in $ttsNotebooks) {
     Assert-Contains $source $entry.model "tts notebook $($entry.file)"
     Assert-Contains $source 'if request.model.strip().lower() != MODEL_ID' "tts notebook $($entry.file)"
     Assert-Contains $source 'LA_STUDIO_COLAB_TTS_MODEL' "tts notebook $($entry.file)"
+}
+
+$voiceCloneNotebooks = @(
+    @{ file = 'LA_STUDIO_VOICE_CLONE_OMNIVOICE_GPU.ipynb'; model = 'omnivoice' },
+    @{ file = 'LA_STUDIO_VOICE_CLONE_QWEN3_BASE_0_6B_GPU.ipynb'; model = 'qwen3-tts-0.6b-base' },
+    @{ file = 'LA_STUDIO_VOICE_CLONE_QWEN3_BASE_1_7B_GPU.ipynb'; model = 'qwen3-tts-1.7b-base' },
+    @{ file = 'LA_STUDIO_VOICE_CLONE_VIENEU_V2_TURBO_GPU.ipynb'; model = 'vieneu-tts-v2-turbo' },
+    @{ file = 'LA_STUDIO_VOICE_CLONE_VIENEU_V3_TURBO_GPU.ipynb'; model = 'vieneu-tts-v3-turbo' },
+    @{ file = 'LA_STUDIO_VOICE_CLONE_VOXCPM2_GPU.ipynb'; model = 'voxcpm2' }
+)
+foreach ($entry in $voiceCloneNotebooks) {
+    $path = Join-Path $repoRoot (Join-Path 'notebooks' $entry.file)
+    if (-not (Test-Path -LiteralPath $path)) { throw "voice-cloning: notebook is missing: $($entry.file)" }
+    $source = Get-Content -LiteralPath $path -Raw
+    Assert-Contains $source $entry.model "voice-cloning notebook $($entry.file)"
+    Assert-Contains $source 'require_exact_model' "voice-cloning notebook $($entry.file)"
+    Assert-Contains $source 'LA_STUDIO_COLAB_VOICE_CLONE_MODEL' "voice-cloning notebook $($entry.file)"
+}
+
+$voiceDesignNotebooks = @(
+    @{ file = 'LA_STUDIO_VOICE_DESIGN_OMNIVOICE_GPU.ipynb'; model = 'omnivoice' },
+    @{ file = 'LA_STUDIO_VOICE_DESIGN_QWEN3_1_7B_GPU.ipynb'; model = 'qwen3-tts-1.7b-voicedesign' },
+    @{ file = 'LA_STUDIO_VOICE_DESIGN_VOXCPM2_GPU.ipynb'; model = 'voxcpm2' }
+)
+foreach ($entry in $voiceDesignNotebooks) {
+    $path = Join-Path $repoRoot (Join-Path 'notebooks' $entry.file)
+    if (-not (Test-Path -LiteralPath $path)) { throw "voice-design: notebook is missing: $($entry.file)" }
+    $source = Get-Content -LiteralPath $path -Raw
+    Assert-Contains $source $entry.model "voice-design notebook $($entry.file)"
+    Assert-Contains $source 'if request.model.strip().lower() != MODEL_ID' "voice-design notebook $($entry.file)"
+    Assert-Contains $source 'LA_STUDIO_COLAB_VOICE_DESIGN_MODEL' "voice-design notebook $($entry.file)"
 }
 
 Write-Host "Remote feature surface verified: $passed/$($features.Count) direct Colab routes." -ForegroundColor Green

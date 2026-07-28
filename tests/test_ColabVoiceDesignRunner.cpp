@@ -11,6 +11,8 @@
 
 #include <cstring>
 
+#include "controllers/tts/ColabVoiceDesignController.h"
+#include "remote/ColabSession.h"
 #include "tts/ColabVoiceDesignRunner.h"
 #include "test_ColabVoiceDesignRunner.h"
 
@@ -143,40 +145,60 @@ void TestColabVoiceDesignRunner::testPostsIndependentVoiceDesignContract()
     QVERIFY(workerThread.wait(5000));
 }
 
-void TestColabVoiceDesignRunner::voiceDesignNotebookMatchesDirectColabContract()
+void TestColabVoiceDesignRunner::exactModelMappingMatchesCatalogAndNotebooks()
 {
-    const QString path = QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
-        .filePath(QStringLiteral("notebooks/LA_STUDIO_VOICE_DESIGN_GPU.ipynb"));
-    QFile file(path);
-    QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(path));
-    const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
-    QVERIFY(document.isObject());
-    const QJsonObject root = document.object();
-    QCOMPARE(root.value(QStringLiteral("nbformat")).toInt(), 4);
+    const QList<QPair<QString, QString>> mappings{
+        {QStringLiteral("omnivoice"), QStringLiteral("LA_STUDIO_VOICE_DESIGN_OMNIVOICE_GPU.ipynb")},
+        {QStringLiteral("qwen3-tts-1.7b-voicedesign"), QStringLiteral("LA_STUDIO_VOICE_DESIGN_QWEN3_1_7B_GPU.ipynb")},
+        {QStringLiteral("voxcpm2"), QStringLiteral("LA_STUDIO_VOICE_DESIGN_VOXCPM2_GPU.ipynb")},
+    };
+    ColabVoiceDesignController controller(nullptr, nullptr, nullptr, nullptr, nullptr);
+    for (const auto &[model, notebook] : mappings) {
+        QCOMPARE(controller.notebookForColabModel(model), notebook);
+        QVERIFY(controller.selectColabModel(model));
+        QCOMPARE(controller.model(), model);
+        QCOMPARE(controller.colabNotebookFile(), notebook);
 
-    QString source;
-    const QJsonArray cells = root.value(QStringLiteral("cells")).toArray();
-    QVERIFY(cells.size() >= 4);
-    for (const QJsonValue &cellValue : cells) {
-        const QJsonArray lines = cellValue.toObject().value(QStringLiteral("source")).toArray();
-        for (const QJsonValue &line : lines) source += line.toString();
+        const QString path = QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
+            .filePath(QStringLiteral("notebooks/") + notebook);
+        QFile file(path);
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(path));
+        const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
+        QVERIFY(document.isObject());
+        const QJsonObject root = document.object();
+        QCOMPARE(root.value(QStringLiteral("nbformat")).toInt(), 4);
+        QCOMPARE(root.value(QStringLiteral("metadata")).toObject()
+                     .value(QStringLiteral("la_studio")).toObject()
+                     .value(QStringLiteral("family_id")).toString(), model);
+
+        QString source;
+        const QJsonArray cells = root.value(QStringLiteral("cells")).toArray();
+        QVERIFY(cells.size() >= 4);
+        for (const QJsonValue &cellValue : cells) {
+            const QJsonArray lines = cellValue.toObject().value(QStringLiteral("source")).toArray();
+            for (const QJsonValue &line : lines) source += line.toString();
+        }
+        QVERIFY(source.contains(QStringLiteral("MODEL_ID = \"%1\"").arg(model)));
+        QVERIFY(source.contains(QStringLiteral("if not torch.cuda.is_available()")));
+        QVERIFY(source.contains(QStringLiteral("@app.post(\"/v1/audio/voice_designs\")")));
+        QVERIFY(source.contains(QStringLiteral("@app.get(\"/v1/capabilities\")")));
+        QVERIFY(source.contains(QStringLiteral("\"id\": \"voice-design\"")));
+        QVERIFY(source.contains(QStringLiteral("status_code=429")));
+        QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_VOICE_DESIGN_URL")));
+        QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_VOICE_DESIGN_TOKEN")));
+        QVERIFY(source.contains(QStringLiteral("cloudflared")));
+        QVERIFY(!source.contains(QStringLiteral("API_GATEWAY")));
+        QVERIFY(!source.contains(QStringLiteral("GATEWAY_BASE_URL")));
     }
-    QVERIFY(source.contains(QStringLiteral("qwen-tts")));
-    QVERIFY(source.contains(QStringLiteral("if not torch.cuda.is_available()")));
-    QVERIFY(source.contains(QStringLiteral("@app.post('/v1/audio/voice_designs')")));
-    QVERIFY(source.contains(QStringLiteral("@app.get('/v1/capabilities')")));
-    QVERIFY(source.contains(QStringLiteral("'id': 'voice-design'")));
-    QVERIFY(source.contains(QStringLiteral("'device': 'cuda'")));
-    QVERIFY(source.contains(QStringLiteral("MAX_INPUT_CHARS = 4000")));
-    QVERIFY(source.contains(QStringLiteral("MAX_OUTPUT_SECONDS = 300")));
-    QVERIFY(source.contains(QStringLiteral("REQUEST_SLOTS = threading.BoundedSemaphore(1)")));
-    QVERIFY(source.contains(QStringLiteral("status_code=429")));
-    QVERIFY(source.contains(QStringLiteral("status_code=413")));
-    QVERIFY(source.contains(QStringLiteral("REQUEST_SLOTS.release()")));
-    QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_VOICE_DESIGN_URL")));
-    QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_VOICE_DESIGN_TOKEN")));
-    QVERIFY(source.contains(QStringLiteral("cloudflared")));
-    QVERIFY(!source.contains(QStringLiteral("API_GATEWAY")));
+    QVERIFY(controller.notebookForColabModel(QStringLiteral("not-a-model")).isEmpty());
+
+    ColabSession session;
+    QString error;
+    QVERIFY(session.setSession(QStringLiteral("http://127.0.0.1:3924"),
+                               QStringLiteral("temporary-token"), &error, true));
+    ColabVoiceDesignController sessionController(&session, nullptr, nullptr, nullptr, nullptr);
+    QVERIFY(sessionController.selectColabModel(QStringLiteral("omnivoice")));
+    QVERIFY2(!session.isActive(), "Changing the design model must discard the previous model worker.");
 }
 
 } // namespace LAStudio

@@ -683,7 +683,8 @@ bool ColabWorkerClient::streamChat(const QList<QVariantMap> &messages, const QSt
     return true;
 }
 
-bool ColabWorkerClient::createVoiceProfileJob(const QString &referencePath, const QString &name,
+bool ColabWorkerClient::createVoiceProfileJob(const QString &model, const QString &referencePath,
+                                              const QString &name,
                                               const QString &referenceText, const QString &language,
                                               bool separateMusic, QJsonObject *job, QString *errorMessage)
 {
@@ -707,10 +708,11 @@ bool ColabWorkerClient::createVoiceProfileJob(const QString &referencePath, cons
     }
     const QString normalizedName = name.trimmed();
     const QString normalizedText = referenceText.trimmed();
-    if (normalizedName.isEmpty() || normalizedText.isEmpty()) {
+    const QString normalizedModel = model.trimmed().toLower();
+    if (normalizedModel.isEmpty() || normalizedName.isEmpty() || normalizedText.isEmpty()) {
         reference->close();
         delete reference;
-        if (errorMessage) *errorMessage = QStringLiteral("Voice name and exact reference transcript are required");
+        if (errorMessage) *errorMessage = QStringLiteral("Voice-cloning model, name, and exact reference transcript are required");
         return false;
     }
 
@@ -720,6 +722,7 @@ bool ColabWorkerClient::createVoiceProfileJob(const QString &referencePath, cons
     request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
     request.setRawHeader("Accept", "application/json");
     auto *multipart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
+    multipart->append(formField("model", normalizedModel.toUtf8()));
     multipart->append(formField("name", normalizedName.toUtf8()));
     multipart->append(formField("consent_confirmed", "true"));
     multipart->append(formField("ref_text", normalizedText.toUtf8()));
@@ -747,7 +750,8 @@ bool ColabWorkerClient::createVoiceProfileJob(const QString &referencePath, cons
     return ok;
 }
 
-bool ColabWorkerClient::createVoiceGenerationJob(const QString &profileId, const QString &text,
+bool ColabWorkerClient::createVoiceGenerationJob(const QString &model, const QString &profileId,
+                                                 const QString &text,
                                                  const QString &language, float speed, int steps,
                                                  QJsonObject *job, QString *errorMessage)
 {
@@ -756,11 +760,13 @@ bool ColabWorkerClient::createVoiceGenerationJob(const QString &profileId, const
         if (errorMessage) *errorMessage = QStringLiteral("Colab worker is not connected");
         return false;
     }
-    if (profileId.trimmed().isEmpty() || text.trimmed().isEmpty()) {
-        if (errorMessage) *errorMessage = QStringLiteral("Voice profile and text are required");
+    const QString normalizedModel = model.trimmed().toLower();
+    if (normalizedModel.isEmpty() || profileId.trimmed().isEmpty() || text.trimmed().isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Voice-cloning model, profile, and text are required");
         return false;
     }
-    const QJsonObject payload{{QStringLiteral("profile_id"), profileId.trimmed()},
+    const QJsonObject payload{{QStringLiteral("model"), normalizedModel},
+                              {QStringLiteral("profile_id"), profileId.trimmed()},
                               {QStringLiteral("text"), text.trimmed()},
                               {QStringLiteral("language"), language.trimmed().isEmpty() ? QStringLiteral("vi") : language.trimmed()},
                               {QStringLiteral("speed"), qBound(0.1F, speed, 2.0F)},

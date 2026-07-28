@@ -6,6 +6,21 @@ import "../components/voicecloning"
 StudioPageFrame {
     id: cloningPageFrame
     capabilityId: "voice-cloning"
+    colabModelSelectionEnabled: true
+
+    function colabNotebookUrl(fileName) {
+        return fileName === "" ? ""
+            : "https://colab.research.google.com/github/khoinguyen59/kova-video-studio/blob/codex/remote-inference/notebooks/" + fileName
+    }
+
+    onColabConfigurationAccepted: function(familyId, openNotebook) {
+        if (!AppController.colabVoiceClone.selectColabModel(familyId)) return
+        studioController.saveConfigurationSelection(familyId, "", "", ({}))
+        if (openNotebook) {
+            var notebook = AppController.colabVoiceClone.colabNotebookFile
+            if (notebook !== "") Qt.openUrlExternally(colabNotebookUrl(notebook))
+        }
+    }
 
     contentView: Component {
         VoiceCloningStudioView {

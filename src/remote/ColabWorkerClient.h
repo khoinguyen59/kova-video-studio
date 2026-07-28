@@ -58,10 +58,10 @@ public:
                     const std::shared_ptr<std::atomic_bool> &cancelToken,
                     const std::function<void(const QString &)> &tokenHandler,
                     QString *fullText, QString *errorMessage);
-    bool createVoiceProfileJob(const QString &referencePath, const QString &name,
+    bool createVoiceProfileJob(const QString &model, const QString &referencePath, const QString &name,
                                const QString &referenceText, const QString &language,
                                bool separateMusic, QJsonObject *job, QString *errorMessage);
-    bool createVoiceGenerationJob(const QString &profileId, const QString &text,
+    bool createVoiceGenerationJob(const QString &model, const QString &profileId, const QString &text,
                                   const QString &language, float speed, int steps,
                                   QJsonObject *job, QString *errorMessage);
     bool voiceJobStatus(const QString &jobId, QJsonObject *job, QString *errorMessage);

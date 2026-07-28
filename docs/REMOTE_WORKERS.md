@@ -54,8 +54,8 @@ source of each entry; it never combines their tokens or routes.
 | --- | --- | --- |
 | Speech-to-Text | `LA_STUDIO_SPEECH_GPU.ipynb` | `/v1/audio/transcriptions` |
 | Text-to-Speech | `LA_STUDIO_VOICE_GPU.ipynb` | `/v1/audio/speech` |
-| Voice Cloning | `LA_STUDIO_VOICE_CLONE_GPU.ipynb` | voice profile and generation jobs |
-| Voice Design | `LA_STUDIO_VOICE_DESIGN_GPU.ipynb` | voice design jobs |
+| Voice Cloning | One exact-model `LA_STUDIO_VOICE_CLONE_*_GPU.ipynb` notebook selected from the model gallery | model-bound profile and generation jobs |
+| Voice Design | One exact-model `LA_STUDIO_VOICE_DESIGN_*_GPU.ipynb` notebook selected from the model gallery | model-bound voice design jobs |
 | Voice Isolation | `LA_STUDIO_SEPARATION_GPU.ipynb` | separation jobs |
 | Forced Alignment | `LA_STUDIO_ALIGNMENT_GPU.ipynb` | alignment jobs |
 | Translation | `LA_STUDIO_LANGUAGE_GPU.ipynb` | `/v1/translations` |

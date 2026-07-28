@@ -280,8 +280,8 @@ ColumnLayout {
                 title: qsTr("Colab GPU VoiceDesign")
                 iconName: "cloud"
 
-                Text { Layout.fillWidth: true; text: qsTr("This direct Qwen3 VoiceDesign worker is independent of API Gateway. Its token remains only in this desktop session."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
-                ColabNotebookLink { notebookFile: "LA_STUDIO_VOICE_DESIGN_GPU.ipynb" }
+                Text { Layout.fillWidth: true; text: qsTr("This direct VoiceDesign worker is independent of API Gateway. The notebook and worker must match the model selected in the gallery."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                ColabNotebookLink { notebookFile: AppController.colabVoiceDesign.colabNotebookFile }
                 Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 ColabField {
                     id: colabUrl
@@ -297,7 +297,7 @@ ColumnLayout {
                     enabled: !root.locked
                 }
                 Text { text: qsTr("Model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
-                Text { Layout.fillWidth: true; text: qsTr("Qwen3-TTS 1.7B VoiceDesign"); color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                Text { Layout.fillWidth: true; text: AppController.colabVoiceDesign.model; color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WrapAnywhere }
                 Text { text: qsTr("Temperature"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 ColabField {
                     text: root.colabTemperature.toFixed(2)
@@ -307,7 +307,9 @@ ColumnLayout {
                 }
                 PrimaryButton {
                     Layout.fillWidth: true
-                    enabled: !root.locked && !(root.remoteFirstMode && AppController.colabVoiceDesign.colabActive)
+                    enabled: !root.locked
+                             && AppController.colabVoiceDesign.colabNotebookFile !== ""
+                             && !(root.remoteFirstMode && AppController.colabVoiceDesign.colabActive)
                     text: root.remoteFirstMode
                           ? (AppController.colabVoiceDesign.colabActive ? qsTr("Direct Colab GPU VoiceDesign active") : (AppController.colabVoiceDesign.colabConnected ? qsTr("Use direct Colab GPU VoiceDesign") : qsTr("Connect direct Colab GPU VoiceDesign")))
                           : (AppController.colabVoiceDesign.colabActive ? qsTr("Use local VoiceDesign") : (AppController.colabVoiceDesign.colabConnected ? qsTr("Use Colab GPU VoiceDesign") : qsTr("Connect Colab GPU VoiceDesign")))

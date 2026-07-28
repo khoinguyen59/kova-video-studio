@@ -25,6 +25,8 @@ class ColabVoiceCloneController final : public QObject
     Q_OBJECT
     Q_PROPERTY(bool colabActive READ colabActive NOTIFY colabStateChanged)
     Q_PROPERTY(bool colabConnected READ colabConnected NOTIFY colabStateChanged)
+    Q_PROPERTY(QString model READ model WRITE setModel NOTIFY modelChanged)
+    Q_PROPERTY(QString colabNotebookFile READ colabNotebookFile NOTIFY modelChanged)
     Q_PROPERTY(bool processing READ processing NOTIFY processingChanged)
     Q_PROPERTY(int progress READ progress NOTIFY progressChanged)
     Q_PROPERTY(QString progressStage READ progressStage NOTIFY progressChanged)
@@ -43,6 +45,9 @@ public:
 
     bool colabActive() const { return m_colabActive; }
     bool colabConnected() const;
+    QString model() const { return m_model; }
+    void setModel(const QString &model);
+    QString colabNotebookFile() const;
     bool processing() const { return m_processing; }
     int progress() const { return m_progress; }
     QString progressStage() const { return m_progressStage; }
@@ -54,6 +59,8 @@ public:
     int sampleRate() const { return m_sampleRate; }
 
     Q_INVOKABLE bool connectColab(const QString &workerUrl, const QString &bearerToken);
+    Q_INVOKABLE bool selectColabModel(const QString &model);
+    Q_INVOKABLE QString notebookForColabModel(const QString &model) const;
     Q_INVOKABLE void useColab();
     Q_INVOKABLE void useLocal();
     Q_INVOKABLE void cloneVoice(const QString &text, const QString &referencePath,
@@ -68,6 +75,7 @@ public:
 
 signals:
     void colabStateChanged();
+    void modelChanged();
     void processingChanged();
     void progressChanged();
     void profileChanged();
@@ -97,6 +105,7 @@ private:
     QThread m_thread;
     std::shared_ptr<std::atomic_bool> m_cancellation;
     bool m_colabActive = false;
+    QString m_model = QStringLiteral("omnivoice");
     bool m_processing = false;
     int m_progress = 0;
     QString m_progressStage;

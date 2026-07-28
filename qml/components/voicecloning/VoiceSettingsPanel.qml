@@ -176,8 +176,10 @@ ColumnLayout {
                 title: qsTr("Colab GPU Voice Cloning")
                 iconName: "cloud"
 
-                Text { Layout.fillWidth: true; text: qsTr("This direct temporary worker is independent of API Gateway. Its token remains only in this desktop session."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
-                ColabNotebookLink { notebookFile: "LA_STUDIO_VOICE_CLONE_GPU.ipynb" }
+                Text { Layout.fillWidth: true; text: qsTr("This direct temporary worker is independent of API Gateway. The notebook and worker must match the model selected in the gallery."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                Text { text: qsTr("Selected model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                Text { Layout.fillWidth: true; text: AppController.colabVoiceClone.model; color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WrapAnywhere }
+                ColabNotebookLink { notebookFile: AppController.colabVoiceClone.colabNotebookFile }
                 Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 ColabField {
                     id: colabUrl
@@ -207,7 +209,9 @@ ColumnLayout {
                 }
                 PrimaryButton {
                     Layout.fillWidth: true
-                    enabled: !root.locked && !(root.remoteFirstMode && AppController.colabVoiceClone.colabActive)
+                    enabled: !root.locked
+                             && AppController.colabVoiceClone.colabNotebookFile !== ""
+                             && !(root.remoteFirstMode && AppController.colabVoiceClone.colabActive)
                     text: root.remoteFirstMode
                           ? (AppController.colabVoiceClone.colabActive ? qsTr("Direct Colab GPU voice cloning active") : (AppController.colabVoiceClone.colabConnected ? qsTr("Use direct Colab GPU voice cloning") : qsTr("Connect direct Colab GPU voice cloning")))
                           : (AppController.colabVoiceClone.colabActive ? qsTr("Use local voice cloning") : (AppController.colabVoiceClone.colabConnected ? qsTr("Use Colab GPU voice cloning") : qsTr("Connect Colab GPU voice cloning")))

@@ -6,6 +6,21 @@ import "../components/voicedesign"
 StudioPageFrame {
     id: voiceDesignPageFrame
     capabilityId: "voice-design"
+    colabModelSelectionEnabled: true
+
+    function colabNotebookUrl(fileName) {
+        return fileName === "" ? ""
+            : "https://colab.research.google.com/github/khoinguyen59/kova-video-studio/blob/codex/remote-inference/notebooks/" + fileName
+    }
+
+    onColabConfigurationAccepted: function(familyId, openNotebook) {
+        if (!AppController.colabVoiceDesign.selectColabModel(familyId)) return
+        studioController.saveConfigurationSelection(familyId, "", "", ({}))
+        if (openNotebook) {
+            var notebook = AppController.colabVoiceDesign.colabNotebookFile
+            if (notebook !== "") Qt.openUrlExternally(colabNotebookUrl(notebook))
+        }
+    }
 
     contentView: Component {
         VoiceDesignStudioView {

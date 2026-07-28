@@ -14,6 +14,7 @@ namespace LAStudio {
 struct ColabVoiceCloneRequest {
     QUrl workerUrl;
     QString bearerToken;
+    QString model;
     QString referencePath;
     QString referenceName;
     QString referenceText;

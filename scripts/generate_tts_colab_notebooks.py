@@ -561,7 +561,13 @@ def notebook(spec: dict[str, str]) -> dict:
             },
             {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [], "source": source_lines(spec["install"])},
             {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [], "source": source_lines(write_worker)},
-            {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [], "source": source_lines(START_CELL)},
+            {
+                "cell_type": "code",
+                "execution_count": None,
+                "metadata": {},
+                "outputs": [],
+                "source": source_lines(f"MODEL_ID = {spec['family_id']!r}\n" + START_CELL),
+            },
         ],
         "metadata": {
             "accelerator": "GPU",

@@ -63,6 +63,52 @@ bool ColabVoiceDesignController::colabConnected() const
     return m_session && m_session->isActive();
 }
 
+QString ColabVoiceDesignController::notebookForColabModel(const QString &model) const
+{
+    const QString normalized = model.trimmed().toLower();
+    if (normalized == QStringLiteral("omnivoice"))
+        return QStringLiteral("LA_STUDIO_VOICE_DESIGN_OMNIVOICE_GPU.ipynb");
+    if (normalized == QStringLiteral("qwen3-tts-1.7b-voicedesign"))
+        return QStringLiteral("LA_STUDIO_VOICE_DESIGN_QWEN3_1_7B_GPU.ipynb");
+    if (normalized == QStringLiteral("voxcpm2"))
+        return QStringLiteral("LA_STUDIO_VOICE_DESIGN_VOXCPM2_GPU.ipynb");
+    return {};
+}
+
+QString ColabVoiceDesignController::colabNotebookFile() const
+{
+    return notebookForColabModel(m_model);
+}
+
+void ColabVoiceDesignController::setModel(const QString &model)
+{
+    const QString normalized = model.trimmed().toLower();
+    if (notebookForColabModel(normalized).isEmpty()) {
+        emit errorOccurred(QStringLiteral("No Colab notebook is mapped for voice-design model '%1'.").arg(model));
+        return;
+    }
+    if (normalized == m_model) return;
+    cancelProcessing();
+    if (m_session && m_session->isActive()) {
+        m_colabActive = false;
+        m_session->clear();
+        emit colabStateChanged();
+    }
+    m_model = normalized;
+    emit modelChanged();
+}
+
+bool ColabVoiceDesignController::selectColabModel(const QString &model)
+{
+    const QString normalized = model.trimmed().toLower();
+    if (notebookForColabModel(normalized).isEmpty()) {
+        emit errorOccurred(QStringLiteral("No Colab notebook is mapped for voice-design model '%1'.").arg(model));
+        return false;
+    }
+    setModel(normalized);
+    return m_model == normalized;
+}
+
 QVariantList ColabVoiceDesignController::lastSamplePreview() const
 {
     QVariantList preview;
@@ -144,6 +190,7 @@ void ColabVoiceDesignController::generate(const QString &text, const QString &vo
     request.temperature = temperature;
     request.seed = seed;
     request.cancellation = InferenceCancellationToken(m_cancellation);
+    m_activeSessionRevision = m_sessionRevision;
     QMetaObject::invokeMethod(m_runner, "generate", Qt::QueuedConnection,
                               Q_ARG(ColabVoiceDesignRequest, request));
 }
@@ -180,6 +227,7 @@ void ColabVoiceDesignController::saveWav(const QString &path)
 
 void ColabVoiceDesignController::onSessionChanged()
 {
+    ++m_sessionRevision;
     if (m_processing) cancelProcessing();
     if (m_settings && m_settings->remoteFirstMode() && colabConnected()) {
         m_colabActive = true;
@@ -209,6 +257,13 @@ void ColabVoiceDesignController::onRunnerFinished(const QByteArray &pcm16, const
                                                    int sampleRate)
 {
     if (!m_processing) return;
+    if (m_activeSessionRevision != m_sessionRevision) {
+        m_processing = false;
+        m_progress = 0;
+        emit processingChanged();
+        emit progressChanged();
+        return;
+    }
     m_processing = false;
     m_progress = 100;
     m_lastPcm = pcm16;
@@ -219,8 +274,8 @@ void ColabVoiceDesignController::onRunnerFinished(const QByteArray &pcm16, const
     emit outputChanged();
     if (m_history) {
         m_history->addVoiceDesignHistorySamples(m_activeText, m_activeDescription, QString(),
-                                                QStringLiteral("colab-qwen3-voicedesign"),
-                                                QStringLiteral("Colab GPU: Qwen3 VoiceDesign"),
+                                                QStringLiteral("colab-%1").arg(m_model),
+                                                QStringLiteral("Colab GPU: %1").arg(m_model),
                                                 m_lastSamples, m_sampleRate);
     }
     emit synthesisFinished(m_lastPcm, m_sampleRate);

@@ -11,7 +11,7 @@ class TestColabVoiceCloneRunner final : public QObject
 private slots:
     void testRunsVoiceProfileAndGenerationDirectlyOnColab();
     void testRejectsProfileWithoutConsent();
-    void voiceCloneNotebookMatchesDirectColabContract();
+    void exactModelMappingMatchesCatalogAndNotebooks();
 };
 
 } // namespace LAStudio

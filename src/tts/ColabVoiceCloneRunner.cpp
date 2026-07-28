@@ -110,6 +110,10 @@ ColabVoiceCloneRunner::~ColabVoiceCloneRunner() = default;
 void ColabVoiceCloneRunner::clone(const ColabVoiceCloneRequest &request)
 {
     QString error;
+    if (request.model.trimmed().isEmpty()) {
+        emit failed(QStringLiteral("Select an exact voice-cloning model before connecting Colab"));
+        return;
+    }
     if (!d->client.configure(request.workerUrl, request.bearerToken,
                              request.allowInsecureLocalhost, &error)) {
         emit failed(error);
@@ -165,7 +169,7 @@ void ColabVoiceCloneRunner::clone(const ColabVoiceCloneRequest &request)
         }
         emit progress(1, QStringLiteral("upload_reference"));
         QJsonObject profileJob;
-        if (!d->client.createVoiceProfileJob(request.referencePath, request.referenceName,
+        if (!d->client.createVoiceProfileJob(request.model, request.referencePath, request.referenceName,
                                              request.referenceText, request.language, true,
                                              &profileJob, &error)) { emit failed(error); return; }
         const QString jobId = profileJob.value(QStringLiteral("id")).toString();
@@ -179,7 +183,7 @@ void ColabVoiceCloneRunner::clone(const ColabVoiceCloneRequest &request)
 
     emit progress(52, QStringLiteral("queue_generation"));
     QJsonObject generationJob;
-    if (!d->client.createVoiceGenerationJob(profileId, request.text, request.language,
+    if (!d->client.createVoiceGenerationJob(request.model, profileId, request.text, request.language,
                                             request.speed, request.steps, &generationJob, &error)) {
         emit failed(error); return;
     }

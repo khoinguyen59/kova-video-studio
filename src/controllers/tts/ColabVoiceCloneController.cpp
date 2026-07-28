@@ -68,6 +68,59 @@ bool ColabVoiceCloneController::colabConnected() const
     return m_session && m_session->isActive();
 }
 
+QString ColabVoiceCloneController::notebookForColabModel(const QString &model) const
+{
+    const QString normalized = model.trimmed().toLower();
+    if (normalized == QStringLiteral("omnivoice"))
+        return QStringLiteral("LA_STUDIO_VOICE_CLONE_OMNIVOICE_GPU.ipynb");
+    if (normalized == QStringLiteral("qwen3-tts-0.6b-base"))
+        return QStringLiteral("LA_STUDIO_VOICE_CLONE_QWEN3_BASE_0_6B_GPU.ipynb");
+    if (normalized == QStringLiteral("qwen3-tts-1.7b-base"))
+        return QStringLiteral("LA_STUDIO_VOICE_CLONE_QWEN3_BASE_1_7B_GPU.ipynb");
+    if (normalized == QStringLiteral("vieneu-tts-v2-turbo"))
+        return QStringLiteral("LA_STUDIO_VOICE_CLONE_VIENEU_V2_TURBO_GPU.ipynb");
+    if (normalized == QStringLiteral("vieneu-tts-v3-turbo"))
+        return QStringLiteral("LA_STUDIO_VOICE_CLONE_VIENEU_V3_TURBO_GPU.ipynb");
+    if (normalized == QStringLiteral("voxcpm2"))
+        return QStringLiteral("LA_STUDIO_VOICE_CLONE_VOXCPM2_GPU.ipynb");
+    return {};
+}
+
+QString ColabVoiceCloneController::colabNotebookFile() const
+{
+    return notebookForColabModel(m_model);
+}
+
+void ColabVoiceCloneController::setModel(const QString &model)
+{
+    const QString normalized = model.trimmed().toLower();
+    if (notebookForColabModel(normalized).isEmpty()) {
+        emit errorOccurred(QStringLiteral("No Colab notebook is mapped for voice-cloning model '%1'.").arg(model));
+        return;
+    }
+    if (normalized == m_model) return;
+    cancelProcessing();
+    clearProfile();
+    if (m_session && m_session->isActive()) {
+        m_colabActive = false;
+        m_session->clear();
+        emit colabStateChanged();
+    }
+    m_model = normalized;
+    emit modelChanged();
+}
+
+bool ColabVoiceCloneController::selectColabModel(const QString &model)
+{
+    const QString normalized = model.trimmed().toLower();
+    if (notebookForColabModel(normalized).isEmpty()) {
+        emit errorOccurred(QStringLiteral("No Colab notebook is mapped for voice-cloning model '%1'.").arg(model));
+        return false;
+    }
+    setModel(normalized);
+    return m_model == normalized;
+}
+
 QVariantList ColabVoiceCloneController::lastSamplePreview() const
 {
     QVariantList preview;
@@ -154,6 +207,7 @@ void ColabVoiceCloneController::cloneVoice(const QString &text, const QString &r
     ColabVoiceCloneRequest request;
     request.workerUrl = m_session->endpoint();
     request.bearerToken = m_session->bearerTokenForRequest();
+    request.model = m_model;
     request.referencePath = normalizedReferencePath;
     request.referenceName = profileName.trimmed().isEmpty() ? QStringLiteral("LA Studio voice") : profileName.trimmed();
     request.referenceText = normalizedReferenceText;
@@ -273,6 +327,14 @@ void ColabVoiceCloneController::onRunnerFinished(const QByteArray &pcm16, const 
                                                   int sampleRate)
 {
     if (!m_processing) return;
+    if (m_activeSessionRevision != m_sessionRevision) {
+        m_processing = false;
+        m_progress = 0;
+        m_progressStage.clear();
+        emit processingChanged();
+        emit progressChanged();
+        return;
+    }
     m_processing = false;
     m_progress = 100;
     m_progressStage = QStringLiteral("complete");
@@ -306,10 +368,10 @@ QString ColabVoiceCloneController::referenceSignature(const QString &referencePa
                                                        const QString &language) const
 {
     const QFileInfo info(referencePath);
-    return QStringLiteral("%1|%2|%3|%4|%5")
+    return QStringLiteral("%1|%2|%3|%4|%5|%6")
         .arg(info.absoluteFilePath(), QString::number(info.size()),
              QString::number(info.lastModified().toMSecsSinceEpoch()),
-             referenceText, language);
+             referenceText, language, m_model);
 }
 
 } // namespace LAStudio

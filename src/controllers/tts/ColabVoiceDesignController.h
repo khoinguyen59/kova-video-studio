@@ -25,7 +25,8 @@ class ColabVoiceDesignController final : public QObject
     Q_OBJECT
     Q_PROPERTY(bool colabActive READ colabActive NOTIFY colabStateChanged)
     Q_PROPERTY(bool colabConnected READ colabConnected NOTIFY colabStateChanged)
-    Q_PROPERTY(QString model READ model CONSTANT)
+    Q_PROPERTY(QString model READ model WRITE setModel NOTIFY modelChanged)
+    Q_PROPERTY(QString colabNotebookFile READ colabNotebookFile NOTIFY modelChanged)
     Q_PROPERTY(bool processing READ processing NOTIFY processingChanged)
     Q_PROPERTY(int progress READ progress NOTIFY progressChanged)
     Q_PROPERTY(QByteArray lastPcm READ lastPcm NOTIFY outputChanged)
@@ -42,7 +43,9 @@ public:
 
     bool colabActive() const { return m_colabActive; }
     bool colabConnected() const;
-    QString model() const { return QStringLiteral("qwen3-tts-1.7b-voicedesign"); }
+    QString model() const { return m_model; }
+    void setModel(const QString &model);
+    QString colabNotebookFile() const;
     bool processing() const { return m_processing; }
     int progress() const { return m_progress; }
     QByteArray lastPcm() const { return m_lastPcm; }
@@ -52,6 +55,8 @@ public:
     int sampleRate() const { return m_sampleRate; }
 
     Q_INVOKABLE bool connectColab(const QString &workerUrl, const QString &bearerToken);
+    Q_INVOKABLE bool selectColabModel(const QString &model);
+    Q_INVOKABLE QString notebookForColabModel(const QString &model) const;
     Q_INVOKABLE void useColab();
     Q_INVOKABLE void useLocal();
     Q_INVOKABLE void generate(const QString &text, const QString &voiceDescription,
@@ -63,6 +68,7 @@ public:
 
 signals:
     void colabStateChanged();
+    void modelChanged();
     void processingChanged();
     void progressChanged();
     void outputChanged();
@@ -86,6 +92,9 @@ private:
     QThread m_thread;
     std::shared_ptr<std::atomic_bool> m_cancellation;
     bool m_colabActive = false;
+    QString m_model = QStringLiteral("qwen3-tts-1.7b-voicedesign");
+    quint64 m_sessionRevision = 0;
+    quint64 m_activeSessionRevision = 0;
     bool m_processing = false;
     int m_progress = 0;
     QString m_activeText;

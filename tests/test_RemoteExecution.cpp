@@ -696,8 +696,15 @@ void TestRemoteExecution::colabNotebooksAdvertiseCapabilityContractVersion()
     const QStringList notebooks{
         QStringLiteral("LA_STUDIO_SPEECH_GPU.ipynb"),
         QStringLiteral("LA_STUDIO_VOICE_GPU.ipynb"),
-        QStringLiteral("LA_STUDIO_VOICE_CLONE_GPU.ipynb"),
-        QStringLiteral("LA_STUDIO_VOICE_DESIGN_GPU.ipynb"),
+        QStringLiteral("LA_STUDIO_VOICE_CLONE_OMNIVOICE_GPU.ipynb"),
+        QStringLiteral("LA_STUDIO_VOICE_CLONE_QWEN3_BASE_0_6B_GPU.ipynb"),
+        QStringLiteral("LA_STUDIO_VOICE_CLONE_QWEN3_BASE_1_7B_GPU.ipynb"),
+        QStringLiteral("LA_STUDIO_VOICE_CLONE_VIENEU_V2_TURBO_GPU.ipynb"),
+        QStringLiteral("LA_STUDIO_VOICE_CLONE_VIENEU_V3_TURBO_GPU.ipynb"),
+        QStringLiteral("LA_STUDIO_VOICE_CLONE_VOXCPM2_GPU.ipynb"),
+        QStringLiteral("LA_STUDIO_VOICE_DESIGN_OMNIVOICE_GPU.ipynb"),
+        QStringLiteral("LA_STUDIO_VOICE_DESIGN_QWEN3_1_7B_GPU.ipynb"),
+        QStringLiteral("LA_STUDIO_VOICE_DESIGN_VOXCPM2_GPU.ipynb"),
         QStringLiteral("LA_STUDIO_ALIGNMENT_GPU.ipynb"),
         QStringLiteral("LA_STUDIO_SEPARATION_GPU.ipynb"),
         QStringLiteral("LA_STUDIO_LANGUAGE_GPU.ipynb"),
@@ -706,8 +713,12 @@ void TestRemoteExecution::colabNotebooksAdvertiseCapabilityContractVersion()
         QFile file(sourceRoot.filePath(QStringLiteral("notebooks/") + notebook));
         QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(file.fileName()));
         const QByteArray source = file.readAll();
-        QVERIFY2(source.contains("@app.get('/v1/capabilities')"), qPrintable(notebook));
-        QVERIFY2(source.contains("'contract_version': 1"), qPrintable(notebook));
+        const bool hasCapabilities = source.contains("@app.get('/v1/capabilities')")
+            || source.contains("@app.get(\\\"/v1/capabilities\\\")");
+        const bool hasContractVersion = source.contains("'contract_version': 1")
+            || source.contains("\\\"contract_version\\\": 1");
+        QVERIFY2(hasCapabilities, qPrintable(notebook));
+        QVERIFY2(hasContractVersion, qPrintable(notebook));
     }
 }
 

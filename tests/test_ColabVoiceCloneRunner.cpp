@@ -13,6 +13,8 @@
 
 #include <cstring>
 
+#include "controllers/tts/ColabVoiceCloneController.h"
+#include "remote/ColabSession.h"
 #include "tts/ColabVoiceCloneRunner.h"
 #include "test_ColabVoiceCloneRunner.h"
 
@@ -177,6 +179,7 @@ void TestColabVoiceCloneRunner::testRunsVoiceProfileAndGenerationDirectlyOnColab
     ColabVoiceCloneRequest request;
     request.workerUrl = QUrl(server.baseUrl());
     request.bearerToken = QStringLiteral("colab-voice-token");
+    request.model = QStringLiteral("qwen3-tts-0.6b-base");
     request.referencePath = referencePath;
     request.referenceName = QStringLiteral("Consent test voice");
     request.referenceText = QStringLiteral("This is the exact transcript.");
@@ -204,9 +207,11 @@ void TestColabVoiceCloneRunner::testRunsVoiceProfileAndGenerationDirectlyOnColab
     QVERIFY(calls.at(0).toLower().contains("authorization: bearer colab-voice-token"));
     QVERIFY(calls.at(0).toLower().contains("content-type: audio/wav"));
     QVERIFY(calls.at(0).contains("consent_confirmed"));
+    QVERIFY(calls.at(0).contains("qwen3-tts-0.6b-base"));
     QVERIFY(calls.at(0).contains("This is the exact transcript."));
     QCOMPARE(calls.at(2).left(calls.at(2).indexOf("\r\n")), QByteArrayLiteral("POST /v2/jobs/generation HTTP/1.1"));
     QVERIFY(calls.at(2).contains("\"profile_id\":\"profile-1\""));
+    QVERIFY(calls.at(2).contains("\"model\":\"qwen3-tts-0.6b-base\""));
     QVERIFY(calls.at(2).contains("\"text\":\"Generate this sentence.\""));
     QVERIFY(calls.at(2).contains("\"language\":\"en\""));
     QVERIFY(calls.at(2).contains("\"num_step\":28"));
@@ -243,6 +248,7 @@ void TestColabVoiceCloneRunner::testRejectsProfileWithoutConsent()
     ColabVoiceCloneRequest request;
     request.workerUrl = QUrl(server.baseUrl());
     request.bearerToken = QStringLiteral("colab-voice-token");
+    request.model = QStringLiteral("omnivoice");
     request.text = QStringLiteral("Blocked before upload");
     request.allowInsecureLocalhost = true;
     QVERIFY(QMetaObject::invokeMethod(runner, "clone", Qt::QueuedConnection,
@@ -254,37 +260,64 @@ void TestColabVoiceCloneRunner::testRejectsProfileWithoutConsent()
     QVERIFY(workerThread.wait(5000));
 }
 
-void TestColabVoiceCloneRunner::voiceCloneNotebookMatchesDirectColabContract()
+void TestColabVoiceCloneRunner::exactModelMappingMatchesCatalogAndNotebooks()
 {
-    const QString path = QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
-        .filePath(QStringLiteral("notebooks/LA_STUDIO_VOICE_CLONE_GPU.ipynb"));
-    QFile file(path);
-    QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(path));
-    const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
-    QVERIFY(document.isObject());
-    const QJsonObject root = document.object();
-    QCOMPARE(root.value(QStringLiteral("nbformat")).toInt(), 4);
+    const QList<QPair<QString, QString>> mappings{
+        {QStringLiteral("omnivoice"), QStringLiteral("LA_STUDIO_VOICE_CLONE_OMNIVOICE_GPU.ipynb")},
+        {QStringLiteral("qwen3-tts-0.6b-base"), QStringLiteral("LA_STUDIO_VOICE_CLONE_QWEN3_BASE_0_6B_GPU.ipynb")},
+        {QStringLiteral("qwen3-tts-1.7b-base"), QStringLiteral("LA_STUDIO_VOICE_CLONE_QWEN3_BASE_1_7B_GPU.ipynb")},
+        {QStringLiteral("vieneu-tts-v2-turbo"), QStringLiteral("LA_STUDIO_VOICE_CLONE_VIENEU_V2_TURBO_GPU.ipynb")},
+        {QStringLiteral("vieneu-tts-v3-turbo"), QStringLiteral("LA_STUDIO_VOICE_CLONE_VIENEU_V3_TURBO_GPU.ipynb")},
+        {QStringLiteral("voxcpm2"), QStringLiteral("LA_STUDIO_VOICE_CLONE_VOXCPM2_GPU.ipynb")},
+    };
+    ColabVoiceCloneController controller(nullptr, nullptr, nullptr, nullptr, nullptr);
+    for (const auto &[model, notebook] : mappings) {
+        QCOMPARE(controller.notebookForColabModel(model), notebook);
+        QVERIFY(controller.selectColabModel(model));
+        QCOMPARE(controller.model(), model);
+        QCOMPARE(controller.colabNotebookFile(), notebook);
 
-    QString source;
-    const QJsonArray cells = root.value(QStringLiteral("cells")).toArray();
-    QVERIFY(cells.size() >= 4);
-    for (const QJsonValue &cellValue : cells) {
-        const QJsonArray lines = cellValue.toObject().value(QStringLiteral("source")).toArray();
-        for (const QJsonValue &line : lines) source += line.toString();
+        const QString path = QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
+            .filePath(QStringLiteral("notebooks/") + notebook);
+        QFile file(path);
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(path));
+        const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
+        QVERIFY(document.isObject());
+        const QJsonObject root = document.object();
+        QCOMPARE(root.value(QStringLiteral("nbformat")).toInt(), 4);
+        QCOMPARE(root.value(QStringLiteral("metadata")).toObject()
+                     .value(QStringLiteral("la_studio")).toObject()
+                     .value(QStringLiteral("family_id")).toString(), model);
+
+        QString source;
+        const QJsonArray cells = root.value(QStringLiteral("cells")).toArray();
+        QVERIFY(cells.size() >= 4);
+        for (const QJsonValue &cellValue : cells) {
+            const QJsonArray lines = cellValue.toObject().value(QStringLiteral("source")).toArray();
+            for (const QJsonValue &line : lines) source += line.toString();
+        }
+        QVERIFY(source.contains(QStringLiteral("MODEL_ID = \"%1\"").arg(model)));
+        QVERIFY(source.contains(QStringLiteral("if not torch.cuda.is_available()")));
+        QVERIFY(source.contains(QStringLiteral("@app.get(\"/v1/capabilities\")")));
+        QVERIFY(source.contains(QStringLiteral("\"id\": \"voice-cloning\"")));
+        QVERIFY(source.contains(QStringLiteral("@app.post(\"/v2/jobs/profile\"")));
+        QVERIFY(source.contains(QStringLiteral("@app.post(\"/v2/jobs/generation\"")));
+        QVERIFY(source.contains(QStringLiteral("require_exact_model")));
+        QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_VOICE_CLONE_URL")));
+        QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_VOICE_CLONE_TOKEN")));
+        QVERIFY(source.contains(QStringLiteral("cloudflared")));
+        QVERIFY(!source.contains(QStringLiteral("API_GATEWAY")));
+        QVERIFY(!source.contains(QStringLiteral("GATEWAY_BASE_URL")));
     }
-    QVERIFY(source.contains(QStringLiteral("REPO_REF = 'v1.0.2.1'")));
-    QVERIFY(source.contains(QStringLiteral("KOVA_VOICE_REQUIRE_CUDA': '1'")));
-    QVERIFY(source.contains(QStringLiteral("@app.get('/v1/capabilities')")));
-    QVERIFY(source.contains(QStringLiteral("'id': 'voice-cloning'")));
-    QVERIFY(source.contains(QStringLiteral("'id': 'omnivoice'")));
-    QVERIFY(source.contains(QStringLiteral("'requires_consent': True")));
-    QVERIFY(source.contains(QStringLiteral("'device': 'cuda'")));
-    QVERIFY(source.contains(QStringLiteral("app.mount('/', worker_app)")));
-    QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_VOICE_CLONE_URL")));
-    QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_VOICE_CLONE_TOKEN")));
-    QVERIFY(source.contains(QStringLiteral("cloudflared")));
-    QVERIFY(!source.contains(QStringLiteral("API_GATEWAY")));
-    QVERIFY(!source.contains(QStringLiteral("GATEWAY_BASE_URL")));
+    QVERIFY(controller.notebookForColabModel(QStringLiteral("not-a-model")).isEmpty());
+
+    ColabSession session;
+    QString error;
+    QVERIFY(session.setSession(QStringLiteral("http://127.0.0.1:3923"),
+                               QStringLiteral("temporary-token"), &error, true));
+    ColabVoiceCloneController sessionController(&session, nullptr, nullptr, nullptr, nullptr);
+    QVERIFY(sessionController.selectColabModel(QStringLiteral("voxcpm2")));
+    QVERIFY2(!session.isActive(), "Changing the clone model must discard the previous model worker.");
 }
 
 } // namespace LAStudio
