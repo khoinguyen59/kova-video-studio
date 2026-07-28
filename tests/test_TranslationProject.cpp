@@ -30,6 +30,7 @@ public:
     bool start() { return m_server.listen(QHostAddress::LocalHost); }
     QString baseUrl() const { return QStringLiteral("http://127.0.0.1:%1/v1").arg(m_server.serverPort()); }
     QByteArray request() const { return m_request; }
+    void setResponse(QByteArray response) { m_response = response; }
 
 private:
     void consumeRequest()
@@ -48,9 +49,7 @@ private:
         m_socket->write(QByteArrayLiteral(
             "HTTP/1.1 200 OK\r\n"
             "Content-Type: text/event-stream\r\n"
-            "Connection: close\r\n\r\n"
-            "data: {\"choices\":[{\"delta\":{\"content\":\"Xin chào\"}}]}\n\n"
-            "data: [DONE]\n\n"));
+            "Connection: close\r\n\r\n") + m_response);
         m_socket->disconnectFromHost();
     }
 
@@ -58,6 +57,9 @@ private:
     QPointer<QTcpSocket> m_socket;
     QByteArray m_pending;
     QByteArray m_request;
+    QByteArray m_response = QByteArrayLiteral(
+        "data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"patches\\\":[{\\\"id\\\":\\\"segment-1\\\",\\\"targetText\\\":\\\"Xin chao\\\"},{\\\"id\\\":\\\"segment-2\\\",\\\"targetText\\\":\\\"Tam biet\\\"}]}\"}}]}\n\n"
+        "data: [DONE]\n\n");
 };
 
 } // namespace
@@ -118,7 +120,9 @@ void TestTranslationProject::gatewayRunnerTranslatesSegmentsThroughGateway()
 
     TranslationInferenceRequest request;
     request.segments = {QVariantMap{{QStringLiteral("id"), QStringLiteral("segment-1")},
-                                    {QStringLiteral("sourceText"), QStringLiteral("Hello")}}};
+                                    {QStringLiteral("sourceText"), QStringLiteral("Hello")}},
+                        QVariantMap{{QStringLiteral("id"), QStringLiteral("segment-2")},
+                                    {QStringLiteral("sourceText"), QStringLiteral("Goodbye")}}};
     request.sourceLanguage = QStringLiteral("en");
     request.targetLanguage = QStringLiteral("vi");
     request.maxTokens = 256;
@@ -132,15 +136,57 @@ void TestTranslationProject::gatewayRunnerTranslatesSegmentsThroughGateway()
     QCOMPARE(failures.count(), 0);
     QCOMPARE(finished.count(), 1);
     const QVariantList patches = finished.takeFirst().at(0).toList();
-    QCOMPARE(patches.size(), 1);
+    QCOMPARE(patches.size(), 2);
     QCOMPARE(patches.first().toMap().value(QStringLiteral("id")).toString(), QStringLiteral("segment-1"));
-    QCOMPARE(patches.first().toMap().value(QStringLiteral("targetText")).toString(), QStringLiteral("Xin chào"));
+    QCOMPARE(patches.first().toMap().value(QStringLiteral("targetText")).toString(), QStringLiteral("Xin chao"));
+    QCOMPARE(patches.last().toMap().value(QStringLiteral("id")).toString(), QStringLiteral("segment-2"));
+    QCOMPARE(patches.last().toMap().value(QStringLiteral("targetText")).toString(), QStringLiteral("Tam biet"));
     const QByteArray requestBytes = gateway.request();
     QVERIFY(requestBytes.startsWith("POST /v1/chat/completions HTTP/1.1\r\n"));
     QVERIFY(requestBytes.toLower().contains("authorization: bearer translation-test-key"));
     QVERIFY(requestBytes.contains("Hello"));
-    QVERIFY(requestBytes.contains("from en to vi"));
+    QVERIFY(requestBytes.contains("Goodbye"));
+    QVERIFY(requestBytes.contains("\"patches\""));
+    QVERIFY(requestBytes.contains("strict JSON"));
     workerThread.quit();
     QVERIFY(workerThread.wait(5000));
 }
+
+void TestTranslationProject::gatewayRunnerRejectsInvalidPatchSchema()
+{
+    TranslationGatewayMock gateway;
+    gateway.setResponse(QByteArrayLiteral(
+        "data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"patches\\\":[{\\\"id\\\":\\\"segment-1\\\",\\\"targetText\\\":\\\"One\\\"},{\\\"id\\\":\\\"segment-1\\\",\\\"targetText\\\":\\\"Duplicate\\\"}]}\"}}]}\n\n"
+        "data: [DONE]\n\n"));
+    QVERIFY(gateway.start());
+    qRegisterMetaType<TranslationInferenceRequest>("TranslationInferenceRequest");
+    QThread workerThread;
+    auto *runner = new GatewayTranslationRunner;
+    runner->moveToThread(&workerThread);
+    connect(&workerThread, &QThread::finished, runner, &QObject::deleteLater);
+    workerThread.start();
+    QSignalSpy finished(runner, &GatewayTranslationRunner::finished);
+    QSignalSpy failures(runner, &GatewayTranslationRunner::failed);
+
+    TranslationInferenceRequest request;
+    request.segments = {QVariantMap{{QStringLiteral("id"), QStringLiteral("segment-1")},
+                                    {QStringLiteral("sourceText"), QStringLiteral("One")}},
+                        QVariantMap{{QStringLiteral("id"), QStringLiteral("segment-2")},
+                                    {QStringLiteral("sourceText"), QStringLiteral("Two")}}};
+    request.sourceLanguage = QStringLiteral("en");
+    request.targetLanguage = QStringLiteral("vi");
+    QVERIFY(QMetaObject::invokeMethod(runner, "translate", Qt::QueuedConnection,
+                                      Q_ARG(QString, gateway.baseUrl()),
+                                      Q_ARG(QString, QStringLiteral("translation-test-key")),
+                                      Q_ARG(QString, QStringLiteral("translation-model")),
+                                      Q_ARG(TranslationInferenceRequest, request), Q_ARG(bool, true)));
+
+    QVERIFY2(failures.wait(5000), "Gateway translation worker did not reject malformed patches.");
+    QCOMPARE(finished.count(), 0);
+    QCOMPARE(failures.count(), 1);
+    QVERIFY(failures.takeFirst().at(0).toString().contains(QStringLiteral("duplicate"), Qt::CaseInsensitive));
+    workerThread.quit();
+    QVERIFY(workerThread.wait(5000));
+}
+
 } // namespace LAStudio

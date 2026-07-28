@@ -24,6 +24,10 @@ catalog from `GET /v1/models` and sends requests only to the selected Gateway
 endpoint. A Gateway connection is sufficient on its own; no Colab worker is
 required.
 
+Translation batches use the Gateway chat-completions endpoint with a strict JSON
+`patches` contract. The desktop rejects prose, missing IDs, duplicate IDs, and
+unknown IDs before it changes a translation project.
+
 ## Direct Colab GPU
 
 Open the notebook for the capability, choose a GPU runtime in Colab, and run all
