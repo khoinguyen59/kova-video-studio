@@ -14,6 +14,7 @@
 #include "dubbing/media/AtomicMediaCommit.h"
 #include "controllers/app/AppController.h"
 #include "audio/WavIO.h"
+#include "core/Settings.h"
 #include "stt/SttEngine.h"
 #include "tts/TtsEngine.h"
 
@@ -715,12 +716,18 @@ void TestDubbingProject::transcriptionRequiresReadyModel()
     QVERIFY(media.write("audio-placeholder") > 0);
     media.close();
 
+    Settings *settings = AppController::instance()->settings();
+    QVERIFY(settings != nullptr);
+    const bool originalRemoteFirst = settings->remoteFirstMode();
+    settings->setRemoteFirstMode(false);
     AppController::instance()->stt()->unloadModel();
     DubbingJobRunner runner(AppController::instance()->sttSession(), nullptr);
     runner.startTranscription(QStringLiteral("en"), mediaPath);
 
+    const QString error = runner.lastError();
+    settings->setRemoteFirstMode(originalRemoteFirst);
     QVERIFY(!runner.processing());
-    QVERIFY(runner.lastError().contains(QStringLiteral("not ready")));
+    QVERIFY(error.contains(QStringLiteral("not ready")));
 }
 
 void TestDubbingProject::alignmentRefinementFallsBackWithoutDependencies()

@@ -772,6 +772,15 @@ install(FILES "${CMAKE_SOURCE_DIR}/resources/SOURCE-OFFER.txt" DESTINATION licen
 install(FILES "${CMAKE_SOURCE_DIR}/THIRD-PARTY-NOTICES.md" DESTINATION .)
 install(FILES "${CMAKE_SOURCE_DIR}/THIRD-PARTY-NOTICES.md" DESTINATION licenses)
 
+# Ship the direct Colab workers and their concise operating guide with desktop
+# packages. They are support artifacts only: the application never embeds a
+# Gateway key or uses these notebooks as a Gateway relay.
+install(DIRECTORY "${CMAKE_SOURCE_DIR}/notebooks/"
+    DESTINATION "docs/colab-notebooks"
+    FILES_MATCHING PATTERN "*.ipynb"
+)
+install(FILES "${CMAKE_SOURCE_DIR}/docs/REMOTE_WORKERS.md" DESTINATION "docs")
+
 # Note: Runtime DLLs (Whisper, etc.) and windeployqt will be handled 
 # by the CI/CD script or a post-install step.
 

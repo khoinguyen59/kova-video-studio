@@ -4,10 +4,10 @@
 
 <h1>LA Studio</h1>
 
-<p><strong>Offline AI Audio Studio for Speech-to-Text, Text-to-Speech, Voice Cloning, Voice Design, Translation, and Video Dubbing</strong></p>
+<p><strong>Remote-first AI Audio Studio for Speech-to-Text, Text-to-Speech, Voice Cloning, Voice Design, Translation, and Video Dubbing</strong></p>
 
 <p>
-Run private AI audio workflows locally: speech recognition, voice generation, voice cloning, voice design, text and subtitle translation, model downloads, and runtime management in one native C++/Qt desktop app.
+Run AI audio workflows through an API Gateway or a direct, temporary Colab GPU worker from one native C++/Qt desktop app. Local Dev remains available only as an explicit development option.
 </p>
 
 [Features](#features) |
@@ -43,6 +43,10 @@ Run private AI audio workflows locally: speech recognition, voice generation, vo
 
 ## Project Updates
 
+### 2026-07-28 - Remote-first inference
+
+Heavy inference can now use either an API Gateway or a direct Colab GPU worker. These routes are isolated: they use separate credentials, sessions, model catalogs, errors, and requests; neither route forwards to or falls back to the other. Remote-first mode blocks automatic local model downloads and local inference until Local Dev is explicitly enabled.
+
 ### 2026-07-23 - Version 0.2.0: Video Dubbing
 
 LA Studio version 0.2.0 introduces **Video Dubbing**, an end-to-end local workflow for translating and replacing speech in audio or video. Import media, separate vocals from background audio, transcribe and translate timestamped segments, synthesize the translated dialogue with local voices, review or edit each segment, then mix and export the dubbed result. Automatic and step-by-step workflows keep every stage visible and configurable, while media processing and AI inference remain offline on the user's machine.
@@ -73,24 +77,24 @@ LA Studio now supports NVIDIA **Nemotron-3.5 ASR Streaming 0.6B** for local mult
 
 ## Overview
 
-LA Studio, short for Local Audio Studio, is an offline AI audio workstation for creators, developers, researchers, and teams that need local speech AI without sending audio files, prompts, or generated voices to cloud APIs.
+LA Studio is a desktop AI audio workstation for creators, developers, researchers, and teams. Its default Remote-first mode keeps the desktop client lightweight while it runs heavy inference through a selected API Gateway model or a selected direct Colab GPU worker.
 
-The app brings together local speech-to-text, text-to-speech, voice cloning, voice design, text and subtitle translation, model discovery, Hugging Face downloads, runtime installation, hardware checks, and audio preview tools behind a modern desktop interface. It is built with C++17, Qt 6/QML, CMake, and native AI runtime adapters for fast local inference.
+Gateway and Colab are independent paths: the Gateway uses its own URL and encrypted API key, while Colab uses an in-memory worker URL and temporary bearer token. Neither route carries traffic, credentials, model state, or fallback behavior for the other. The app also retains an explicit Local Dev mode for offline development and comparison.
 
 ## Features
 
-| Feature | What it does | Local AI / Runtime focus |
+| Feature | What it does | Remote execution |
 | --- | --- | --- |
-| Speech-to-Text Studio | Transcribe microphone input or audio files into text with local speech recognition models. | Whisper, Qwen3-ASR, CrispASR-compatible STT backends |
-| Text-to-Speech Studio | Generate natural speech from text with configurable model parameters and audio preview. | Kokoro, Qwen3-TTS, VibeVoice, VieNeu-TTS, OmniVoice, VoxCPM2 |
-| Voice Cloning | Create speech from a reference voice sample for local zero-shot voice cloning workflows. | GGUF and native runtime packages |
-| Voice Design | Generate or shape voices from descriptive text prompts when supported by the selected model. | VoxCPM2, Qwen3 voice design, OmniVoice-style workflows |
-| Voice Isolator | Separate vocals and background audio into two stems from local audio or video files. | sherpa-onnx UVR-MDX-NET and Spleeter models |
-| Translation Studio | Translate and edit plain text, SRT, and VTT projects segment by segment, with local history and multiple export formats. | M2M-100, MADLAD-400, Hy-MT2 through CrispASR or llama.cpp |
-| Video Dubbing | Transcribe, translate, synthesize, mix, and export dubbed audio or video through automatic or step-by-step local workflows. | Local STT, translation, TTS, source separation, and media processing |
-| Models Gallery | Browse curated model families, inspect required files, download assets, and manage local model availability. | Integrated catalog and Hugging Face sources |
-| Runtime Management | Install, validate, and select compatible CPU, CUDA, Vulkan, or other runtime packages from the Models Gallery. | Dynamic runtime loading |
-| Offline Privacy | Keep audio, prompts, generated speech, and model inference on the user's machine. | No cloud API required for inference |
+| Speech-to-Text Studio | Transcribe microphone input or audio files into text. | API Gateway STT or direct Colab GPU |
+| Text-to-Speech Studio | Generate natural speech from text with configurable parameters and audio preview. | API Gateway TTS or direct Colab GPU |
+| Voice Cloning | Create speech from a reference voice sample. | Direct Colab GPU worker |
+| Voice Design | Generate or shape voices from descriptive prompts. | Direct Colab GPU worker |
+| Voice Isolator | Separate vocals and background audio into two stems. | Direct Colab GPU worker |
+| Forced Alignment | Align transcript segments to audio timestamps. | Direct Colab GPU worker |
+| Translation Studio | Translate and edit text, SRT, and VTT projects. | API Gateway or direct Colab GPU |
+| LLM Chat | Chat with a selected language model. | API Gateway or direct Colab GPU |
+| Video Dubbing | Transcribe, translate, synthesize, mix, and export dubbed audio or video. | Selected remote provider for each inference stage |
+| Models Gallery | Browse remote catalogs or explicitly manage Local Dev assets. | Separate Gateway and Colab catalogs |
 | Native Desktop UI | Use a responsive Qt Quick interface with audio input controls, waveform previews, history, settings, and logs. | C++17 + Qt 6/QML |
 
 ## Screenshots
@@ -126,16 +130,17 @@ The app brings together local speech-to-text, text-to-speech, voice cloning, voi
 
 ```mermaid
 flowchart LR
-    A["Browse curated audio models"] --> B["Download model files and runtime packages"]
-    B --> C["Validate local files and hardware compatibility"]
-    C --> D["Run STT, TTS, voice, or translation workflows locally"]
-    D --> E["Preview audio, review history, and manage settings"]
+    A["LA Studio desktop"] --> B["API Gateway: URL + API key"]
+    B --> C["Gateway model providers"]
+    A --> D["Direct Colab: worker URL + temporary token"]
+    D --> E["Colab GPU worker"]
+    A --> F["Preview, history, editing, and export"]
 ```
 
-1. Open the model gallery and choose an STT, TTS, voice cloning, voice design, or translation model family.
-2. Download the required model files and runtime package from the app.
-3. LA Studio validates local files, runtime compatibility, and available hardware acceleration.
-4. Use the studio pages to transcribe audio, generate speech, clone or design voices, or translate text and subtitles offline.
+1. Configure either the API Gateway or a direct Colab worker for the feature you want to run.
+2. Select a model from that route's own catalog; the two catalogs are not merged.
+3. Run the request directly against the selected route and review output locally.
+4. Disable Remote-first mode only when deliberately using Local Dev models and runtimes.
 
 ## Supported Models and Runtimes
 
@@ -171,6 +176,7 @@ LA-Studio/
 |-- catalog-src/                # Source catalog data for model families
 |-- data/                       # Generated runtime catalog and schema
 |-- examples/                   # Prompt and settings examples for model testing
+|-- notebooks/                  # Direct CUDA-only Colab workers, shipped with packages
 |-- docs/                       # Public documentation
 |   |-- BUILD.md                # Windows build guide
 |   |-- README.md               # Documentation index
@@ -250,7 +256,7 @@ Run the test script from the repository root:
 .\scripts\run_tests.bat
 ```
 
-The `tests/` directory includes focused coverage for model path migration, model and runtime flows, download/install behavior, audio preview behavior, file access, history, and STT session logic.
+The `tests/` directory includes focused coverage for remote route isolation, Gateway and Colab contracts, CUDA-only notebook contracts, model path migration, model and runtime flows, audio preview behavior, file access, history, and STT session logic.
 
 ## Architecture
 
@@ -286,15 +292,16 @@ Key source areas:
 - `src/stt/` contains speech-to-text engine and backend selection.
 - `src/tts/` contains text-to-speech engine, validation, workers, and backend selection.
 
-## Privacy and Offline Operation
+## Privacy and Execution
 
-LA Studio is designed for local inference. Audio recordings, prompts, generated speech, transcriptions, model selections, and runtime activity stay on the local machine by default.
+Remote-first workloads send input only to the route selected by the user: the configured API Gateway or the paired direct Colab worker. Gateway API keys are stored in the secure Settings store. Colab URLs and tokens are temporary memory-only session values. The application does not relay data between these routes.
 
-Network access occurs only for features that need it: browsing or downloading model and runtime assets; an optional automatic update check (disabled until the user chooses to allow it, and configurable in Settings); and any external translation provider that the user configures. The optional local API server stays on the local machine unless the user explicitly enables LAN access. No update is downloaded or installed automatically.
+Editing, history, waveform display, playback, review, and media export remain on the desktop. Local Dev is available only after it is explicitly enabled. No update is downloaded or installed automatically.
 
 ## Documentation
 
 - [Build from Source](docs/BUILD.md)
+- [Remote Inference Workers](docs/REMOTE_WORKERS.md)
 - [Documentation Index](docs/README.md)
 - [Catalog and Local Registry Architecture](docs/architecture/catalog_registry.md)
 
@@ -307,6 +314,7 @@ Network access occurs only for features that need it: browsing or downloading mo
 - [x] Voice cloning workflow foundation
 - [x] Voice design workflow foundation
 - [x] Local text and subtitle translation studio
+- [x] Independent API Gateway and direct Colab GPU routes for heavy inference
 - [ ] Broader cross-platform packaging
 - [ ] Expanded model validation and benchmark reporting
 - [ ] Advanced timeline-style audio editing
