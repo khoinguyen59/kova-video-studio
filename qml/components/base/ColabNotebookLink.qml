@@ -7,9 +7,9 @@ ColumnLayout {
     id: root
 
     property string notebookFile: ""
-    // Internal builds publish these notebooks to the private GitHub branch
-    // used by this application. Colab can open that exact file directly when
-    // the user is signed in to GitHub; no worker token is part of this URL.
+    // Internal builds publish these notebooks to the GitHub branch used by
+    // this application. Colab opens that exact file directly; no worker token
+    // is ever part of this URL.
     readonly property string colabNotebookUrl: notebookFile === "" ? ""
         : "https://colab.research.google.com/github/khoinguyen59/kova-video-studio/blob/codex/remote-inference/notebooks/" + notebookFile
 
@@ -28,7 +28,7 @@ ColumnLayout {
     Text {
         Layout.fillWidth: true
         visible: root.notebookFile !== ""
-        text: qsTr("Internal private GitHub notebook: sign in to GitHub and authorize Colab to access the private repository. The temporary worker tunnel is public only while the notebook runs and every request still requires its session token.")
+        text: qsTr("GitHub-backed notebook: open the named file on this branch, run it with a Colab GPU runtime, then copy only the temporary worker URL and token shown by the notebook. Sign in to GitHub only if this repository is private.")
         color: Theme.warning
         font.pixelSize: 10
         wrapMode: Text.WordWrap
