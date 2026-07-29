@@ -74,7 +74,16 @@ private:
         m_requests += m_request;
         m_pending.remove(socket);
         QByteArray response;
-        if (m_request.startsWith("POST /v2/jobs/transcriptions HTTP/1.1")) {
+        if (m_request.startsWith("POST /v2/uploads/stt HTTP/1.1")) {
+            response = jsonResponse(QByteArrayLiteral("201 Created"), QByteArrayLiteral(
+                "{\"upload_id\":\"stt-upload-1\",\"chunk_bytes\":2097152}"));
+        } else if (m_request.startsWith("PUT /v2/uploads/stt/stt-upload-1/chunks/0 HTTP/1.1")) {
+            m_uploadedBytes = contentLength;
+            response = jsonResponse(QByteArrayLiteral("200 OK"),
+                                    QByteArrayLiteral("{\"received_bytes\":")
+                                        + QByteArray::number(m_uploadedBytes)
+                                        + QByteArrayLiteral(",\"next_chunk\":1}"));
+        } else if (m_request.startsWith("POST /v2/uploads/stt/stt-upload-1/commit HTTP/1.1")) {
             response = jsonResponse(QByteArrayLiteral("202 Accepted"), QByteArrayLiteral(
                 "{\"job_id\":\"stt-job-1\",\"status\":\"queued\",\"progress\":5,\"model\":\"qwen3-asr-0.6b\"}"));
         } else if (m_request.startsWith("GET /v2/jobs/transcriptions/stt-job-1 HTTP/1.1")) {
@@ -101,6 +110,7 @@ private:
     QByteArray m_request;
     QByteArray m_requests;
     int m_statusRequests = 0;
+    int m_uploadedBytes = 0;
 };
 
 } // namespace
@@ -368,14 +378,14 @@ void TestSttSession::testColabSttRunnerUsesAsynchronousJobContract()
     QCOMPARE(failures.count(), 0);
     QCOMPARE(finished.takeFirst().at(0).toString(), QStringLiteral("Hello world"));
     const QByteArray requests = server.requests();
-    QVERIFY(requests.contains("POST /v2/jobs/transcriptions HTTP/1.1\r\n"));
+    QVERIFY(requests.contains("POST /v2/uploads/stt HTTP/1.1\r\n"));
+    QVERIFY(requests.contains("PUT /v2/uploads/stt/stt-upload-1/chunks/0 HTTP/1.1\r\n"));
+    QVERIFY(requests.contains("POST /v2/uploads/stt/stt-upload-1/commit HTTP/1.1\r\n"));
+    QVERIFY(!requests.contains("POST /v2/jobs/transcriptions HTTP/1.1\r\n"));
     QVERIFY(!requests.contains("POST /v1/audio/transcriptions HTTP/1.1\r\n"));
     QVERIFY(requests.toLower().contains("authorization: bearer colab-test-token"));
-    QVERIFY(requests.contains("name=\"model\""));
     QVERIFY(requests.contains("qwen3-asr-0.6b"));
-    QVERIFY(requests.contains("name=\"response_format\""));
     QVERIFY(requests.contains("verbose_json"));
-    QVERIFY(requests.contains("name=\"file\"; filename=\"audio.wav\""));
     QVERIFY(requests.contains("RIFF"));
     QCOMPARE(requests.count("GET /v2/jobs/transcriptions/stt-job-1 HTTP/1.1\r\n"), 2);
 }
@@ -431,10 +441,14 @@ void TestSttSession::testSpeechNotebookMatchesDirectColabSttContract()
         QVERIFY(source.contains(QStringLiteral("if not torch.cuda.is_available()")));
         QVERIFY(source.contains(QStringLiteral("@app.post(\"/v1/audio/transcriptions\")")));
         QVERIFY(source.contains(QStringLiteral("@app.post(\"/v2/jobs/transcriptions\", status_code=202)")));
+        QVERIFY(source.contains(QStringLiteral("@app.post(\"/v2/uploads/stt\", status_code=201)")));
+        QVERIFY(source.contains(QStringLiteral("@app.put(\"/v2/uploads/stt/{upload_id}/chunks/{chunk_index}\")")));
+        QVERIFY(source.contains(QStringLiteral("@app.post(\"/v2/uploads/stt/{upload_id}/commit\", status_code=202)")));
         QVERIFY(source.contains(QStringLiteral("@app.get(\"/v2/jobs/transcriptions/{job_id}\")")));
         QVERIFY(source.contains(QStringLiteral("@app.delete(\"/v2/jobs/transcriptions/{job_id}\")")));
         QVERIFY(source.contains(QStringLiteral("asyncio.create_task(run_job(job_id))")));
         QVERIFY(source.contains(QStringLiteral("\"transcription_jobs\": \"/v2/jobs/transcriptions\"")));
+        QVERIFY(source.contains(QStringLiteral("\"chunked_transcription_uploads\": \"/v2/uploads/stt\"")));
         QVERIFY(source.contains(QStringLiteral("@app.get(\"/v1/capabilities\")")));
         QVERIFY(source.contains(QStringLiteral("\"contract_version\": 1")));
         QVERIFY(source.contains(QStringLiteral("if model.strip().lower() != MODEL_ID")));
@@ -442,6 +456,7 @@ void TestSttSession::testSpeechNotebookMatchesDirectColabSttContract()
         QVERIFY(source.contains(QStringLiteral("MAX_UPLOAD_BYTES = 512 * 1024 * 1024")));
         QVERIFY(source.contains(QStringLiteral("MAX_AUDIO_SECONDS = 30 * 60")));
         QVERIFY(source.contains(QStringLiteral("REQUEST_SLOTS = threading.BoundedSemaphore(1)")));
+        QVERIFY(source.contains(QStringLiteral("CHUNK_UPLOAD_BYTES = 2 * 1024 * 1024")));
         QVERIFY(source.contains(QStringLiteral("status_code=415")));
         QVERIFY(source.contains(QStringLiteral("status_code=429")));
         QVERIFY(source.contains(QStringLiteral("await file.read(1024 * 1024)")));

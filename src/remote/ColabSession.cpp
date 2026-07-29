@@ -52,6 +52,26 @@ bool ColabSession::connectTemporaryWorker(const QString &workerUrl,
     return true;
 }
 
+bool ColabSession::checkConnection()
+{
+    if (m_checking) return false;
+    if (!m_endpoint.isValid() || m_bearerToken.isEmpty()) {
+        setLastError(QStringLiteral("Connect a Colab worker before checking it"));
+        return false;
+    }
+    if (m_expectedCapability.isEmpty() || m_expectedModel.isEmpty()) {
+        setLastError(QStringLiteral(
+            "Reconnect this worker with its exact capability and model before checking it"));
+        return false;
+    }
+    QString error;
+    const bool started = beginVerifiedSession(m_endpoint.toString(), m_bearerToken,
+                                              m_expectedCapability, m_expectedModel,
+                                              &error, m_allowInsecureLocalhostForTests);
+    if (!started) setLastError(error);
+    return started;
+}
+
 void ColabSession::disconnectTemporaryWorker()
 {
     clear();
@@ -92,6 +112,7 @@ bool ColabSession::beginVerifiedSession(const QString &workerUrl,
     m_bearerToken = normalizedToken;
     m_expectedCapability = capability;
     m_expectedModel = model;
+    m_allowInsecureLocalhostForTests = allowInsecureLocalhost;
     m_reportedGpu.clear();
     m_verified = false;
     m_checking = true;
@@ -130,6 +151,7 @@ bool ColabSession::setSession(const QString &workerUrl, const QString &bearerTok
     m_bearerToken = normalizedToken;
     m_expectedCapability.clear();
     m_expectedModel.clear();
+    m_allowInsecureLocalhostForTests = allowInsecureLocalhost;
     m_reportedGpu.clear();
     m_checking = false;
     m_verified = true;
@@ -155,6 +177,7 @@ void ColabSession::clear()
     m_expectedCapability.clear();
     m_expectedModel.clear();
     m_reportedGpu.clear();
+    m_allowInsecureLocalhostForTests = false;
     m_checking = false;
     m_verified = false;
     m_verificationState = QStringLiteral("disconnected");

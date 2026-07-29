@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import LAStudio
 
@@ -44,5 +45,26 @@ RowLayout {
         }
         font.pixelSize: Theme.fontSmall
         wrapMode: Text.WordWrap
+    }
+
+    Button {
+        visible: !!root.session && root.session.active
+        enabled: !!root.session && !root.session.checking
+        text: root.session && root.session.checking ? qsTr("Checking…") : qsTr("Check connection")
+        font.pixelSize: 10
+        onClicked: root.session.checkConnection()
+        contentItem: Text {
+            text: parent.text
+            color: parent.enabled ? Theme.textPrimary : Theme.textSecondary
+            font: parent.font
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+        }
+        background: Rectangle {
+            radius: Theme.radiusSmall
+            color: parent.down ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.75)
+                               : Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.22)
+            border.color: Qt.rgba(Theme.accentLight.r, Theme.accentLight.g, Theme.accentLight.b, 0.65)
+        }
     }
 }

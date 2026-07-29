@@ -201,6 +201,10 @@ void TestRemoteExecution::temporaryColabWorkerVerifiesCudaCapabilityAndExactMode
             R"({"status":"ready","ready":true,"device":"cuda","gpu":"Test GPU","model":"kokoro","cpu_fallback":false})"),
         QByteArrayLiteral(
             R"({"contract_version":1,"device":"cuda","capabilities":[{"id":"tts","models":[{"id":"kokoro","device":"cuda","loaded":true}]}]})"),
+        QByteArrayLiteral(
+            R"({"status":"ready","ready":true,"device":"cuda","gpu":"Test GPU","model":"kokoro","cpu_fallback":false})"),
+        QByteArrayLiteral(
+            R"({"contract_version":1,"device":"cuda","capabilities":[{"id":"tts","models":[{"id":"kokoro","device":"cuda","loaded":true}]}]})"),
     });
     QVERIFY(server.start());
 
@@ -223,8 +227,14 @@ void TestRemoteExecution::temporaryColabWorkerVerifiesCudaCapabilityAndExactMode
     QCOMPARE(session.reportedGpu(), QStringLiteral("Test GPU"));
     QVERIFY(session.verificationMessage().contains(QStringLiteral("tts / kokoro")));
 
+    QVERIFY(session.checkConnection());
+    QVERIFY(session.isChecking());
+    QTRY_COMPARE(finished.size(), 2);
+    QCOMPARE(finished.constLast().at(0).toBool(), true);
+    QVERIFY(session.isActive());
+
     const QList<QByteArray> requests = server.requests();
-    QCOMPARE(requests.size(), 2);
+    QCOMPARE(requests.size(), 4);
     QCOMPARE(requests.at(0).left(requests.at(0).indexOf("\r\n")),
              QByteArrayLiteral("GET /health HTTP/1.1"));
     QCOMPARE(requests.at(1).left(requests.at(1).indexOf("\r\n")),

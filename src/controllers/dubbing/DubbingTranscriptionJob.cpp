@@ -52,7 +52,7 @@ DubbingTranscriptionJob::DubbingTranscriptionJob(SttSessionController *stt,
     });
     connect(m_stt, &SttSessionController::progressChanged, this, [this]() {
         if (!m_running || m_waitingForInput) return;
-        emit progressChanged(qBound(5, m_stt->progress(), 99));
+        emit progressChanged(qBound(1, m_stt->progress(), 99));
     });
     connect(m_stt, &SttSessionController::inputErrorChanged, this, [this]() {
         if (m_running && !m_stt->inputError().isEmpty()) fail(m_stt->inputError());
@@ -61,7 +61,7 @@ DubbingTranscriptionJob::DubbingTranscriptionJob(SttSessionController *stt,
         if (!m_running || !m_waitingForInput || m_stt->inputLoading()) return;
         if (!m_stt->inputError().isEmpty()) return;
         m_waitingForInput = false;
-        emit progressChanged(5);
+        emit progressChanged(3);
         ExecutionProvider provider = ExecutionProvider::LocalDev;
         if (!executionProviderFromId(m_executionProviderId, &provider)) {
             fail(QStringLiteral("Unknown dubbing STT provider: %1").arg(m_executionProviderId));
@@ -147,6 +147,7 @@ bool DubbingTranscriptionJob::start(const QString &language, const QString &audi
     m_fallbackAudioPath = fallbackAudioPath;
     m_retriedWithFallback = false;
     m_language = language;
+    emit progressChanged(1);
     startAudioInput(audioPath);
     return true;
 }
@@ -154,11 +155,12 @@ bool DubbingTranscriptionJob::start(const QString &language, const QString &audi
 void DubbingTranscriptionJob::startAudioInput(const QString &audioPath)
 {
     m_audioPath = audioPath;
-    m_stt->selectFileInput(audioPath);
     m_waitingForInput = true;
+    emit progressChanged(2);
+    m_stt->selectFileInput(audioPath);
     if (!m_stt->inputLoading() && m_stt->inputError().isEmpty()) {
         m_waitingForInput = false;
-        emit progressChanged(5);
+        emit progressChanged(3);
         ExecutionProvider provider = ExecutionProvider::LocalDev;
         if (!executionProviderFromId(m_executionProviderId, &provider)) {
             fail(QStringLiteral("Unknown dubbing STT provider: %1").arg(m_executionProviderId));
@@ -228,7 +230,6 @@ void DubbingTranscriptionJob::onTranscriptionFinished(const QString &text,
             Logger::warning(QStringLiteral("DubbingPipeline"),
                             QStringLiteral("[transcription] no speech found in separated vocals; retrying normalized audio=%1")
                                 .arg(m_fallbackAudioPath));
-            emit progressChanged(5);
             startAudioInput(m_fallbackAudioPath);
             return;
         }

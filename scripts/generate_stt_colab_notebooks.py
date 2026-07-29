@@ -24,7 +24,8 @@ from pathlib import Path
 
 import soundfile as sf
 import torch
-from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
+from fastapi.responses import JSONResponse
 
 if not torch.cuda.is_available():
     raise RuntimeError("A Colab GPU runtime is required. Choose Runtime > Change runtime type > GPU.")
@@ -38,12 +39,25 @@ ALLOWED_CONTENT_TYPES = {
 }
 REQUEST_SLOTS = threading.BoundedSemaphore(1)
 JOB_TTL_SECONDS = 30 * 60
+UPLOAD_TTL_SECONDS = 10 * 60
+CHUNK_UPLOAD_BYTES = 2 * 1024 * 1024
 JOB_LOCK = threading.Lock()
 JOBS: dict[str, dict] = {}
+UPLOADS: dict[str, dict] = {}
 
 __MODEL_LOADER__
 
 app = FastAPI(title=f"LA Studio STT — {{MODEL_NAME}}")
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception(request: Request, error: Exception):
+    # A tunnel 500 without a response body is impossible to act on from the
+    # desktop app. Keep the detail bounded, and also print it in the Colab
+    # cell so the notebook owns the operational diagnosis.
+    detail = f"STT worker internal error: {{type(error).__name__}}: {{str(error)[:300]}}"
+    print(detail, flush=True)
+    return JSONResponse(status_code=500, content={{"detail": detail}})
 
 
 def require_token(authorization: str | None) -> None:
@@ -74,7 +88,9 @@ def capabilities(authorization: str | None = Header(default=None)):
         "cpu_fallback": False,
         "endpoints": {
             "transcription_jobs": "/v2/jobs/transcriptions",
+            "chunked_transcription_uploads": "/v2/uploads/stt",
         },
+        "chunked_uploads": True,
         "capabilities": [{{
             "id": "stt",
             "models": [{{
@@ -109,6 +125,29 @@ async def save_upload(file: UploadFile) -> tuple[Path, int]:
         raise
 
 
+def validate_model(model: str) -> str:
+    requested = model.strip().lower()
+    if requested != MODEL_ID:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This worker loaded '{{MODEL_ID}}', but LA Studio requested '{{model}}'. Open the notebook for the selected model.",
+        )
+    return requested
+
+
+def validate_audio_duration(path: Path) -> None:
+    try:
+        info = sf.info(str(path))
+        if info.duration > MAX_AUDIO_SECONDS:
+            raise HTTPException(status_code=413, detail="Audio is longer than the 30 minute session limit")
+    except HTTPException:
+        raise
+    except Exception:
+        # Compressed formats may not be readable by libsndfile; the
+        # model-specific decoder remains the source of truth.
+        pass
+
+
 def snapshot_job(job: dict) -> dict:
     response = {
         "job_id": job["job_id"],
@@ -135,6 +174,21 @@ def prune_finished_jobs() -> None:
             job = JOBS.pop(job_id)
             if job.get("path"):
                 expired_paths.append(Path(job["path"]))
+    for path in expired_paths:
+        path.unlink(missing_ok=True)
+
+
+async def prune_expired_uploads() -> None:
+    now = asyncio.get_running_loop().time()
+    expired_paths = []
+    with JOB_LOCK:
+        expired = [
+            upload_id for upload_id, upload in UPLOADS.items()
+            if now - upload["created_at"] > UPLOAD_TTL_SECONDS
+        ]
+        for upload_id in expired:
+            upload = UPLOADS.pop(upload_id)
+            expired_paths.append(Path(upload["path"]))
     for path in expired_paths:
         path.unlink(missing_ok=True)
 
@@ -200,6 +254,138 @@ async def run_job(job_id: str) -> None:
         if source_path is not None:
             source_path.unlink(missing_ok=True)
         REQUEST_SLOTS.release()
+
+
+@app.post("/v2/uploads/stt", status_code=201)
+async def begin_chunked_stt_upload(payload: dict,
+                                   authorization: str | None = Header(default=None)):
+    require_token(authorization)
+    await prune_expired_uploads()
+    model = validate_model(str(payload.get("model", "")))
+    try:
+        size_bytes = int(payload.get("size_bytes", 0))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="Audio upload size must be an integer")
+    if size_bytes <= 0:
+        raise HTTPException(status_code=422, detail="The uploaded audio file is empty")
+    if size_bytes > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Audio upload exceeds 512 MiB")
+    handle = tempfile.NamedTemporaryFile(prefix="la-studio-stt-", suffix=".wav", delete=False)
+    path = Path(handle.name)
+    handle.close()
+    upload_id = secrets.token_urlsafe(18)
+    with JOB_LOCK:
+        UPLOADS[upload_id] = {{
+            "path": str(path),
+            "size_bytes": size_bytes,
+            "received_bytes": 0,
+            "next_chunk": 0,
+            "model": model,
+            "language": str(payload.get("language", "auto")),
+            "response_format": str(payload.get("response_format", "verbose_json")),
+            "created_at": asyncio.get_running_loop().time(),
+        }}
+    return {{"upload_id": upload_id, "chunk_bytes": CHUNK_UPLOAD_BYTES}}
+
+
+@app.put("/v2/uploads/stt/{{upload_id}}/chunks/{{chunk_index}}")
+async def upload_chunked_stt_audio(upload_id: str, chunk_index: int, request: Request,
+                                   authorization: str | None = Header(default=None)):
+    require_token(authorization)
+    with JOB_LOCK:
+        upload = UPLOADS.get(upload_id)
+        if upload is None:
+            raise HTTPException(status_code=404, detail="STT upload was not found or has expired")
+        if chunk_index != upload["next_chunk"]:
+            raise HTTPException(status_code=409, detail="STT upload chunk is out of order")
+        remaining = upload["size_bytes"] - upload["received_bytes"]
+    chunks = []
+    total = 0
+    async for piece in request.stream():
+        total += len(piece)
+        if total > CHUNK_UPLOAD_BYTES or total > remaining:
+            raise HTTPException(status_code=413, detail="STT upload chunk is too large")
+        chunks.append(piece)
+    if total == 0:
+        raise HTTPException(status_code=422, detail="STT upload chunk is empty")
+    with JOB_LOCK:
+        upload = UPLOADS.get(upload_id)
+        if upload is None:
+            raise HTTPException(status_code=404, detail="STT upload was not found or has expired")
+        if chunk_index != upload["next_chunk"]:
+            raise HTTPException(status_code=409, detail="STT upload chunk is out of order")
+        if total > upload["size_bytes"] - upload["received_bytes"]:
+            raise HTTPException(status_code=413, detail="STT upload exceeds its declared size")
+        try:
+            with Path(upload["path"]).open("ab") as handle:
+                for piece in chunks:
+                    handle.write(piece)
+        except OSError as error:
+            raise HTTPException(status_code=500, detail=f"Unable to store STT upload chunk: {{error}}")
+        upload["received_bytes"] += total
+        upload["next_chunk"] += 1
+        return {{
+            "received_bytes": upload["received_bytes"],
+            "next_chunk": upload["next_chunk"],
+        }}
+
+
+@app.delete("/v2/uploads/stt/{{upload_id}}")
+async def cancel_chunked_stt_upload(upload_id: str,
+                                    authorization: str | None = Header(default=None)):
+    require_token(authorization)
+    with JOB_LOCK:
+        upload = UPLOADS.pop(upload_id, None)
+    if upload is not None:
+        Path(upload["path"]).unlink(missing_ok=True)
+    return {{"status": "cancelled"}}
+
+
+@app.post("/v2/uploads/stt/{{upload_id}}/commit", status_code=202)
+async def commit_chunked_stt_upload(upload_id: str,
+                                    authorization: str | None = Header(default=None)):
+    require_token(authorization)
+    await prune_expired_uploads()
+    with JOB_LOCK:
+        upload = UPLOADS.get(upload_id)
+        if upload is None:
+            raise HTTPException(status_code=404, detail="STT upload was not found or has expired")
+        if upload["received_bytes"] != upload["size_bytes"]:
+            raise HTTPException(status_code=409, detail="STT upload is incomplete")
+    if not REQUEST_SLOTS.acquire(blocking=False):
+        raise HTTPException(status_code=429, detail="The Colab GPU is already processing another transcription")
+
+    path = Path(upload["path"])
+    queued = False
+    try:
+        validate_audio_duration(path)
+        await prune_finished_jobs()
+        job_id = secrets.token_urlsafe(18)
+        with JOB_LOCK:
+            upload = UPLOADS.pop(upload_id, None)
+            if upload is None:
+                raise HTTPException(status_code=404, detail="STT upload was not found or has expired")
+            JOBS[job_id] = {{
+                "job_id": job_id,
+                "status": "queued",
+                "progress": 5,
+                "path": str(path),
+                "language": upload["language"],
+                "response_format": upload["response_format"],
+                "cancel_requested": False,
+                "detail": "",
+                "result": None,
+            }}
+            response = snapshot_job(JOBS[job_id])
+        asyncio.create_task(run_job(job_id))
+        queued = True
+        return response
+    finally:
+        if not queued:
+            with JOB_LOCK:
+                UPLOADS.pop(upload_id, None)
+            path.unlink(missing_ok=True)
+            REQUEST_SLOTS.release()
 
 
 @app.post("/v2/jobs/transcriptions", status_code=202)

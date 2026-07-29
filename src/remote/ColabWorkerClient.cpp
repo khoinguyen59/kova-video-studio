@@ -25,20 +25,28 @@ constexpr int kInferenceRequestTimeoutMs = 300'000;
 // inherit the long upload/inference timeout, otherwise a disappeared tunnel
 // could keep the worker thread occupied for several minutes.
 constexpr int kJobStatusRequestTimeoutMs = 30'000;
+constexpr qint64 kChunkedSttUploadBytes = 2LL * 1024LL * 1024LL;
 
 QString responseError(const QByteArray &body, int statusCode)
 {
     const QJsonDocument document = QJsonDocument::fromJson(body);
+    QString detail;
     if (document.isObject()) {
-        const QJsonValue detail = document.object().value(QStringLiteral("detail"));
-        if (detail.isString() && !detail.toString().trimmed().isEmpty()) return detail.toString().trimmed();
+        const QJsonValue jsonDetail = document.object().value(QStringLiteral("detail"));
+        if (jsonDetail.isString()) detail = jsonDetail.toString().trimmed();
         const QJsonValue error = document.object().value(QStringLiteral("error"));
-        if (error.isObject()) {
-            const QString message = error.toObject().value(QStringLiteral("message")).toString().trimmed();
-            if (!message.isEmpty()) return message;
+        if (detail.isEmpty() && error.isObject()) {
+            detail = error.toObject().value(QStringLiteral("message")).toString().trimmed();
         }
+        if (detail.isEmpty() && error.isString()) detail = error.toString().trimmed();
     }
-    return QStringLiteral("Colab worker returned HTTP %1").arg(statusCode);
+    if (detail.isEmpty()) {
+        detail = QString::fromUtf8(body).simplified();
+        if (detail.size() > 480) detail = detail.left(480) + QStringLiteral("…");
+    }
+    return detail.isEmpty()
+        ? QStringLiteral("Colab worker returned HTTP %1").arg(statusCode)
+        : QStringLiteral("Colab worker HTTP %1: %2").arg(statusCode).arg(detail);
 }
 
 QHttpPart formField(const QByteArray &name, const QByteArray &value)
@@ -209,7 +217,8 @@ bool ColabWorkerClient::createTranscriptionJob(const QByteArray &wavData,
                                                const QString &model,
                                                const QString &language,
                                                QJsonObject *job,
-                                               QString *errorMessage)
+                                               QString *errorMessage,
+                                               const UploadProgressCallback &uploadProgress)
 {
     if (job) *job = {};
     if (!m_workerUrl.isValid() || m_bearerToken.isEmpty()) {
@@ -227,39 +236,139 @@ bool ColabWorkerClient::createTranscriptionJob(const QByteArray &wavData,
     }
 
     QNetworkAccessManager manager;
-    QNetworkRequest request(appendRemotePath(m_workerUrl,
-                                             QStringLiteral("v2/jobs/transcriptions")));
-    request.setTransferTimeout(kInferenceRequestTimeoutMs);
-    request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
-    request.setRawHeader("Accept", "application/json");
-    auto *multipart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
-    multipart->append(formField("model", normalizedModel.toUtf8()));
-    multipart->append(formField("response_format", "verbose_json"));
-    if (!language.trimmed().isEmpty()
-        && language.compare(QStringLiteral("auto"), Qt::CaseInsensitive) != 0) {
-        multipart->append(formField("language", language.trimmed().toUtf8()));
-    }
-    QHttpPart audioPart;
-    audioPart.setHeader(QNetworkRequest::ContentDispositionHeader,
-                        QVariant(QStringLiteral("form-data; name=\"file\"; filename=\"audio.wav\"")));
-    audioPart.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QStringLiteral("audio/wav")));
-    auto *audioBuffer = new QBuffer(multipart);
-    audioBuffer->setData(wavData);
-    audioBuffer->open(QIODevice::ReadOnly);
-    audioPart.setBodyDevice(audioBuffer);
-    multipart->append(audioPart);
+    const auto makeRequest = [this](const QString &path) {
+        QNetworkRequest request(appendRemotePath(m_workerUrl, path));
+        request.setTransferTimeout(kInferenceRequestTimeoutMs);
+        request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
+        request.setRawHeader("Accept", "application/json");
+        return request;
+    };
+    const auto waitForReply = [this](QNetworkReply *reply, QJsonObject *response,
+                                     int *statusCode, QString *error,
+                                     const QString &invalidResponseMessage) {
+        m_activeReply = reply;
+        QEventLoop eventLoop;
+        QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
+        if (!reply->isFinished()) eventLoop.exec();
+        m_activeReply = nullptr;
+        if (statusCode) {
+            *statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        }
+        const bool ok = parseJsonResponse(reply, nullptr, response, error, invalidResponseMessage);
+        reply->deleteLater();
+        return ok;
+    };
+    const auto legacyMultipartSubmit = [&]() {
+        QNetworkRequest request = makeRequest(QStringLiteral("v2/jobs/transcriptions"));
+        auto *multipart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
+        multipart->append(formField("model", normalizedModel.toUtf8()));
+        multipart->append(formField("response_format", "verbose_json"));
+        if (!language.trimmed().isEmpty()
+            && language.compare(QStringLiteral("auto"), Qt::CaseInsensitive) != 0) {
+            multipart->append(formField("language", language.trimmed().toUtf8()));
+        }
+        QHttpPart audioPart;
+        audioPart.setHeader(QNetworkRequest::ContentDispositionHeader,
+                            QVariant(QStringLiteral("form-data; name=\"file\"; filename=\"audio.wav\"")));
+        audioPart.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QStringLiteral("audio/wav")));
+        auto *audioBuffer = new QBuffer(multipart);
+        audioBuffer->setData(wavData);
+        audioBuffer->open(QIODevice::ReadOnly);
+        audioPart.setBodyDevice(audioBuffer);
+        multipart->append(audioPart);
+        QNetworkReply *reply = manager.post(request, multipart);
+        multipart->setParent(reply);
+        if (uploadProgress) {
+            QObject::connect(reply, &QNetworkReply::uploadProgress, reply,
+                             [uploadProgress](qint64 sent, qint64 total) {
+                if (sent > 0) uploadProgress(sent, total);
+            });
+        }
+        return waitForReply(reply, job, nullptr, errorMessage,
+                            QStringLiteral("Colab worker returned an invalid transcription job"));
+    };
 
-    QNetworkReply *reply = manager.post(request, multipart);
-    multipart->setParent(reply);
-    m_activeReply = reply;
-    QEventLoop eventLoop;
-    QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
-    if (!reply->isFinished()) eventLoop.exec();
-    m_activeReply = nullptr;
-    const bool ok = parseJsonResponse(reply, nullptr, job, errorMessage,
-                                      QStringLiteral("Colab worker returned an invalid transcription job"));
-    reply->deleteLater();
-    return ok;
+    // Multipart parsing plus one long tunnel request has repeatedly proved
+    // fragile with Colab/Cloudflare. New notebooks negotiate an upload and
+    // receive bounded binary chunks; an older notebook gets the established
+    // multipart request only after explicitly answering 404/405.
+    QJsonObject upload;
+    int startStatus = 0;
+    QNetworkRequest startRequest = makeRequest(QStringLiteral("v2/uploads/stt"));
+    startRequest.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    const QJsonObject startPayload{
+        {QStringLiteral("model"), normalizedModel},
+        {QStringLiteral("language"), language.trimmed().isEmpty() ? QStringLiteral("auto") : language.trimmed()},
+        {QStringLiteral("response_format"), QStringLiteral("verbose_json")},
+        {QStringLiteral("size_bytes"), static_cast<double>(wavData.size())},
+    };
+    if (!waitForReply(manager.post(startRequest,
+                                   QJsonDocument(startPayload).toJson(QJsonDocument::Compact)),
+                      &upload, &startStatus, errorMessage,
+                      QStringLiteral("Colab worker returned an invalid STT upload session"))) {
+        if (startStatus == 404 || startStatus == 405)
+            return legacyMultipartSubmit();
+        return false;
+    }
+    const QString uploadId = upload.value(QStringLiteral("upload_id")).toString().trimmed();
+    const qint64 negotiatedChunkBytes = static_cast<qint64>(
+        upload.value(QStringLiteral("chunk_bytes")).toDouble(kChunkedSttUploadBytes));
+    const qint64 chunkBytes = qBound<qint64>(64LL * 1024LL, negotiatedChunkBytes,
+                                             4LL * 1024LL * 1024LL);
+    if (uploadId.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab worker returned an upload session without an ID");
+        return false;
+    }
+    const auto discardUpload = [&]() {
+        QNetworkRequest request = makeRequest(QStringLiteral("v2/uploads/stt/%1").arg(uploadId));
+        QNetworkReply *reply = manager.sendCustomRequest(request, "DELETE");
+        m_activeReply = reply;
+        QEventLoop eventLoop;
+        QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
+        if (!reply->isFinished()) eventLoop.exec();
+        m_activeReply = nullptr;
+        reply->deleteLater();
+    };
+    for (qint64 offset = 0, chunkIndex = 0; offset < wavData.size();
+         offset += chunkBytes, ++chunkIndex) {
+        const qint64 size = qMin(chunkBytes, static_cast<qint64>(wavData.size()) - offset);
+        QNetworkRequest chunkRequest = makeRequest(
+            QStringLiteral("v2/uploads/stt/%1/chunks/%2").arg(uploadId).arg(chunkIndex));
+        chunkRequest.setHeader(QNetworkRequest::ContentTypeHeader,
+                               QStringLiteral("application/octet-stream"));
+        const QByteArray chunk = wavData.mid(offset, size);
+        QNetworkReply *reply = manager.sendCustomRequest(chunkRequest, "PUT", chunk);
+        if (uploadProgress) {
+            QObject::connect(reply, &QNetworkReply::uploadProgress, reply,
+                             [uploadProgress, offset, total = static_cast<qint64>(wavData.size())]
+                             (qint64 sent, qint64) {
+                if (sent > 0) uploadProgress(offset + sent, total);
+            });
+        }
+        QJsonObject acknowledgement;
+        if (!waitForReply(reply, &acknowledgement, nullptr, errorMessage,
+                          QStringLiteral("Colab worker returned an invalid STT upload acknowledgement"))) {
+            discardUpload();
+            return false;
+        }
+        if (acknowledgement.value(QStringLiteral("received_bytes")).toDouble(-1) != offset + size) {
+            discardUpload();
+            if (errorMessage) *errorMessage = QStringLiteral("Colab worker acknowledged an unexpected STT upload size");
+            return false;
+        }
+    }
+    QJsonObject committedJob;
+    QNetworkRequest commitRequest = makeRequest(
+        QStringLiteral("v2/uploads/stt/%1/commit").arg(uploadId));
+    commitRequest.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    if (!waitForReply(manager.post(commitRequest, QByteArrayLiteral("{}")), &committedJob,
+                      nullptr, errorMessage,
+                      QStringLiteral("Colab worker returned an invalid transcription job"))) {
+        discardUpload();
+        return false;
+    }
+    if (job) *job = committedJob;
+    return true;
 }
 
 bool ColabWorkerClient::transcriptionJobStatus(const QString &jobId, QJsonObject *job,

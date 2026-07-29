@@ -52,6 +52,10 @@ public:
                                             const QString &bearerToken,
                                             const QString &expectedCapability,
                                             const QString &expectedModel);
+    // Re-runs the same health and exact-capability handshake for the active
+    // temporary session. This is deliberately asynchronous so a dead Colab
+    // tunnel cannot block the UI thread.
+    Q_INVOKABLE bool checkConnection();
     Q_INVOKABLE void disconnectTemporaryWorker();
 
     // Starts an asynchronous /health + /v1/capabilities verification. HTTP is
@@ -105,6 +109,7 @@ private:
     QNetworkAccessManager *m_network = nullptr;
     QPointer<QNetworkReply> m_verificationReply;
     quint64 m_verificationGeneration = 0;
+    bool m_allowInsecureLocalhostForTests = false;
     bool m_checking = false;
     bool m_verified = false;
 };

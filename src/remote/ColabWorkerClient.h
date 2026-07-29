@@ -23,6 +23,8 @@ namespace LAStudio {
 class ColabWorkerClient final
 {
 public:
+    using UploadProgressCallback = std::function<void(qint64 sent, qint64 total)>;
+
     bool configure(const QUrl &workerUrl, const QString &bearerToken,
                    bool allowInsecureLocalhost, QString *errorMessage = nullptr);
     void clear();
@@ -36,7 +38,8 @@ public:
     // a job id promptly, and expose the result through short status requests.
     bool createTranscriptionJob(const QByteArray &wavData, const QString &model,
                                 const QString &language, QJsonObject *job,
-                                QString *errorMessage);
+                                QString *errorMessage,
+                                const UploadProgressCallback &uploadProgress = {});
     bool transcriptionJobStatus(const QString &jobId, QJsonObject *job,
                                 QString *errorMessage);
     bool cancelTranscriptionJob(const QString &jobId,

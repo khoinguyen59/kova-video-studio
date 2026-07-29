@@ -662,6 +662,35 @@ Write-Host ">> Configuring CMake..." -ForegroundColor Cyan
 $toolchainFile = Join-Path $VcpkgRoot "scripts\buildsystems\vcpkg.cmake"
 $buildDir = Join-Path $RepoRoot "out\build\$Preset"
 Remove-StaleCMakeBuildDirectory -BuildDirectory $buildDir -ExpectedSourceDirectory $RepoRoot
+if ($Preset -notlike "*mingw*" -and (Test-Path -LiteralPath $buildDir)) {
+    # CMake writes the selected archiver into CMakeCXXCompiler.cmake during
+    # the first compiler probe. Supplying -DCMAKE_AR later does not rewrite
+    # that generated file, so a cache originally created with MinGW's ar.exe
+    # can poison an otherwise MSVC package build. Rebuild that generated
+    # directory only after proving it is inside this repository's build tree.
+    $compilerInfo = Get-ChildItem -LiteralPath (Join-Path $buildDir "CMakeFiles") -Recurse -Filter "CMakeCXXCompiler.cmake" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -ne $compilerInfo) {
+        $archiverMatch = Select-String -LiteralPath $compilerInfo.FullName -Pattern '^set\(CMAKE_AR "([^"]+)"\)' | Select-Object -First 1
+        if ($null -ne $archiverMatch) {
+            $configuredArchiver = $archiverMatch.Matches[0].Groups[1].Value
+            $expectedArchiver = (Get-Command "lib.exe" -ErrorAction Stop).Source
+            $sameArchiver = [string]::Equals(
+                [IO.Path]::GetFullPath($configuredArchiver),
+                [IO.Path]::GetFullPath($expectedArchiver),
+                [System.StringComparison]::OrdinalIgnoreCase)
+            if (-not $sameArchiver) {
+                $resolvedRepo = (Resolve-Path -LiteralPath $RepoRoot).Path.TrimEnd('\', '/')
+                $resolvedBuild = (Resolve-Path -LiteralPath $buildDir).Path
+                if (-not $resolvedBuild.StartsWith($resolvedRepo + '\',
+                                                    [System.StringComparison]::OrdinalIgnoreCase)) {
+                    throw "Refusing to reset a CMake toolchain outside this repository: $resolvedBuild"
+                }
+                Write-Host ">> Resetting stale CMake toolchain cache with archiver '$configuredArchiver'..." -ForegroundColor Yellow
+                Remove-Item -LiteralPath $resolvedBuild -Recurse -Force
+            }
+        }
+    }
+}
 
 $cmakeArgs = @(
     "--preset", $Preset,
@@ -676,9 +705,13 @@ if ($Preset -like "*mingw*") {
 } else {
     $vcpkgTriplet = "x64-windows"
     # Keep the packaging configure step on the MSVC linker even when another
-    # toolchain's ld.exe appears on PATH.
+    # toolchain's ld.exe/ar.exe appears on PATH. CMake caches both tools, so
+    # selecting only link.exe can still make a later archive step invoke GNU
+    # ar.exe with MSVC flags.
     $linkerCommand = Get-Command "link.exe" -ErrorAction Stop
+    $archiverCommand = Get-Command "lib.exe" -ErrorAction Stop
     $cmakeArgs += "-DCMAKE_LINKER=$($linkerCommand.Source.Replace('\', '/'))"
+    $cmakeArgs += "-DCMAKE_AR=$($archiverCommand.Source.Replace('\', '/'))"
 }
 $cmakeArgs += "-DVCPKG_TARGET_TRIPLET=$vcpkgTriplet"
 $cmakeArgs += "-DLASTUDIO_VERSION=$Version"
