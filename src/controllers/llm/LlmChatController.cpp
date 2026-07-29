@@ -52,7 +52,10 @@ LlmChatController::LlmChatController(LlmChatEngine *engine, LlmChatModelSession 
         connect(m_colabSession, &ColabSession::sessionChanged, this, [this] {
             if (m_provider != Provider::Colab) return;
             if (m_generating) stopGeneration();
-            if (!m_colabSession->isActive()) m_provider = Provider::Local;
+            if (!m_colabSession->hasVerifiedRoute(
+                    QStringLiteral("llm-chat"), m_colabModel)) {
+                m_provider = Provider::Local;
+            }
             emit colabStateChanged();
             emit gatewayStateChanged();
         });
@@ -99,7 +102,8 @@ void LlmChatController::setGatewayModel(const QString &value)
 }
 bool LlmChatController::colabActive() const
 {
-    return m_provider == Provider::Colab && m_colabSession && m_colabSession->isActive();
+    return m_provider == Provider::Colab && m_colabSession
+        && m_colabSession->hasVerifiedRoute(QStringLiteral("llm-chat"), m_colabModel);
 }
 QString LlmChatController::notebookForColabModel(const QString &model) const
 {
@@ -194,7 +198,20 @@ void LlmChatController::clearConversation() { if (m_generating) return; m_messag
 void LlmChatController::sendMessage(const QString &text)
 {
     const QString content = text.trimmed();
-    const bool directColab = colabActive();
+    const bool selectedColab = m_provider == Provider::Colab;
+    if (selectedColab) {
+        if (!m_colabSession) {
+            setError(QStringLiteral("Colab session is unavailable."));
+            return;
+        }
+        QString routeError;
+        if (!m_colabSession->hasVerifiedRoute(
+                QStringLiteral("llm-chat"), m_colabModel, &routeError)) {
+            setError(routeError);
+            return;
+        }
+    }
+    const bool directColab = selectedColab;
     if (m_provider == Provider::Local && m_settings && m_settings->remoteFirstMode()) {
         setError(QStringLiteral("Remote-first mode requires API Gateway or a direct Colab chat worker."));
         return;
@@ -266,8 +283,14 @@ bool LlmChatController::connectColab(const QString &workerUrl, const QString &be
 }
 void LlmChatController::useColab()
 {
-    if (!m_colabSession || !m_colabSession->isActive()) { setError(QStringLiteral("Connect a Colab GPU worker first.")); return; }
     if (m_colabModel.trimmed().isEmpty()) { setError(QStringLiteral("Colab chat model is required.")); return; }
+    if (!m_colabSession) { setError(QStringLiteral("Colab session is unavailable.")); return; }
+    QString routeError;
+    if (!m_colabSession->hasVerifiedRoute(
+            QStringLiteral("llm-chat"), m_colabModel, &routeError)) {
+        setError(routeError);
+        return;
+    }
     selectProvider(Provider::Colab);
     m_error.clear();
     emit errorTextChanged();

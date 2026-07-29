@@ -53,7 +53,7 @@ ColabAlignmentController::~ColabAlignmentController()
 
 bool ColabAlignmentController::colabConnected() const
 {
-    return m_session && m_session->isActive();
+    return m_session && m_session->hasVerifiedRoute(QStringLiteral("forced-alignment"), m_model);
 }
 
 QString ColabAlignmentController::notebookForColabModel(const QString &model) const
@@ -160,6 +160,11 @@ bool ColabAlignmentController::runAlignment(const QString &audioPath, const QStr
     if (m_processing) return false;
     if (audioPath.trimmed().isEmpty() || transcript.trimmed().isEmpty()) {
         setError(QStringLiteral("Audio and transcript are required for Colab forced alignment"));
+        return false;
+    }
+    QString routeError;
+    if (!m_session->hasVerifiedRoute(QStringLiteral("forced-alignment"), m_model, &routeError)) {
+        setError(routeError);
         return false;
     }
     clearResult();

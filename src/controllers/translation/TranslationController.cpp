@@ -74,7 +74,10 @@ TranslationController::TranslationController(TranslationEngine *engine, Translat
             ++m_routeRevision;
             if (m_provider != Provider::Colab) return;
             if (m_processing) cancel();
-            if (!m_colabSession->isActive()) m_provider = Provider::Local;
+            if (!m_colabSession->hasVerifiedRoute(
+                    QStringLiteral("translation"), m_colabModel)) {
+                m_provider = Provider::Local;
+            }
             emit colabStateChanged();
         });
         connect(m_colabSession, &ColabSession::verificationFinished, this,
@@ -112,7 +115,11 @@ void TranslationController::setSourceLanguage(const QString &value) { if (m_proj
 void TranslationController::setTargetLanguage(const QString &value) { if (m_project.targetLanguage == value) return; m_project.targetLanguage = value; markDirty(); }
 QString TranslationController::gatewayModel() const { return m_settings ? (m_settings->gatewayTranslationModel().isEmpty() ? m_settings->gatewayLlmModel() : m_settings->gatewayTranslationModel()) : QString(); }
 void TranslationController::setGatewayModel(const QString &value) { if (m_settings) m_settings->setGatewayTranslationModel(value); }
-bool TranslationController::colabActive() const { return m_provider == Provider::Colab && m_colabSession && m_colabSession->isActive(); }
+bool TranslationController::colabActive() const
+{
+    return m_provider == Provider::Colab && m_colabSession
+        && m_colabSession->hasVerifiedRoute(QStringLiteral("translation"), m_colabModel);
+}
 QString TranslationController::notebookForColabModel(const QString &model) const
 {
     const QString normalized = model.trimmed().toLower();
@@ -214,12 +221,18 @@ bool TranslationController::connectColab(const QString &workerUrl, const QString
 }
 void TranslationController::useColab()
 {
-    if (!m_colabSession || !m_colabSession->isActive()) {
-        setError(QStringLiteral("Connect a Colab GPU worker first."));
-        return;
-    }
     if (m_colabModel.trimmed().isEmpty()) {
         setError(QStringLiteral("Colab translation model is required."));
+        return;
+    }
+    if (!m_colabSession) {
+        setError(QStringLiteral("Colab session is unavailable."));
+        return;
+    }
+    QString routeError;
+    if (!m_colabSession->hasVerifiedRoute(
+            QStringLiteral("translation"), m_colabModel, &routeError)) {
+        setError(routeError);
         return;
     }
     if (m_provider != Provider::Colab) {
@@ -257,6 +270,18 @@ void TranslationController::startTranslation(const QVariantList &segments, const
         return;
     }
     if (m_processing) { setError(QStringLiteral("A translation request is already running.")); return; }
+    if (m_provider == Provider::Colab) {
+        if (!m_colabSession) {
+            setError(QStringLiteral("Colab session is unavailable."));
+            return;
+        }
+        QString routeError;
+        if (!m_colabSession->hasVerifiedRoute(
+                QStringLiteral("translation"), m_colabModel, &routeError)) {
+            setError(routeError);
+            return;
+        }
+    }
     if (m_provider == Provider::Local && (!m_engine || !m_session || !m_session->activeConfiguration())) {
         setError(QStringLiteral("Select and load a Translation model and runtime first."));
         return;
@@ -297,10 +322,6 @@ void TranslationController::startTranslation(const QVariantList &segments, const
                                   Q_ARG(QString, gatewayModel()),
                                   Q_ARG(TranslationInferenceRequest, request), Q_ARG(bool, false));
     } else if (m_provider == Provider::Colab) {
-        if (!m_colabSession || !m_colabSession->isActive()) {
-            failTranslation(QStringLiteral("Colab worker is no longer connected."));
-            return;
-        }
         QMetaObject::invokeMethod(m_colabWorker, "translate", Qt::QueuedConnection,
                                   Q_ARG(QUrl, m_colabSession->endpoint()),
                                   Q_ARG(QString, m_colabSession->bearerTokenForRequest()),

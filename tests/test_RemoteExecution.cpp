@@ -226,6 +226,15 @@ void TestRemoteExecution::temporaryColabWorkerVerifiesCudaCapabilityAndExactMode
     QCOMPARE(session.expectedModel(), QStringLiteral("kokoro"));
     QCOMPARE(session.reportedGpu(), QStringLiteral("Test GPU"));
     QVERIFY(session.verificationMessage().contains(QStringLiteral("tts / kokoro")));
+    QString routeError;
+    QVERIFY2(session.hasVerifiedRoute(QStringLiteral("tts"), QStringLiteral("kokoro"),
+                                      &routeError), qPrintable(routeError));
+    QVERIFY(!session.hasVerifiedRoute(QStringLiteral("tts"), QStringLiteral("vibevoice-0.5b"),
+                                      &routeError));
+    QVERIFY(routeError.contains(QStringLiteral("Wrong Colab worker")));
+    QVERIFY(!session.hasVerifiedRoute(QStringLiteral("translation"), QStringLiteral("kokoro"),
+                                      &routeError));
+    QVERIFY(routeError.contains(QStringLiteral("Wrong Colab worker")));
 
     QVERIFY(session.checkConnection());
     QVERIFY(session.isChecking());
@@ -415,6 +424,9 @@ void TestRemoteExecution::everyGpuControllerUsesExactVerifiedColabRoute()
         QVERIFY2(source.contains(QStringLiteral("beginVerifiedSession")),
                  qPrintable(relativePath + QStringLiteral(
                      " must use verified Colab pairing")));
+        QVERIFY2(source.contains(QStringLiteral("hasVerifiedRoute(")),
+                 qPrintable(relativePath + QStringLiteral(
+                     " must revalidate the capability/model immediately before dispatch")));
         QVERIFY2(source.contains(capability),
                  qPrintable(relativePath + QStringLiteral(
                      " must bind the worker to its exact capability")));
@@ -438,6 +450,26 @@ void TestRemoteExecution::everyGpuControllerUsesExactVerifiedColabRoute()
         QVERIFY2(source.contains(QStringLiteral("connectTemporaryWorker(")),
                  qPrintable(relativePath));
         QVERIFY2(source.contains(expected), qPrintable(relativePath));
+    }
+
+    const QList<QPair<QString, QString>> dubbingDispatchRoutes{
+        {QStringLiteral("src/controllers/dubbing/DubbingJobRunner.cpp"),
+         QStringLiteral("voice-isolation")},
+        {QStringLiteral("src/controllers/dubbing/DubbingTranscriptionJob.cpp"),
+         QStringLiteral("forced-alignment")},
+        {QStringLiteral("src/controllers/dubbing/DubbingTranslationJob.cpp"),
+         QStringLiteral("translation")},
+        {QStringLiteral("src/controllers/dubbing/DubbingSynthesisJob.cpp"),
+         QStringLiteral("voice-cloning")},
+    };
+    for (const auto &[relativePath, capability] : dubbingDispatchRoutes) {
+        QFile file(sourceRoot.filePath(relativePath));
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(relativePath));
+        const QString source = QString::fromUtf8(file.readAll());
+        QVERIFY2(source.contains(QStringLiteral("hasVerifiedRoute(")),
+                 qPrintable(relativePath + QStringLiteral(
+                     " must revalidate an exact Colab session before dispatch")));
+        QVERIFY2(source.contains(capability), qPrintable(relativePath));
     }
 }
 

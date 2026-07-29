@@ -108,6 +108,8 @@ private:
     QVector<float> m_lastSamples;
     int m_sampleRate = 0;
     QString m_activeText;
+    quint64 m_sessionRevision = 0;
+    quint64 m_activeSessionRevision = 0;
 };
 
 } // namespace LAStudio

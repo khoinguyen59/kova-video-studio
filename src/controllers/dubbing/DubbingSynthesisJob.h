@@ -99,6 +99,7 @@ private:
     QMetaObject::Connection m_remoteFinishedConnection;
     QMetaObject::Connection m_remoteFailedConnection;
     QMetaObject::Connection m_remoteProfileConnection;
+    QMetaObject::Connection m_colabTtsSessionConnection;
     QMetaObject::Connection m_colabVoiceCloneSessionConnection;
 };
 

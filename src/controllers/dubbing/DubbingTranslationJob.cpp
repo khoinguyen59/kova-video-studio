@@ -52,7 +52,22 @@ DubbingTranslationJob::~DubbingTranslationJob()
 void DubbingTranslationJob::setRemoteServices(Settings *settings, ColabSession *colabSession)
 {
     m_settings = settings;
+    QObject::disconnect(m_colabSessionConnection);
     m_colabSession = colabSession;
+    if (m_colabSession) {
+        m_colabSessionConnection = connect(m_colabSession, &ColabSession::sessionChanged,
+                                           this, [this]() {
+            if (!m_running || m_remoteProviderId != QStringLiteral("colab-direct")) {
+                return;
+            }
+            ++m_generation;
+            if (m_remoteCancellation)
+                m_remoteCancellation->store(true, std::memory_order_relaxed);
+            if (m_colabRunner)
+                QMetaObject::invokeMethod(m_colabRunner, "cancel", Qt::QueuedConnection);
+            fail(QStringLiteral("Colab Translation worker session changed during dubbing. Pair the selected model again, then rerun the Translation node."));
+        });
+    }
 }
 
 bool DubbingTranslationJob::prepareRequest(const QString &sourceLanguage,
@@ -152,6 +167,7 @@ bool DubbingTranslationJob::start(const QString &sourceLanguage, const QString &
         return false;
     }
     const bool remote = provider != ExecutionProvider::LocalDev;
+    m_remoteProviderId = remote ? providerId : QString();
     if (!remote && !m_translation) { fail(QStringLiteral("Translation engine is unavailable.")); return false; }
     TranslationRequest request;
     QString error;
@@ -362,13 +378,18 @@ void DubbingTranslationJob::startRemoteTranslation(const QString &providerId, co
         return;
     }
     if (provider == ExecutionProvider::ColabDirect) {
-        if (!m_colabSession || !m_colabSession->isActive()) {
+        if (!m_colabSession) {
             fail(QStringLiteral("Connect a Colab GPU worker before running this Translation node."));
             return;
         }
         const QString model = configuredModelId.trimmed().toLower();
         if (!DubbingColabModelRoutes::supports(QStringLiteral("translate"), model)) {
             fail(QStringLiteral("Select an exact Colab translation model before running this node."));
+            return;
+        }
+        QString routeError;
+        if (!m_colabSession->hasVerifiedRoute(QStringLiteral("translation"), model, &routeError)) {
+            fail(routeError);
             return;
         }
         m_remoteProgressConnection = connect(m_colabRunner, &ColabTranslationRunner::progress, this,

@@ -251,7 +251,19 @@ void DubbingJobRunner::setRemoteServices(Settings *settings, ColabSession *trans
     if (m_translationJob) m_translationJob->setRemoteServices(settings, translationSession);
     if (m_synthesisJob) m_synthesisJob->setRemoteServices(settings, ttsSession, voiceCloneSession);
     if (m_transcriptionJob) m_transcriptionJob->setAlignmentSession(alignmentSession);
+    QObject::disconnect(m_colabSeparationSessionConnection);
     m_colabSeparationSession = separationSession;
+    if (m_colabSeparationSession) {
+        m_colabSeparationSessionConnection = connect(
+            m_colabSeparationSession, &ColabSession::sessionChanged, this, [this]() {
+            if (!m_run.processing() || m_run.stageId() != DubbingStage::SourceSeparation) return;
+            if (m_colabSeparationCancellation)
+                m_colabSeparationCancellation->store(true, std::memory_order_relaxed);
+            if (m_colabSeparationRunner)
+                QMetaObject::invokeMethod(m_colabSeparationRunner, "cancel", Qt::QueuedConnection);
+            setError(QStringLiteral("Colab Voice Isolation worker session changed during dubbing. Pair the selected model again, then rerun the Separate node."));
+        });
+    }
 }
 
 void DubbingJobRunner::finishTranslation(const QVariantList &segments)
@@ -324,12 +336,25 @@ void DubbingJobRunner::startSourceSeparation(const QString &audioPath,
         return;
     }
     if (provider == ExecutionProvider::ColabDirect) {
-        if (!m_colabSeparationSession || !m_colabSeparationSession->isActive()) {
+        if (!m_colabSeparationRunner) {
+            setError(QStringLiteral("Colab source-separation runner is unavailable."));
+            return;
+        }
+        if (!m_colabSeparationSession) {
             setError(QStringLiteral("Connect a Colab GPU worker before running this Voice Isolation node."));
             return;
         }
-        if (!m_colabSeparationRunner) {
-            setError(QStringLiteral("Colab source-separation runner is unavailable."));
+        const QString model = modelConfiguration.value(
+            QStringLiteral("modelId"), parameters.value(
+            QStringLiteral("modelId"))).toString().trimmed().toLower();
+        if (!DubbingColabModelRoutes::supports(QStringLiteral("source-separate"), model)) {
+            setError(QStringLiteral("Select an exact Colab voice-isolation model before running this node."));
+            return;
+        }
+        QString routeError;
+        if (!m_colabSeparationSession->hasVerifiedRoute(
+                QStringLiteral("voice-isolation"), model, &routeError)) {
+            setError(routeError);
             return;
         }
         m_run.ensureRun();
@@ -344,14 +369,7 @@ void DubbingJobRunner::startSourceSeparation(const QString &audioPath,
         request.outputRoot = QDir(PathUtils::cacheDir()).filePath(
             QStringLiteral("dubbing/colab-separation/%1/%2")
                 .arg(m_run.runId(), m_run.nodeRunId()));
-        request.model = modelConfiguration.value(
-            QStringLiteral("modelId"), parameters.value(
-            QStringLiteral("modelId"))).toString().trimmed().toLower();
-        if (!DubbingColabModelRoutes::supports(QStringLiteral("source-separate"),
-                                               request.model)) {
-            setError(QStringLiteral("Select an exact Colab voice-isolation model before running this node."));
-            return;
-        }
+        request.model = model;
         request.cancellation = InferenceCancellationToken(m_colabSeparationCancellation);
         Logger::info(QStringLiteral("DubbingPipeline"),
                      QStringLiteral("[source-separate] direct Colab run=%1 node=%2 model=%3")

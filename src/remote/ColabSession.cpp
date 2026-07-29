@@ -32,6 +32,51 @@ bool ColabSession::isActive() const
     return m_verified && m_endpoint.isValid() && !m_bearerToken.isEmpty();
 }
 
+bool ColabSession::hasVerifiedRoute(const QString &capability, const QString &model,
+                                    QString *errorMessage) const
+{
+    if (errorMessage) errorMessage->clear();
+    const QString requiredCapability = capability.trimmed().toLower();
+    const QString requiredModel = model.trimmed().toLower();
+    if (requiredCapability.isEmpty() || requiredModel.isEmpty()) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("An exact Colab capability and model are required before dispatching work.");
+        }
+        return false;
+    }
+    if (!isActive()) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("Connect a verified Colab GPU worker before running this feature.");
+        }
+        return false;
+    }
+
+#ifdef LASTUDIO_UNIT_TESTS
+    // setSession() is deliberately available only as a low-level test seam.
+    // Unit tests that exercise HTTP runners without a real notebook have no
+    // capability document to bind.  Production builds never take this path.
+    if (m_expectedCapability.isEmpty() && m_expectedModel.isEmpty()) return true;
+#endif
+
+    if (m_expectedCapability.isEmpty() || m_expectedModel.isEmpty()) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral(
+                "This Colab worker was not verified for an exact capability and model. Reconnect it from the selected model.");
+        }
+        return false;
+    }
+    if (m_expectedCapability != requiredCapability || m_expectedModel != requiredModel) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral(
+                "Wrong Colab worker: this request needs '%1 / %2', but the connected worker is verified for '%3 / %4'. Reconnect the notebook for the selected model.")
+                                .arg(requiredCapability, requiredModel,
+                                     m_expectedCapability, m_expectedModel);
+        }
+        return false;
+    }
+    return true;
+}
+
 bool ColabSession::connectTemporaryWorker(const QString &workerUrl,
                                           const QString &bearerToken)
 {

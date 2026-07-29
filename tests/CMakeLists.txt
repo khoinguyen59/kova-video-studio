@@ -310,6 +310,7 @@ add_custom_command(TARGET LAStudioUnitTests POST_BUILD
 target_compile_definitions(LAStudioUnitTests PRIVATE
     NOMINMAX
     WIN32_LEAN_AND_MEAN
+    LASTUDIO_UNIT_TESTS=1
     LASTUDIO_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
 )
 

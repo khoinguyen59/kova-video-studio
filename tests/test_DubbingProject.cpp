@@ -59,6 +59,21 @@ public:
         });
     }
 
+    ~DubbingSttWorkerMock() override
+    {
+        // QObject destroys C++ members before it disconnects its signal
+        // handlers.  Close test sockets here, while m_pending is still alive,
+        // so a late disconnected() signal cannot access a destroyed QHash.
+        const auto sockets = m_pending.keys();
+        for (QTcpSocket *socket : sockets) {
+            QObject::disconnect(socket, nullptr, this, nullptr);
+            socket->abort();
+            delete socket;
+        }
+        m_pending.clear();
+        m_server.close();
+    }
+
     bool start() { return m_server.listen(QHostAddress::LocalHost); }
     QString workerUrl() const
     {
@@ -70,6 +85,73 @@ private:
     QTcpServer m_server;
     QHash<QTcpSocket *, QByteArray> m_pending;
     QByteArray m_request;
+};
+
+class ExactRouteWorkerMock final : public QObject
+{
+public:
+    ExactRouteWorkerMock(const QString &capability, const QString &model)
+        : m_capability(capability), m_model(model)
+    {
+        connect(&m_server, &QTcpServer::newConnection, this, [this] {
+            while (QTcpSocket *socket = m_server.nextPendingConnection()) {
+                connect(socket, &QTcpSocket::readyRead, this, [this, socket] {
+                    QByteArray &pending = m_pending[socket];
+                    pending += socket->readAll();
+                    const int headerEnd = pending.indexOf("\r\n\r\n");
+                    if (headerEnd < 0) return;
+                    const QByteArray request = pending.left(headerEnd + 4);
+                    const QByteArray firstLine = request.left(request.indexOf("\r\n"));
+                    QByteArray response;
+                    if (firstLine.startsWith("GET /health ")) {
+                        response = QStringLiteral(
+                            R"({"status":"ready","ready":true,"device":"cuda","model":"%1","cpu_fallback":false})")
+                                       .arg(m_model).toUtf8();
+                    } else if (firstLine.startsWith("GET /v1/capabilities ")) {
+                        response = QStringLiteral(
+                            R"({"contract_version":1,"device":"cuda","capabilities":[{"id":"%1","models":[{"id":"%2","device":"cuda","loaded":true}]}]})")
+                                       .arg(m_capability, m_model).toUtf8();
+                    } else {
+                        socket->write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                        socket->disconnectFromHost();
+                        return;
+                    }
+                    socket->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                                  + QByteArray::number(response.size())
+                                  + "\r\nConnection: close\r\n\r\n" + response);
+                    socket->disconnectFromHost();
+                });
+                connect(socket, &QTcpSocket::disconnected, this, [this, socket] {
+                    m_pending.remove(socket);
+                    socket->deleteLater();
+                });
+            }
+        });
+    }
+
+    ~ExactRouteWorkerMock() override
+    {
+        const auto sockets = m_pending.keys();
+        for (QTcpSocket *socket : sockets) {
+            QObject::disconnect(socket, nullptr, this, nullptr);
+            socket->abort();
+            delete socket;
+        }
+        m_pending.clear();
+        m_server.close();
+    }
+
+    bool start() { return m_server.listen(QHostAddress::LocalHost); }
+    QString workerUrl() const
+    {
+        return QStringLiteral("http://127.0.0.1:%1").arg(m_server.serverPort());
+    }
+
+private:
+    QTcpServer m_server;
+    QHash<QTcpSocket *, QByteArray> m_pending;
+    QString m_capability;
+    QString m_model;
 };
 
 class ColabSessionReset final
@@ -738,6 +820,40 @@ void TestDubbingProject::colabSourceSeparationDoesNotFallbackToLocal()
     QVERIFY(!runner.processing());
     QCOMPARE(runner.lastError(),
              QStringLiteral("Connect a Colab GPU worker before running this Voice Isolation node."));
+}
+
+void TestDubbingProject::dubbingRejectsAConnectedColabWorkerForTheWrongModel()
+{
+    ExactRouteWorkerMock worker(QStringLiteral("tts"), QStringLiteral("kokoro"));
+    QVERIFY(worker.start());
+
+    ColabSession session;
+    QSignalSpy verification(&session, &ColabSession::verificationFinished);
+    QString error;
+    QVERIFY2(session.beginVerifiedSession(worker.workerUrl(), QStringLiteral("test-token"),
+                                          QStringLiteral("tts"), QStringLiteral("kokoro"),
+                                          &error, true), qPrintable(error));
+    QTRY_COMPARE(verification.count(), 1);
+    QVERIFY(verification.constFirst().at(0).toBool());
+
+    const QVariantList segments{
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("segment-1")},
+                    {QStringLiteral("targetText"), QStringLiteral("Xin chao")},
+                    {QStringLiteral("startMs"), 0},
+                    {QStringLiteral("endMs"), 1000}}
+    };
+    DubbingSynthesisJob job(nullptr);
+    job.setRemoteServices(nullptr, &session, nullptr);
+    QSignalSpy failures(&job, &DubbingSynthesisJob::failed);
+    QVERIFY(!job.start(segments, QStringLiteral("C:/temp/project.ladub.json"),
+                        QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+                                    {QStringLiteral("modelId"), QStringLiteral("vibevoice")}},
+                        QStringLiteral("wrong-model")));
+    QCOMPARE(failures.count(), 1);
+    const QString message = failures.constFirst().at(0).toString();
+    QVERIFY(message.contains(QStringLiteral("Wrong Colab worker")));
+    QVERIFY(message.contains(QStringLiteral("tts / vibevoice")));
+    QVERIFY(message.contains(QStringLiteral("tts / kokoro")));
 }
 
 void TestDubbingProject::remoteDubbingWorkflowIsReadyWithoutLocalModels()

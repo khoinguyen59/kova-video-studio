@@ -168,7 +168,8 @@ bool SttSessionController::colabActive() const
 
 bool SttSessionController::colabPaired() const
 {
-    return m_colabSession && m_colabSession->isActive();
+    return m_colabSession
+        && m_colabSession->hasVerifiedRoute(QStringLiteral("stt"), m_colabModel);
 }
 
 QString SttSessionController::notebookForColabModel(const QString &model) const
@@ -470,8 +471,13 @@ bool SttSessionController::canTranscribeForProvider(ExecutionProvider provider,
             if (error) *error = QStringLiteral("The selected Colab STT model is not supported by this build.");
             return false;
         }
-        if (!m_colabSession || !m_colabSession->isActive()) {
+        if (!m_colabSession) {
             if (error) *error = QStringLiteral("Connect a Colab GPU worker before running this STT node.");
+            return false;
+        }
+        QString routeError;
+        if (!m_colabSession->hasVerifiedRoute(QStringLiteral("stt"), model, &routeError)) {
+            if (error) *error = routeError;
             return false;
         }
         return true;

@@ -72,7 +72,7 @@ ColabVoiceCloneController::~ColabVoiceCloneController()
 
 bool ColabVoiceCloneController::colabConnected() const
 {
-    return m_session && m_session->isActive();
+    return m_session && m_session->hasVerifiedRoute(QStringLiteral("voice-cloning"), m_model);
 }
 
 QString ColabVoiceCloneController::notebookForColabModel(const QString &model) const
@@ -198,6 +198,11 @@ void ColabVoiceCloneController::cloneVoice(const QString &text, const QString &r
         emit errorOccurred(QStringLiteral("Reference audio file was not found"));
         return;
     }
+    QString routeError;
+    if (!m_session->hasVerifiedRoute(QStringLiteral("voice-cloning"), m_model, &routeError)) {
+        emit errorOccurred(routeError);
+        return;
+    }
     if (!consentConfirmed) {
         emit errorOccurred(QStringLiteral("Confirm that you have permission to clone this voice"));
         return;
@@ -245,7 +250,13 @@ void ColabVoiceCloneController::deleteColabProfile()
 {
     if (m_processing || m_profileDeletionPending || !m_session || m_profileId.isEmpty()) return;
     if (!colabConnected()) {
-        emit errorOccurred(QStringLiteral("Connect the Colab worker to delete its voice profile"));
+        QString routeError;
+        if (m_session) {
+            m_session->hasVerifiedRoute(QStringLiteral("voice-cloning"), m_model, &routeError);
+        }
+        emit errorOccurred(routeError.isEmpty()
+                               ? QStringLiteral("Connect the Colab worker to delete its voice profile")
+                               : routeError);
         return;
     }
     m_profileDeletionPending = true;

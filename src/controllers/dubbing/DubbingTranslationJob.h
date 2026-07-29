@@ -82,6 +82,7 @@ private:
     QString m_sourceLanguage;
     QString m_targetLanguage;
     QString m_runId;
+    QString m_remoteProviderId;
     quint64 m_generation = 0;
     QMetaObject::Connection m_finishedConnection;
     QMetaObject::Connection m_errorConnection;
@@ -90,6 +91,7 @@ private:
     QMetaObject::Connection m_remoteProgressConnection;
     QMetaObject::Connection m_remoteFinishedConnection;
     QMetaObject::Connection m_remoteFailedConnection;
+    QMetaObject::Connection m_colabSessionConnection;
 };
 
 } // namespace LAStudio

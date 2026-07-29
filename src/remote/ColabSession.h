@@ -43,6 +43,13 @@ public:
     QString reportedGpu() const { return m_reportedGpu; }
     QString lastError() const { return m_lastError; }
 
+    // A direct worker is usable for a feature only when the active session was
+    // verified for that exact capability/model pair.  `active` alone is not a
+    // routing guarantee: the user may have changed model after pairing a
+    // different single-model notebook.
+    bool hasVerifiedRoute(const QString &capability, const QString &model,
+                          QString *errorMessage = nullptr) const;
+
     // The two-argument overload verifies a generic CUDA worker. Production
     // feature UIs should use the exact overload so a worker cannot be paired
     // for the wrong capability or model.

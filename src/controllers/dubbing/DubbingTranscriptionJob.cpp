@@ -298,12 +298,18 @@ void DubbingTranscriptionJob::startColabAlignment(const QVariantList &segments)
         fail(QStringLiteral("Select an exact Colab forced-alignment model for the Transcribe node."));
         return;
     }
-    if (!m_alignmentSession || !m_alignmentSession->isActive()) {
+    if (!m_colabAlignmentRunner) {
+        fail(QStringLiteral("The Colab alignment runner is unavailable."));
+        return;
+    }
+    if (!m_alignmentSession) {
         fail(QStringLiteral("Connect the optional Colab alignment worker before running refined dubbing transcription."));
         return;
     }
-    if (!m_colabAlignmentRunner) {
-        fail(QStringLiteral("The Colab alignment runner is unavailable."));
+    QString routeError;
+    if (!m_alignmentSession->hasVerifiedRoute(
+            QStringLiteral("forced-alignment"), m_alignmentModelId, &routeError)) {
+        fail(routeError);
         return;
     }
     QStringList transcriptParts;

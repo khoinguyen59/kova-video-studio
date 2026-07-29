@@ -53,7 +53,7 @@ ColabVoiceIsolatorController::~ColabVoiceIsolatorController()
 
 bool ColabVoiceIsolatorController::colabConnected() const
 {
-    return m_session && m_session->isActive();
+    return m_session && m_session->hasVerifiedRoute(QStringLiteral("voice-isolation"), m_model);
 }
 
 QString ColabVoiceIsolatorController::notebookForColabModel(const QString &model) const
@@ -148,6 +148,11 @@ void ColabVoiceIsolatorController::isolate(bool)
     if (!ready()) { setError(QStringLiteral("Connect and select a direct Colab separation worker first")); return; }
     if (m_processing) return;
     if (m_sourcePath.isEmpty() || !QFileInfo(m_sourcePath).isFile()) { setError(QStringLiteral("Choose an audio or video file first")); return; }
+    QString routeError;
+    if (!m_session->hasVerifiedRoute(QStringLiteral("voice-isolation"), m_model, &routeError)) {
+        setError(routeError);
+        return;
+    }
     clearResult();
     m_tempDir = std::make_unique<QTemporaryDir>(QDir(QDir::tempPath()).filePath(QStringLiteral("LA-Studio-ColabSeparation-XXXXXX")));
     if (!m_tempDir->isValid()) { setError(QStringLiteral("Failed to create temporary output directory")); return; }

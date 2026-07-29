@@ -67,7 +67,7 @@ ColabVoiceDesignController::~ColabVoiceDesignController()
 
 bool ColabVoiceDesignController::colabConnected() const
 {
-    return m_session && m_session->isActive();
+    return m_session && m_session->hasVerifiedRoute(QStringLiteral("voice-design"), m_model);
 }
 
 QString ColabVoiceDesignController::notebookForColabModel(const QString &model) const
@@ -178,6 +178,11 @@ void ColabVoiceDesignController::generate(const QString &text, const QString &vo
     const QString normalizedDescription = voiceDescription.trimmed();
     if (normalizedText.isEmpty() || normalizedDescription.isEmpty()) {
         emit errorOccurred(QStringLiteral("Text and a voice description are required for VoiceDesign"));
+        return;
+    }
+    QString routeError;
+    if (!m_session->hasVerifiedRoute(QStringLiteral("voice-design"), m_model, &routeError)) {
+        emit errorOccurred(routeError);
         return;
     }
     m_activeText = normalizedText;

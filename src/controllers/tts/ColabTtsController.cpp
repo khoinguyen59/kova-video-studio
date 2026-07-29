@@ -57,7 +57,7 @@ ColabTtsController::~ColabTtsController()
 
 bool ColabTtsController::colabConnected() const
 {
-    return m_session && m_session->isActive();
+    return m_session && m_session->hasVerifiedRoute(QStringLiteral("tts"), m_colabModel);
 }
 
 void ColabTtsController::setColabModel(const QString &model)
@@ -68,6 +68,7 @@ void ColabTtsController::setColabModel(const QString &model)
         return;
     }
     if (normalized == m_colabModel) return;
+    if (m_processing) cancelProcessing();
     if (m_session && (m_session->isActive() || m_session->isChecking())) {
         m_colabActive = false;
         m_session->clear();
@@ -218,6 +219,11 @@ void ColabTtsController::synthesize(const QString &text, float speed)
         emit errorOccurred(QStringLiteral("Colab TTS model and voice are required"));
         return;
     }
+    QString routeError;
+    if (!m_session->hasVerifiedRoute(QStringLiteral("tts"), m_colabModel, &routeError)) {
+        emit errorOccurred(routeError);
+        return;
+    }
     m_activeText = normalizedText;
     m_cancellation = std::make_shared<std::atomic_bool>(false);
     m_processing = true;
@@ -233,6 +239,7 @@ void ColabTtsController::synthesize(const QString &text, float speed)
     request.language = m_colabLanguage;
     request.speed = speed;
     request.cancellation = InferenceCancellationToken(m_cancellation);
+    m_activeSessionRevision = m_sessionRevision;
     QMetaObject::invokeMethod(m_runner, "synthesize", Qt::QueuedConnection,
                               Q_ARG(ColabTtsRequest, request));
 }
@@ -269,6 +276,8 @@ void ColabTtsController::saveWav(const QString &path)
 
 void ColabTtsController::onSessionChanged()
 {
+    ++m_sessionRevision;
+    if (m_processing) cancelProcessing();
     if (!colabConnected() && m_colabActive) m_colabActive = false;
     emit colabStateChanged();
 }
@@ -284,6 +293,13 @@ void ColabTtsController::onRunnerProgress(int percent)
 void ColabTtsController::onRunnerFinished(const QByteArray &pcm16, const QVector<float> &samples, int sampleRate)
 {
     if (!m_processing) return;
+    if (m_activeSessionRevision != m_sessionRevision) {
+        m_processing = false;
+        m_progress = 0;
+        emit processingChanged();
+        emit progressChanged();
+        return;
+    }
     m_processing = false;
     m_progress = 100;
     m_lastPcm = pcm16;
@@ -307,6 +323,7 @@ void ColabTtsController::onRunnerFailed(const QString &error)
     m_progress = 0;
     if (wasProcessing) emit processingChanged();
     emit progressChanged();
+    if (m_activeSessionRevision != m_sessionRevision) return;
     emit errorOccurred(error);
 }
 

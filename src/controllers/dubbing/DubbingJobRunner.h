@@ -130,6 +130,7 @@ private:
     ColabSeparationRunner *m_colabSeparationRunner = nullptr;
     QThread m_colabSeparationThread;
     std::shared_ptr<std::atomic_bool> m_colabSeparationCancellation;
+    QMetaObject::Connection m_colabSeparationSessionConnection;
     QVariantMap m_translationConfiguration;
     QVariantMap m_translationFixConfiguration;
     QString m_translationSourceLanguage;

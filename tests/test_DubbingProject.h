@@ -55,6 +55,7 @@ private slots:
     void remoteTtsRoutesDoNotFallbackBetweenGatewayAndColab();
     void colabDubbingVoiceCloningIsDirectAndRequiresConsent();
     void colabSourceSeparationDoesNotFallbackToLocal();
+    void dubbingRejectsAConnectedColabWorkerForTheWrongModel();
     void remoteDubbingWorkflowIsReadyWithoutLocalModels();
     void dubbingColabModelsMapToExactNotebooks();
     void dubbingUiUsesExactModelWorkers();
