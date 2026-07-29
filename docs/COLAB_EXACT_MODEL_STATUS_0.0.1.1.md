@@ -78,5 +78,6 @@ For every model the user intends to use:
 
 The public GitHub and Colab URL for the Whisper notebook were checked without
 authentication and returned HTTP 200 on the `codex/remote-inference` branch.
-Other model links share the same versioned notebook-link component and their
-file-to-model mappings are covered by the tests above.
+On 2026-07-29, the later `0.0.1.2` verification also checked every checked-in
+notebook URL on that branch: **38/38 returned HTTP 200**. Exact
+file-to-model mappings remain covered by the tests above.
