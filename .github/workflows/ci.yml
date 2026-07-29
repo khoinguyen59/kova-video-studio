@@ -66,6 +66,11 @@ jobs:
         run: |
           python scripts/generate_catalog.py
           git diff --exit-code -- data/catalog.json
+          # CI images are not guaranteed to ship PyYAML. The checked-in
+          # fallback parser must generate byte-identical catalog data.
+          $env:LA_STUDIO_DISABLE_PYYAML = '1'
+          python scripts/generate_catalog.py
+          git diff --exit-code -- data/catalog.json
 
       - name: Verify runtime release checksums
         shell: pwsh

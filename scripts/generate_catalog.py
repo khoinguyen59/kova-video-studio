@@ -261,7 +261,14 @@ def parse_yaml_block(lines, index, indent):
             index += 1
             if not item_text:
                 item, index = parse_yaml_block(lines, index, indent + 2)
-            elif ":" in item_text and not item_text.startswith(("'", '"')):
+            # A list item may be an inline flow mapping, e.g.
+            # ``- {id: runtime, backend: crispasr}``.  Parse that whole
+            # mapping as a scalar before considering the block-style
+            # ``- key: value`` form.  Otherwise the fallback parser turns it
+            # into a one-key dictionary with the remaining mapping as text.
+            elif item_text.startswith(("{", "[", "'", '"')):
+                item = parse_yaml_scalar(item_text)
+            elif ":" in item_text:
                 key, value = split_yaml_key_value(item_text)
                 item = {key: parse_yaml_scalar(value)}
                 if value == "" and index < len(lines) and yaml_line_indent(lines[index]) > indent:
