@@ -942,10 +942,10 @@ void TestRemoteExecution::colabNotebooksAdvertiseCapabilityContractVersion()
         QString endpoint;
     };
     const QList<NotebookContract> notebooks{
-        {QStringLiteral("LA_STUDIO_STT_NEMOTRON_3_5_0_6B_GPU.ipynb"), QStringLiteral("stt"), QStringLiteral("nemotron-3.5-asr-streaming-0.6b"), QStringLiteral("/v1/audio/transcriptions")},
-        {QStringLiteral("LA_STUDIO_STT_WHISPER_GPU.ipynb"), QStringLiteral("stt"), QStringLiteral("whisper.cpp"), QStringLiteral("/v1/audio/transcriptions")},
-        {QStringLiteral("LA_STUDIO_STT_QWEN3_ASR_0_6B_GPU.ipynb"), QStringLiteral("stt"), QStringLiteral("qwen3-asr-0.6b"), QStringLiteral("/v1/audio/transcriptions")},
-        {QStringLiteral("LA_STUDIO_STT_QWEN3_ASR_1_7B_GPU.ipynb"), QStringLiteral("stt"), QStringLiteral("qwen3-asr-1.7b"), QStringLiteral("/v1/audio/transcriptions")},
+        {QStringLiteral("LA_STUDIO_STT_NEMOTRON_3_5_0_6B_GPU.ipynb"), QStringLiteral("stt"), QStringLiteral("nemotron-3.5-asr-streaming-0.6b"), QStringLiteral("/v2/jobs/transcriptions")},
+        {QStringLiteral("LA_STUDIO_STT_WHISPER_GPU.ipynb"), QStringLiteral("stt"), QStringLiteral("whisper.cpp"), QStringLiteral("/v2/jobs/transcriptions")},
+        {QStringLiteral("LA_STUDIO_STT_QWEN3_ASR_0_6B_GPU.ipynb"), QStringLiteral("stt"), QStringLiteral("qwen3-asr-0.6b"), QStringLiteral("/v2/jobs/transcriptions")},
+        {QStringLiteral("LA_STUDIO_STT_QWEN3_ASR_1_7B_GPU.ipynb"), QStringLiteral("stt"), QStringLiteral("qwen3-asr-1.7b"), QStringLiteral("/v2/jobs/transcriptions")},
         {QStringLiteral("LA_STUDIO_TTS_KOKORO_GPU.ipynb"), QStringLiteral("tts"), QStringLiteral("kokoro"), QStringLiteral("/v1/audio/speech")},
         {QStringLiteral("LA_STUDIO_TTS_KOKORO_VIETNAMESE_GPU.ipynb"), QStringLiteral("tts"), QStringLiteral("kokoro-vietnamese"), QStringLiteral("/v1/audio/speech")},
         {QStringLiteral("LA_STUDIO_TTS_OMNIVOICE_GPU.ipynb"), QStringLiteral("tts"), QStringLiteral("omnivoice"), QStringLiteral("/v1/audio/speech")},

@@ -37,6 +37,9 @@ ALLOWED_CONTENT_TYPES = {
     "audio/flac", "audio/ogg", "audio/webm", "application/octet-stream",
 }
 REQUEST_SLOTS = threading.BoundedSemaphore(1)
+JOB_TTL_SECONDS = 30 * 60
+JOB_LOCK = threading.Lock()
+JOBS: dict[str, dict] = {}
 
 __MODEL_LOADER__
 
@@ -69,6 +72,9 @@ def capabilities(authorization: str | None = Header(default=None)):
         "device": "cuda",
         "cuda": True,
         "cpu_fallback": False,
+        "endpoints": {
+            "transcription_jobs": "/v2/jobs/transcriptions",
+        },
         "capabilities": [{{
             "id": "stt",
             "models": [{{
@@ -101,6 +107,189 @@ async def save_upload(file: UploadFile) -> tuple[Path, int]:
     except Exception:
         path.unlink(missing_ok=True)
         raise
+
+
+def snapshot_job(job: dict) -> dict:
+    response = {
+        "job_id": job["job_id"],
+        "status": job["status"],
+        "progress": job["progress"],
+        "model": MODEL_ID,
+    }
+    if job.get("detail"):
+        response["detail"] = job["detail"]
+    if job.get("result") is not None:
+        response["result"] = job["result"]
+    return response
+
+
+def prune_finished_jobs() -> None:
+    now = asyncio.get_running_loop().time()
+    expired_paths = []
+    with JOB_LOCK:
+        expired = [
+            job_id for job_id, job in JOBS.items()
+            if job.get("finished_at") and now - job["finished_at"] > JOB_TTL_SECONDS
+        ]
+        for job_id in expired:
+            job = JOBS.pop(job_id)
+            if job.get("path"):
+                expired_paths.append(Path(job["path"]))
+    for path in expired_paths:
+        path.unlink(missing_ok=True)
+
+
+async def run_job(job_id: str) -> None:
+    try:
+        with JOB_LOCK:
+            job = JOBS.get(job_id)
+            if job is None:
+                return
+            if job.get("cancel_requested"):
+                job["status"] = "cancelled"
+                job["progress"] = 100
+                job["detail"] = "Transcription cancelled"
+                job["finished_at"] = asyncio.get_running_loop().time()
+                return
+            job["status"] = "running"
+            job["progress"] = 15
+            path = job["path"]
+            language = job["language"]
+            response_format = job["response_format"]
+        result = await asyncio.to_thread(run_transcription, path, language)
+        text = str(result.get("text", "")).strip()
+        if not text:
+            raise RuntimeError("The loaded model returned an empty transcript")
+        payload = {
+            "text": text,
+            "segments": result.get("segments", []),
+            "language": result.get("language", language),
+            "model": MODEL_ID,
+            "upstream_model": UPSTREAM_MODEL,
+            "response_format": response_format,
+        }
+        with JOB_LOCK:
+            job = JOBS.get(job_id)
+            if job is not None:
+                if job.get("cancel_requested"):
+                    job["status"] = "cancelled"
+                    job["detail"] = "Transcription cancelled"
+                else:
+                    job["status"] = "succeeded"
+                    job["result"] = payload
+                    job["progress"] = 100
+                job["finished_at"] = asyncio.get_running_loop().time()
+    except Exception as error:
+        with JOB_LOCK:
+            job = JOBS.get(job_id)
+            if job is not None:
+                if job.get("cancel_requested"):
+                    job["status"] = "cancelled"
+                    job["detail"] = "Transcription cancelled"
+                else:
+                    job["status"] = "failed"
+                    job["detail"] = f"{MODEL_NAME} transcription failed: {type(error).__name__}: {str(error)[:300]}"
+                job["progress"] = 100
+                job["finished_at"] = asyncio.get_running_loop().time()
+    finally:
+        with JOB_LOCK:
+            job = JOBS.get(job_id)
+            source_path = Path(job["path"]) if job and job.get("path") else None
+            if job is not None:
+                job["path"] = None
+        if source_path is not None:
+            source_path.unlink(missing_ok=True)
+        REQUEST_SLOTS.release()
+
+
+@app.post("/v2/jobs/transcriptions", status_code=202)
+async def create_transcription_job(
+    file: UploadFile = File(...),
+    model: str = Form(...),
+    language: str = Form(default="auto"),
+    response_format: str = Form(default="verbose_json"),
+    authorization: str | None = Header(default=None),
+):
+    require_token(authorization)
+    if model.strip().lower() != MODEL_ID:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This worker loaded '{{MODEL_ID}}', but LA Studio requested '{{model}}'. Open the notebook for the selected model.",
+        )
+    content_type = (file.content_type or "application/octet-stream").lower()
+    if content_type not in ALLOWED_CONTENT_TYPES and not content_type.startswith("audio/"):
+        raise HTTPException(status_code=415, detail=f"Unsupported audio content type: {{content_type}}")
+    if not REQUEST_SLOTS.acquire(blocking=False):
+        raise HTTPException(status_code=429, detail="The Colab GPU is already processing another transcription")
+
+    path = None
+    queued = False
+    try:
+        path, size = await save_upload(file)
+        if size == 0:
+            raise HTTPException(status_code=422, detail="The uploaded audio file is empty")
+        try:
+            info = sf.info(str(path))
+            if info.duration > MAX_AUDIO_SECONDS:
+                raise HTTPException(status_code=413, detail="Audio is longer than the 30 minute session limit")
+        except HTTPException:
+            raise
+        except Exception:
+            # Compressed formats may not be readable by libsndfile; the
+            # model-specific decoder below remains the source of truth.
+            pass
+        await prune_finished_jobs()
+        job_id = secrets.token_urlsafe(18)
+        with JOB_LOCK:
+            JOBS[job_id] = {
+                "job_id": job_id,
+                "status": "queued",
+                "progress": 5,
+                "path": str(path),
+                "language": language,
+                "response_format": response_format,
+                "cancel_requested": False,
+                "detail": "",
+                "result": None,
+            }
+            response = snapshot_job(JOBS[job_id])
+        asyncio.create_task(run_job(job_id))
+        queued = True
+        return response
+    finally:
+        await file.close()
+        if not queued:
+            if path is not None:
+                path.unlink(missing_ok=True)
+            REQUEST_SLOTS.release()
+
+
+@app.get("/v2/jobs/transcriptions/{{job_id}}")
+async def transcription_job_status(job_id: str,
+                                   authorization: str | None = Header(default=None)):
+    require_token(authorization)
+    await prune_finished_jobs()
+    with JOB_LOCK:
+        job = JOBS.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Transcription job was not found or has expired")
+        return snapshot_job(job)
+
+
+@app.delete("/v2/jobs/transcriptions/{{job_id}}")
+async def cancel_transcription_job(job_id: str,
+                                   authorization: str | None = Header(default=None)):
+    require_token(authorization)
+    with JOB_LOCK:
+        job = JOBS.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Transcription job was not found or has expired")
+        if job["status"] in {{"queued", "running"}}:
+            job["cancel_requested"] = True
+            job["status"] = "cancelled"
+            job["detail"] = "Transcription cancellation requested"
+            job["progress"] = 100
+        return snapshot_job(job)
 
 
 @app.post("/v1/audio/transcriptions")
@@ -139,6 +328,9 @@ async def transcriptions(
             # model-specific decoder below remains the source of truth.
             pass
 
+        # Compatibility endpoint for older desktop builds. New LA Studio builds
+        # use /v2/jobs/transcriptions so a long GPU run cannot hit the
+        # Cloudflare 120-second proxy response limit.
         result = await asyncio.to_thread(run_transcription, str(path), language)
         text = str(result.get("text", "")).strip()
         if not text:
@@ -417,6 +609,10 @@ def notebook(spec: dict[str, str]) -> dict:
 
                     This notebook loads exactly `{spec['family_id']}` on the Colab GPU.
                     It rejects transcription requests for every other model ID.
+
+                    Long recordings use an asynchronous GPU job: the app uploads the
+                    audio once, then polls short status requests until this exact model
+                    completes. This avoids Cloudflare's 120-second proxy response limit.
 
                     Run every cell in order, then paste the printed URL and TOKEN into
                     LA Studio. The tunnel is public, but every worker endpoint requires

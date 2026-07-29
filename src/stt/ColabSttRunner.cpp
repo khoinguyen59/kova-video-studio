@@ -4,6 +4,8 @@
 
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QTimer>
+#include <QThread>
 
 #include <algorithm>
 #include <cstring>
@@ -40,17 +42,27 @@ class ColabSttRunner::Private final
 {
 public:
     ColabWorkerClient client;
+    QString activeJobId;
+    QTimer *pollTimer = nullptr;
+    std::shared_ptr<std::atomic_bool> cancellation;
 };
 
 ColabSttRunner::ColabSttRunner(QObject *parent)
     : QObject(parent), d(std::make_unique<Private>())
 {
+    d->pollTimer = new QTimer(this);
+    d->pollTimer->setSingleShot(true);
+    connect(d->pollTimer, &QTimer::timeout, this, &ColabSttRunner::pollActiveJob);
 }
 
 ColabSttRunner::~ColabSttRunner() = default;
 
 void ColabSttRunner::transcribe(const ColabSttRequest &request)
 {
+    if (!d->activeJobId.isEmpty()) {
+        emit failed(QStringLiteral("A Colab transcription job is already running"));
+        return;
+    }
     QString error;
     if (!d->client.configure(request.workerUrl, request.bearerToken,
                              request.allowInsecureLocalhost, &error)) {
@@ -58,13 +70,61 @@ void ColabSttRunner::transcribe(const ColabSttRequest &request)
         return;
     }
     emit progress(5);
-    QJsonObject response;
-    if (!d->client.transcribeWav(makeMono16kWav(request.samples), request.model, request.language,
-                                 request.cancellation.sharedFlag(), &response, &error)) {
+    QJsonObject job;
+    if (!d->client.createTranscriptionJob(makeMono16kWav(request.samples), request.model,
+                                          request.language, &job, &error)) {
         emit failed(request.cancellation.isCancelled() ? QStringLiteral("Transcription cancelled")
                                                        : error);
         return;
     }
+    d->activeJobId = job.value(QStringLiteral("job_id")).toString().trimmed();
+    if (d->activeJobId.isEmpty()) {
+        emit failed(QStringLiteral("Colab worker returned a transcription job without an ID"));
+        return;
+    }
+    d->cancellation = request.cancellation.sharedFlag();
+    d->pollTimer->start(0);
+}
+
+void ColabSttRunner::pollActiveJob()
+{
+    if (d->activeJobId.isEmpty()) return;
+    const InferenceCancellationToken cancellation(d->cancellation);
+    if (cancellation.isCancelled()) {
+        d->client.cancelTranscriptionJob(d->activeJobId);
+        d->activeJobId.clear();
+        d->cancellation.reset();
+        emit failed(QStringLiteral("Transcription cancelled"));
+        return;
+    }
+    QString error;
+    QJsonObject status;
+    if (!d->client.transcriptionJobStatus(d->activeJobId, &status, &error)) {
+        const bool cancelled = cancellation.isCancelled();
+        if (cancelled) d->client.cancelTranscriptionJob(d->activeJobId);
+        d->activeJobId.clear();
+        d->cancellation.reset();
+        emit failed(cancelled ? QStringLiteral("Transcription cancelled") : error);
+        return;
+    }
+    const QString state = status.value(QStringLiteral("status")).toString().trimmed().toLower();
+    const int reportedProgress = qBound(
+        5, status.value(QStringLiteral("progress")).toInt(10), 95);
+    emit progress(reportedProgress);
+    if (state != QStringLiteral("succeeded") && state != QStringLiteral("completed")) {
+        if (state == QStringLiteral("failed") || state == QStringLiteral("cancelled")) {
+            const QString detail = status.value(QStringLiteral("detail")).toString().trimmed();
+            d->activeJobId.clear();
+            d->cancellation.reset();
+            emit failed(detail.isEmpty() ? QStringLiteral("Colab transcription failed") : detail);
+            return;
+        }
+        d->pollTimer->start(250);
+        return;
+    }
+    const QJsonObject response = status.value(QStringLiteral("result")).toObject();
+    d->activeJobId.clear();
+    d->cancellation.reset();
     QVariantList segments;
     for (const QJsonValue &value : response.value(QStringLiteral("segments")).toArray()) {
         const QJsonObject segment = value.toObject();
@@ -85,6 +145,14 @@ void ColabSttRunner::transcribe(const ColabSttRequest &request)
 void ColabSttRunner::cancel()
 {
     d->client.cancel();
+    if (d->cancellation) d->cancellation->store(true, std::memory_order_relaxed);
+    if (d->pollTimer) d->pollTimer->stop();
+    if (!d->activeJobId.isEmpty()) {
+        d->client.cancelTranscriptionJob(d->activeJobId);
+        d->activeJobId.clear();
+        d->cancellation.reset();
+        emit failed(QStringLiteral("Transcription cancelled"));
+    }
 }
 
 } // namespace LAStudio

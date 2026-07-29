@@ -4,6 +4,7 @@
 #include <QPointer>
 #include <QDir>
 #include <QFile>
+#include <QHash>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRegularExpression>
@@ -33,8 +34,8 @@ public:
     {
         connect(&m_server, &QTcpServer::newConnection, this, [this] {
             while (QTcpSocket *socket = m_server.nextPendingConnection()) {
-                m_socket = socket;
-                connect(socket, &QTcpSocket::readyRead, this, [this] { consume(); });
+                connect(socket, &QTcpSocket::readyRead, this,
+                        [this, socket] { consume(socket); });
             }
         });
     }
@@ -42,32 +43,64 @@ public:
     bool start() { return m_server.listen(QHostAddress::LocalHost); }
     QString baseUrl() const { return QStringLiteral("http://127.0.0.1:%1").arg(m_server.serverPort()); }
     QByteArray request() const { return m_request; }
+    QByteArray requests() const { return m_requests; }
 
 private:
-    void consume()
+    static QByteArray jsonResponse(const QByteArray &status, const QByteArray &payload)
     {
-        if (!m_socket) return;
-        m_pending += m_socket->readAll();
-        const int headerEnd = m_pending.indexOf("\r\n\r\n");
+        return QByteArrayLiteral("HTTP/1.1 ") + status
+            + QByteArrayLiteral("\r\nContent-Type: application/json\r\nContent-Length: ")
+            + QByteArray::number(payload.size())
+            + QByteArrayLiteral("\r\nConnection: close\r\n\r\n") + payload;
+    }
+
+    void consume(QTcpSocket *socket)
+    {
+        if (!socket) return;
+        QByteArray &pending = m_pending[socket];
+        pending += socket->readAll();
+        const int headerEnd = pending.indexOf("\r\n\r\n");
         if (headerEnd < 0) return;
         const auto match = QRegularExpression(QStringLiteral("Content-Length: (\\d+)"),
                                               QRegularExpression::CaseInsensitiveOption)
-                               .match(QString::fromLatin1(m_pending.left(headerEnd)));
-        if (!match.hasMatch()) return;
-        const int requestLength = headerEnd + 4 + match.captured(1).toInt();
-        if (m_pending.size() < requestLength) return;
-        m_request = m_pending.left(requestLength);
-        const QByteArray response = QByteArrayLiteral(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
-            "{\"text\":\"Hello world\",\"segments\":[{\"id\":0,\"start\":0.0,\"end\":1.5,\"text\":\"Hello world\"}]}");
-        m_socket->write(response);
-        m_socket->disconnectFromHost();
+                               .match(QString::fromLatin1(pending.left(headerEnd)));
+        // GET and DELETE requests do not carry a body and normally omit
+        // Content-Length.  Treat a missing header as a zero-length body,
+        // just like a real HTTP server does.
+        const int contentLength = match.hasMatch() ? match.captured(1).toInt() : 0;
+        const int requestLength = headerEnd + 4 + contentLength;
+        if (pending.size() < requestLength) return;
+        m_request = pending.left(requestLength);
+        m_requests += m_request;
+        m_pending.remove(socket);
+        QByteArray response;
+        if (m_request.startsWith("POST /v2/jobs/transcriptions HTTP/1.1")) {
+            response = jsonResponse(QByteArrayLiteral("202 Accepted"), QByteArrayLiteral(
+                "{\"job_id\":\"stt-job-1\",\"status\":\"queued\",\"progress\":5,\"model\":\"qwen3-asr-0.6b\"}"));
+        } else if (m_request.startsWith("GET /v2/jobs/transcriptions/stt-job-1 HTTP/1.1")) {
+            ++m_statusRequests;
+            response = m_statusRequests == 1
+                ? jsonResponse(QByteArrayLiteral("200 OK"), QByteArrayLiteral(
+                    "{\"job_id\":\"stt-job-1\",\"status\":\"running\",\"progress\":50}"))
+                : jsonResponse(QByteArrayLiteral("200 OK"), QByteArrayLiteral(
+                    "{\"job_id\":\"stt-job-1\",\"status\":\"succeeded\",\"progress\":100,\"result\":{\"text\":\"Hello world\",\"segments\":[{\"id\":0,\"start\":0.0,\"end\":1.5,\"text\":\"Hello world\"}]}}"));
+        } else if (m_request.startsWith("POST /v1/audio/transcriptions HTTP/1.1")) {
+            response = jsonResponse(QByteArrayLiteral("200 OK"), QByteArrayLiteral(
+                "{\"text\":\"Hello world\",\"segments\":[{\"id\":0,\"start\":0.0,\"end\":1.5,\"text\":\"Hello world\"}]}"));
+        } else {
+            response = jsonResponse(QByteArrayLiteral("404 Not Found"), QByteArrayLiteral(
+                "{\"detail\":\"Unexpected test endpoint\"}"));
+        }
+        socket->write(response);
+        socket->disconnectFromHost();
+        m_pending.remove(socket);
     }
 
     QTcpServer m_server;
-    QPointer<QTcpSocket> m_socket;
-    QByteArray m_pending;
+    QHash<QTcpSocket *, QByteArray> m_pending;
     QByteArray m_request;
+    QByteArray m_requests;
+    int m_statusRequests = 0;
 };
 
 } // namespace
@@ -301,7 +334,7 @@ void TestSttSession::testColabSttModelNotebookMapping()
     QCOMPARE(failures.count(), 1);
 }
 
-void TestSttSession::testColabSttRunnerPostsKovaCompatibleMultipart()
+void TestSttSession::testColabSttRunnerUsesAsynchronousJobContract()
 {
     ColabSttMock server;
     QVERIFY(server.start());
@@ -324,20 +357,27 @@ void TestSttSession::testColabSttRunnerPostsKovaCompatibleMultipart()
     QVERIFY(QMetaObject::invokeMethod(runner, "transcribe", Qt::QueuedConnection,
                                       Q_ARG(ColabSttRequest, request)));
 
-    QVERIFY2(finished.wait(5000), "Colab STT worker did not finish.");
+    const bool completed = finished.wait(5000) || failures.count() > 0;
+    if (!completed) {
+        QMetaObject::invokeMethod(runner, "cancel", Qt::QueuedConnection);
+    }
+    workerThread.quit();
+    QVERIFY2(workerThread.wait(5000), "Colab STT worker thread did not stop.");
+    QVERIFY2(completed, qPrintable(QStringLiteral("Colab STT worker did not finish. Requests: %1")
+                                   .arg(QString::fromLatin1(server.requests()))));
     QCOMPARE(failures.count(), 0);
     QCOMPARE(finished.takeFirst().at(0).toString(), QStringLiteral("Hello world"));
-    const QByteArray body = server.request();
-    QVERIFY(body.startsWith("POST /v1/audio/transcriptions HTTP/1.1\r\n"));
-    QVERIFY(body.toLower().contains("authorization: bearer colab-test-token"));
-    QVERIFY(body.contains("name=\"model\""));
-    QVERIFY(body.contains("qwen3-asr-0.6b"));
-    QVERIFY(body.contains("name=\"response_format\""));
-    QVERIFY(body.contains("verbose_json"));
-    QVERIFY(body.contains("name=\"file\"; filename=\"audio.wav\""));
-    QVERIFY(body.contains("RIFF"));
-    workerThread.quit();
-    QVERIFY(workerThread.wait(5000));
+    const QByteArray requests = server.requests();
+    QVERIFY(requests.contains("POST /v2/jobs/transcriptions HTTP/1.1\r\n"));
+    QVERIFY(!requests.contains("POST /v1/audio/transcriptions HTTP/1.1\r\n"));
+    QVERIFY(requests.toLower().contains("authorization: bearer colab-test-token"));
+    QVERIFY(requests.contains("name=\"model\""));
+    QVERIFY(requests.contains("qwen3-asr-0.6b"));
+    QVERIFY(requests.contains("name=\"response_format\""));
+    QVERIFY(requests.contains("verbose_json"));
+    QVERIFY(requests.contains("name=\"file\"; filename=\"audio.wav\""));
+    QVERIFY(requests.contains("RIFF"));
+    QCOMPARE(requests.count("GET /v2/jobs/transcriptions/stt-job-1 HTTP/1.1\r\n"), 2);
 }
 
 void TestSttSession::testSpeechNotebookMatchesDirectColabSttContract()
@@ -390,6 +430,11 @@ void TestSttSession::testSpeechNotebookMatchesDirectColabSttContract()
         QVERIFY2(source.contains(expected.loaderNeedle), qPrintable(expected.fileName));
         QVERIFY(source.contains(QStringLiteral("if not torch.cuda.is_available()")));
         QVERIFY(source.contains(QStringLiteral("@app.post(\"/v1/audio/transcriptions\")")));
+        QVERIFY(source.contains(QStringLiteral("@app.post(\"/v2/jobs/transcriptions\", status_code=202)")));
+        QVERIFY(source.contains(QStringLiteral("@app.get(\"/v2/jobs/transcriptions/{job_id}\")")));
+        QVERIFY(source.contains(QStringLiteral("@app.delete(\"/v2/jobs/transcriptions/{job_id}\")")));
+        QVERIFY(source.contains(QStringLiteral("asyncio.create_task(run_job(job_id))")));
+        QVERIFY(source.contains(QStringLiteral("\"transcription_jobs\": \"/v2/jobs/transcriptions\"")));
         QVERIFY(source.contains(QStringLiteral("@app.get(\"/v1/capabilities\")")));
         QVERIFY(source.contains(QStringLiteral("\"contract_version\": 1")));
         QVERIFY(source.contains(QStringLiteral("if model.strip().lower() != MODEL_ID")));

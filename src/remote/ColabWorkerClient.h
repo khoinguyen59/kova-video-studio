@@ -31,6 +31,16 @@ public:
     bool transcribeWav(const QByteArray &wavData, const QString &model, const QString &language,
                        const std::shared_ptr<std::atomic_bool> &cancelToken,
                        QJsonObject *response, QString *errorMessage);
+    // Long recordings must not keep a Cloudflare tunnel request open while the
+    // GPU is transcribing.  The exact STT notebooks accept the upload, return
+    // a job id promptly, and expose the result through short status requests.
+    bool createTranscriptionJob(const QByteArray &wavData, const QString &model,
+                                const QString &language, QJsonObject *job,
+                                QString *errorMessage);
+    bool transcriptionJobStatus(const QString &jobId, QJsonObject *job,
+                                QString *errorMessage);
+    bool cancelTranscriptionJob(const QString &jobId,
+                                QString *errorMessage = nullptr);
     bool synthesizeSpeech(const QString &text, const QString &model, const QString &voice,
                           const QString &language, float speed, const QVariantMap &settings,
                           const std::shared_ptr<std::atomic_bool> &cancelToken,

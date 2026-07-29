@@ -21,6 +21,10 @@ namespace {
 // Uploads and GPU jobs can legitimately take minutes. A finite transfer
 // timeout still lets the UI recover when a Colab tunnel disappears silently.
 constexpr int kInferenceRequestTimeoutMs = 300'000;
+// A job-status request only reads metadata from the worker.  It must never
+// inherit the long upload/inference timeout, otherwise a disappeared tunnel
+// could keep the worker thread occupied for several minutes.
+constexpr int kJobStatusRequestTimeoutMs = 30'000;
 
 QString responseError(const QByteArray &body, int statusCode)
 {
@@ -199,6 +203,111 @@ bool ColabWorkerClient::transcribeWav(const QByteArray &wavData, const QString &
     }
     if (response) *response = document.object();
     return true;
+}
+
+bool ColabWorkerClient::createTranscriptionJob(const QByteArray &wavData,
+                                               const QString &model,
+                                               const QString &language,
+                                               QJsonObject *job,
+                                               QString *errorMessage)
+{
+    if (job) *job = {};
+    if (!m_workerUrl.isValid() || m_bearerToken.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab worker is not connected");
+        return false;
+    }
+    if (wavData.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Audio input is empty");
+        return false;
+    }
+    const QString normalizedModel = model.trimmed();
+    if (normalizedModel.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab STT model is required");
+        return false;
+    }
+
+    QNetworkAccessManager manager;
+    QNetworkRequest request(appendRemotePath(m_workerUrl,
+                                             QStringLiteral("v2/jobs/transcriptions")));
+    request.setTransferTimeout(kInferenceRequestTimeoutMs);
+    request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
+    request.setRawHeader("Accept", "application/json");
+    auto *multipart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
+    multipart->append(formField("model", normalizedModel.toUtf8()));
+    multipart->append(formField("response_format", "verbose_json"));
+    if (!language.trimmed().isEmpty()
+        && language.compare(QStringLiteral("auto"), Qt::CaseInsensitive) != 0) {
+        multipart->append(formField("language", language.trimmed().toUtf8()));
+    }
+    QHttpPart audioPart;
+    audioPart.setHeader(QNetworkRequest::ContentDispositionHeader,
+                        QVariant(QStringLiteral("form-data; name=\"file\"; filename=\"audio.wav\"")));
+    audioPart.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QStringLiteral("audio/wav")));
+    auto *audioBuffer = new QBuffer(multipart);
+    audioBuffer->setData(wavData);
+    audioBuffer->open(QIODevice::ReadOnly);
+    audioPart.setBodyDevice(audioBuffer);
+    multipart->append(audioPart);
+
+    QNetworkReply *reply = manager.post(request, multipart);
+    multipart->setParent(reply);
+    m_activeReply = reply;
+    QEventLoop eventLoop;
+    QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
+    if (!reply->isFinished()) eventLoop.exec();
+    m_activeReply = nullptr;
+    const bool ok = parseJsonResponse(reply, nullptr, job, errorMessage,
+                                      QStringLiteral("Colab worker returned an invalid transcription job"));
+    reply->deleteLater();
+    return ok;
+}
+
+bool ColabWorkerClient::transcriptionJobStatus(const QString &jobId, QJsonObject *job,
+                                               QString *errorMessage)
+{
+    if (job) *job = {};
+    if (!m_workerUrl.isValid() || m_bearerToken.isEmpty() || jobId.trimmed().isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab transcription job is unavailable");
+        return false;
+    }
+    QNetworkAccessManager manager;
+    QNetworkRequest request(appendRemotePath(
+        m_workerUrl, QStringLiteral("v2/jobs/transcriptions/%1").arg(jobId.trimmed())));
+    request.setTransferTimeout(kJobStatusRequestTimeoutMs);
+    request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
+    request.setRawHeader("Accept", "application/json");
+    QNetworkReply *reply = manager.get(request);
+    m_activeReply = reply;
+    QEventLoop eventLoop;
+    QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
+    if (!reply->isFinished()) eventLoop.exec();
+    m_activeReply = nullptr;
+    const bool ok = parseJsonResponse(reply, nullptr, job, errorMessage,
+                                      QStringLiteral("Colab worker returned an invalid transcription job status"));
+    reply->deleteLater();
+    return ok;
+}
+
+bool ColabWorkerClient::cancelTranscriptionJob(const QString &jobId, QString *errorMessage)
+{
+    if (!m_workerUrl.isValid() || m_bearerToken.isEmpty() || jobId.trimmed().isEmpty()) return false;
+    QNetworkAccessManager manager;
+    QNetworkRequest request(appendRemotePath(
+        m_workerUrl, QStringLiteral("v2/jobs/transcriptions/%1").arg(jobId.trimmed())));
+    request.setTransferTimeout(kJobStatusRequestTimeoutMs);
+    request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
+    request.setRawHeader("Accept", "application/json");
+    QNetworkReply *reply = manager.sendCustomRequest(request, "DELETE");
+    m_activeReply = reply;
+    QEventLoop eventLoop;
+    QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
+    if (!reply->isFinished()) eventLoop.exec();
+    m_activeReply = nullptr;
+    QJsonObject ignored;
+    const bool ok = parseJsonResponse(reply, nullptr, &ignored, errorMessage,
+                                      QStringLiteral("Colab worker returned an invalid transcription cancellation response"));
+    reply->deleteLater();
+    return ok;
 }
 
 bool ColabWorkerClient::synthesizeSpeech(const QString &text, const QString &model, const QString &voice,

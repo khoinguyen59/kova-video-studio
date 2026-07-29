@@ -32,6 +32,9 @@ public slots:
     void transcribe(const ColabSttRequest &request);
     void cancel();
 
+private slots:
+    void pollActiveJob();
+
 signals:
     void progress(int percent);
     void finished(const QString &text, const QVariantList &segments);
