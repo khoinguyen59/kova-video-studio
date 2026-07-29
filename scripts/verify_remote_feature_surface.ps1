@@ -74,6 +74,7 @@ $operationalColabDocs = @(
     'docs/DUBBING_REMOTE_EXECUTION_AUDIT.md',
     'docs/REMOTE_FEATURE_ACCEPTANCE_AUDIT.md',
     'docs/COLAB_EXACT_MODEL_STATUS_0.0.1.1.md',
+    'docs/COLAB_IMPLEMENTATION_STATUS_0.0.1.5.md',
     'docs/STT_COLAB_MODEL_AUDIT_0.0.0.9.md'
 )
 foreach ($docPath in $operationalColabDocs) {
