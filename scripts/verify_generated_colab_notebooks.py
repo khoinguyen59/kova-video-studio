@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
 import sys
 import tempfile
 from contextlib import redirect_stdout
@@ -20,6 +21,7 @@ from types import ModuleType
 
 ROOT = Path(__file__).resolve().parents[1]
 NOTEBOOKS = ROOT / "notebooks"
+LIVE_ACCEPTANCE_TEMPLATE = ROOT / "docs" / "LIVE_COLAB_ACCEPTANCE_TEMPLATE.json"
 GENERATORS = (
     "generate_stt_colab_notebooks.py",
     "generate_tts_colab_notebooks.py",
@@ -46,6 +48,7 @@ def main() -> int:
         raise RuntimeError(f"Notebook directory is missing: {NOTEBOOKS}")
 
     generated_names: set[str] = set()
+    generated_workers: set[tuple[str, str, str]] = set()
     mismatches: list[str] = []
     out_root = ROOT / "out"
     out_root.mkdir(exist_ok=True)
@@ -67,11 +70,58 @@ def main() -> int:
                 continue
             if generated.read_bytes() != tracked.read_bytes():
                 mismatches.append(f"notebook is stale; regenerate it: {generated.name}")
+            try:
+                metadata = json.loads(generated.read_text(encoding="utf-8")) \
+                    .get("metadata", {}).get("la_studio", {})
+                capability = str(metadata.get("capability", "")).strip().lower()
+                model = str(metadata.get("family_id", "")).strip().lower()
+                if not capability or not model:
+                    mismatches.append(f"notebook metadata has no exact worker identity: {generated.name}")
+                else:
+                    generated_workers.add((capability, model, generated.name))
+            except (OSError, json.JSONDecodeError) as error:
+                mismatches.append(f"notebook metadata cannot be read: {generated.name}: {error}")
 
     if len(generated_names) != EXPECTED_EXACT_NOTEBOOKS:
         mismatches.append(
             f"expected {EXPECTED_EXACT_NOTEBOOKS} exact-model notebooks from generators, got {len(generated_names)}"
         )
+    if not LIVE_ACCEPTANCE_TEMPLATE.is_file():
+        mismatches.append(f"live acceptance template is missing: {LIVE_ACCEPTANCE_TEMPLATE.name}")
+    else:
+        try:
+            template = json.loads(LIVE_ACCEPTANCE_TEMPLATE.read_text(encoding="utf-8"))
+            workers = template.get("workers")
+            if not isinstance(workers, list):
+                raise ValueError("top-level 'workers' must be an array")
+            template_workers: set[tuple[str, str, str]] = set()
+            environment_names: set[str] = set()
+            for index, worker in enumerate(workers):
+                if not isinstance(worker, dict):
+                    mismatches.append(f"live acceptance worker {index} is not an object")
+                    continue
+                capability = str(worker.get("capability", "")).strip().lower()
+                model = str(worker.get("model", "")).strip().lower()
+                notebook = str(worker.get("notebook", "")).strip()
+                url_env = str(worker.get("url_env", "")).strip()
+                token_env = str(worker.get("token_env", "")).strip()
+                if not all((capability, model, notebook, url_env, token_env)):
+                    mismatches.append(f"live acceptance worker {index} has an incomplete exact-worker identity")
+                    continue
+                template_workers.add((capability, model, notebook))
+                for environment_name in (url_env, token_env):
+                    if environment_name in environment_names:
+                        mismatches.append(f"live acceptance environment variable is reused: {environment_name}")
+                    environment_names.add(environment_name)
+            if template_workers != generated_workers:
+                missing = sorted(generated_workers - template_workers)
+                extra = sorted(template_workers - generated_workers)
+                if missing:
+                    mismatches.append(f"live acceptance template is missing exact workers: {missing}")
+                if extra:
+                    mismatches.append(f"live acceptance template has unknown exact workers: {extra}")
+        except (OSError, ValueError, json.JSONDecodeError) as error:
+            mismatches.append(f"live acceptance template cannot be read: {error}")
     if mismatches:
         raise RuntimeError("\n".join(mismatches))
 

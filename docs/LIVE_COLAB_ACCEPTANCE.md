@@ -47,6 +47,37 @@ python scripts/run_live_colab_acceptance.py `
   --report out\live-colab-acceptance.md
 ```
 
+## Exact-model template for all workers
+
+For the complete model inventory, generate a secret-free template outside the
+repository:
+
+```powershell
+python scripts/generate_live_colab_acceptance_template.py `
+  --output C:\Temp\la-studio-live-colab.json
+```
+
+It contains one entry for each of the 31 exact notebook workers. Each entry
+has its own URL/token environment-variable names, so a URL from one model
+cannot accidentally be reused to accept another. Replace only the
+`REPLACE_WITH_...` audio placeholders with short local test files; do not put
+URLs or tokens in the JSON file. When one notebook is ready, run only its
+entry, for example:
+
+```powershell
+$env:LASTUDIO_LIVE_TTS_KOKORO_URL = 'https://...trycloudflare.com'
+$env:LASTUDIO_LIVE_TTS_KOKORO_TOKEN = 'temporary-token-from-colab'
+python scripts/run_live_colab_acceptance.py `
+  --config C:\Temp\la-studio-live-colab.json `
+  --only tts:kokoro `
+  --report out\live-colab-kokoro.md
+```
+
+The tracked [template](LIVE_COLAB_ACCEPTANCE_TEMPLATE.json) is generated from
+notebook metadata and checked by `verify_generated_colab_notebooks.py`. A
+model cannot be added, renamed, or removed without updating its live
+acceptance entry.
+
 For `stt`, `forced-alignment`, `voice-isolation`, and `voice-cloning`, the
 worker entry must include `audio_path`.  Alignment also needs `transcript`;
 voice cloning needs `reference_text`.  These are mandatory so the tool cannot
