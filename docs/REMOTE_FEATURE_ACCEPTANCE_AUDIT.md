@@ -19,7 +19,8 @@ must never be sent through Gateway.
 | Existing automated suite | Pass before the new audit fixes | `ctest --test-dir out/build/windows-msvc-release --output-on-failure`: **34/34** tests passed, including all Colab runners, Gateway TTS, remote contract and QML route smoke. |
 | Notebook source inventory | Pass for current source | 38 source notebooks are present, including exact-model workers for STT, TTS, Voice Clone, Voice Design, Forced Alignment, Voice Isolation, Translation and LLM Chat. The prior `0.0.0.5` package predates this inventory and is not acceptance evidence. |
 | Notebook-to-feature mapping | Pass | STT, TTS, Clone, Design, Alignment, Isolation, Translation and Chat panels reference the intended notebook names. |
-| Current source compile and test suite | Pass | Rebuilt with the MSVC environment; `ctest --test-dir out/build/windows-msvc-release -C Release --output-on-failure` passed **34/34** after exact Dubbing routing. |
+| Current source compile and test suite | Pass | Rebuilt `LA-Studio-0.0.0.9.exe` with the MSVC environment; `scripts/run_tests.ps1 -NoBuild` completed with exit code **0**. The Remote Execution suite now has **30/30** checks, including asynchronous worker verification. |
+| Current QML syntax gate | Pass | `scripts/lint_qml.ps1` completed with exit code **0** after all feature panels gained a visible Colab verification state. |
 | Current remote UI contract gate | Pass | `scripts/verify_remote_feature_surface.ps1` verified **8/8** direct Colab routes, including notebook, URL/token fields, CUDA guard and endpoint surface. |
 | Dubbing exact-route contract | Pass | **27** exact routes are mapped across isolation, STT, translation, TTS, clone and optional alignment; `TestDubbingProject` passed **52/52**. |
 | Public notebook inventory | Pass | All **27/27** exact notebooks used by Dubbing are visible on public branch `codex/remote-inference`. |
@@ -109,18 +110,27 @@ into the matching studio; no token is persisted in Settings.
    application logs were also corrected. These corrections compile and pass
    the full automated suite; a focused card-switch UI rerun remains required.
 
-### Must be fixed or live-verified before acceptance
+### Fixed source-level connection gate
 
-1. **Connection status is optimistic.** `connectColab()` implementations
-   validate URL/token syntax and immediately select the route, but do not
-   prove `/health` is reachable, CUDA is available, or the required capability
-   is advertised before the UI calls it “Using Colab GPU”.  Gateway selection
-   likewise validates configuration but does not preflight its model catalog
-   at the feature level.  This is a release blocker: the app needs an
-   asynchronous per-feature preflight state (`checking`, `ready`, `failed`)
-   and must not enable execution after a failed preflight.
+1. **Direct Colab pairing is now verified, not optimistic.** The shared
+   `ColabSession` first enters `checking`, calls `/health`, then calls
+   `/v1/capabilities` with the temporary bearer token. It requires
+   `ready=true`, CUDA (and no CPU fallback), `contract_version=1`, the selected
+   capability, the exact selected model, a CUDA-backed model entry, and a
+   loaded model. Only then does `active=true` and the feature route activate.
+   A failed, stale, wrong-model, wrong-capability, CPU, or unreachable worker
+   stays inactive and presents a useful error without exposing the token.
 
-2. **No external live evidence exists yet.** A real Colab GPU session and a
+2. **Feature UI now exposes the true connection state.** STT, TTS, Voice
+   Clone, Voice Design, Isolation, Alignment, Translation, Chat and all
+   Dubbing worker dialogs display `checking`, verified CUDA/model, or failure
+   state next to their URL/token fields; actions are disabled while checking.
+   Remote Execution tests cover valid CUDA, CPU rejection, wrong model,
+   missing capability, stale request replacement, and all required UI surfaces.
+
+### Must be live-verified before acceptance
+
+1. **No external live evidence exists yet.** A real Colab GPU session and a
    configured 9Router/API Gateway are not present in this workspace.  The
    required tests cannot be substituted by a mock: the actual notebook must
    run, print URL/token, return `ready=true`, `device=cuda`, the expected
@@ -151,8 +161,8 @@ For every row in the route matrix, perform and record all of these steps:
 
 ## Gate to authorize the next package
 
-Do **not** build or package a new candidate until the source-level fixes above
-have automated contract checks and a Windows UI regression pass.  Do **not**
-accept a candidate until the real Gateway and real GPU Colab live tests have
-evidence for each route that the user intends to use.  Missing credentials are
-an external-test blocker, not a reason to mark a feature complete.
+The source-level candidate is compiled, unit-tested and QML-linted. Do **not**
+accept or package a release candidate until the real Gateway and real GPU Colab
+live tests have evidence for each route that the user intends to use. Missing
+credentials are an external-test blocker, not a reason to mark a feature
+complete.

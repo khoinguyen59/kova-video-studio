@@ -13,6 +13,10 @@ private slots:
     void apiGatewayEndpointNormalizesV1Url();
     void colabSessionIsMemoryOnlyAndCanBeCleared();
     void temporaryColabWorkerWrapperValidatesAndRemainsEphemeral();
+    void temporaryColabWorkerVerifiesCudaCapabilityAndExactModel();
+    void temporaryColabWorkerRejectsCpuWrongModelAndWrongCapability();
+    void newerColabVerificationSupersedesStaleRequest();
+    void everyGpuFeatureSurfacesVerifiedColabSessionState();
     void appControllerScopesColabSessionsPerCapability();
     void gatewayCredentialUsesDedicatedSecureStoreEntry();
     void remoteFirstModeIsExplicitAndPersistent();

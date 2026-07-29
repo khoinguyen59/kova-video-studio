@@ -432,15 +432,18 @@ StudioShell {
             GatewayField { id: translationColabUrl; text: AppController.colabTranslationSession.workerUrl; placeholderText: qsTr("https://…trycloudflare.com") }
             Text { text: qsTr("Session token"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
             GatewayField { id: translationColabToken; echoMode: TextInput.Password; placeholderText: translation.colabActive ? qsTr("Connected — enter token to replace") : qsTr("Temporary token from Colab") }
+            ColabSessionStatus { session: AppController.colabTranslationSession }
             Text { text: qsTr("Selected Colab model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
             Text { Layout.fillWidth: true; text: translation.colabModel; color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WrapAnywhere }
             Text { text: qsTr("Exact notebook"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
             Text { Layout.fillWidth: true; text: translation.colabNotebookFile; color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WrapAnywhere }
             PrimaryButton {
                 Layout.fillWidth: true
-                text: translation.colabActive ? qsTr("Using Colab GPU") : qsTr("Connect Colab GPU")
+                text: AppController.colabTranslationSession.checking
+                      ? qsTr("Verifying CUDA and exact model...")
+                      : (translation.colabActive ? qsTr("Using Colab GPU") : qsTr("Connect Colab GPU"))
                 iconName: "cloud"
-                enabled: !translation.processing
+                enabled: !translation.processing && !AppController.colabTranslationSession.checking
                 onClicked: {
                     if (translation.colabActive) translation.useColab()
                     else if (translation.connectColab(translationColabUrl.text.trim(), translationColabToken.text)) translationColabToken.text = ""

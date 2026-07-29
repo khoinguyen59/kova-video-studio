@@ -43,6 +43,13 @@ prints a temporary HTTPS URL and token. Pair those values in the corresponding
 studio settings. Colab session values stay in memory and must be paired again
 after a notebook or Colab runtime reset.
 
+The app does not treat a pasted URL/token as connected immediately. It shows
+**Checking** while it calls that worker's `/health` and `/v1/capabilities` with
+the token, and only enables the feature after it verifies `ready=true`, CUDA,
+the selected capability and the exact selected model. A CPU worker, expired
+tunnel, wrong notebook/model, or incompatible capability remains inactive and
+shows an error beside the feature's URL/token fields.
+
 Each capability has its own in-memory Colab session. Pairing a TTS, alignment,
 translation, or voice worker never replaces the URL/token paired for another
 capability; this is necessary because their notebooks may run as distinct

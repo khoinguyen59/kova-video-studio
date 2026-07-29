@@ -77,6 +77,13 @@ TranslationController::TranslationController(TranslationEngine *engine, Translat
             if (!m_colabSession->isActive()) m_provider = Provider::Local;
             emit colabStateChanged();
         });
+        connect(m_colabSession, &ColabSession::verificationFinished, this,
+                [this](bool success, const QString &message) {
+            if (!m_activateColabWhenVerified) return;
+            m_activateColabWhenVerified = false;
+            if (success) useColab();
+            else setError(message);
+        });
     }
     if (m_settings) {
         connect(m_settings, &Settings::gatewayTranslationModelChanged,
@@ -131,7 +138,9 @@ void TranslationController::setColabModel(const QString &value)
     if (normalized == m_colabModel) return;
     if (m_processing && m_provider == Provider::Colab) cancel();
     ++m_routeRevision;
-    if (m_colabSession && m_colabSession->isActive()) m_colabSession->clear();
+    if (m_colabSession
+        && (m_colabSession->isActive() || m_colabSession->isChecking()))
+        m_colabSession->clear();
     m_colabModel = normalized;
     emit colabModelChanged();
 }
@@ -194,12 +203,14 @@ bool TranslationController::connectColab(const QString &workerUrl, const QString
         return false;
     }
     QString error;
-    if (!m_colabSession->setSession(workerUrl, bearerToken, &error)) {
+    m_activateColabWhenVerified = true;
+    if (!m_colabSession->beginVerifiedSession(
+            workerUrl, bearerToken, QStringLiteral("translation"), m_colabModel, &error)) {
+        m_activateColabWhenVerified = false;
         setError(error);
         return false;
     }
-    useColab();
-    return colabActive();
+    return true;
 }
 void TranslationController::useColab()
 {

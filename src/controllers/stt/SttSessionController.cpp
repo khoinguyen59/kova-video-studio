@@ -47,6 +47,16 @@ SttSessionController::SttSessionController(QObject *parent)
     if (m_colabSession) {
         connect(m_colabSession, &ColabSession::sessionChanged,
                 this, &SttSessionController::colabStateChanged);
+        connect(m_colabSession, &ColabSession::verificationFinished, this,
+                [this](bool success, const QString &message) {
+            if (!m_activateColabWhenVerified) return;
+            m_activateColabWhenVerified = false;
+            if (success) {
+                selectProvider(ExecutionProvider::ColabDirect);
+            } else {
+                emit transcriptionFailed(message);
+            }
+        });
     }
     qRegisterMetaType<GatewaySttRequest>("GatewaySttRequest");
     m_gatewayRunner = new GatewaySttRunner;
@@ -186,7 +196,8 @@ void SttSessionController::setColabModel(const QString &model)
     if (m_colabModel == normalized) return;
     if (processing() && m_selectedProvider == ExecutionProvider::ColabDirect)
         cancelProcessing();
-    if (m_colabSession && m_colabSession->isActive())
+    if (m_colabSession
+        && (m_colabSession->isActive() || m_colabSession->isChecking()))
         m_colabSession->clear();
     m_colabModel = normalized;
     emit colabModelChanged();
@@ -622,15 +633,20 @@ void SttSessionController::onPlaybackStateChanged()
 bool SttSessionController::connectColab(const QString &workerUrl, const QString &bearerToken)
 {
     if (!m_colabSession) return false;
+    if (m_colabModel.isEmpty()) {
+        emit transcriptionFailed(QStringLiteral(
+            "Select one of the four STT models for Colab GPU first."));
+        return false;
+    }
     QString error;
-    if (!m_colabSession->setSession(workerUrl, bearerToken, &error)) {
+    m_activateColabWhenVerified = true;
+    if (!m_colabSession->beginVerifiedSession(
+            workerUrl, bearerToken, QStringLiteral("stt"), m_colabModel, &error)) {
+        m_activateColabWhenVerified = false;
         emit transcriptionFailed(error);
         return false;
     }
-    // Pairing a direct worker only establishes the temporary Colab session.
-    // It must not modify the independently configured API Gateway route.
-    useColab();
-    return colabActive();
+    return true;
 }
 
 void SttSessionController::disconnectColab()

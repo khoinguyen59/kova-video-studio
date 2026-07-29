@@ -135,6 +135,7 @@ private:
     bool m_processing = false;
     Provider m_provider = Provider::Local;
     Provider m_activeProvider = Provider::Local;
+    bool m_activateColabWhenVerified = false;
     QString m_colabModel = QStringLiteral("m2m100-418m");
     quint64 m_routeRevision = 0;
     quint64 m_activeRouteRevision = 0;

@@ -92,6 +92,7 @@ private:
     QThread m_thread;
     std::shared_ptr<std::atomic_bool> m_cancellation;
     bool m_colabActive = false;
+    bool m_activateColabWhenVerified = false;
     QString m_model = QStringLiteral("qwen3-tts-1.7b-voicedesign");
     quint64 m_sessionRevision = 0;
     quint64 m_activeSessionRevision = 0;

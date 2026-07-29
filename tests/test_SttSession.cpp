@@ -237,6 +237,22 @@ void TestSttSession::testSttRouteSelectionDoesNotFallbackAcrossGatewayAndColab()
     QVERIFY(session.selectColabModel(QStringLiteral("qwen3-asr-0.6b")));
     QVERIFY(session.connectColab(QStringLiteral("https://worker.example.test"),
                                  QStringLiteral("temporary-colab-token")));
+    ColabSession *workerSession = AppController::instance()->colabSttSession();
+    QVERIFY(workerSession);
+    QVERIFY(workerSession->isChecking());
+    QVERIFY(!session.colabPaired());
+    QVERIFY(!session.colabActive());
+
+    // The route-selection assertions below do not need a network worker.
+    // Install a trusted in-memory contract session after proving that the
+    // production connect path remains inactive while verification is pending.
+    workerSession->clear();
+    QString workerError;
+    QVERIFY2(workerSession->setSession(
+                 QStringLiteral("https://worker.example.test"),
+                 QStringLiteral("temporary-colab-token"), &workerError),
+             qPrintable(workerError));
+    session.useColab();
     QVERIFY(session.colabPaired());
     QVERIFY(session.colabActive());
 

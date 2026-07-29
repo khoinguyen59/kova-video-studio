@@ -128,6 +128,7 @@ private:
     ColabChatRunner *m_colabRunner = nullptr;
     QThread m_colabThread;
     Provider m_provider = Provider::Local;
+    bool m_activateColabWhenVerified = false;
     QString m_colabModel = QStringLiteral("qwen3.5-2b");
     QVariantList m_conversations;
     QVariantList m_messages;

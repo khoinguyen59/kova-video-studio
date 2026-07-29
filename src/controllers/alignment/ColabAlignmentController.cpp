@@ -25,6 +25,13 @@ ColabAlignmentController::ColabAlignmentController(ColabSession *session, Settin
     if (m_session) {
         connect(m_session, &ColabSession::sessionChanged,
                 this, &ColabAlignmentController::onSessionChanged);
+        connect(m_session, &ColabSession::verificationFinished, this,
+                [this](bool success, const QString &message) {
+            if (!m_activateColabWhenVerified) return;
+            m_activateColabWhenVerified = false;
+            if (success) useColab();
+            else setError(message);
+        });
     }
     if (m_settings) {
         connect(m_settings, &Settings::remoteFirstModeChanged,
@@ -78,7 +85,7 @@ void ColabAlignmentController::setModel(const QString &model)
     if (normalized == m_model) return;
     cancel();
     clearResult();
-    if (m_session && m_session->isActive()) {
+    if (m_session && (m_session->isActive() || m_session->isChecking())) {
         m_colabActive = false;
         m_session->clear();
         emit colabStateChanged();
@@ -105,11 +112,13 @@ bool ColabAlignmentController::connectColab(const QString &workerUrl, const QStr
         return false;
     }
     QString error;
-    if (!m_session->setSession(workerUrl, bearerToken, &error)) {
+    m_activateColabWhenVerified = true;
+    if (!m_session->beginVerifiedSession(
+            workerUrl, bearerToken, QStringLiteral("forced-alignment"), m_model, &error)) {
+        m_activateColabWhenVerified = false;
         setError(error);
         return false;
     }
-    useColab();
     return true;
 }
 

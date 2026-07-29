@@ -56,6 +56,13 @@ LlmChatController::LlmChatController(LlmChatEngine *engine, LlmChatModelSession 
             emit colabStateChanged();
             emit gatewayStateChanged();
         });
+        connect(m_colabSession, &ColabSession::verificationFinished, this,
+                [this](bool success, const QString &message) {
+            if (!m_activateColabWhenVerified) return;
+            m_activateColabWhenVerified = false;
+            if (success) useColab();
+            else setError(message);
+        });
     }
     load();
     ensureActive();
@@ -114,7 +121,9 @@ void LlmChatController::setColabModel(const QString &value)
     }
     if (normalized == m_colabModel) return;
     if (m_generating) stopGeneration();
-    if (m_colabSession && m_colabSession->isActive()) m_colabSession->clear();
+    if (m_colabSession
+        && (m_colabSession->isActive() || m_colabSession->isChecking()))
+        m_colabSession->clear();
     m_colabModel = normalized;
     emit colabModelChanged();
 }
@@ -246,9 +255,14 @@ bool LlmChatController::connectColab(const QString &workerUrl, const QString &be
 {
     if (!m_colabSession) { setError(QStringLiteral("Colab session is unavailable.")); return false; }
     QString error;
-    if (!m_colabSession->setSession(workerUrl, bearerToken, &error)) { setError(error); return false; }
-    useColab();
-    return colabActive();
+    m_activateColabWhenVerified = true;
+    if (!m_colabSession->beginVerifiedSession(
+            workerUrl, bearerToken, QStringLiteral("llm-chat"), m_colabModel, &error)) {
+        m_activateColabWhenVerified = false;
+        setError(error);
+        return false;
+    }
+    return true;
 }
 void LlmChatController::useColab()
 {

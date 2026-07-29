@@ -225,15 +225,18 @@ StudioShell {
                 NumberField { id: colabUrl; Layout.fillWidth: true; text: AppController.colabChatSession.workerUrl; placeholderText: qsTr("https://…trycloudflare.com") }
                 Text { text: qsTr("Session token"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 NumberField { id: colabToken; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: chat.colabActive ? qsTr("Connected — enter token to replace") : qsTr("Temporary token from Colab") }
+                ColabSessionStatus { session: AppController.colabChatSession }
                 Text { text: qsTr("Selected Colab model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 Text { Layout.fillWidth: true; text: chat.colabModel; color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WrapAnywhere }
                 Text { text: qsTr("Exact notebook"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 Text { Layout.fillWidth: true; text: chat.colabNotebookFile; color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WrapAnywhere }
                 PrimaryButton {
                     Layout.fillWidth: true
-                    text: chat.colabActive ? qsTr("Using Colab GPU") : qsTr("Connect Colab GPU")
+                    text: AppController.colabChatSession.checking
+                          ? qsTr("Verifying CUDA and exact model...")
+                          : (chat.colabActive ? qsTr("Using Colab GPU") : qsTr("Connect Colab GPU"))
                     iconName: "cloud"
-                    enabled: !chat.generating
+                    enabled: !chat.generating && !AppController.colabChatSession.checking
                     onClicked: {
                         if (chat.colabActive) chat.useColab()
                         else if (chat.connectColab(colabUrl.text.trim(), colabToken.text)) colabToken.text = ""

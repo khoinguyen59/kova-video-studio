@@ -98,6 +98,7 @@ private:
     QThread m_thread;
     std::shared_ptr<std::atomic_bool> m_cancellation;
     bool m_colabActive = false;
+    bool m_activateColabWhenVerified = false;
     QString m_colabModel = QStringLiteral("kokoro");
     QString m_colabVoice = QStringLiteral("af_heart");
     QString m_colabLanguage = QStringLiteral("en");

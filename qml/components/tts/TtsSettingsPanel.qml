@@ -392,6 +392,9 @@ ColumnLayout {
                     echoMode: TextInput.Password
                     placeholderText: AppController.colabTts.colabConnected ? qsTr("Connected — enter token to replace") : qsTr("Temporary token from Colab")
                 }
+                ColabSessionStatus {
+                    session: AppController.colabTtsSession
+                }
                 Text { text: qsTr("Voice"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 GatewayField {
                     text: AppController.colabTts.colabVoice
@@ -407,14 +410,17 @@ ColumnLayout {
                 PrimaryButton {
                     Layout.fillWidth: true
                     enabled: !root.locked && AppController.colabTts.colabModel !== ""
+                             && !AppController.colabTtsSession.checking
                              && !(root.remoteFirstMode && AppController.colabTts.colabActive && root.selectedRemoteProvider === "colab")
-                    text: root.remoteFirstMode
+                    text: AppController.colabTtsSession.checking
+                          ? qsTr("Verifying CUDA and exact model...")
+                          : (root.remoteFirstMode
                           ? (AppController.colabTts.colabActive
                              ? (root.selectedRemoteProvider === "colab" ? qsTr("Direct Colab GPU TTS selected") : qsTr("Select direct Colab GPU TTS"))
                              : (AppController.colabTts.colabConnected ? qsTr("Use direct Colab GPU TTS") : qsTr("Connect direct Colab GPU TTS")))
                           : (AppController.colabTts.colabActive && root.selectedRemoteProvider === "colab"
                              ? qsTr("Use local TTS")
-                             : (AppController.colabTts.colabActive ? qsTr("Select Colab GPU TTS") : (AppController.colabTts.colabConnected ? qsTr("Use Colab GPU TTS") : qsTr("Connect Colab GPU TTS"))))
+                             : (AppController.colabTts.colabActive ? qsTr("Select Colab GPU TTS") : (AppController.colabTts.colabConnected ? qsTr("Use Colab GPU TTS") : qsTr("Connect Colab GPU TTS")))))
                     iconName: root.remoteFirstMode || !(AppController.colabTts.colabActive && root.selectedRemoteProvider === "colab") ? "cloud" : "close"
                     onClicked: {
                         if (AppController.colabTts.colabActive && !root.remoteFirstMode && root.selectedRemoteProvider === "colab") {

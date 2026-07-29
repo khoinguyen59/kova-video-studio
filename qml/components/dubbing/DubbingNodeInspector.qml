@@ -549,7 +549,9 @@ Rectangle {
             }
             if (!AppController.colabVoiceCloneSession.connectTemporaryWorker(
                     voiceCloneWorkerUrl.text.trim(),
-                    voiceCloneWorkerToken.text)) {
+                    voiceCloneWorkerToken.text,
+                    "voice-cloning",
+                    root.voiceCloneModelId)) {
                 voiceCloneWorkerError.text =
                     AppController.colabVoiceCloneSession.lastError
                 voiceCloneColabDialog.open()
@@ -582,6 +584,9 @@ Rectangle {
                 echoMode: TextInput.Password
                 placeholderText: qsTr("Temporary token from Colab")
                 selectByMouse: true
+            }
+            ColabSessionStatus {
+                session: AppController.colabVoiceCloneSession
             }
             Text {
                 id: voiceCloneWorkerError
@@ -616,7 +621,9 @@ Rectangle {
             }
             if (!AppController.colabAlignmentSession.connectTemporaryWorker(
                     alignmentWorkerUrl.text.trim(),
-                    alignmentWorkerToken.text)) {
+                    alignmentWorkerToken.text,
+                    "forced-alignment",
+                    root.alignmentModelId)) {
                 alignmentWorkerError.text =
                     AppController.colabAlignmentSession.lastError
                 alignmentColabDialog.open()
@@ -649,6 +656,9 @@ Rectangle {
                 echoMode: TextInput.Password
                 placeholderText: qsTr("Temporary token from Colab")
                 selectByMouse: true
+            }
+            ColabSessionStatus {
+                session: AppController.colabAlignmentSession
             }
             Text {
                 id: alignmentWorkerError

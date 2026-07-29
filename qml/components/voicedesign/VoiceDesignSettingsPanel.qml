@@ -296,6 +296,9 @@ ColumnLayout {
                     placeholderText: AppController.colabVoiceDesign.colabConnected ? qsTr("Connected — enter token to replace") : qsTr("Temporary token from Colab")
                     enabled: !root.locked
                 }
+                ColabSessionStatus {
+                    session: AppController.colabVoiceDesignSession
+                }
                 Text { text: qsTr("Model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 Text { Layout.fillWidth: true; text: AppController.colabVoiceDesign.model; color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WrapAnywhere }
                 Text { text: qsTr("Temperature"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
@@ -309,10 +312,13 @@ ColumnLayout {
                     Layout.fillWidth: true
                     enabled: !root.locked
                              && AppController.colabVoiceDesign.colabNotebookFile !== ""
+                             && !AppController.colabVoiceDesignSession.checking
                              && !(root.remoteFirstMode && AppController.colabVoiceDesign.colabActive)
-                    text: root.remoteFirstMode
+                    text: AppController.colabVoiceDesignSession.checking
+                          ? qsTr("Verifying CUDA and exact model...")
+                          : (root.remoteFirstMode
                           ? (AppController.colabVoiceDesign.colabActive ? qsTr("Direct Colab GPU VoiceDesign active") : (AppController.colabVoiceDesign.colabConnected ? qsTr("Use direct Colab GPU VoiceDesign") : qsTr("Connect direct Colab GPU VoiceDesign")))
-                          : (AppController.colabVoiceDesign.colabActive ? qsTr("Use local VoiceDesign") : (AppController.colabVoiceDesign.colabConnected ? qsTr("Use Colab GPU VoiceDesign") : qsTr("Connect Colab GPU VoiceDesign")))
+                          : (AppController.colabVoiceDesign.colabActive ? qsTr("Use local VoiceDesign") : (AppController.colabVoiceDesign.colabConnected ? qsTr("Use Colab GPU VoiceDesign") : qsTr("Connect Colab GPU VoiceDesign"))))
                     iconName: root.remoteFirstMode || !AppController.colabVoiceDesign.colabActive ? "cloud" : "close"
                     onClicked: {
                         if (AppController.colabVoiceDesign.colabActive && !root.remoteFirstMode) {

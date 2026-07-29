@@ -93,6 +93,16 @@ RemoteModelCatalogController::RemoteModelCatalogController(
         if (session) {
             connect(session, &ColabSession::sessionChanged, this,
                     &RemoteModelCatalogController::clearColabCatalog);
+            connect(session, &ColabSession::verificationFinished, this,
+                    [this](bool success, const QString &message) {
+                if (success) {
+                    refreshColab();
+                } else {
+                    m_colabError = message;
+                    m_colabAvailable = false;
+                    emit colabStateChanged();
+                }
+            });
         }
     }
 }
@@ -170,13 +180,16 @@ bool RemoteModelCatalogController::pairColab(const QString &workerUrl,
         return false;
     }
     QString error;
-    if (!session->setSession(workerUrl, bearerToken, &error)) {
+    if (!session->beginVerifiedSession(workerUrl, bearerToken, {}, {}, &error,
+                                       m_allowInsecureLocalhostForTesting)) {
         m_colabError = error;
         m_colabAvailable = false;
         emit colabStateChanged();
         return false;
     }
-    refreshColab();
+    m_colabError = QStringLiteral("Checking Colab CUDA worker...");
+    m_colabAvailable = false;
+    emit colabStateChanged();
     return true;
 }
 

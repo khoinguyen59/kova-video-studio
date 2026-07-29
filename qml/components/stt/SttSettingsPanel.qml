@@ -235,11 +235,19 @@ Rectangle {
                             echoMode: TextInput.Password
                             placeholderText: root.sttSession && root.sttSession.colabActive ? qsTr("Connected — enter token to replace") : qsTr("Temporary token from Colab")
                         }
+                        ColabSessionStatus {
+                            session: AppController.colabSttSession
+                        }
                         PrimaryButton {
                             Layout.fillWidth: true
-                            text: root.sttSession && root.sttSession.colabActive ? qsTr("Using Colab GPU") : qsTr("Use or connect Colab GPU")
+                            text: AppController.colabSttSession.checking
+                                  ? qsTr("Verifying CUDA and exact model...")
+                                  : (root.sttSession && root.sttSession.colabActive
+                                     ? qsTr("Using Colab GPU")
+                                     : qsTr("Use or connect Colab GPU"))
                             iconName: root.sttSession && root.sttSession.colabActive ? "check" : "cloud"
                             enabled: root.sttSession && root.sttSession.colabModel !== ""
+                                     && !AppController.colabSttSession.checking
                             onClicked: {
                                 if (!root.sttSession) return
                                 if (root.sttSession.colabPaired) {

@@ -95,6 +95,7 @@ private:
     std::shared_ptr<std::atomic_bool> m_cancellation;
     std::unique_ptr<QTemporaryDir> m_tempDir;
     bool m_colabActive = false;
+    bool m_activateColabWhenVerified = false;
     QString m_model = QStringLiteral("sherpa-onnx-spleeter-2stems-fp16");
     bool m_processing = false;
     int m_progress = 0;

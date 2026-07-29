@@ -194,6 +194,9 @@ ColumnLayout {
                     placeholderText: AppController.colabVoiceClone.colabConnected ? qsTr("Connected — enter token to replace") : qsTr("Temporary token from Colab")
                     enabled: !root.locked
                 }
+                ColabSessionStatus {
+                    session: AppController.colabVoiceCloneSession
+                }
                 Text { text: qsTr("Profile name"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 ColabField {
                     text: root.colabProfileName
@@ -211,10 +214,13 @@ ColumnLayout {
                     Layout.fillWidth: true
                     enabled: !root.locked
                              && AppController.colabVoiceClone.colabNotebookFile !== ""
+                             && !AppController.colabVoiceCloneSession.checking
                              && !(root.remoteFirstMode && AppController.colabVoiceClone.colabActive)
-                    text: root.remoteFirstMode
+                    text: AppController.colabVoiceCloneSession.checking
+                          ? qsTr("Verifying CUDA and exact model...")
+                          : (root.remoteFirstMode
                           ? (AppController.colabVoiceClone.colabActive ? qsTr("Direct Colab GPU voice cloning active") : (AppController.colabVoiceClone.colabConnected ? qsTr("Use direct Colab GPU voice cloning") : qsTr("Connect direct Colab GPU voice cloning")))
-                          : (AppController.colabVoiceClone.colabActive ? qsTr("Use local voice cloning") : (AppController.colabVoiceClone.colabConnected ? qsTr("Use Colab GPU voice cloning") : qsTr("Connect Colab GPU voice cloning")))
+                          : (AppController.colabVoiceClone.colabActive ? qsTr("Use local voice cloning") : (AppController.colabVoiceClone.colabConnected ? qsTr("Use Colab GPU voice cloning") : qsTr("Connect Colab GPU voice cloning"))))
                     iconName: root.remoteFirstMode || !AppController.colabVoiceClone.colabActive ? "cloud" : "close"
                     onClicked: {
                         if (AppController.colabVoiceClone.colabActive && !root.remoteFirstMode) {

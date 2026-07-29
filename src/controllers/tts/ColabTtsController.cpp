@@ -33,7 +33,17 @@ ColabTtsController::ColabTtsController(ColabSession *session, Settings *settings
     connect(m_runner, &ColabTtsRunner::progress, this, &ColabTtsController::onRunnerProgress);
     connect(m_runner, &ColabTtsRunner::finished, this, &ColabTtsController::onRunnerFinished);
     connect(m_runner, &ColabTtsRunner::failed, this, &ColabTtsController::onRunnerFailed);
-    if (m_session) connect(m_session, &ColabSession::sessionChanged, this, &ColabTtsController::onSessionChanged);
+    if (m_session) {
+        connect(m_session, &ColabSession::sessionChanged,
+                this, &ColabTtsController::onSessionChanged);
+        connect(m_session, &ColabSession::verificationFinished, this,
+                [this](bool success, const QString &message) {
+            if (!m_activateColabWhenVerified) return;
+            m_activateColabWhenVerified = false;
+            if (success) useColab();
+            else emit errorOccurred(message);
+        });
+    }
     m_thread.start();
 }
 
@@ -58,7 +68,7 @@ void ColabTtsController::setColabModel(const QString &model)
         return;
     }
     if (normalized == m_colabModel) return;
-    if (m_session && m_session->isActive()) {
+    if (m_session && (m_session->isActive() || m_session->isChecking())) {
         m_colabActive = false;
         m_session->clear();
         emit colabStateChanged();
@@ -157,11 +167,13 @@ bool ColabTtsController::connectColab(const QString &workerUrl, const QString &b
         return false;
     }
     QString error;
-    if (!m_session->setSession(workerUrl, bearerToken, &error)) {
+    m_activateColabWhenVerified = true;
+    if (!m_session->beginVerifiedSession(
+            workerUrl, bearerToken, QStringLiteral("tts"), m_colabModel, &error)) {
+        m_activateColabWhenVerified = false;
         emit errorOccurred(error);
         return false;
     }
-    useColab();
     return true;
 }
 

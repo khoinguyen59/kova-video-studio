@@ -26,7 +26,17 @@ ColabVoiceIsolatorController::ColabVoiceIsolatorController(ColabSession *session
     connect(m_runner, &ColabSeparationRunner::progress, this, &ColabVoiceIsolatorController::onRunnerProgress);
     connect(m_runner, &ColabSeparationRunner::finished, this, &ColabVoiceIsolatorController::onRunnerFinished);
     connect(m_runner, &ColabSeparationRunner::failed, this, &ColabVoiceIsolatorController::onRunnerFailed);
-    if (m_session) connect(m_session, &ColabSession::sessionChanged, this, &ColabVoiceIsolatorController::onSessionChanged);
+    if (m_session) {
+        connect(m_session, &ColabSession::sessionChanged,
+                this, &ColabVoiceIsolatorController::onSessionChanged);
+        connect(m_session, &ColabSession::verificationFinished, this,
+                [this](bool success, const QString &message) {
+            if (!m_activateColabWhenVerified) return;
+            m_activateColabWhenVerified = false;
+            if (success) useColab();
+            else setError(message);
+        });
+    }
     if (m_settings) connect(m_settings, &Settings::remoteFirstModeChanged,
                             this, &ColabVoiceIsolatorController::onRemoteFirstModeChanged);
     m_thread.start();
@@ -71,7 +81,7 @@ void ColabVoiceIsolatorController::setModel(const QString &model)
     if (normalized == m_model) return;
     cancel();
     clearResult();
-    if (m_session && m_session->isActive()) {
+    if (m_session && (m_session->isActive() || m_session->isChecking())) {
         m_colabActive = false;
         m_session->clear();
         emit colabStateChanged();
@@ -104,8 +114,13 @@ bool ColabVoiceIsolatorController::connectColab(const QString &workerUrl, const 
 {
     if (!m_session) { setError(QStringLiteral("Colab session is unavailable")); return false; }
     QString error;
-    if (!m_session->setSession(workerUrl, bearerToken, &error)) { setError(error); return false; }
-    useColab();
+    m_activateColabWhenVerified = true;
+    if (!m_session->beginVerifiedSession(
+            workerUrl, bearerToken, QStringLiteral("voice-isolation"), m_model, &error)) {
+        m_activateColabWhenVerified = false;
+        setError(error);
+        return false;
+    }
     return true;
 }
 

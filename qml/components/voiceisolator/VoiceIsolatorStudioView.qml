@@ -210,16 +210,20 @@ StudioShell {
                     ColabField { id: colabUrl; text: AppController.colabSeparationSession.workerUrl; placeholderText: qsTr("https://â€¦trycloudflare.com") }
                     Text { text: qsTr("Session token"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                     ColabField { id: colabToken; echoMode: TextInput.Password; placeholderText: AppController.colabVoiceIsolator.colabConnected ? qsTr("Connected â€” enter token to replace") : qsTr("Temporary token from Colab") }
+                    ColabSessionStatus { session: AppController.colabSeparationSession }
                     Text { text: qsTr("Selected Colab model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                     Text { Layout.fillWidth: true; text: AppController.colabVoiceIsolator.model; color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
                     Text { text: qsTr("Exact notebook"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                     Text { Layout.fillWidth: true; text: AppController.colabVoiceIsolator.colabNotebookFile; color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WrapAnywhere }
                     PrimaryButton {
                         Layout.fillWidth: true
-                        enabled: !(root.remoteFirstMode && AppController.colabVoiceIsolator.colabActive)
-                        text: root.remoteFirstMode
+                        enabled: !AppController.colabSeparationSession.checking
+                                 && !(root.remoteFirstMode && AppController.colabVoiceIsolator.colabActive)
+                        text: AppController.colabSeparationSession.checking
+                              ? qsTr("Verifying CUDA and exact model...")
+                              : (root.remoteFirstMode
                               ? (AppController.colabVoiceIsolator.colabActive ? qsTr("Direct Colab isolation active") : (AppController.colabVoiceIsolator.colabConnected ? qsTr("Use direct Colab isolation") : qsTr("Connect direct Colab isolation")))
-                              : (AppController.colabVoiceIsolator.colabActive ? qsTr("Use local isolation") : (AppController.colabVoiceIsolator.colabConnected ? qsTr("Use direct Colab isolation") : qsTr("Connect direct Colab isolation")))
+                              : (AppController.colabVoiceIsolator.colabActive ? qsTr("Use local isolation") : (AppController.colabVoiceIsolator.colabConnected ? qsTr("Use direct Colab isolation") : qsTr("Connect direct Colab isolation"))))
                         iconName: root.remoteFirstMode || !AppController.colabVoiceIsolator.colabActive ? "cloud" : "close"
                         onClicked: {
                             if (AppController.colabVoiceIsolator.colabActive && !root.remoteFirstMode) {

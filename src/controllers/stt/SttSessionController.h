@@ -206,6 +206,7 @@ private:
     std::shared_ptr<std::atomic_bool> m_gatewayCancellation;
     bool m_gatewayProcessing = false;
     int m_gatewayProgress = 0;
+    bool m_activateColabWhenVerified = false;
     ExecutionProvider m_selectedProvider = ExecutionProvider::LocalDev;
     ExecutionProvider m_activeProvider = ExecutionProvider::LocalDev;
 };

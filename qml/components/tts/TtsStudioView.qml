@@ -81,6 +81,8 @@ StudioShell {
     onColabActiveChanged: {
         if (!colabActive && selectedRemoteProvider === "colab")
             selectedRemoteProvider = ""
+        else if (colabActive)
+            selectedRemoteProvider = "colab"
     }
 
     onRequestBack: root.backToGallery()

@@ -295,7 +295,9 @@ Rectangle {
                 colabWorkerDialog.open()
                 return
             }
-            if (!session.connectTemporaryWorker(colabWorkerUrl.text.trim(), colabWorkerToken.text)) {
+            if (!session.connectTemporaryWorker(
+                    colabWorkerUrl.text.trim(), colabWorkerToken.text,
+                    root.colabCapabilityForNode(), selected)) {
                 colabWorkerError.text = session.lastError
                 colabWorkerDialog.open()
                 return
@@ -327,6 +329,9 @@ Rectangle {
                 echoMode: TextInput.Password
                 placeholderText: qsTr("Temporary token from Colab")
                 selectByMouse: true
+            }
+            ColabSessionStatus {
+                session: root.colabSessionForNode()
             }
             Text { text: qsTr("Exact worker model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
             Text {
@@ -393,6 +398,13 @@ Rectangle {
         if (root.nodeId === "translate") return AppController.colabTranslationSession
         if (root.nodeId === "synthesize") return AppController.colabTtsSession
         return null
+    }
+    function colabCapabilityForNode() {
+        if (root.nodeId === "source-separate") return "voice-isolation"
+        if (root.nodeId === "transcribe") return "stt"
+        if (root.nodeId === "translate") return "translation"
+        if (root.nodeId === "synthesize") return "tts"
+        return ""
     }
     function colabNotebookForNode() {
         return root.dubbing.colabNotebookForNode(root.nodeId,

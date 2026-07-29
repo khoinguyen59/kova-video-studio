@@ -504,6 +504,7 @@ qt_add_qml_module(LAStudio
         qml/components/base/AppToolTip.qml
         qml/components/base/LineIcon.qml
         qml/components/base/ColabNotebookLink.qml
+        qml/components/base/ColabSessionStatus.qml
         qml/components/PrimaryButton.qml
         qml/components/SearchBar.qml
         qml/components/ModelListItem.qml

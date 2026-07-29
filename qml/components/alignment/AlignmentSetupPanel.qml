@@ -205,16 +205,22 @@ Item {
                         echoMode: TextInput.Password
                         placeholderText: AppController.colabAlignment.colabConnected ? qsTr("Connected â€” enter token to replace") : qsTr("Temporary token from Colab")
                     }
+                    ColabSessionStatus {
+                        session: AppController.colabAlignmentSession
+                    }
                     Text { text: qsTr("Selected Colab model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                     Text { Layout.fillWidth: true; text: AppController.colabAlignment.model; color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
                     Text { text: qsTr("Exact notebook"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                     Text { Layout.fillWidth: true; text: AppController.colabAlignment.colabNotebookFile; color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WrapAnywhere }
                     PrimaryButton {
                         Layout.fillWidth: true
-                        enabled: !(root.remoteFirstMode && AppController.colabAlignment.colabActive)
-                        text: root.remoteFirstMode
+                        enabled: !AppController.colabAlignmentSession.checking
+                                 && !(root.remoteFirstMode && AppController.colabAlignment.colabActive)
+                        text: AppController.colabAlignmentSession.checking
+                              ? qsTr("Verifying CUDA and exact model...")
+                              : (root.remoteFirstMode
                               ? (AppController.colabAlignment.colabActive ? qsTr("Direct Colab alignment active") : (AppController.colabAlignment.colabConnected ? qsTr("Use direct Colab alignment") : qsTr("Connect direct Colab alignment")))
-                              : (AppController.colabAlignment.colabActive ? qsTr("Use local alignment") : (AppController.colabAlignment.colabConnected ? qsTr("Use direct Colab alignment") : qsTr("Connect direct Colab alignment")))
+                              : (AppController.colabAlignment.colabActive ? qsTr("Use local alignment") : (AppController.colabAlignment.colabConnected ? qsTr("Use direct Colab alignment") : qsTr("Connect direct Colab alignment"))))
                         iconName: root.remoteFirstMode || !AppController.colabAlignment.colabActive ? "cloud" : "close"
                         onClicked: {
                             if (AppController.colabAlignment.colabActive && !root.remoteFirstMode) {

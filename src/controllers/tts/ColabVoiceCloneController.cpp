@@ -44,6 +44,13 @@ ColabVoiceCloneController::ColabVoiceCloneController(ColabSession *session, Sett
     if (m_session) {
         connect(m_session, &ColabSession::sessionChanged,
                 this, &ColabVoiceCloneController::onSessionChanged);
+        connect(m_session, &ColabSession::verificationFinished, this,
+                [this](bool success, const QString &message) {
+            if (!m_activateColabWhenVerified) return;
+            m_activateColabWhenVerified = false;
+            if (success) useColab();
+            else emit errorOccurred(message);
+        });
     }
     if (m_settings) {
         connect(m_settings, &Settings::remoteFirstModeChanged,
@@ -101,7 +108,7 @@ void ColabVoiceCloneController::setModel(const QString &model)
     if (normalized == m_model) return;
     cancelProcessing();
     clearProfile();
-    if (m_session && m_session->isActive()) {
+    if (m_session && (m_session->isActive() || m_session->isChecking())) {
         m_colabActive = false;
         m_session->clear();
         emit colabStateChanged();
@@ -140,11 +147,13 @@ bool ColabVoiceCloneController::connectColab(const QString &workerUrl, const QSt
         return false;
     }
     QString error;
-    if (!m_session->setSession(workerUrl, bearerToken, &error)) {
+    m_activateColabWhenVerified = true;
+    if (!m_session->beginVerifiedSession(
+            workerUrl, bearerToken, QStringLiteral("voice-cloning"), m_model, &error)) {
+        m_activateColabWhenVerified = false;
         emit errorOccurred(error);
         return false;
     }
-    useColab();
     return true;
 }
 

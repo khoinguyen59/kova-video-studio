@@ -179,7 +179,8 @@ void TestRemoteExecution::temporaryColabWorkerWrapperValidatesAndRemainsEphemera
     QVERIFY(session.connectTemporaryWorker(QStringLiteral("https://worker.example.test"),
                                            QStringLiteral("temporary-colab-token")));
     QVERIFY(session.lastError().isEmpty());
-    QVERIFY(session.isActive());
+    QVERIFY(session.isChecking());
+    QVERIFY(!session.isActive());
 
     QSettings settings(PathUtils::dataDir() + QStringLiteral("/settings.ini"), QSettings::IniFormat);
     QVERIFY(!settings.contains(QStringLiteral("remote/colabWorkerUrl")));
@@ -187,6 +188,155 @@ void TestRemoteExecution::temporaryColabWorkerWrapperValidatesAndRemainsEphemera
 
     session.disconnectTemporaryWorker();
     QVERIFY(!session.isActive());
+    QVERIFY(!session.isChecking());
+    QCOMPARE(session.verificationState(), QStringLiteral("disconnected"));
+}
+
+void TestRemoteExecution::temporaryColabWorkerVerifiesCudaCapabilityAndExactModel()
+{
+    CatalogMock server({
+        QByteArrayLiteral(
+            R"({"status":"ready","ready":true,"device":"cuda","gpu":"Test GPU","model":"kokoro","cpu_fallback":false})"),
+        QByteArrayLiteral(
+            R"({"contract_version":1,"device":"cuda","capabilities":[{"id":"tts","models":[{"id":"kokoro","device":"cuda","loaded":true}]}]})"),
+    });
+    QVERIFY(server.start());
+
+    ColabSession session;
+    QString error;
+    QSignalSpy finished(&session, &ColabSession::verificationFinished);
+    QVERIFY2(session.beginVerifiedSession(
+                 server.baseUrl(), QStringLiteral("verified-token"),
+                 QStringLiteral("tts"), QStringLiteral("kokoro"), &error, true),
+             qPrintable(error));
+    QVERIFY(session.isChecking());
+    QVERIFY(!session.isActive());
+    QTRY_COMPARE(finished.size(), 1);
+    QCOMPARE(finished.constFirst().at(0).toBool(), true);
+    QVERIFY(session.isActive());
+    QVERIFY(session.isVerified());
+    QCOMPARE(session.verificationState(), QStringLiteral("ready"));
+    QCOMPARE(session.expectedCapability(), QStringLiteral("tts"));
+    QCOMPARE(session.expectedModel(), QStringLiteral("kokoro"));
+    QCOMPARE(session.reportedGpu(), QStringLiteral("Test GPU"));
+    QVERIFY(session.verificationMessage().contains(QStringLiteral("tts / kokoro")));
+
+    const QList<QByteArray> requests = server.requests();
+    QCOMPARE(requests.size(), 2);
+    QCOMPARE(requests.at(0).left(requests.at(0).indexOf("\r\n")),
+             QByteArrayLiteral("GET /health HTTP/1.1"));
+    QCOMPARE(requests.at(1).left(requests.at(1).indexOf("\r\n")),
+             QByteArrayLiteral("GET /v1/capabilities HTTP/1.1"));
+    for (const QByteArray &request : requests)
+        QVERIFY(request.toLower().contains("authorization: bearer verified-token"));
+}
+
+void TestRemoteExecution::temporaryColabWorkerRejectsCpuWrongModelAndWrongCapability()
+{
+    {
+        CatalogMock cpu(QByteArrayLiteral(
+            R"({"status":"ready","ready":true,"device":"cpu","model":"kokoro","cpu_fallback":true})"));
+        QVERIFY(cpu.start());
+        ColabSession session;
+        QString error;
+        QVERIFY(session.beginVerifiedSession(
+            cpu.baseUrl(), QStringLiteral("cpu-token"), QStringLiteral("tts"),
+            QStringLiteral("kokoro"), &error, true));
+        QTRY_VERIFY(!session.isChecking());
+        QVERIFY(!session.isActive());
+        QVERIFY(session.lastError().contains(QStringLiteral("CUDA")));
+        QVERIFY(session.bearerTokenForRequest().isEmpty());
+    }
+    {
+        CatalogMock wrongModel(QByteArrayLiteral(
+            R"({"status":"ready","ready":true,"device":"cuda","model":"vibevoice-0.5b","cpu_fallback":false})"));
+        QVERIFY(wrongModel.start());
+        ColabSession session;
+        QString error;
+        QVERIFY(session.beginVerifiedSession(
+            wrongModel.baseUrl(), QStringLiteral("wrong-model-token"),
+            QStringLiteral("tts"), QStringLiteral("kokoro"), &error, true));
+        QTRY_VERIFY(!session.isChecking());
+        QVERIFY(!session.isActive());
+        QVERIFY(session.lastError().contains(QStringLiteral("Wrong Colab model")));
+        QVERIFY(!session.lastError().contains(QStringLiteral("wrong-model-token")));
+    }
+    {
+        CatalogMock wrongCapability({
+            QByteArrayLiteral(
+                R"({"status":"ready","ready":true,"device":"cuda","model":"kokoro","cpu_fallback":false})"),
+            QByteArrayLiteral(
+                R"({"contract_version":1,"device":"cuda","capabilities":[{"id":"stt","models":[{"id":"kokoro","device":"cuda","loaded":true}]}]})"),
+        });
+        QVERIFY(wrongCapability.start());
+        ColabSession session;
+        QString error;
+        QVERIFY(session.beginVerifiedSession(
+            wrongCapability.baseUrl(), QStringLiteral("wrong-capability-token"),
+            QStringLiteral("tts"), QStringLiteral("kokoro"), &error, true));
+        QTRY_VERIFY(!session.isChecking());
+        QVERIFY(!session.isActive());
+        QVERIFY(session.lastError().contains(QStringLiteral("capability 'tts' is missing")));
+    }
+}
+
+void TestRemoteExecution::newerColabVerificationSupersedesStaleRequest()
+{
+    SilentCatalogMock staleServer;
+    CatalogMock currentServer({
+        QByteArrayLiteral(
+            R"({"status":"ready","ready":true,"device":"cuda","model":"qwen3.5-2b","cpu_fallback":false})"),
+        QByteArrayLiteral(
+            R"({"contract_version":1,"device":"cuda","capabilities":[{"id":"llm-chat","models":[{"id":"qwen3.5-2b","device":"cuda","loaded":true}]}]})"),
+    });
+    QVERIFY(staleServer.start());
+    QVERIFY(currentServer.start());
+
+    ColabSession session;
+    QString error;
+    QVERIFY(session.beginVerifiedSession(
+        staleServer.baseUrl(), QStringLiteral("stale-token"),
+        QStringLiteral("tts"), QStringLiteral("kokoro"), &error, true));
+    QVERIFY(session.beginVerifiedSession(
+        currentServer.baseUrl(), QStringLiteral("current-token"),
+        QStringLiteral("llm-chat"), QStringLiteral("qwen3.5-2b"), &error, true));
+    QTRY_VERIFY(session.isActive());
+    QCOMPARE(session.expectedCapability(), QStringLiteral("llm-chat"));
+    QCOMPARE(session.expectedModel(), QStringLiteral("qwen3.5-2b"));
+    QCOMPARE(session.bearerTokenForRequest(), QStringLiteral("current-token"));
+}
+
+void TestRemoteExecution::everyGpuFeatureSurfacesVerifiedColabSessionState()
+{
+    const QDir sourceRoot(QStringLiteral(LASTUDIO_SOURCE_DIR));
+    const QStringList featurePanels{
+        QStringLiteral("qml/components/stt/SttSettingsPanel.qml"),
+        QStringLiteral("qml/components/tts/TtsSettingsPanel.qml"),
+        QStringLiteral("qml/components/voicecloning/VoiceSettingsPanel.qml"),
+        QStringLiteral("qml/components/voicedesign/VoiceDesignSettingsPanel.qml"),
+        QStringLiteral("qml/components/voiceisolator/VoiceIsolatorStudioView.qml"),
+        QStringLiteral("qml/components/alignment/AlignmentSetupPanel.qml"),
+        QStringLiteral("qml/components/translation/TranslationStudioView.qml"),
+        QStringLiteral("qml/components/llm/LlmChatStudioView.qml"),
+        QStringLiteral("qml/components/dubbing/DubbingNodeSettingsPanel.qml"),
+        QStringLiteral("qml/components/dubbing/DubbingNodeInspector.qml"),
+    };
+    for (const QString &relativePath : featurePanels) {
+        QFile file(sourceRoot.filePath(relativePath));
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(relativePath));
+        const QString source = QString::fromUtf8(file.readAll());
+        QVERIFY2(source.contains(QStringLiteral("ColabSessionStatus")),
+                 qPrintable(relativePath + QStringLiteral(
+                     " does not show Colab verification state in the feature UI")));
+    }
+
+    QFile sessionSource(sourceRoot.filePath(QStringLiteral("src/remote/ColabSession.cpp")));
+    QVERIFY(sessionSource.open(QIODevice::ReadOnly));
+    const QString source = QString::fromUtf8(sessionSource.readAll());
+    QVERIFY(source.contains(QStringLiteral("v1/capabilities")));
+    QVERIFY(source.contains(QStringLiteral("cpu_fallback")));
+    QVERIFY(source.contains(QStringLiteral("Wrong Colab model")));
+    QVERIFY(source.contains(QStringLiteral("contract_version")));
 }
 
 void TestRemoteExecution::appControllerScopesColabSessionsPerCapability()

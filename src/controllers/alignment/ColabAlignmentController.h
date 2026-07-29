@@ -94,6 +94,7 @@ private:
     QThread m_thread;
     std::shared_ptr<std::atomic_bool> m_cancellation;
     bool m_colabActive = false;
+    bool m_activateColabWhenVerified = false;
     QString m_model = QStringLiteral("mms-forced-aligner-onnx");
     bool m_processing = false;
     int m_progress = 0;
