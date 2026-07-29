@@ -19,6 +19,7 @@ long-transcription timeout corrected in `0.0.1.1`.
 | Gate | Result |
 | --- | --- |
 | Full CTest release gate | 35/35 pass, including offscreen QML route smoke and Qt runtime deployment fixture |
+| Staged portable package smoke | pass; `LA-Studio-0.0.1.2.exe` loaded all registered routes in offscreen mode from the final staged layout |
 | QML parse/lint | pass (`scripts/lint_qml.ps1`) |
 | Generated exact-model notebooks | 31/31 match their generator |
 | Direct Colab UI/worker surface | 8/8 capability routes verified |
