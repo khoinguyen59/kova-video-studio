@@ -249,6 +249,71 @@ def exact_model_preflight(client: WorkerClient) -> list[Check]:
     return checks
 
 
+def exact_model_rejection_probe(client: WorkerClient) -> Check:
+    """Prove the live endpoint refuses a request for any other model ID."""
+    started = time.monotonic()
+    wrong_model = "lastudio-live-acceptance-wrong-model"
+    try:
+        if client.capability == "stt":
+            status, response = client.request_json("POST", "/v2/uploads/stt", {
+                "model": wrong_model, "size_bytes": 1, "language": "auto", "response_format": "verbose_json",
+            })
+        elif client.capability == "tts":
+            status, response = client.request_json("POST", "/v1/audio/speech", {
+                "model": wrong_model, "input": "model guard", "voice": str(client.config.get("voice", "auto")),
+                "language": str(client.config.get("language", "auto")), "response_format": "wav",
+            })
+        elif client.capability == "translation":
+            status, response = client.request_json("POST", "/v1/translations", {
+                "model": wrong_model, "source_language": str(client.config.get("source_language", "en")),
+                "target_language": str(client.config.get("target_language", "vi")),
+                "segments": [{"id": "wrong-model", "sourceText": "model guard"}],
+            })
+        elif client.capability == "llm-chat":
+            status, response = client.request_json("POST", "/v1/chat/completions", {
+                "model": wrong_model, "messages": [{"role": "user", "content": "model guard"}],
+                "stream": True, "max_tokens": 1, "context_tokens": 512, "temperature": 0.2,
+                "top_p": 0.8, "top_k": 20, "repeat_penalty": 1.05,
+            })
+        elif client.capability == "voice-design":
+            status, response = client.request_json("POST", "/v1/audio/voice_designs", {
+                "model": wrong_model, "input": "model guard",
+                "voice_description": require_string(client.config, "voice_description", "voice-design"),
+                "language": str(client.config.get("language", "en")), "temperature": 0.7,
+                "seed": 42, "response_format": "wav",
+            })
+        else:
+            audio = require_audio_config(client)
+            if client.capability == "forced-alignment":
+                fields, file_field, path = {
+                    "model": wrong_model,
+                    "transcript": require_string(client.config, "transcript", "forced-alignment"),
+                    "language": str(client.config.get("language", "en")),
+                }, "audio", "/v1/audio/alignments"
+            elif client.capability == "voice-isolation":
+                fields, file_field, path = {"model": wrong_model, "stems": "vocals,background"}, "file", "/v1/audio/separations"
+            elif client.capability == "voice-cloning":
+                fields, file_field, path = {
+                    "model": wrong_model, "name": "live-acceptance-model-guard", "consent_confirmed": "true",
+                    "ref_text": require_string(client.config, "reference_text", "voice-cloning"),
+                    "language": str(client.config.get("language", "vi")), "separate_music": "false",
+                }, "ref_audio", "/v2/jobs/profile"
+            else:  # Kept defensive even though the constructor rejects unknown capabilities.
+                raise AcceptanceError(f"No exact-model probe for {client.capability}")
+            body, content_type = encode_multipart(fields, file_field, audio)
+            status, raw, _ = client.request("POST", path, body, content_type, "application/json")
+            try:
+                response = json.loads(raw.decode("utf-8")) if raw else {}
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                response = {}
+        if status != 409:
+            detail = response.get("detail", response) if isinstance(response, dict) else response
+            raise AcceptanceError(f"wrong-model request returned HTTP {status}, expected 409: {redact_detail(detail)}")
+        return Check("live wrong-model rejection", True, "worker returned HTTP 409 for a different model ID", time.monotonic() - started)
+    except AcceptanceError as error:
+        return Check("live wrong-model rejection", False, redact_detail(error), time.monotonic() - started)
+
+
 def expect_wav(client: WorkerClient, path: str, payload: dict[str, Any], action: str) -> Check:
     started = time.monotonic()
     status, body, _ = client.request("POST", path, json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -559,6 +624,8 @@ def main() -> int:
             client = WorkerClient(config, args.allow_http_localhost)
             sensitive_values.extend((client.token, client.base_url))
             report.checks.extend(exact_model_preflight(client))
+            if report.passed:
+                report.checks.append(exact_model_rejection_probe(client))
             if report.passed:
                 report.checks.append(INFERENCE_RUNNERS[client.capability](client))
         except AcceptanceError as error:

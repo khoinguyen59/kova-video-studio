@@ -53,12 +53,14 @@ voice cloning needs `reference_text`.  These are mandatory so the tool cannot
 turn a health check into a false feature pass.  Voice cloning submits explicit
 consent and removes the temporary profile after the test.
 
-The report is acceptance evidence only if all three checks pass for a worker:
+The report is acceptance evidence only if all four checks pass for a worker:
 
 1. `/health` proves `ready=true`, `device=cuda`, no CPU fallback, and the
    selected model ID.
 2. `/v1/capabilities` advertises that same capability/model as loaded on CUDA.
-3. A real feature request returns a valid result: text, patches, monotonic
+3. The live feature endpoint rejects a deliberately wrong model ID with HTTP
+   `409`; a worker cannot silently ignore the selected model.
+4. A real feature request returns a valid result: text, patches, monotonic
    timestamp segments, or a WAV artifact as appropriate.
 
 `31/31` generated notebooks, unit-test counts, and an EXE startup smoke test
