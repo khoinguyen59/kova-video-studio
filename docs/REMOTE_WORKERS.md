@@ -91,8 +91,10 @@ $env:LA_STUDIO_COLAB_STT_TOKEN = '...'
 
 The runner checks all three Gateway catalogs with the Gateway key, and the
 selected Colab worker's `/health` plus `/v1/capabilities` with that worker's
-own bearer token. It requires each Gateway catalog and expected Colab capability
-to expose at least one model ID, plus `ready=true` and `device=cuda` for Colab.
+own bearer token. Each Colab entry must name `expectedModel`; the runner
+requires that exact ID from both endpoints, with `ready=true`, `device=cuda`,
+`cpu_fallback=false`, and a loaded CUDA model entry. It does not accept merely
+any CUDA model for the requested capability.
 It records those advertised model IDs in a redacted report below `out/`; it never writes tokens,
 headers, raw API responses, URL paths, or query strings. Use `-DryRun` first to
 validate the configuration without reading credentials or making requests.

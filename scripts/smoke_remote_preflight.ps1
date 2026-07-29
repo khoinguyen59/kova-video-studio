@@ -130,6 +130,22 @@ function Get-SecretFromEnvironment {
 function Get-ErrorSummary {
     param([Parameter(Mandatory)] [System.Management.Automation.ErrorRecord] $ErrorRecord)
 
+    # Assertion failures below use fixed identifiers.  They make the report
+    # actionable without reflecting values supplied by a remote endpoint
+    # (which could otherwise contain an endpoint, token, or untrusted text).
+    $knownValidationFailures = @{
+        'preflight.health-not-cuda' = 'Worker is not ready on CUDA or reports CPU fallback.'
+        'preflight.health-model-mismatch' = 'Worker health reports a model other than the configured expected model.'
+        'preflight.capability-contract-version' = 'Worker capability contract version is unsupported.'
+        'preflight.capability-missing' = 'Worker does not advertise the configured capability.'
+        'preflight.capability-model-missing' = 'Worker does not advertise the configured expected model.'
+        'preflight.capability-model-metadata-missing' = 'Worker does not provide metadata for the configured expected model.'
+        'preflight.capability-model-not-cuda' = 'Configured expected model is not loaded on CUDA.'
+    }
+    $message = [string] $ErrorRecord.Exception.Message
+    if ($knownValidationFailures.ContainsKey($message)) {
+        return $knownValidationFailures[$message]
+    }
     $response = $ErrorRecord.Exception.Response
     if ($null -ne $response -and $null -ne $response.StatusCode) {
         return "HTTP $([int] $response.StatusCode) request failed."
@@ -244,35 +260,76 @@ function Invoke-Check {
 }
 
 function Assert-ReadyCudaHealth {
-    param([Parameter(Mandatory)] [object] $Health)
+    param(
+        [Parameter(Mandatory)] [object] $Health,
+        [Parameter(Mandatory)] [string] $ExpectedModel
+    )
 
     $ready = Get-OptionalProperty -Object $Health -Name 'ready'
     $device = [string] (Get-OptionalProperty -Object $Health -Name 'device')
-    if ($ready -ne $true -or -not $device.Equals('cuda', [StringComparison]::OrdinalIgnoreCase)) {
-        throw 'Worker did not report ready=true and device=cuda.'
+    $cpuFallback = Get-OptionalProperty -Object $Health -Name 'cpu_fallback'
+    $reportedModel = ([string] (Get-OptionalProperty -Object $Health -Name 'model')).Trim()
+    if ($ready -ne $true -or -not $device.Equals('cuda', [StringComparison]::OrdinalIgnoreCase) -or $cpuFallback -ne $false) {
+        throw 'preflight.health-not-cuda'
     }
-    return 'ready=true; device=cuda'
+    if (-not $reportedModel.Equals($ExpectedModel, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'preflight.health-model-mismatch'
+    }
+    return "ready=true; device=cuda; cpu_fallback=false; model=$reportedModel"
 }
 
 function Assert-WorkerCapability {
     param(
         [Parameter(Mandatory)] [object] $Capabilities,
-        [Parameter(Mandatory)] [string] $ExpectedCapability
+        [Parameter(Mandatory)] [string] $ExpectedCapability,
+        [Parameter(Mandatory)] [string] $ExpectedModel
     )
 
     $contractVersion = Get-OptionalProperty -Object $Capabilities -Name 'contract_version'
     if ($contractVersion -ne 1) {
-        throw 'Worker must advertise contract_version=1.'
+        throw 'preflight.capability-contract-version'
     }
     $ids = Get-CapabilityIds -Payload $Capabilities
     if ($ExpectedCapability -notin $ids) {
-        throw "Worker did not advertise '$ExpectedCapability'."
+        throw 'preflight.capability-missing'
     }
     $modelIds = Get-CapabilityModelIds -Payload $Capabilities -ExpectedCapability $ExpectedCapability
     if ($modelIds.Count -eq 0) {
-        throw "Worker advertised '$ExpectedCapability' without a model ID."
+        throw 'preflight.capability-model-missing'
     }
-    return "contractVersion=1; advertises $ExpectedCapability; models=$($modelIds -join ',')"
+    $matchingModel = @($modelIds | Where-Object {
+        $_.Equals($ExpectedModel, [StringComparison]::OrdinalIgnoreCase)
+    })
+    if ($matchingModel.Count -ne 1) {
+        throw 'preflight.capability-model-missing'
+    }
+
+    $modelEntries = New-Object System.Collections.Generic.List[object]
+    foreach ($capability in @(Get-OptionalProperty -Object $Capabilities -Name 'capabilities')) {
+        $capabilityId = [string] (Get-OptionalProperty -Object $capability -Name 'id')
+        if ($capabilityId.Equals($ExpectedCapability, [StringComparison]::OrdinalIgnoreCase)) {
+            foreach ($model in @(Get-OptionalProperty -Object $capability -Name 'models')) {
+                [void] $modelEntries.Add($model)
+            }
+        }
+    }
+    if ($ExpectedCapability -in @('translation', 'chat')) {
+        foreach ($model in @(Get-OptionalProperty -Object $Capabilities -Name $ExpectedCapability)) {
+            [void] $modelEntries.Add($model)
+        }
+    }
+    $exactEntry = @($modelEntries | Where-Object {
+        ([string] (Get-OptionalProperty -Object $_ -Name 'id')).Equals($ExpectedModel, [StringComparison]::OrdinalIgnoreCase)
+    } | Select-Object -First 1)
+    if ($exactEntry.Count -ne 1) {
+        throw 'preflight.capability-model-metadata-missing'
+    }
+    $entryDevice = [string] (Get-OptionalProperty -Object $exactEntry[0] -Name 'device')
+    $entryLoaded = Get-OptionalProperty -Object $exactEntry[0] -Name 'loaded'
+    if (-not $entryDevice.Equals('cuda', [StringComparison]::OrdinalIgnoreCase) -or $entryLoaded -ne $true) {
+        throw 'preflight.capability-model-not-cuda'
+    }
+    return "contractVersion=1; advertises $ExpectedCapability; models=$($modelIds -join ','); exactModel=$ExpectedModel; loaded=true; device=cuda"
 }
 
 function Resolve-ReportPath {
@@ -342,6 +399,7 @@ foreach ($worker in $workers) {
         capability = $capability
         endpoint = Resolve-Endpoint -Value (Get-RequiredStringProperty -Object $worker -Name 'baseUrl' -Context "Colab worker '$capability'") -Context "Colab worker '$capability'"
         tokenEnvironment = Get-RequiredStringProperty -Object $worker -Name 'bearerTokenEnvironment' -Context "Colab worker '$capability'"
+        expectedModel = (Get-RequiredStringProperty -Object $worker -Name 'expectedModel' -Context "Colab worker '$capability'").ToLowerInvariant()
     })
 }
 
@@ -375,8 +433,8 @@ if ($DryRun) {
     }
     foreach ($worker in $selectedWorkers) {
         $scope = "colab:$($worker.capability)"
-        Add-Check -Scope $scope -Check 'health' -Passed $true -Detail "planned: worker health request; endpoint=$(Get-RedactedEndpoint $worker.endpoint)"
-        Add-Check -Scope $scope -Check 'capabilities' -Passed $true -Detail "planned: worker capability request; endpoint=$(Get-RedactedEndpoint $worker.endpoint)"
+        Add-Check -Scope $scope -Check 'health' -Passed $true -Detail "planned: worker health request for model=$($worker.expectedModel); endpoint=$(Get-RedactedEndpoint $worker.endpoint)"
+        Add-Check -Scope $scope -Check 'capabilities' -Passed $true -Detail "planned: worker capability request for model=$($worker.expectedModel); endpoint=$(Get-RedactedEndpoint $worker.endpoint)"
     }
 }
 else {
@@ -400,13 +458,13 @@ else {
             $secret = Get-SecretFromEnvironment -EnvironmentName $worker.tokenEnvironment -Context "Colab $($worker.capability) bearer token"
             $headers = @{ Authorization = "Bearer $secret"; Accept = 'application/json' }
             $health = Invoke-JsonGet -Uri (Join-EndpointPath -BaseUri $worker.endpoint -Path 'health') -Headers $headers
-            return "$(Assert-ReadyCudaHealth -Health $health); endpoint=$(Get-RedactedEndpoint $worker.endpoint)"
+            return "$(Assert-ReadyCudaHealth -Health $health -ExpectedModel $worker.expectedModel); endpoint=$(Get-RedactedEndpoint $worker.endpoint)"
         }
         Invoke-Check -Scope $scope -Name 'capabilities' -Action {
             $secret = Get-SecretFromEnvironment -EnvironmentName $worker.tokenEnvironment -Context "Colab $($worker.capability) bearer token"
             $headers = @{ Authorization = "Bearer $secret"; Accept = 'application/json' }
             $capabilities = Invoke-JsonGet -Uri (Join-EndpointPath -BaseUri $worker.endpoint -Path 'v1/capabilities') -Headers $headers
-            return Assert-WorkerCapability -Capabilities $capabilities -ExpectedCapability $worker.capability
+            return Assert-WorkerCapability -Capabilities $capabilities -ExpectedCapability $worker.capability -ExpectedModel $worker.expectedModel
         }
     }
 }
