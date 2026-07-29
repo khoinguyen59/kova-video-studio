@@ -91,6 +91,30 @@ def main() -> int:
                         )
                     if "def prune_finished_jobs()" not in worker_source:
                         mismatches.append(f"STT worker has no finished-job pruning function: {generated.name}")
+                    if "def ensure_cloudflared()" not in worker_source \
+                            or "Reusing the existing local LA Studio STT worker" not in worker_source:
+                        mismatches.append(
+                            f"STT worker is not safe to rerun in an existing Colab runtime: {generated.name}"
+                        )
+                    if "WORKER_REVISION" not in worker_source \
+                            or '"worker_revision": WORKER_REVISION' not in worker_source:
+                        mismatches.append(
+                            f"STT worker cannot reject a stale Colab server revision: {generated.name}"
+                        )
+                    if '"wget", "-q", "-O"' in worker_source:
+                        mismatches.append(
+                            f"STT worker still overwrites cloudflared on every rerun: {generated.name}"
+                        )
+                    executable_source = "".join(
+                        line for line in worker_source.splitlines(keepends=True)
+                        if not line.lstrip().startswith("%")
+                    )
+                    try:
+                        compile(executable_source, generated.name, "exec")
+                    except SyntaxError as error:
+                        mismatches.append(
+                            f"STT worker Python syntax is invalid: {generated.name}: {error}"
+                        )
             except (OSError, json.JSONDecodeError) as error:
                 mismatches.append(f"notebook metadata cannot be read: {generated.name}: {error}")
 

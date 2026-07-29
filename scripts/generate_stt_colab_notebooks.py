@@ -31,6 +31,7 @@ if not torch.cuda.is_available():
     raise RuntimeError("A Colab GPU runtime is required. Choose Runtime > Change runtime type > GPU.")
 
 TOKEN = secrets.token_urlsafe(32)
+WORKER_REVISION = "stt-2026-07-30.2"
 MAX_UPLOAD_BYTES = 512 * 1024 * 1024
 MAX_AUDIO_SECONDS = 30 * 60
 ALLOWED_CONTENT_TYPES = {
@@ -74,6 +75,7 @@ def health():
         "gpu": torch.cuda.get_device_name(0),
         "model": MODEL_ID,
         "upstream_model": UPSTREAM_MODEL,
+        "worker_revision": WORKER_REVISION,
         "cpu_fallback": False,
     }}
 
@@ -536,6 +538,8 @@ async def transcriptions(
 '''
 
 LAUNCH = r'''
+import json
+import os
 import queue
 import re
 import subprocess
@@ -543,63 +547,140 @@ import threading
 import time
 import urllib.request
 
-def wait_for_health():
+
+def read_health(url: str, timeout: float = 2.0):
+    try:
+        with urllib.request.urlopen(url.rstrip("/") + "/health", timeout=timeout) as response:
+            if response.status != 200:
+                return None
+            payload = json.loads(response.read().decode("utf-8"))
+            return payload if isinstance(payload, dict) else None
+    except Exception:
+        return None
+
+
+def is_exact_worker(payload) -> bool:
+    return bool(
+        isinstance(payload, dict)
+        and payload.get("ready") is True
+        and str(payload.get("device", "")).strip().lower() == "cuda"
+        and str(payload.get("model", "")).strip().lower() == MODEL_ID
+        and str(payload.get("worker_revision", "")) == WORKER_REVISION
+    )
+
+
+def wait_for_local_health():
     deadline = time.time() + 60
     while time.time() < deadline:
-        try:
-            with urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=2) as response:
-                if response.status == 200:
-                    return
-        except Exception:
-            time.sleep(0.5)
+        health = read_health("http://127.0.0.1:8000")
+        if health is not None:
+            return health
+        time.sleep(0.5)
     raise RuntimeError("The local STT worker did not become healthy")
+
 
 def run_server():
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8000, log_level="warning")
 
-threading.Thread(target=run_server, daemon=True).start()
-wait_for_health()
 
-cloudflared_path = "/content/cloudflared"
-subprocess.run(
-    ["wget", "-q", "-O", cloudflared_path,
-     "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"],
-    check=True,
-)
-subprocess.run(["chmod", "+x", cloudflared_path], check=True)
+# Re-running this cell in the same Colab runtime must not create a second
+# Uvicorn server.  The existing app functions use the refreshed notebook
+# globals, so the same exact model can safely be reused.  A different model
+# must use a fresh Colab runtime to avoid silently serving the wrong worker.
+local_health = read_health("http://127.0.0.1:8000")
+if local_health is None:
+    threading.Thread(target=run_server, daemon=True).start()
+    local_health = wait_for_local_health()
+    print("Started local LA Studio STT worker on port 8000")
+elif is_exact_worker(local_health):
+    print("Reusing the existing local LA Studio STT worker on port 8000")
+else:
+    current_model = str(local_health.get("model", "unknown"))
+    current_revision = str(local_health.get("worker_revision", "unknown"))
+    raise RuntimeError(
+        f"Port 8000 serves LA Studio model '{current_model}' (worker revision '{current_revision}'), "
+        f"not the required '{MODEL_ID}' revision '{WORKER_REVISION}'. "
+        "Use Runtime > Disconnect and delete runtime, then Run all for this exact model."
+    )
 
-process = subprocess.Popen(
-    [cloudflared_path, "tunnel", "--url", "http://127.0.0.1:8000", "--no-autoupdate"],
-    stdout=subprocess.PIPE,
-    stderr=subprocess.STDOUT,
-    text=True,
-    bufsize=1,
-)
-lines = queue.Queue()
+if not is_exact_worker(local_health):
+    raise RuntimeError("The local worker did not confirm the selected exact CUDA model")
 
-def collect_output():
-    assert process.stdout is not None
-    for line in process.stdout:
-        lines.put(line)
 
-threading.Thread(target=collect_output, daemon=True).start()
-worker_url = ""
-deadline = time.time() + 90
-while time.time() < deadline and not worker_url:
+def valid_cloudflared(path: str) -> bool:
     try:
-        line = lines.get(timeout=1)
-    except queue.Empty:
-        if process.poll() is not None:
-            raise RuntimeError("cloudflared exited before creating a public tunnel")
-        continue
-    match = re.search(r"https://[a-z0-9-]+\.trycloudflare\.com", line)
-    if match:
-        worker_url = match.group(0)
+        return subprocess.run(
+            [path, "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            check=False,
+        ).returncode == 0
+    except OSError:
+        return False
 
-if not worker_url:
-    process.terminate()
-    raise RuntimeError("Timed out while creating the Cloudflare tunnel")
+
+def ensure_cloudflared() -> str:
+    path = "/content/cloudflared"
+    if valid_cloudflared(path):
+        return path
+    result = subprocess.run(
+        [
+            "curl", "--fail", "--location", "--retry", "4", "--retry-all-errors",
+            "--output", path,
+            "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64",
+        ],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    if result.returncode == 0:
+        subprocess.run(["chmod", "+x", path], check=True)
+    if result.returncode != 0 or not valid_cloudflared(path):
+        detail = result.stdout[-1200:].strip() or "no download output"
+        raise RuntimeError("Could not obtain a working cloudflared binary: " + detail)
+    return path
+
+
+existing_url = os.environ.get("LA_STUDIO_COLAB_STT_URL", "").strip()
+existing_health = read_health(existing_url, timeout=4.0) if existing_url else None
+if is_exact_worker(existing_health):
+    worker_url = existing_url
+    print("Reusing the existing public Cloudflare tunnel")
+else:
+    cloudflared_path = ensure_cloudflared()
+    process = subprocess.Popen(
+        [cloudflared_path, "tunnel", "--url", "http://127.0.0.1:8000", "--no-autoupdate"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    lines = queue.Queue()
+
+    def collect_output():
+        assert process.stdout is not None
+        for line in process.stdout:
+            lines.put(line)
+
+    threading.Thread(target=collect_output, daemon=True).start()
+    worker_url = ""
+    deadline = time.time() + 90
+    while time.time() < deadline and not worker_url:
+        try:
+            line = lines.get(timeout=1)
+        except queue.Empty:
+            if process.poll() is not None:
+                raise RuntimeError("cloudflared exited before creating a public tunnel")
+            continue
+        match = re.search(r"https://[a-z0-9-]+\.trycloudflare\.com", line)
+        if match:
+            candidate = match.group(0)
+            if is_exact_worker(read_health(candidate, timeout=6.0)):
+                worker_url = candidate
+
+    if not worker_url:
+        process.terminate()
+        raise RuntimeError("Timed out while creating a verified public Cloudflare tunnel")
 
 os.environ["LA_STUDIO_COLAB_STT_URL"] = worker_url
 os.environ["LA_STUDIO_COLAB_STT_TOKEN"] = TOKEN
