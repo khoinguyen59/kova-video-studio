@@ -311,8 +311,6 @@ void ColabSession::handleVerificationReply(QNetworkReply *reply,
             continue;
         }
         capabilityFound = true;
-        const QString capabilityDevice = capability.value(QStringLiteral("device")).toString()
-                                             .trimmed().toLower();
         const QJsonArray models = capability.value(QStringLiteral("models")).toArray();
         for (const QJsonValue &modelValue : models) {
             const QJsonObject model = modelValue.toObject();
@@ -322,11 +320,13 @@ void ColabSession::handleVerificationReply(QNetworkReply *reply,
             modelFound = true;
             const QString device = model.value(QStringLiteral("device")).toString()
                                        .trimmed().toLower();
-            const QString effectiveDevice = !device.isEmpty() ? device
-                : (!capabilityDevice.isEmpty() ? capabilityDevice : rootDevice);
-            exactRouteUsesCuda = effectiveDevice.startsWith(QStringLiteral("cuda"));
-            exactModelLoaded = !model.contains(QStringLiteral("loaded"))
-                || model.value(QStringLiteral("loaded")).toBool(false);
+            // The feature is bound to this one model, not to a generic
+            // capability.  Do not infer its readiness from a worker-wide or
+            // capability-wide CUDA claim: the model entry itself must prove
+            // that it is loaded on CUDA.
+            exactRouteUsesCuda = device.startsWith(QStringLiteral("cuda"));
+            exactModelLoaded = model.contains(QStringLiteral("loaded"))
+                && model.value(QStringLiteral("loaded")).toBool(false);
             break;
         }
         if (modelFound && exactRouteUsesCuda && exactModelLoaded) break;

@@ -280,6 +280,42 @@ void TestRemoteExecution::temporaryColabWorkerRejectsCpuWrongModelAndWrongCapabi
         QVERIFY(!session.isActive());
         QVERIFY(session.lastError().contains(QStringLiteral("capability 'tts' is missing")));
     }
+    {
+        CatalogMock unloadedModel({
+            QByteArrayLiteral(
+                R"({"status":"ready","ready":true,"device":"cuda","model":"kokoro","cpu_fallback":false})"),
+            QByteArrayLiteral(
+                R"({"contract_version":1,"device":"cuda","capabilities":[{"id":"tts","models":[{"id":"kokoro","device":"cuda"}]}]})"),
+        });
+        QVERIFY(unloadedModel.start());
+        ColabSession session;
+        QString error;
+        QVERIFY(session.beginVerifiedSession(
+            unloadedModel.baseUrl(), QStringLiteral("unloaded-model-token"),
+            QStringLiteral("tts"), QStringLiteral("kokoro"), &error, true));
+        QTRY_VERIFY(!session.isChecking());
+        QVERIFY(!session.isActive());
+        QVERIFY(session.lastError().contains(QStringLiteral("not loaded")));
+        QVERIFY(session.bearerTokenForRequest().isEmpty());
+    }
+    {
+        CatalogMock modelWithoutCudaProof({
+            QByteArrayLiteral(
+                R"({"status":"ready","ready":true,"device":"cuda","model":"kokoro","cpu_fallback":false})"),
+            QByteArrayLiteral(
+                R"({"contract_version":1,"device":"cuda","capabilities":[{"id":"tts","device":"cuda","models":[{"id":"kokoro","loaded":true}]}]})"),
+        });
+        QVERIFY(modelWithoutCudaProof.start());
+        ColabSession session;
+        QString error;
+        QVERIFY(session.beginVerifiedSession(
+            modelWithoutCudaProof.baseUrl(), QStringLiteral("model-device-token"),
+            QStringLiteral("tts"), QStringLiteral("kokoro"), &error, true));
+        QTRY_VERIFY(!session.isChecking());
+        QVERIFY(!session.isActive());
+        QVERIFY(session.lastError().contains(QStringLiteral("not advertised on CUDA")));
+        QVERIFY(session.bearerTokenForRequest().isEmpty());
+    }
 }
 
 void TestRemoteExecution::newerColabVerificationSupersedesStaleRequest()
