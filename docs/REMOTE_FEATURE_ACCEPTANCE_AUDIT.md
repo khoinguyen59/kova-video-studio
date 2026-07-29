@@ -45,13 +45,28 @@ The `TestRemoteExecution` regression gate now checks those requirements,
 plus the capability, exact model and feature endpoint, for all 31 active
 model-specific notebooks.
 
+### VieNeu startup diagnostic correction
+
+The VieNeu v2/v3 Voice Clone notebooks used to launch the model worker in the
+background, wait six minutes for `/health`, then discard the only useful
+diagnostic and show a generic CUDA-ready timeout.  That output did not prove a
+GPU failure: it could also be a cold model download, a dependency/import
+failure, or a model-load failure.  The shared Voice Clone/Voice Design startup
+template now writes the worker output to `/content/la_studio_*_worker.log`,
+fails immediately if the worker exits, waits up to 20 minutes for a cold CUDA
+model load, prints the final 12,000 log characters on failure, and accepts
+readiness only when `/health` confirms CUDA, no CPU fallback and the exact
+selected model.  The regression test checks that every generated Voice Clone
+notebook preserves this diagnostic contract.  A fresh live VieNeu Colab run is
+still required to establish the remaining runtime-specific cause, if any.
+
 ## Feature route matrix
 
 | Feature | Direct Colab notebook and advertised CUDA model(s) | API Gateway route | Current UI route surface | Acceptance state |
 | --- | --- | --- | --- | --- |
 | Speech to Text | Four exact workers: Nemotron 3.5 ASR Streaming 0.6B, Whisper.cpp, Qwen3-ASR 0.6B and Qwen3-ASR 1.7B | `/v1/audio/transcriptions`; model selected from Gateway STT configuration | Gallery and Dubbing select the model before opening its exact notebook; independent URL/token and Gateway fields remain available | Exact source/QML/HTTP contracts pass; each model still needs live Colab GPU inference. |
 | Text to Speech | Eight exact workers: Kokoro, Kokoro Vietnamese, OmniVoice, Qwen3 CustomVoice 1.7B, VibeVoice 0.5B, VieNeu v2/v3 Turbo and VoxCPM2 | `/v1/audio/speech` | Gallery and Dubbing select the model before opening its exact notebook; model-specific defaults are shown | Exact source/QML/HTTP contracts pass; each model still needs live Colab GPU inference. |
-| Voice Cloning | Six exact-model notebooks for OmniVoice, Qwen3 Base 0.6B/1.7B, VieNeu v2/v3 Turbo and VoxCPM2; profile and generation requests both carry the model ID | No supported Gateway adapter in this codebase | Gallery action opens the exact notebook; settings show selected model, notebook, URL/token, consent and profile fields | Source contract, compile, QML and desktop HTTP tests pass; each model still needs a consented live Colab GPU generation. |
+| Voice Cloning | Six exact-model notebooks for OmniVoice, Qwen3 Base 0.6B/1.7B, VieNeu v2/v3 Turbo and VoxCPM2; profile and generation requests both carry the model ID | No supported Gateway adapter in this codebase | Gallery action opens the exact notebook; settings show selected model, notebook, URL/token, consent and profile fields | Source contract, compile, QML and desktop HTTP tests pass. Startup failures now show the worker log; each model still needs a consented live Colab GPU generation. |
 | Voice Design | Three exact-model notebooks for OmniVoice, Qwen3 VoiceDesign 1.7B and VoxCPM2 | No supported Gateway adapter in this codebase | Gallery action opens the exact notebook; settings show selected model/notebook and URL/token | Source contract, compile, QML and desktop HTTP tests pass; each model still needs live Colab GPU generation. |
 | Forced Alignment | Four exact-model workers: Wav2Vec2 Chinese, Canary CTC, MMS ONNX and Qwen3 Forced Aligner 0.6B | No supported Gateway adapter in this codebase | Gallery selection opens the exact notebook; settings show selected model/notebook, model-valid language choices, URL/token and alignment options | Source contract, compile, QML and desktop HTTP tests pass; every model still needs a live Colab GPU audio + transcript test. |
 | Voice Isolation | Two exact-model workers: Spleeter 2-stem FP16 and UVR Vocals FT | No supported Gateway adapter in this codebase | Gallery selection opens the exact notebook; settings show selected model/notebook, URL/token and output workflow | Source contract, compile, QML and desktop HTTP tests pass; both models still need a live Colab GPU stem-artifact test. |

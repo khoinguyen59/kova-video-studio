@@ -705,32 +705,76 @@ def design_with_exact_model(request):
 
 
 START_TEMPLATE = r'''
-import os, re, secrets, subprocess, sys, time, urllib.request
+import json, os, re, secrets, subprocess, sys, time, urllib.error, urllib.request
+from pathlib import Path
 
 MODEL_ID = {model_id!r}
 TOKEN = secrets.token_urlsafe(32)
+STARTUP_TIMEOUT_SECONDS = 20 * 60
+WORKER_LOG = Path("/content/la_studio_{log_name}_worker.log")
 env = os.environ.copy()
 env["{token_env}"] = TOKEN
 env["PYTHONUNBUFFERED"] = "1"
-worker = subprocess.Popen(
-    [sys.executable, "-m", "uvicorn", "{module}:app", "--host", "127.0.0.1", "--port", "{port}"],
-    cwd="/content",
-    env=env,
-)
-for _ in range(180):
+
+def worker_log_tail() -> str:
     try:
-        check = urllib.request.Request(
-            "http://127.0.0.1:{port}/health",
-            headers={{"Authorization": "Bearer " + TOKEN}},
-        )
-        with urllib.request.urlopen(check, timeout=5) as response:
-            if response.status == 200:
+        return WORKER_LOG.read_text(encoding="utf-8", errors="replace")[-12000:]
+    except FileNotFoundError:
+        return "(worker log was not created)"
+
+def fail_startup(message: str) -> None:
+    if worker.poll() is None:
+        worker.terminate()
+        try:
+            worker.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            worker.kill()
+    raise RuntimeError(
+        message + "\\n\\n---- LA Studio worker log (last 12,000 characters) ----\\n" + worker_log_tail()
+    )
+
+with WORKER_LOG.open("w", encoding="utf-8", buffering=1) as worker_output:
+    worker = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "{module}:app", "--host", "127.0.0.1", "--port", "{port}"],
+        cwd="/content",
+        env=env,
+        stdout=worker_output,
+        stderr=subprocess.STDOUT,
+    )
+    print("Starting exact CUDA worker; initial model download can take several minutes.")
+    deadline = time.monotonic() + STARTUP_TIMEOUT_SECONDS
+    last_error = "worker has not answered /health yet"
+    while time.monotonic() < deadline:
+        exit_code = worker.poll()
+        if exit_code is not None:
+            fail_startup(f"The exact-model worker exited before becoming ready (exit code {{exit_code}}).")
+        try:
+            check = urllib.request.Request(
+                "http://127.0.0.1:{port}/health",
+                headers={{"Authorization": "Bearer " + TOKEN}},
+            )
+            with urllib.request.urlopen(check, timeout=10) as response:
+                health = json.loads(response.read().decode("utf-8"))
+            if (response.status == 200
+                    and health.get("ready") is True
+                    and health.get("device") == "cuda"
+                    and health.get("model") == MODEL_ID
+                    and health.get("cpu_fallback") is False):
+                print("Exact CUDA worker is ready:", health)
                 break
-    except Exception:
+            last_error = "unexpected /health response: " + json.dumps(health, ensure_ascii=False)
+        except urllib.error.HTTPError as error:
+            last_error = f"/health returned HTTP {{error.code}}: " + error.read().decode("utf-8", errors="replace")[:1000]
+        except Exception as error:
+            last_error = f"/health is not ready: {{type(error).__name__}}: {{error}}"
+        if int(time.monotonic()) % 30 == 0:
+            print("Waiting for the exact CUDA model…", last_error)
         time.sleep(2)
-else:
-    worker.terminate()
-    raise RuntimeError("The exact-model worker did not become CUDA-ready. Inspect the cell output above.")
+    else:
+        fail_startup(
+            f"The exact-model worker did not become CUDA-ready within {{STARTUP_TIMEOUT_SECONDS // 60}} minutes. "
+            f"Last health-check result: {{last_error}}"
+        )
 
 subprocess.run(
     ["bash", "-lc", "wget -q -O /content/cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb && dpkg -i /content/cloudflared.deb"],
@@ -784,6 +828,7 @@ def make_notebook(spec: dict, capability: str) -> dict:
             token_env="LA_STUDIO_COLAB_VOICE_CLONE_TOKEN",
             module=module,
             port=3923,
+            log_name="voice_clone",
             model_id=spec["family_id"],
             url_label="LA_STUDIO_COLAB_VOICE_CLONE_URL",
             token_label="LA_STUDIO_COLAB_VOICE_CLONE_TOKEN",
@@ -795,6 +840,7 @@ def make_notebook(spec: dict, capability: str) -> dict:
             token_env="LA_STUDIO_COLAB_VOICE_DESIGN_TOKEN",
             module=module,
             port=3924,
+            log_name="voice_design",
             model_id=spec["family_id"],
             url_label="LA_STUDIO_COLAB_VOICE_DESIGN_URL",
             token_label="LA_STUDIO_COLAB_VOICE_DESIGN_TOKEN",

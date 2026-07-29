@@ -306,6 +306,14 @@ void TestColabVoiceCloneRunner::exactModelMappingMatchesCatalogAndNotebooks()
         QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_VOICE_CLONE_URL")));
         QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_VOICE_CLONE_TOKEN")));
         QVERIFY(source.contains(QStringLiteral("cloudflared")));
+        QVERIFY2(source.contains(QStringLiteral("STARTUP_TIMEOUT_SECONDS = 20 * 60")),
+                 "Exact-model notebook must allow a cold CUDA model download to finish.");
+        QVERIFY2(source.contains(QStringLiteral("WORKER_LOG")),
+                 "Exact-model notebook must retain startup logs when a worker fails.");
+        QVERIFY2(source.contains(QStringLiteral("LA Studio worker log")),
+                 "Exact-model notebook must return the root worker error instead of a generic timeout.");
+        QVERIFY2(source.contains(QStringLiteral("health.get(\"model\") == MODEL_ID")),
+                 "Exact-model notebook must validate that the ready worker is the selected model.");
         QVERIFY(!source.contains(QStringLiteral("API_GATEWAY")));
         QVERIFY(!source.contains(QStringLiteral("GATEWAY_BASE_URL")));
     }
