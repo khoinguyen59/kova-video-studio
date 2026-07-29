@@ -16,6 +16,8 @@ param(
     [string] $VcpkgRoot,
     [string] $LlamaCppSourceDir,
     [string] $Version,
+    [ValidateRange(1, 64)]
+    [int] $MaxParallelJobs = 4,
     [string] $ReleaseSuffix,
     [switch] $Clean,
     [switch] $SkipDeploy,
@@ -163,8 +165,8 @@ function Normalize-AppVersion {
             $Value = $Value.Substring(1)
         }
     }
-    if ($Value -notmatch '^\d+\.\d+\.\d+$') {
-        throw "Version must use MAJOR.MINOR.PATCH format; got '$Value'."
+    if ($Value -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+        throw "Version must use MAJOR.MINOR.RELEASE.BUILD format; got '$Value'."
     }
     return $Value
 }
@@ -183,7 +185,13 @@ function Normalize-ReleaseSuffix {
 }
 
 function Ensure-MsvcEnvironment {
-    if (Test-Command "cl.exe") {
+    # A bare cl.exe can leak in through PATH (for example after another build
+    # tool modified it) without INCLUDE/LIB.  In that state MSVC fails on its
+    # first standard header, so do not mistake the executable for a usable
+    # toolchain environment.
+    $hasCppHeaders = -not [string]::IsNullOrWhiteSpace($env:INCLUDE) -and
+        ($env:INCLUDE -split ";" | Where-Object { Test-Path (Join-Path $_ "type_traits") } | Select-Object -First 1)
+    if ((Test-Command "cl.exe") -and $hasCppHeaders) {
         return
     }
 
@@ -384,12 +392,18 @@ $cmakeArgs += "-DVCPKG_ROOT=$($VcpkgRoot.Replace('\', '/'))"
 $cmakeArgs += "-DLLAMA_CPP_SOURCE_DIR=$($LlamaCppSourceDir.Replace('\', '/'))"
 $cmakeArgs += "-DLASTUDIO_VERSION=$Version"
 $cmakeArgs += "-DLASTUDIO_RELEASE_SUFFIX=$ReleaseSuffix"
+$cmakeArgs += "-DLASTUDIO_PORTABLE_INTERNAL_LAYOUT=OFF"
 $cmakeArgs += "-DBUILD_TESTING=ON"
 
 if ($Preset -like "*mingw*") {
     $cmakeArgs += "-DVCPKG_TARGET_TRIPLET=x64-mingw-dynamic"
 } else {
     $cmakeArgs += "-DVCPKG_TARGET_TRIPLET=x64-windows"
+    # CMake can otherwise select a stray ld.exe from a developer's PATH even
+    # after vcvars has initialized MSVC. Pin the linker discovered from the
+    # MSVC environment so a Windows MSVC preset always uses link.exe.
+    $linkerCommand = Get-Command "link.exe" -ErrorAction Stop
+    $cmakeArgs += "-DCMAKE_LINKER=$($linkerCommand.Source.Replace('\', '/'))"
 }
 
 if ($Clean) {
@@ -407,10 +421,10 @@ cmake --preset $Preset $cmakeArgs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host ">> Building CMake preset: $Preset" -ForegroundColor Cyan
-cmake --build --preset $Preset --parallel
+cmake --build --preset $Preset --parallel $MaxParallelJobs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-$exePath = Join-Path $buildDir "LA Studio.exe"
+$exePath = Join-Path $buildDir "LA-Studio-$Version.exe"
 if (-not (Test-Path -LiteralPath $exePath)) {
     throw "Build completed but executable was not found: $exePath"
 }

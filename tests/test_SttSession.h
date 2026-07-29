@@ -14,6 +14,13 @@ private slots:
     void testSttSessionUrlPreview();
     void testSttSessionQmlNotifications();
     void testSttRecordingSourceSelection();
+    void testColabSttModelNotebookMapping();
+    void testColabSttRunnerUsesAsynchronousJobContract();
+    void testSpeechNotebookMatchesDirectColabSttContract();
+    void testGatewaySttRunnerPostsOpenAiCompatibleMultipart();
+    void testExplicitProviderRoutingDoesNotFallback();
+    void testRemoteFirstBlocksLocalStt();
+    void testSttRouteSelectionDoesNotFallbackAcrossGatewayAndColab();
 };
 
 } // namespace LAStudio

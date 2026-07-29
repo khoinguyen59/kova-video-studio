@@ -22,6 +22,20 @@ Rectangle {
     property var studioConfig: ({})
     property bool advancedOpen: false
     readonly property bool hasLanguageInput: studioConfig && studioConfig.inputs ? studioConfig.inputs.indexOf("language") !== -1 : true
+    component ColabField: TextField {
+        Layout.fillWidth: true
+        color: Theme.textPrimary
+        placeholderTextColor: Theme.textSecondary
+        font.pixelSize: Theme.fontSmall
+        padding: Theme.paddingSmall
+        selectByMouse: true
+        background: Rectangle {
+            radius: Theme.radiusSmall
+            color: Qt.rgba(1, 1, 1, 0.035)
+            border.color: parent.activeFocus ? Theme.accent : Qt.rgba(1, 1, 1, 0.09)
+            border.width: parent.activeFocus ? 2 : 1
+        }
+    }
 
 
     signal closeRequested()
@@ -187,6 +201,109 @@ Rectangle {
                                 if (root.sttSession && root.sttSession.language !== language) {
                                     root.sttSession.language = language
                                 }
+                            }
+                        }
+                    }
+
+                    SettingsSection {
+                        title: qsTr("Colab GPU Worker")
+                        iconName: "cloud"
+
+                        Text { Layout.fillWidth: true; text: qsTr("This direct temporary worker is independent of API Gateway."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                        Text {
+                            Layout.fillWidth: true
+                            text: root.sttSession && root.sttSession.colabModel !== ""
+                                  ? qsTr("Selected Colab model: %1").arg(root.sttSession.colabModel)
+                                  : qsTr("No Colab model selected. Open Load Model and use Select for Colab.")
+                            color: root.sttSession && root.sttSession.colabModel !== "" ? Theme.success : Theme.warning
+                            font.pixelSize: Theme.fontSmall
+                            font.bold: true
+                            wrapMode: Text.WordWrap
+                        }
+                        ColabNotebookLink {
+                            notebookFile: root.sttSession ? root.sttSession.colabNotebookFile : ""
+                        }
+                        Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                        ColabField {
+                            id: colabUrl
+                            text: AppController.colabSttSession.workerUrl
+                            placeholderText: qsTr("https://….trycloudflare.com")
+                        }
+                        Text { text: qsTr("Session token"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                        ColabField {
+                            id: colabToken
+                            echoMode: TextInput.Password
+                            placeholderText: root.sttSession && root.sttSession.colabActive ? qsTr("Connected — enter token to replace") : qsTr("Temporary token from Colab")
+                        }
+                        ColabSessionStatus {
+                            session: AppController.colabSttSession
+                        }
+                        PrimaryButton {
+                            Layout.fillWidth: true
+                            text: AppController.colabSttSession.checking
+                                  ? qsTr("Verifying CUDA and exact model...")
+                                  : (root.sttSession && root.sttSession.colabActive
+                                     ? qsTr("Using Colab GPU")
+                                     : qsTr("Use or connect Colab GPU"))
+                            iconName: root.sttSession && root.sttSession.colabActive ? "check" : "cloud"
+                            enabled: root.sttSession && root.sttSession.colabModel !== ""
+                                     && !AppController.colabSttSession.checking
+                            onClicked: {
+                                if (!root.sttSession) return
+                                if (root.sttSession.colabPaired) {
+                                    root.sttSession.useColab()
+                                } else if (root.sttSession.connectColab(colabUrl.text.trim(), colabToken.text)) {
+                                    colabToken.text = ""
+                                }
+                            }
+                        }
+                        PrimaryButton {
+                            Layout.fillWidth: true
+                            visible: root.sttSession && root.sttSession.colabPaired
+                            text: qsTr("Disconnect Colab worker")
+                            iconName: "close"
+                            quiet: true
+                            onClicked: if (root.sttSession) root.sttSession.disconnectColab()
+                        }
+                    }
+
+                    SettingsSection {
+                        title: qsTr("API Gateway STT")
+                        iconName: "cloud"
+
+                        Text { Layout.fillWidth: true; text: qsTr("This is a separate Gateway path and never uses the Colab session."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                        Text { text: qsTr("Gateway URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                        ColabField {
+                            text: AppController.settings.gatewayUrl
+                            placeholderText: qsTr("https://gateway.example/v1")
+                            onEditingFinished: AppController.settings.gatewayUrl = text.trim()
+                        }
+                        Text { text: qsTr("API key"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                        ColabField {
+                            id: gatewayKey
+                            echoMode: TextInput.Password
+                            placeholderText: AppController.settings.gatewayApiKeyConfigured ? qsTr("API key saved — enter to replace") : qsTr("Stored encrypted on this device")
+                            onEditingFinished: {
+                                if (text.trim() !== "") {
+                                    AppController.settings.setGatewayApiKey(text)
+                                    text = ""
+                                }
+                            }
+                        }
+                        Text { text: qsTr("STT model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                        ColabField {
+                            text: root.sttSession ? root.sttSession.gatewayModel : ""
+                            placeholderText: qsTr("Gateway STT model ID")
+                            onEditingFinished: if (root.sttSession) root.sttSession.gatewayModel = text.trim()
+                        }
+                        PrimaryButton {
+                            Layout.fillWidth: true
+                            text: root.sttSession && root.sttSession.gatewayActive ? qsTr("Disconnect API Gateway") : qsTr("Use API Gateway STT")
+                            iconName: root.sttSession && root.sttSession.gatewayActive ? "close" : "cloud"
+                            onClicked: {
+                                if (!root.sttSession) return
+                                if (root.sttSession.gatewayActive) root.sttSession.disconnectGateway()
+                                else root.sttSession.useGateway()
                             }
                         }
                     }

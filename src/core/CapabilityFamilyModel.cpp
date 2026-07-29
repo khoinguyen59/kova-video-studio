@@ -627,6 +627,8 @@ CapabilityFamilyModel::CapabilityFamilyModel(ModelManager *models, RuntimeManage
     if (m_runtimes) {
         connect(m_runtimes, &RuntimeManager::registryUpdated, this, &CapabilityFamilyModel::refresh);
     }
+    connect(HardwareManager::instance(), &HardwareManager::hardwareInfoChanged,
+            this, &CapabilityFamilyModel::refresh);
     if (m_settings) {
         connect(m_settings, &Settings::selectedTtsRuntimeChanged, this, &CapabilityFamilyModel::refresh);
         connect(m_settings, &Settings::selectedTtsRuntimeVersionChanged, this, &CapabilityFamilyModel::refresh);
@@ -1803,30 +1805,51 @@ void CapabilityFamilyModel::setInitialSelectedFiles(const QString &familyId, con
 
     if (familyId.isEmpty()) return;
 
-    m_userSelectedFiles.remove(familyId);
+    // An empty map means that the gallery has no initial file override for
+    // this family.  It is emitted on every family-card click by several QML
+    // hosts.  It must never clear a previous per-family choice or rebuild the
+    // complete catalogue on the GUI thread.
+    if (initialSelected.isEmpty()) {
+        return;
+    }
 
-    if (!initialSelected.isEmpty()) {
-        QVariantMap familyMap = itemForFamily(familyId);
-        if (!familyMap.isEmpty()) {
-            QVariantList reqFiles = familyMap.value(QStringLiteral("rawMetadata")).toMap().value(QStringLiteral("requiredFiles")).toList();
-            for (const QVariant &reqVal : reqFiles) {
-                QVariantMap req = reqVal.toMap();
-                QString role = req.value(QStringLiteral("role")).toString();
-                QString reqFile = req.value(QStringLiteral("file")).toString();
-                if (initialSelected.contains(role)) {
-                    QString chosenFile = initialSelected.value(role).toString().trimmed();
-                    const QVariantList candidates = req.value(QStringLiteral("candidates")).toList();
-                    const bool knownCandidate = candidates.isEmpty()
-                        ? chosenFile == reqFile
-                        : candidates.contains(chosenFile);
-                    if (chosenFile.isEmpty() || !knownCandidate) {
-                        continue;
-                    }
-                    m_userSelectedFiles[familyId][reqFile] = chosenFile;
+    QVariantMap resolvedSelections;
+
+    QVariantMap familyMap = itemForFamily(familyId);
+    if (!familyMap.isEmpty()) {
+        QVariantList reqFiles = familyMap.value(QStringLiteral("rawMetadata")).toMap().value(QStringLiteral("requiredFiles")).toList();
+        for (const QVariant &reqVal : reqFiles) {
+            QVariantMap req = reqVal.toMap();
+            QString role = req.value(QStringLiteral("role")).toString();
+            QString reqFile = req.value(QStringLiteral("file")).toString();
+            if (initialSelected.contains(role)) {
+                QString chosenFile = initialSelected.value(role).toString().trimmed();
+                const QVariantList candidates = req.value(QStringLiteral("candidates")).toList();
+                const bool knownCandidate = candidates.isEmpty()
+                    ? chosenFile == reqFile
+                    : candidates.contains(chosenFile);
+                if (chosenFile.isEmpty() || !knownCandidate) {
+                    continue;
                 }
+                resolvedSelections.insert(reqFile, chosenFile);
             }
         }
     }
+
+    // QML re-sends an empty map whenever the gallery highlights a family.
+    // Rebuilding every catalog card for that no-op causes synchronous file and
+    // runtime checks on the GUI thread.  Only invalidate the model when the
+    // effective per-family selection has actually changed.
+    const QVariantMap existingSelections = m_userSelectedFiles.value(familyId);
+    if (existingSelections == resolvedSelections) {
+        return;
+    }
+    // Invalid or stale input must be harmless as well.  It is not a request
+    // to erase a selection, and treating it as one used to trigger a costly
+    // reset while the user was merely changing the highlighted model.
+    if (resolvedSelections.isEmpty()) return;
+
+    m_userSelectedFiles.insert(familyId, resolvedSelections);
     refresh();
 }
 

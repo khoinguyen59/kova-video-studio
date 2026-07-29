@@ -91,7 +91,11 @@ try {
         throw "Installer exited with code $($installProcess.ExitCode)."
     }
 
-    $appPath = Join-Path $InstallDir "bin\LA Studio.exe"
+    $appCandidates = @(Get-ChildItem -LiteralPath (Join-Path $InstallDir 'bin') -Filter 'LA-Studio-*.exe' -File)
+    if ($appCandidates.Count -ne 1) {
+        throw "Expected exactly one versioned LA Studio executable in '$InstallDir\bin'; found $($appCandidates.Count)."
+    }
+    $appPath = $appCandidates[0].FullName
     $hostPath = Join-Path $InstallDir "bin\LAStudioRuntimeHost.exe"
     foreach ($path in @($appPath, $hostPath)) {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {

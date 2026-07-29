@@ -51,6 +51,15 @@ private slots:
     void discoversCliModelsFromLocalConfiguration();
     void fixesOnlyTranslationsOverPhonemeLimit();
     void ranksPartialTranslationFixesByBudgetDistance();
+    void remoteTranslationRoutesDoNotFallbackBetweenGatewayAndColab();
+    void remoteTtsRoutesDoNotFallbackBetweenGatewayAndColab();
+    void colabDubbingVoiceCloningIsDirectAndRequiresConsent();
+    void colabSourceSeparationDoesNotFallbackToLocal();
+    void dubbingRejectsAConnectedColabWorkerForTheWrongModel();
+    void remoteDubbingWorkflowIsReadyWithoutLocalModels();
+    void dubbingColabModelsMapToExactNotebooks();
+    void dubbingUiUsesExactModelWorkers();
+    void dubbingTranscriptionWaitsForFreshDecodedAudio();
 };
 
 } // namespace LAStudio

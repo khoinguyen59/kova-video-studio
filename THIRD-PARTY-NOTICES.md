@@ -16,6 +16,7 @@ notice does not replace those terms.
 | bzip2 | vcpkg manifest dependency, baseline `9a023fa7…`; used by bundled bsdtar | bzip2 license | [bzip2 source](https://sourceware.org/bzip2/) |
 | 7-Zip | 26.2, installed by release CI and staged for archive handling | LGPL-2.1-or-later; some code has additional unRAR restrictions | [7-Zip license](https://www.7-zip.org/license.txt) |
 | libarchive / bsdtar | libarchive 3.8.1, built during packaging from SHA-256-pinned upstream source | BSD-2-Clause | [libarchive source](https://github.com/libarchive/libarchive/releases/tag/v3.8.1) |
+| FFmpeg / FFprobe | BtbN win64 LGPL shared build, SHA-256-pinned and extracted during packaging | LGPL-3.0-or-later | [BtbN FFmpeg Builds](https://github.com/BtbN/FFmpeg-Builds) |
 | VietNorm text normalization | Port of `vietnormalizer` 0.2.3 commit `dd38778731d6ca4e9e670a19abb2df1c901a1852` and `nghitts` material | MIT and Apache-2.0 | `src/textnorm/UPSTREAM.md`, `licenses/vietnorm/NOTICE` |
 
 ## Installer-staged runtime

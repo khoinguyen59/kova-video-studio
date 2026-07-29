@@ -16,6 +16,7 @@ Rectangle {
             case 0: return qsTr("General Settings")
             case 1: return qsTr("Hardware")
             case 2: return qsTr("About & Licenses")
+            case 3: return qsTr("GPU & Optional API")
             default: return qsTr("Settings")
         }
     }
@@ -26,6 +27,7 @@ Rectangle {
             case 0: return qsTr("Configure general options, download path, and view application metadata.")
             case 1: return qsTr("CPU, memory, GPU, and model loading limits.")
             case 2: return qsTr("License obligations, third-party notices, and source availability.")
+            case 3: return qsTr("Use local CPU by default, connect Colab GPU workers per feature, and optionally configure an API Gateway.")
             default: return ""
         }
     }
@@ -34,6 +36,7 @@ Rectangle {
         root.translationRevision
         return [
             { label: qsTr("General"), iconName: "settings", index: 0 },
+            { label: qsTr("GPU & Optional API"), iconName: "cloud", index: 3 },
             { label: qsTr("About & Licenses"), iconName: "file", index: 2 }
         ]
     }
@@ -150,6 +153,7 @@ Rectangle {
                     GeneralSettingsTab {}
                     HardwareSettingsTab {}
                     AboutLicensesTab {}
+                    RemoteInferenceTab {}
                 }
             }
         }

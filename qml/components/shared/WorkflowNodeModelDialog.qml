@@ -16,14 +16,17 @@ Dialog {
         var item = root.nodes ? root.nodes.find(function(entry) { return entry.id === value }) : null
         if (!item || item.configurable !== true) return
 
-        openForCapability(value, item.capabilityId || "stt")
+        openForCapability(value, item.capabilityId || "stt", item)
     }
 
-    function openForCapability(value, capability) {
+    function openForCapability(value, capability, nodeDefinition) {
         root.nodeId = value
         root.capabilityId = capability
         modelController.familiesModel.setCapability(root.capabilityId)
 
+        var item = nodeDefinition
+                || (root.nodes ? root.nodes.find(function(entry) { return entry.id === value }) : null)
+                || ({})
         var saved = root.nodeConfigurations[root.nodeId] || {}
         var preferredFamilyId = saved.familyId || item.selectedFamilyId
                                 || item.defaultFamilyId || ""
@@ -33,7 +36,6 @@ Dialog {
         var familyId = preferredFamilyId || recommended.familyId
             || modelController.familiesModel.firstFamilyId()
 
-        modelController.openConfiguration(familyId)
         gallery.selectedFamilyId = familyId
         gallery.initialSelectedFiles = saved.selectedFiles || recommended.selectedFiles || ({})
         gallery.pendingRuntimeId = saved.runtimeId || recommended.runtimeId || ""
@@ -69,12 +71,6 @@ Dialog {
         capability: root.capabilityId
         modalMode: true
         familiesModel: modelController.familiesModel
-        selectedFamilyId: modelController.selectedFamilyId
-        initialSelectedFiles: modelController.selectedFiles
-
-        onFamilySelected: function(familyId) {
-            modelController.selectFamily(familyId)
-        }
 
         onConfigurationAccepted: function(familyId, runtimeId, runtimeVersion, selectedFiles) {
             root.configurationAccepted(root.nodeId, familyId, runtimeId, runtimeVersion, selectedFiles)

@@ -17,7 +17,7 @@ cd LA-Studio
 
 After a successful build, executable output is:
 
-`out/build/windows-msvc-release/LA Studio.exe`
+`out/build/windows-msvc-release/LA-Studio-<version>.exe`
 
 ## Prerequisites
 
@@ -28,7 +28,7 @@ Install these before running bootstrap:
 3. CMake 3.21+
 4. Ninja
 5. Git (used to provision the pinned vcpkg baseline and llama.cpp b10036 headers automatically)
-6. FFmpeg and FFprobe on `PATH` (required by Video Dubbing, source separation, and audio decoding fallback)
+6. FFmpeg and FFprobe on `PATH` for development builds (release packages bundle a pinned runtime; Video Dubbing, source separation, and audio decoding fallback use it automatically)
 7. Internet access for the first non-`-SkipDeploy` build, unless the eSpeak NG MSI is already cached in `.deps/espeak-ng`
 
 Packaging only additionally requires 7-Zip and Inno Setup 6. eSpeak NG is downloaded and staged next
@@ -101,6 +101,15 @@ bootstrap:
 .\scripts\bootstrap.bat -QtRoot .tools\Qt\6.9.3 -AllowUnsignedEspeakForInternalBuild
 ```
 
+To keep an already-running staged build open while validating a fresh **internal**
+payload, stage into another directory below `out/`. This option is deliberately
+rejected when an installer is requested:
+
+```powershell
+.\scripts\package.ps1 -QtRoot .tools\Qt\6.9.3 -SkipInstaller `
+  -AllowUnsignedEspeakForInternalBuild -StageDir out\stage-internal
+```
+
 This flag is intentionally opt-in and must never be used by a release build or CI release job.
 
 Actionable QML lint gate (run after a preset has been configured):
@@ -119,7 +128,7 @@ Primary presets:
 
 Legacy aliases (`x64-release`, `x64-debug`, `mingw-release`) are retained for compatibility only.
 
-`Debug` builds keep the console attached for developer logging. All non-Debug Windows builds are packaged as GUI apps, so the terminal is hidden when `LA Studio.exe` opens.
+`Debug` builds keep the console attached for developer logging. All non-Debug Windows builds are packaged as GUI apps, so the terminal is hidden when `LA-Studio-<version>.exe` opens.
 
 ## Incremental Build and Build Speed
 

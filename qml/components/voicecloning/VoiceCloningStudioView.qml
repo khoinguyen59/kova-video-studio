@@ -16,6 +16,9 @@ StudioShell {
     selectedFamilyId: family ? family.id : ""
     studioContext: null
     studioReady: false
+    // Voice cloning's Colab worker is a complete execution route, so its
+    // setup cannot depend on a local model being loaded first.
+    settingsRequiresReady: false
     isSettingsOpen: true
     showLeftPanel: true
     isLeftPanelOpen: true
@@ -29,11 +32,16 @@ StudioShell {
     property string referenceAudioPath: ""
     property string playingType: "none"
     property string detectedLanguage: "en"
-    property bool outputReady: AppController.tts.lastSampleCount > 0 && AppController.tts.isCloneAction
+    readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
+    readonly property bool colabActive: AppController.colabVoiceClone && AppController.colabVoiceClone.colabActive
+    readonly property var activeClone: colabActive ? AppController.colabVoiceClone : null
+    property bool outputReady: colabActive
+                               ? activeClone.lastSampleCount > 0
+                               : (AppController.tts.lastSampleCount > 0 && AppController.tts.isCloneAction)
     property string selectedLanguageCode: "en"
     property real mainHorizontalInset: Theme.paddingXL
     property real promptInset: Theme.paddingSmall
-    readonly property bool inputsLocked: AppController.tts.processing
+    readonly property bool inputsLocked: AppController.tts.processing || (colabActive && activeClone.processing)
     readonly property var nonVerbalTags: {
         if (family && family.studio && family.studio[root.capability] && family.studio[root.capability].nonVerbalTags)
             return family.studio[root.capability].nonVerbalTags
@@ -124,8 +132,9 @@ StudioShell {
     }
 
     function outputDurationText() {
-        if (!root.outputReady || AppController.tts.sampleRate <= 0) return "--"
-        var seconds = AppController.tts.lastSampleCount / AppController.tts.sampleRate
+        var clone = root.colabActive ? root.activeClone : AppController.tts
+        if (!root.outputReady || clone.sampleRate <= 0) return "--"
+        var seconds = clone.lastSampleCount / clone.sampleRate
         if (seconds < 60) return seconds.toFixed(1) + "s"
         var minutes = Math.floor(seconds / 60)
         var remain = Math.floor(seconds % 60)
@@ -133,7 +142,7 @@ StudioShell {
     }
 
     function sampleCountText() {
-        var count = AppController.tts.lastSampleCount
+        var count = root.colabActive ? root.activeClone.lastSampleCount : AppController.tts.lastSampleCount
         if (count >= 1000000) return (count / 1000000).toFixed(1) + "M samples"
         if (count >= 1000) return (count / 1000).toFixed(1) + "k samples"
         return count + " samples"
@@ -382,9 +391,9 @@ StudioShell {
                                                 }
                                                 searchable: model.length > 15
                                                 enabled: !root.inputsLocked
-                                                onCurrentIndexChanged: {
-                                                    if (!model || currentIndex < 0 || currentIndex >= model.length) return
-                                                    var value = model[currentIndex].value
+                                                onActivated: function(index) {
+                                                    if (!model || index < 0 || index >= model.length) return
+                                                    var value = model[index].value
                                                     if (root.selectedLanguageCode !== value) {
                                                         root.selectedLanguageCode = value
                                                     }
@@ -505,23 +514,24 @@ StudioShell {
                                         GeneratedAudioOutput {
                                             Layout.fillWidth: true
                                             outputReady: root.outputReady
-                                            samples: AppController.tts.lastSamplePreview
+                                            samples: root.colabActive ? root.activeClone.lastSamplePreview : AppController.tts.lastSamplePreview
                                             durationText: root.outputDurationText()
-                                            sampleRate: AppController.tts.sampleRate
+                                            sampleRate: root.colabActive ? root.activeClone.sampleRate : AppController.tts.sampleRate
                                             sampleCountText: root.sampleCountText()
                                             isPlaying: root.playingType === "tts" && AppController.player.playing
                                             isPaused: root.playingType === "tts" && AppController.player.paused
                                             playbackPositionMs: root.playingType === "tts" ? AppController.player.playbackPositionMs : 0
                                             playbackDurationMs: root.playingType === "tts" ? AppController.player.playbackDurationMs : 0
-                                            audioDurationMs: AppController.tts.sampleRate > 0
-                                                             ? Math.round(AppController.tts.lastSampleCount * 1000 / AppController.tts.sampleRate) : 0
-                                            processing: AppController.tts.processing
-                                            generationProgress: AppController.tts.generationProgress
-                                            progressEstimated: AppController.tts.generationProgressEstimated
-                                            progressLabel: AppController.tts.generationProgressLabel
+                                            audioDurationMs: (root.colabActive ? root.activeClone.sampleRate : AppController.tts.sampleRate) > 0
+                                                             ? Math.round((root.colabActive ? root.activeClone.lastSampleCount : AppController.tts.lastSampleCount) * 1000 / (root.colabActive ? root.activeClone.sampleRate : AppController.tts.sampleRate)) : 0
+                                            processing: root.colabActive ? root.activeClone.processing : AppController.tts.processing
+                                            generationProgress: root.colabActive ? root.activeClone.progress : AppController.tts.generationProgress
+                                            progressEstimated: root.colabActive ? false : AppController.tts.generationProgressEstimated
+                                            progressLabel: root.colabActive ? root.activeClone.progressStage : AppController.tts.generationProgressLabel
                                             onPlayClicked: {
                                                 root.playingType = "tts"
-                                                AppController.preview.playLastTts()
+                                                if (root.colabActive) root.activeClone.playOutput()
+                                                else AppController.preview.playLastTts()
                                             }
                                             onPauseClicked: AppController.player.pause()
                                             onResumeClicked: AppController.player.resume()
@@ -530,6 +540,8 @@ StudioShell {
                                                 root.playingType = "tts"
                                                 if (AppController.player.playing)
                                                     AppController.player.seek(positionMs)
+                                                else if (root.colabActive)
+                                                    root.activeClone.playOutput(positionMs)
                                                 else
                                                     AppController.preview.playLastTtsAtPosition(positionMs)
                                             }
@@ -548,8 +560,13 @@ StudioShell {
                                     iconName: "spark"
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: 42
-                                    visible: !AppController.tts.processing
+                                    visible: !root.inputsLocked
                                     enabled: {
+                                        if (root.remoteFirstMode && !root.colabActive) return false
+                                        if (root.colabActive) {
+                                            return inputText.text.trim().length > 0 && root.referenceAudioPath !== ""
+                                                && referenceBox.referenceText.trim().length > 0 && settingsPanel.colabConsent
+                                        }
                                         var isQwen3 = root.family && root.family.id && root.family.id.indexOf("qwen3") !== -1
                                         var baseEnabled = (root.studioController ? root.studioController.canProcess : false) && AppController.tts.modelLoaded && inputText.text.length > 0 && root.referenceAudioPath !== ""
                                         baseEnabled = baseEnabled && !root.inputsLocked
@@ -559,8 +576,14 @@ StudioShell {
                                         return baseEnabled
                                     }
                                     onClicked: {
-                                        var settings = settingsPanel.getSettingsObject(root.selectedLanguageCode, inputText.text, referenceBox.referenceText)
-                                        AppController.tts.cloneVoice(VoiceCloningUtils.normalizeText(inputText.text), root.referenceAudioPath, settings)
+                                        if (root.colabActive) {
+                                            root.activeClone.cloneVoice(VoiceCloningUtils.normalizeText(inputText.text), root.referenceAudioPath,
+                                                                        referenceBox.referenceText, root.selectedLanguageCode,
+                                                                        settingsPanel.colabProfileName, settingsPanel.colabConsent)
+                                        } else if (!root.remoteFirstMode) {
+                                            var settings = settingsPanel.getSettingsObject(root.selectedLanguageCode, inputText.text, referenceBox.referenceText)
+                                            AppController.tts.cloneVoice(VoiceCloningUtils.normalizeText(inputText.text), root.referenceAudioPath, settings)
+                                        }
                                     }
                                 }
 
@@ -570,8 +593,11 @@ StudioShell {
                                     buttonColor: Theme.danger
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: 42
-                                    visible: AppController.tts.processing
-                                    onClicked: AppController.tts.cancelProcessing()
+                                    visible: root.inputsLocked
+                                    onClicked: {
+                                        if (root.colabActive) root.activeClone.cancelProcessing()
+                                        else AppController.tts.cancelProcessing()
+                                    }
                                 }
                             }
                         }
@@ -647,7 +673,10 @@ StudioShell {
         title: "Save Audio File"
         fileMode: FileDialog.SaveFile
         nameFilters: ["WAV files (*.wav)"]
-        onAccepted: AppController.preview.saveWav(selectedFile.toString())
+        onAccepted: {
+            if (root.colabActive) root.activeClone.saveWav(selectedFile.toString())
+            else AppController.preview.saveWav(selectedFile.toString())
+        }
     }
 
     ExamplePickerDialog {

@@ -8,6 +8,7 @@ StudioShell {
     id: root
 
     property var sttSession: null
+    readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
 
     family: {
         if (!studioController) return null
@@ -21,7 +22,10 @@ StudioShell {
     families: studioController ? studioController.families : []
     capability: "stt"
     studioTitle: studioController ? studioController.studioHeaderTitle : qsTr("Speech-to-Text Studio")
-    studioReady: studioController ? studioController.studioReady : false
+    studioReady: (sttSession && (sttSession.colabActive || sttSession.gatewayActive)) || (studioController ? studioController.studioReady : false)
+    // Remote setup must be available before a local model is selected.  The
+    // input action remains gated by studioReady and the selected provider.
+    settingsRequiresReady: false
     isSettingsOpen: true
     showLeftPanel: true
     isLeftPanelOpen: true
@@ -102,7 +106,7 @@ StudioShell {
                             Text {
                                 Layout.fillWidth: true
                                 horizontalAlignment: Text.AlignHCenter
-                                text: qsTr("The studio stays lightweight until you choose a compatible STT configuration.")
+                                text: root.remoteFirstMode ? qsTr("Remote-first: select API Gateway or pair and select a direct Colab STT worker.") : qsTr("The studio stays lightweight until you choose a compatible STT configuration.")
                                 color: Theme.textSecondary
                                 font.pixelSize: Theme.fontSmall
                                 wrapMode: Text.WordWrap

@@ -71,36 +71,25 @@ void StudioSessionViewModel::initializeAction()
 
 QString StudioSessionViewModel::selectedFamilyId() const
 {
-    if (m_selectionCommitted && m_repository) {
-        return m_repository->selectionFor(m_capabilityId).familyId;
-    }
+    // syncSelectionFromSettings() hydrates the pending fields once.  QML reads
+    // these properties many times per frame; querying SQLite from a property
+    // getter made every selectionChanged notification perform repeated
+    // synchronous database work on the GUI thread.
     return m_pendingFamilyId;
 }
 
 QString StudioSessionViewModel::runtimeId() const
 {
-    if (m_selectionCommitted && m_repository) {
-        return m_repository->selectionFor(m_capabilityId).runtimeId;
-    }
     return m_pendingRuntimeId;
 }
 
 QString StudioSessionViewModel::runtimeVersion() const
 {
-    if (m_selectionCommitted && m_repository) {
-        return m_repository->selectionFor(m_capabilityId).runtimeVersion;
-    }
     return m_pendingRuntimeVersion;
 }
 
 QVariantMap StudioSessionViewModel::selectedFiles() const
 {
-    if (m_selectionCommitted && m_repository) {
-        const StudioConfiguration committed = m_repository->selectionFor(m_capabilityId);
-        if (m_pendingFamilyId.isEmpty() || m_pendingFamilyId == committed.familyId) {
-            return committed.selectedFiles;
-        }
-    }
     return m_pendingFiles;
 }
 
@@ -418,7 +407,10 @@ QVariantList StudioSessionViewModel::families() const
 
 void StudioSessionViewModel::openConfiguration(const QString &familyId)
 {
-    selectFamily(familyId);
+    Q_UNUSED(familyId)
+    // The gallery owns its pending card selection.  Publishing it through this
+    // view model before acceptance causes the studio content behind the modal
+    // to rebuild settings, schemas and session bindings for every card click.
     emit configurationGalleryRequestReset();
 }
 
@@ -445,6 +437,7 @@ void StudioSessionViewModel::selectFamily(const QString &familyId)
         }
     }
 
+    m_selectionCommitted = false;
     emit selectionChanged();
 }
 
@@ -452,6 +445,7 @@ void StudioSessionViewModel::selectRuntime(const QString &runtimeId, const QStri
 {
     m_pendingRuntimeId = runtimeId;
     m_pendingRuntimeVersion = version;
+    m_selectionCommitted = false;
     emit selectionChanged();
 }
 

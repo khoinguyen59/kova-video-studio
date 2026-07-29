@@ -19,6 +19,12 @@ ColumnLayout {
     property string suggestedLanguage: "en"
     property string backendType: ""  // "kokoro", "vibevoice", or "" (omnivoice)
     property bool locked: false
+    property bool showGatewaySettings: true
+    property bool showColabSettings: true
+    // This chooses the route used by the TTS studio.  It is intentionally
+    // independent from either controller's connection/active state.
+    property string selectedRemoteProvider: ""
+    readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
 
     property var capabilitySchema: []
     property var basicSchema: []
@@ -96,8 +102,24 @@ ColumnLayout {
 
     readonly property bool isKokoro: backendType === "kokoro"
 
+    component GatewayField: TextField {
+        Layout.fillWidth: true
+        color: Theme.textPrimary
+        placeholderTextColor: Theme.textSecondary
+        font.pixelSize: Theme.fontSmall
+        padding: Theme.paddingSmall
+        selectByMouse: true
+        background: Rectangle {
+            radius: Theme.radiusSmall
+            color: Qt.rgba(1, 1, 1, 0.035)
+            border.color: parent.activeFocus ? Theme.accent : Qt.rgba(1, 1, 1, 0.09)
+            border.width: parent.activeFocus ? 2 : 1
+        }
+    }
+
     signal settingsChanged()
     signal closeRequested()
+    signal remoteProviderSelected(string provider)
 
     function getSynthesisSettings() {
         var settings = {}
@@ -277,6 +299,142 @@ ColumnLayout {
                     onTextChanged: {
                         root.styleInstruction = text
                         root.settingsChanged()
+                    }
+                }
+            }
+
+            SettingsSection {
+                title: qsTr("API Gateway TTS")
+                iconName: "cloud"
+                visible: root.showGatewaySettings
+
+                Text { Layout.fillWidth: true; text: qsTr("This independent route uses API Gateway only; it never uses a Colab worker or token."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                Text { text: qsTr("Gateway URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                GatewayField {
+                    text: AppController.settings.gatewayUrl
+                    placeholderText: qsTr("https://gateway.example/v1")
+                    onEditingFinished: AppController.settings.gatewayUrl = text.trim()
+                }
+                Text { text: qsTr("API key"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                GatewayField {
+                    id: gatewayKey
+                    echoMode: TextInput.Password
+                    placeholderText: AppController.settings.gatewayApiKeyConfigured ? qsTr("API key saved — enter to replace") : qsTr("Stored encrypted on this device")
+                    onEditingFinished: {
+                        if (text.trim() !== "") {
+                            AppController.settings.setGatewayApiKey(text)
+                            text = ""
+                        }
+                    }
+                }
+                Text { text: qsTr("TTS model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                GatewayField {
+                    text: AppController.gatewayTts.gatewayModel
+                    placeholderText: qsTr("OpenAI-compatible TTS model")
+                    onEditingFinished: AppController.gatewayTts.gatewayModel = text.trim()
+                }
+                Text { text: qsTr("Voice"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                GatewayField {
+                    text: AppController.gatewayTts.gatewayVoice
+                    placeholderText: qsTr("alloy")
+                    onEditingFinished: AppController.gatewayTts.gatewayVoice = text.trim()
+                }
+                PrimaryButton {
+                    Layout.fillWidth: true
+                    enabled: !root.locked && !(root.remoteFirstMode && AppController.gatewayTts.gatewayActive && root.selectedRemoteProvider === "gateway")
+                    text: root.remoteFirstMode
+                          ? (AppController.gatewayTts.gatewayActive
+                             ? (root.selectedRemoteProvider === "gateway" ? qsTr("API Gateway TTS selected") : qsTr("Select API Gateway TTS"))
+                             : qsTr("Use API Gateway TTS"))
+                          : (AppController.gatewayTts.gatewayActive && root.selectedRemoteProvider === "gateway"
+                             ? qsTr("Use local TTS")
+                             : (AppController.gatewayTts.gatewayActive ? qsTr("Select API Gateway TTS") : qsTr("Use API Gateway TTS")))
+                    iconName: root.remoteFirstMode || !(AppController.gatewayTts.gatewayActive && root.selectedRemoteProvider === "gateway") ? "cloud" : "close"
+                    onClicked: {
+                        if (AppController.gatewayTts.gatewayActive && !root.remoteFirstMode && root.selectedRemoteProvider === "gateway") {
+                            AppController.gatewayTts.disconnectGateway()
+                            root.remoteProviderSelected("")
+                        } else {
+                            if (!AppController.gatewayTts.gatewayActive)
+                                AppController.gatewayTts.useGateway()
+                            if (AppController.gatewayTts.gatewayActive)
+                                root.remoteProviderSelected("gateway")
+                        }
+                    }
+                }
+            }
+
+            SettingsSection {
+                title: qsTr("Colab GPU TTS")
+                iconName: "cloud"
+                visible: root.showColabSettings
+
+                Text { Layout.fillWidth: true; text: qsTr("This direct temporary worker is independent of API Gateway. Its token stays only in this desktop session."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                Text {
+                    Layout.fillWidth: true
+                    text: AppController.colabTts.colabModel !== ""
+                          ? qsTr("Selected Colab model: %1").arg(AppController.colabTts.colabModel)
+                          : qsTr("No Colab model selected. Open Load Model and use Select for Colab.")
+                    color: AppController.colabTts.colabModel !== "" ? Theme.success : Theme.warning
+                    font.pixelSize: Theme.fontSmall
+                    wrapMode: Text.WordWrap
+                }
+                ColabNotebookLink { notebookFile: AppController.colabTts.colabNotebookFile }
+                Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                GatewayField {
+                    id: colabUrl
+                    text: AppController.colabTtsSession.workerUrl
+                    placeholderText: qsTr("https://…trycloudflare.com")
+                }
+                Text { text: qsTr("Session token"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                GatewayField {
+                    id: colabToken
+                    echoMode: TextInput.Password
+                    placeholderText: AppController.colabTts.colabConnected ? qsTr("Connected — enter token to replace") : qsTr("Temporary token from Colab")
+                }
+                ColabSessionStatus {
+                    session: AppController.colabTtsSession
+                }
+                Text { text: qsTr("Voice"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                GatewayField {
+                    text: AppController.colabTts.colabVoice
+                    placeholderText: qsTr("af_heart")
+                    onEditingFinished: AppController.colabTts.colabVoice = text.trim()
+                }
+                Text { text: qsTr("Language"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                GatewayField {
+                    text: AppController.colabTts.colabLanguage
+                    placeholderText: qsTr("en")
+                    onEditingFinished: AppController.colabTts.colabLanguage = text.trim()
+                }
+                PrimaryButton {
+                    Layout.fillWidth: true
+                    enabled: !root.locked && AppController.colabTts.colabModel !== ""
+                             && !AppController.colabTtsSession.checking
+                             && !(root.remoteFirstMode && AppController.colabTts.colabActive && root.selectedRemoteProvider === "colab")
+                    text: AppController.colabTtsSession.checking
+                          ? qsTr("Verifying CUDA and exact model...")
+                          : (root.remoteFirstMode
+                          ? (AppController.colabTts.colabActive
+                             ? (root.selectedRemoteProvider === "colab" ? qsTr("Direct Colab GPU TTS selected") : qsTr("Select direct Colab GPU TTS"))
+                             : (AppController.colabTts.colabConnected ? qsTr("Use direct Colab GPU TTS") : qsTr("Connect direct Colab GPU TTS")))
+                          : (AppController.colabTts.colabActive && root.selectedRemoteProvider === "colab"
+                             ? qsTr("Use local TTS")
+                             : (AppController.colabTts.colabActive ? qsTr("Select Colab GPU TTS") : (AppController.colabTts.colabConnected ? qsTr("Use Colab GPU TTS") : qsTr("Connect Colab GPU TTS")))))
+                    iconName: root.remoteFirstMode || !(AppController.colabTts.colabActive && root.selectedRemoteProvider === "colab") ? "cloud" : "close"
+                    onClicked: {
+                        if (AppController.colabTts.colabActive && !root.remoteFirstMode && root.selectedRemoteProvider === "colab") {
+                            AppController.colabTts.useLocal()
+                            root.remoteProviderSelected("")
+                        } else {
+                            if (AppController.colabTts.colabConnected) {
+                                AppController.colabTts.useColab()
+                            } else if (AppController.colabTts.connectColab(colabUrl.text.trim(), colabToken.text)) {
+                                colabToken.text = ""
+                            }
+                            if (AppController.colabTts.colabActive)
+                                root.remoteProviderSelected("colab")
+                        }
                     }
                 }
             }

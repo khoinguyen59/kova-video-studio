@@ -8,6 +8,8 @@
 #include <QAtomicInteger>
 #include <memory>
 #include <QPointer>
+#include <QThread>
+#include <atomic>
 #include "separation/SeparationTypes.h"
 #include "controllers/dubbing/DubbingRunCoordinator.h"
 
@@ -26,6 +28,9 @@ class DubbingSynthesisJob;
 class DubbingExportJob;
 class DubbingTranslationJob;
 class DubbingTranslationFixService;
+class Settings;
+class ColabSession;
+class ColabSeparationRunner;
 
 class DubbingJobRunner : public QObject
 {
@@ -54,9 +59,14 @@ public:
     void startSourceSeparation(const QString &audioPath,
                                const QVariantMap &modelConfiguration = QVariantMap());
     void startTranscription(const QString &sourceLanguage, const QString &sourceMediaPath,
-                            const QString &fallbackAudioPath = QString());
+                            const QString &fallbackAudioPath = QString(),
+                            const QVariantMap &modelConfiguration = QVariantMap());
     void startTranslation(const QString &sourceLanguage, const QString &targetLanguage, const QVariantList &segments,
                           const QVariantMap &modelConfiguration = QVariantMap());
+    void setRemoteServices(Settings *settings, ColabSession *translationSession,
+                           ColabSession *ttsSession, ColabSession *voiceCloneSession,
+                           ColabSession *separationSession,
+                           ColabSession *alignmentSession);
     void setTranslationFixConfiguration(const QVariantMap &configuration);
     void startAudioGeneration(const QVariantList &segments, const QString &projectPath,
                               const QVariantMap &synthesisSettings = QVariantMap());
@@ -116,6 +126,11 @@ private:
     DubbingExportJob *m_exportJob = nullptr;
     DubbingTranslationJob *m_translationJob = nullptr;
     DubbingTranslationFixService *m_autoTranslationFix = nullptr;
+    QPointer<ColabSession> m_colabSeparationSession;
+    ColabSeparationRunner *m_colabSeparationRunner = nullptr;
+    QThread m_colabSeparationThread;
+    std::shared_ptr<std::atomic_bool> m_colabSeparationCancellation;
+    QMetaObject::Connection m_colabSeparationSessionConnection;
     QVariantMap m_translationConfiguration;
     QVariantMap m_translationFixConfiguration;
     QString m_translationSourceLanguage;

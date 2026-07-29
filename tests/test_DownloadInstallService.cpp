@@ -32,7 +32,7 @@ void TestDownloadInstallService::testDownloadInstallService()
     Settings settings;
     RuntimeManager runtimes(nullptr, &settings);
 
-    DownloadInstallService service(&downloads, &models, &runtimes);
+    DownloadInstallService service(&downloads, &models, &runtimes, &settings);
 
     // Create a dummy model zip with incorrect signature to verify rejection
     QString dummyZip = m_tempDir.filePath(QStringLiteral("bad.zip"));
@@ -69,6 +69,28 @@ void TestDownloadInstallService::testQuickInstallSelectsLatestCatalogRuntime()
     const QVariantMap selected = DownloadInstallService::latestSupportedRuntime(option);
     QCOMPARE(selected.value(QStringLiteral("version")).toString(), QStringLiteral("v1.10.0"));
     QCOMPARE(selected.value(QStringLiteral("asset")).toString(), QStringLiteral("latest.zip"));
+}
+
+void TestDownloadInstallService::remoteFirstModeBlocksLocalDownloads()
+{
+    HFHubClient hub;
+    DownloadManager downloads(&hub);
+    ModelManager models;
+    Settings settings;
+    RuntimeManager runtimes(nullptr, &settings);
+    DownloadInstallService service(&downloads, &models, &runtimes, &settings);
+    const bool original = settings.remoteFirstMode();
+    settings.setRemoteFirstMode(true);
+
+    QSignalSpy errors(&service, &DownloadInstallService::errorOccurred);
+    const QVariantMap family{{QStringLiteral("modelId"), QStringLiteral("org/example")}};
+    const QVariantMap requirement{{QStringLiteral("modelId"), QStringLiteral("org/example")},
+                                  {QStringLiteral("selectedFile"), QStringLiteral("model.bin")}};
+    QVERIFY(!service.enqueueModelFile(family, requirement));
+    QCOMPARE(errors.size(), 1);
+    QVERIFY(errors.constFirst().constFirst().toString().contains(QStringLiteral("Remote-first mode")));
+
+    settings.setRemoteFirstMode(original);
 }
 
 void TestDownloadInstallService::testArchiveMemberPathsCannotEscapeExtractionDir()

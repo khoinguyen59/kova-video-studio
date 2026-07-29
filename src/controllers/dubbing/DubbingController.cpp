@@ -3,6 +3,7 @@
 #include "SttSessionController.h"
 #include "tts/TtsEngine.h"
 #include "controllers/dubbing/DubbingJobRunner.h"
+#include "controllers/dubbing/DubbingColabModelRoutes.h"
 #include "controllers/dubbing/DubbingTranslationFixService.h"
 #include "dubbing/EspeakNgPhonemizer.h"
 #include "dubbing/workflow/DubbingWorkflowDefinition.h"
@@ -19,6 +20,7 @@
 #include "core/DownloadManager.h"
 #include "core/ModelManager.h"
 #include "core/RuntimeManager.h"
+#include "remote/ExecutionProvider.h"
 
 #include <QFileInfo>
 #include <QFile>
@@ -581,6 +583,49 @@ QVariantMap DubbingController::firstCustomSetupIssue() const
                      QStringLiteral("Choose a model for the %1 node before running Custom dubbing.")
                          .arg(visibleStepForNode(required.first))}};
         }
+        if (required.first == QStringLiteral("source-separate")
+            || required.first == QStringLiteral("transcribe")
+            || required.first == QStringLiteral("translate")
+            || required.first == QStringLiteral("synthesize")) {
+            const QVariantMap parameters = selected.value(QStringLiteral("parameters")).toMap();
+            ExecutionProvider provider = ExecutionProvider::LocalDev;
+            const QString providerId = selected.value(
+                QStringLiteral("executionProvider"), parameters.value(QStringLiteral("executionProvider"),
+                QStringLiteral("local-dev"))).toString();
+            if (executionProviderFromId(providerId, &provider)
+                && provider != ExecutionProvider::LocalDev) {
+                const QString modelId = selected.value(
+                    QStringLiteral("modelId"), parameters.value(QStringLiteral("modelId"))).toString().trimmed();
+                if (modelId.isEmpty()) {
+                    return {{QStringLiteral("nodeId"), required.first},
+                            {QStringLiteral("setupKind"), QStringLiteral("node-model")},
+                            {QStringLiteral("message"),
+                                 QStringLiteral("Choose a %1 model for the %2 node before running Custom dubbing.")
+                                 .arg(executionProviderDisplayName(provider), visibleStepForNode(required.first))}};
+                }
+                if (provider == ExecutionProvider::ColabDirect
+                    && !DubbingColabModelRoutes::supports(required.first, modelId)) {
+                    return {{QStringLiteral("nodeId"), required.first},
+                            {QStringLiteral("setupKind"), QStringLiteral("node-model")},
+                            {QStringLiteral("message"),
+                             QStringLiteral("The selected model has no exact Colab notebook for the %1 node.")
+                                 .arg(visibleStepForNode(required.first))}};
+                }
+                if (required.first == QStringLiteral("synthesize")
+                    && parameters.value(QStringLiteral("autoSelectVoiceReference")).toBool()) {
+                    const QString cloneModel = parameters.value(
+                        QStringLiteral("voiceCloneModelId")).toString().trimmed();
+                    if (!DubbingColabModelRoutes::supports(
+                            QStringLiteral("voice-clone"), cloneModel)) {
+                        return {{QStringLiteral("nodeId"), required.first},
+                                {QStringLiteral("setupKind"), QStringLiteral("node-model")},
+                                {QStringLiteral("message"),
+                                 QStringLiteral("Choose an exact Colab voice-cloning model before enabling automatic voice cloning.")}};
+                    }
+                }
+                continue;
+            }
+        }
         StudioConfiguration configuration;
         configuration.capabilityId = required.second;
         configuration.familyId = selected.value(QStringLiteral("familyId")).toString();
@@ -648,6 +693,19 @@ QString DubbingController::exportPath() const
     return m_runner->exportPath();
 }
 
+void DubbingController::setRemoteServices(Settings *settings, ColabSession *translationSession,
+                                           ColabSession *ttsSession, ColabSession *voiceCloneSession,
+                                           ColabSession *separationSession,
+                                           ColabSession *alignmentSession)
+{
+    m_settings = settings;
+    if (m_runner) {
+        m_runner->setRemoteServices(settings, translationSession, ttsSession,
+                                    voiceCloneSession, separationSession,
+                                    alignmentSession);
+    }
+}
+
 QVariantList DubbingController::workflowNodes() const
 {
     const bool hasMedia = !m_project.sourceMediaPath.trimmed().isEmpty();
@@ -664,7 +722,17 @@ QVariantList DubbingController::workflowNodes() const
                                 && QFileInfo::exists(segment.value(QStringLiteral("clipPath")).toString()));
         hasConflict = hasConflict || segment.value(QStringLiteral("timingConflict")).toBool();
     }
-    const bool ttsReady = m_tts && m_tts->isModelLoaded();
+    const QVariantMap synthesisSelection = m_workflowNodeConfigurations
+        .value(QStringLiteral("synthesize")).toMap();
+    const QVariantMap synthesisParameters = synthesisSelection
+        .value(QStringLiteral("parameters")).toMap();
+    ExecutionProvider synthesisProvider = ExecutionProvider::LocalDev;
+    const QString synthesisProviderId = synthesisSelection.value(
+        QStringLiteral("executionProvider"), synthesisParameters.value(
+        QStringLiteral("executionProvider"), QStringLiteral("local-dev"))).toString();
+    const bool remoteTtsSelected = executionProviderFromId(synthesisProviderId, &synthesisProvider)
+        && synthesisProvider != ExecutionProvider::LocalDev;
+    const bool ttsReady = remoteTtsSelected || (m_tts && m_tts->isModelLoaded());
     const bool translationReady = !m_project.targetLanguage.trimmed().isEmpty();
     const auto node = [](const QString &id, const QString &title, const QString &state,
                          const QString &detail, const QString &provider = QString()) {
@@ -702,7 +770,7 @@ QVariantList DubbingController::workflowNodes() const
         } else if (definition.id == QStringLiteral("translate")) {
             state = !translationReady ? QStringLiteral("blocked") : (hasTargets ? QStringLiteral("completed") : (hasSegments ? QStringLiteral("ready") : QStringLiteral("missing")));
             detail = !translationReady ? QStringLiteral("Choose a target language") : (hasTargets ? QStringLiteral("Target text available") : QStringLiteral("Translate with CrispASR"));
-            provider = QStringLiteral("CrispASR text translation");
+            provider = QStringLiteral("Local translation runtime");
         } else if (definition.id == QStringLiteral("review-translation")) {
             state = hasTargets ? QStringLiteral("completed") : QStringLiteral("blocked");
             detail = hasTargets ? QStringLiteral("Translated transcript available for review") : QStringLiteral("Translate the transcript first");
@@ -797,6 +865,22 @@ QVariantList DubbingController::workflowNodes() const
             for (auto it = customParameters.cbegin(); it != customParameters.cend(); ++it)
                 parameters.insert(it.key(), it.value());
             item.insert(QStringLiteral("parameters"), parameters);
+            const QString providerId = selected.value(
+                QStringLiteral("executionProvider"),
+                customParameters.value(QStringLiteral("executionProvider"), QStringLiteral("local-dev"))).toString();
+            ExecutionProvider executionProvider = ExecutionProvider::LocalDev;
+            if (executionProviderFromId(providerId, &executionProvider)
+                && executionProvider != ExecutionProvider::LocalDev) {
+                const QString modelId = selected.value(
+                    QStringLiteral("modelId"), customParameters.value(QStringLiteral("modelId"))).toString();
+                item.insert(QStringLiteral("executionProvider"), executionProviderId(executionProvider));
+                item.insert(QStringLiteral("providerName"),
+                            modelId.isEmpty() ? executionProviderDisplayName(executionProvider)
+                                              : QStringLiteral("%1 · %2").arg(executionProviderDisplayName(executionProvider), modelId));
+                item.insert(QStringLiteral("providerState"), QStringLiteral("selected"));
+            } else {
+                item.insert(QStringLiteral("executionProvider"), QStringLiteral("local-dev"));
+            }
             QVariantList runtimeSchema;
             if (capabilityId == QStringLiteral("tts") && m_tts) {
                 const QString signature = selected.value(QStringLiteral("configurationSignature")).toString();
@@ -820,9 +904,25 @@ QVariantList DubbingController::workflowNodes() const
 
 bool DubbingController::workflowReady() const
 {
-    const bool sttReady = AppController::instance() && AppController::instance()->sessionRegistry()
+    const QVariantMap sttSelection = m_workflowNodeConfigurations
+        .value(QStringLiteral("transcribe")).toMap();
+    const QVariantMap sttParameters = sttSelection.value(QStringLiteral("parameters")).toMap();
+    ExecutionProvider sttProvider = ExecutionProvider::LocalDev;
+    const QString sttProviderId = sttSelection.value(
+        QStringLiteral("executionProvider"), sttParameters.value(
+        QStringLiteral("executionProvider"), QStringLiteral("local-dev"))).toString();
+    const bool remoteSttSelected = executionProviderFromId(sttProviderId, &sttProvider)
+        && sttProvider != ExecutionProvider::LocalDev
+        && !sttSelection.value(QStringLiteral("modelId"), sttParameters.value(
+            QStringLiteral("modelId"))).toString().trimmed().isEmpty()
+        && (sttProvider != ExecutionProvider::ColabDirect
+            || DubbingColabModelRoutes::supports(
+                QStringLiteral("transcribe"),
+                sttSelection.value(QStringLiteral("modelId"), sttParameters.value(
+                    QStringLiteral("modelId"))).toString()));
+    const bool sttReady = remoteSttSelected || (AppController::instance() && AppController::instance()->sessionRegistry()
         && AppController::instance()->sessionRegistry()->sessionForCapability(QStringLiteral("stt"))
-        && AppController::instance()->sessionRegistry()->sessionForCapability(QStringLiteral("stt"))->canProcess();
+        && AppController::instance()->sessionRegistry()->sessionForCapability(QStringLiteral("stt"))->canProcess());
     const bool translationConfigured = !m_workflowNodeConfigurations.value(QStringLiteral("translate")).toMap().isEmpty();
     bool translatedArtifactReady = !m_project.segments.isEmpty();
     for (const QVariant &entry : m_project.segments) {
@@ -835,20 +935,53 @@ bool DubbingController::workflowReady() const
     if (translationConfigured) {
         const QVariantMap selected = m_workflowNodeConfigurations
                                          .value(QStringLiteral("translate")).toMap();
-        StudioConfiguration configuration;
-        configuration.capabilityId = QStringLiteral("translation");
-        configuration.familyId = selected.value(QStringLiteral("familyId")).toString();
-        configuration.runtimeId = selected.value(QStringLiteral("runtimeId")).toString();
-        configuration.runtimeVersion = selected.value(QStringLiteral("runtimeVersion")).toString();
-        configuration.selectedFiles = selected.value(QStringLiteral("selectedFiles")).toMap();
-        configuredTranslationReady = StudioConfigurationResolver::resolve(configuration).isValid;
+        const QVariantMap parameters = selected.value(QStringLiteral("parameters")).toMap();
+        ExecutionProvider provider = ExecutionProvider::LocalDev;
+        const QString providerId = selected.value(
+            QStringLiteral("executionProvider"), parameters.value(
+            QStringLiteral("executionProvider"), QStringLiteral("local-dev"))).toString();
+        if (executionProviderFromId(providerId, &provider)
+            && provider != ExecutionProvider::LocalDev) {
+            const QString remoteModel = selected.value(
+                QStringLiteral("modelId"),
+                parameters.value(QStringLiteral("modelId"))).toString().trimmed();
+            configuredTranslationReady = !remoteModel.isEmpty()
+                && (provider != ExecutionProvider::ColabDirect
+                    || DubbingColabModelRoutes::supports(
+                        QStringLiteral("translate"), remoteModel));
+        } else {
+            StudioConfiguration configuration;
+            configuration.capabilityId = QStringLiteral("translation");
+            configuration.familyId = selected.value(QStringLiteral("familyId")).toString();
+            configuration.runtimeId = selected.value(QStringLiteral("runtimeId")).toString();
+            configuration.runtimeVersion = selected.value(QStringLiteral("runtimeVersion")).toString();
+            configuration.selectedFiles = selected.value(QStringLiteral("selectedFiles")).toMap();
+            configuredTranslationReady = StudioConfigurationResolver::resolve(configuration).isValid;
+        }
     }
     const bool translationReady = !translationConfigured || translatedArtifactReady
         || configuredTranslationReady;
+    const QVariantMap synthesisSelection = m_workflowNodeConfigurations
+        .value(QStringLiteral("synthesize")).toMap();
+    const QVariantMap synthesisParameters = synthesisSelection.value(QStringLiteral("parameters")).toMap();
+    ExecutionProvider synthesisProvider = ExecutionProvider::LocalDev;
+    const QString synthesisProviderId = synthesisSelection.value(
+        QStringLiteral("executionProvider"), synthesisParameters.value(
+        QStringLiteral("executionProvider"), QStringLiteral("local-dev"))).toString();
+    const bool remoteTtsSelected = executionProviderFromId(synthesisProviderId, &synthesisProvider)
+        && synthesisProvider != ExecutionProvider::LocalDev
+        && !synthesisSelection.value(QStringLiteral("modelId"), synthesisParameters.value(
+            QStringLiteral("modelId"))).toString().trimmed().isEmpty()
+        && (synthesisProvider != ExecutionProvider::ColabDirect
+            || DubbingColabModelRoutes::supports(
+                QStringLiteral("synthesize"),
+                synthesisSelection.value(QStringLiteral("modelId"),
+                    synthesisParameters.value(QStringLiteral("modelId"))).toString()));
+    const bool ttsReady = remoteTtsSelected || (m_tts && m_tts->isModelLoaded());
     return workflowGraphValid()
         && !m_project.sourceMediaPath.isEmpty()
         && !m_project.targetLanguage.trimmed().isEmpty()
-        && m_tts && m_tts->isModelLoaded()
+        && ttsReady
         && sttReady
         && translationReady;
 }
@@ -1023,10 +1156,54 @@ bool DubbingController::reloadWorkflowNodeModel(const QString &nodeId)
 bool DubbingController::setWorkflowNodeParameters(const QString &nodeId, const QVariantMap &parameters)
 {
     if (nodeId.isEmpty()) return false;
+    if ((nodeId == QStringLiteral("source-separate") || nodeId == QStringLiteral("transcribe")
+         || nodeId == QStringLiteral("translate")
+         || nodeId == QStringLiteral("synthesize"))
+        && parameters.contains(QStringLiteral("executionProvider"))) {
+        ExecutionProvider provider = ExecutionProvider::LocalDev;
+        if (!executionProviderFromId(parameters.value(QStringLiteral("executionProvider")).toString(), &provider)) {
+            setError(QStringLiteral("Unknown remote execution provider."));
+            return false;
+        }
+        if (nodeId == QStringLiteral("source-separate")
+            && provider == ExecutionProvider::ApiGateway) {
+            setError(QStringLiteral("Source separation supports Local Dev or Colab GPU, not API Gateway."));
+            return false;
+        }
+    }
     QVariantMap selected = m_workflowNodeConfigurations.value(nodeId).toMap();
     QVariantMap current = selected.value(QStringLiteral("parameters")).toMap();
     for (auto it = parameters.cbegin(); it != parameters.cend(); ++it)
         current.insert(it.key(), it.value());
+    const QString providerId = current.value(QStringLiteral("executionProvider"),
+                                             QStringLiteral("local-dev")).toString().trimmed().toLower();
+    ExecutionProvider provider = ExecutionProvider::LocalDev;
+    if (!executionProviderFromId(providerId, &provider)) {
+        setError(QStringLiteral("Unknown remote execution provider."));
+        return false;
+    }
+    const QString modelId = current.value(QStringLiteral("modelId")).toString().trimmed();
+    if (provider == ExecutionProvider::ColabDirect && !modelId.isEmpty()) {
+        if (!DubbingColabModelRoutes::supports(nodeId, modelId)) {
+            setError(QStringLiteral("No exact Colab notebook is mapped for model '%1' on the %2 node.")
+                         .arg(modelId, visibleStepForNode(nodeId)));
+            return false;
+        }
+    } else if (provider == ExecutionProvider::ApiGateway && !modelId.isEmpty()) {
+        RemoteModelCatalogController *catalog = AppController::instance()
+            ? AppController::instance()->remoteModels() : nullptr;
+        const bool catalogAvailable = catalog && catalog->gatewayAvailable();
+        QString capability;
+        if (nodeId == QStringLiteral("source-separate")) capability = QStringLiteral("voice-isolation");
+        else if (nodeId == QStringLiteral("transcribe")) capability = QStringLiteral("stt");
+        else if (nodeId == QStringLiteral("translate")) capability = QStringLiteral("translation");
+        else if (nodeId == QStringLiteral("synthesize")) capability = QStringLiteral("tts");
+        if (catalogAvailable && !catalog->isModelSelectable(providerId, modelId, capability)) {
+            setError(QStringLiteral("The selected %1 model is unavailable for this node. Refresh that provider's model catalog and choose a compatible model.")
+                         .arg(executionProviderDisplayName(provider)));
+            return false;
+        }
+    }
     selected.insert(QStringLiteral("parameters"), current);
     m_workflowNodeConfigurations.insert(nodeId, selected);
     if (m_project.dubbingQuality == QStringLiteral("custom"))
@@ -1166,11 +1343,35 @@ void DubbingController::resetStandardWorkflowNodeModels()
 void DubbingController::resetStandardTranslationFixConfiguration()
 {
     if (!m_translationFix || m_translationFix->busy()) return;
+    if (m_settings && m_settings->remoteFirstMode()) {
+        configureRemoteRewriteFromGateway();
+        return;
+    }
     m_translationFix->setConfiguration({
         {QStringLiteral("provider"), QStringLiteral("lmstudio")},
         {QStringLiteral("configured"), false},
         {QStringLiteral("serverUrl"), QStringLiteral("http://127.0.0.1:1234")},
         {QStringLiteral("model"), QStringLiteral("qwen3.5-2b")},
+        {QStringLiteral("maxAttempts"),
+         m_project.durationControl.value(QStringLiteral("maxPreTtsIterations"), 4)},
+        {QStringLiteral("temperature"), 0.35}
+    });
+    if (m_runner)
+        m_runner->setTranslationFixConfiguration(m_translationFix->configuration());
+}
+
+void DubbingController::configureRemoteRewriteFromGateway()
+{
+    if (!m_translationFix || m_translationFix->busy() || !m_settings) return;
+    const QString model = m_settings->gatewayLlmModel().trimmed();
+    const QString url = m_settings->gatewayUrl().trimmed();
+    m_translationFix->setConfiguration({
+        {QStringLiteral("provider"), QStringLiteral("api")},
+        {QStringLiteral("configured"),
+         !url.isEmpty() && !model.isEmpty() && m_settings->gatewayApiKeyConfigured()},
+        {QStringLiteral("serverUrl"), url},
+        {QStringLiteral("apiKey"), m_settings->gatewayApiKey()},
+        {QStringLiteral("model"), model},
         {QStringLiteral("maxAttempts"),
          m_project.durationControl.value(QStringLiteral("maxPreTtsIterations"), 4)},
         {QStringLiteral("temperature"), 0.35}
@@ -1482,6 +1683,31 @@ void DubbingController::finishAutomaticSetupFailure(const QString &message)
 void DubbingController::advanceAutomaticSetup()
 {
     if (!m_automaticSetupActive) return;
+    // Remote-first automatic runs use the graph's explicit per-node routes.
+    // They never probe, load, or download a local model as a fallback. A
+    // missing Gateway model or Colab worker therefore fails at the selected
+    // node with its own provider-specific error.
+    if (auto *app = AppController::instance(); app && app->settings()
+        && app->settings()->remoteFirstMode()) {
+        configureRemoteRewriteFromGateway();
+        const QString outputPath = m_automaticOutputPath;
+        m_automaticSetupActive = false;
+        m_automaticDownloadsQueued.clear();
+        m_automaticConfiguredNodes.clear();
+        setAutomaticStatus(QStringLiteral("Starting independent remote workflow routes."));
+        appendAutomaticEvent(QStringLiteral("Using configured API Gateway and direct Colab routes"),
+                             QStringLiteral("completed"));
+        emit processingChanged();
+        emit workflowChanged();
+        if (m_runner) m_runner->setTranslationFixConfiguration(translationFixConfiguration());
+        setCurrentStep(QStringLiteral("ingest"));
+        if (!runWorkflow(outputPath)) {
+            setWorkflowMode(QStringLiteral("idle"));
+            setAutomaticStatus(lastError());
+            appendAutomaticEvent(lastError(), QStringLiteral("failed"));
+        }
+        return;
+    }
     if (auto *app = AppController::instance(); app && app->sessionRegistry()) {
         bool waitingForRelease = false;
         for (const QString &capabilityId : {QStringLiteral("tts"),
@@ -1821,6 +2047,68 @@ bool DubbingController::resumeInterruptedWorkflow()
     }
     emit workflowChanged();
     return true;
+}
+
+QVariantList DubbingController::colabModelOptionsForNode(const QString &nodeId) const
+{
+    return DubbingColabModelRoutes::optionsForNode(nodeId);
+}
+
+QString DubbingController::defaultColabModelForNode(const QString &nodeId) const
+{
+    return DubbingColabModelRoutes::defaultModelForNode(nodeId);
+}
+
+QString DubbingController::colabNotebookForNode(const QString &nodeId,
+                                                const QString &modelId) const
+{
+    return DubbingColabModelRoutes::notebookForModel(nodeId, modelId);
+}
+
+bool DubbingController::selectWorkflowColabModel(const QString &nodeId,
+                                                 const QString &modelId)
+{
+    const QString normalized = modelId.trimmed().toLower();
+    if (!DubbingColabModelRoutes::supports(nodeId, normalized)) {
+        setError(QStringLiteral("No exact Colab notebook is mapped for model '%1' on the %2 node.")
+                     .arg(modelId, visibleStepForNode(nodeId)));
+        return false;
+    }
+
+    AppController *app = AppController::instance();
+    bool selected = false;
+    if (nodeId == QStringLiteral("source-separate") && app && app->colabVoiceIsolator())
+        selected = app->colabVoiceIsolator()->selectColabModel(normalized);
+    else if (nodeId == QStringLiteral("transcribe") && app && app->sttSession())
+        selected = app->sttSession()->selectColabModel(normalized);
+    else if (nodeId == QStringLiteral("translate") && app && app->translation())
+        selected = app->translation()->selectColabModel(normalized);
+    else if (nodeId == QStringLiteral("synthesize") && app && app->colabTts())
+        selected = app->colabTts()->selectColabModel(normalized);
+    else if (nodeId == QStringLiteral("voice-clone") && app && app->colabVoiceClone())
+        selected = app->colabVoiceClone()->selectColabModel(normalized);
+    else if (nodeId == QStringLiteral("alignment") && app && app->colabAlignment())
+        selected = app->colabAlignment()->selectColabModel(normalized);
+
+    if (!selected) {
+        setError(QStringLiteral("The selected Colab model could not be activated for %1.")
+                     .arg(visibleStepForNode(nodeId)));
+        return false;
+    }
+    if (nodeId == QStringLiteral("voice-clone")) {
+        return setWorkflowNodeParameters(
+            QStringLiteral("synthesize"),
+            {{QStringLiteral("voiceCloneModelId"), normalized}});
+    }
+    if (nodeId == QStringLiteral("alignment")) {
+        return setWorkflowNodeParameters(
+            QStringLiteral("transcribe"),
+            {{QStringLiteral("alignmentModelId"), normalized}});
+    }
+    return setWorkflowNodeParameters(
+        nodeId,
+        {{QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+         {QStringLiteral("modelId"), normalized}});
 }
 
 bool DubbingController::discardInterruptedWorkflow()
@@ -2198,7 +2486,9 @@ void DubbingController::transcribeSource()
     Logger::info(QStringLiteral("DubbingController"),
                  QStringLiteral("Starting dubbing transcription language=%1 audio=%2")
                      .arg(m_project.sourceLanguage, audioPath));
-    m_runner->startTranscription(m_project.sourceLanguage, audioPath);
+    m_runner->startTranscription(m_project.sourceLanguage, audioPath, QString(),
+                                 m_workflowNodeConfigurations
+                                     .value(QStringLiteral("transcribe")).toMap());
 }
 
 void DubbingController::translateSource()

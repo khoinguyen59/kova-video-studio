@@ -9,6 +9,7 @@ import "../base"
 StudioShell {
     id: root
     property var translation: AppController.translation
+    readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
     property string editorViewMode: "bilingual"
     property string pendingHistoryDeleteId: ""
     readonly property bool showSourceEditor: editorViewMode !== "translation"
@@ -20,12 +21,29 @@ StudioShell {
             if (families[i].id === studioController.selectedFamilyId) return families[i]
         return null
     }
+    component GatewayField: TextField {
+        Layout.fillWidth: true
+        color: Theme.textPrimary
+        placeholderTextColor: Theme.textSecondary
+        font.pixelSize: Theme.fontSmall
+        padding: Theme.paddingSmall
+        selectByMouse: true
+        background: Rectangle {
+            radius: Theme.radiusSmall
+            color: Qt.rgba(1, 1, 1, 0.035)
+            border.color: parent.activeFocus ? Theme.accent : Qt.rgba(1, 1, 1, 0.09)
+            border.width: parent.activeFocus ? 2 : 1
+        }
+    }
 
     families: studioController ? studioController.families : []
     capability: "translation"
     studioTitle: qsTr("Translation Studio")
     studioIconName: "translate"
-    studioReady: studioController ? studioController.studioReady : false
+    studioReady: translation.gatewayActive || translation.colabActive || (studioController ? studioController.studioReady : false)
+    // API Gateway and direct Colab are standalone routes; keep their setup
+    // editable even while no local translation runtime is loaded.
+    settingsRequiresReady: false
     selectedFamilyId: studioController ? studioController.selectedFamilyId : ""
     modalSelectionMode: true
     showSwitcher: false
@@ -185,7 +203,7 @@ StudioShell {
                             anchors.fill: parent; anchors.margins: Theme.paddingLarge; spacing: Theme.paddingMedium
                             LineIcon { name: "gallery"; color: Theme.accent; Layout.alignment: Qt.AlignHCenter; Layout.preferredWidth: 28; Layout.preferredHeight: 28 }
                             Text { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: qsTr("Select a Translation model and runtime"); color: Theme.textPrimary; font.pixelSize: Theme.fontLarge; font.bold: true; wrapMode: Text.WordWrap }
-                            Text { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: qsTr("Translation stays local and uses the installed translation runtime."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                            Text { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: root.remoteFirstMode ? qsTr("Remote-first: choose API Gateway or pair a direct Colab translation worker in settings.") : qsTr("Translation stays local and uses the installed translation runtime."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
                         }
                     }
                     PrimaryButton { Layout.fillWidth: true; text: qsTr("Choose model and runtime"); iconName: "gallery"; onClicked: root.backToGallery() }
@@ -371,8 +389,67 @@ StudioShell {
             LanguageSelector { Layout.fillWidth: true; family: root.family; labelText: qsTr("Source language"); language: translation.sourceLanguage; onLanguageSelected: function(language) { translation.sourceLanguage = language } }
             PrimaryButton { Layout.fillWidth: true; text: qsTr("Swap languages"); iconName: "swap"; quiet: true; onClicked: translation.swapLanguages() }
             LanguageSelector { Layout.fillWidth: true; family: root.family; labelText: qsTr("Target language"); language: translation.targetLanguage; onLanguageSelected: function(language) { translation.targetLanguage = language } }
+            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1,1,1,0.07) }
+            Text { text: qsTr("Inference source"); color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; font.bold: true }
+            Text { Layout.fillWidth: true; text: qsTr("9Router is a separate API path. It does not start or connect to Colab."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+            Text { text: qsTr("Gateway URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+            GatewayField {
+                text: AppController.settings.gatewayUrl
+                placeholderText: qsTr("https://gateway.example/v1")
+                onEditingFinished: AppController.settings.gatewayUrl = text.trim()
+            }
+            Text { text: qsTr("API key"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+            GatewayField {
+                id: translationGatewayKey
+                echoMode: TextInput.Password
+                placeholderText: AppController.settings.gatewayApiKeyConfigured ? qsTr("API key saved — enter to replace") : qsTr("Stored encrypted on this device")
+                onEditingFinished: {
+                    if (text.trim() !== "") {
+                        AppController.settings.setGatewayApiKey(text)
+                        text = ""
+                    }
+                }
+            }
+            Text { text: qsTr("Translation model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+            GatewayField {
+                text: translation.gatewayModel
+                placeholderText: qsTr("Use a 9Router model ID")
+                onEditingFinished: translation.gatewayModel = text.trim()
+            }
+            PrimaryButton {
+                Layout.fillWidth: true
+                text: translation.gatewayActive ? qsTr("Using 9Router") : qsTr("Use 9Router")
+                iconName: "cloud"
+                enabled: !translation.processing && !translation.gatewayActive
+                onClicked: translation.useGateway()
+            }
+            Text { Layout.fillWidth: true; text: translation.gatewayActive ? qsTr("Translation requests go directly to 9Router.") : (root.remoteFirstMode ? qsTr("Remote-first: choose API Gateway or direct Colab GPU; local translation is disabled.") : qsTr("Choose a local model from the header to process on this device.")); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1,1,1,0.07) }
+            Text { text: qsTr("Colab GPU Worker"); color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; font.bold: true }
+            Text { Layout.fillWidth: true; text: qsTr("Direct temporary worker. Its URL and session token are independent from API Gateway and never use its API key."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+            ColabNotebookLink { notebookFile: translation.colabNotebookFile }
+            Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+            GatewayField { id: translationColabUrl; text: AppController.colabTranslationSession.workerUrl; placeholderText: qsTr("https://…trycloudflare.com") }
+            Text { text: qsTr("Session token"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+            GatewayField { id: translationColabToken; echoMode: TextInput.Password; placeholderText: translation.colabActive ? qsTr("Connected — enter token to replace") : qsTr("Temporary token from Colab") }
+            ColabSessionStatus { session: AppController.colabTranslationSession }
+            Text { text: qsTr("Selected Colab model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+            Text { Layout.fillWidth: true; text: translation.colabModel; color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WrapAnywhere }
+            Text { text: qsTr("Exact notebook"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+            Text { Layout.fillWidth: true; text: translation.colabNotebookFile; color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WrapAnywhere }
+            PrimaryButton {
+                Layout.fillWidth: true
+                text: AppController.colabTranslationSession.checking
+                      ? qsTr("Verifying CUDA and exact model...")
+                      : (translation.colabActive ? qsTr("Using Colab GPU") : qsTr("Connect Colab GPU"))
+                iconName: "cloud"
+                enabled: !translation.processing && !AppController.colabTranslationSession.checking
+                onClicked: {
+                    if (translation.colabActive) translation.useColab()
+                    else if (translation.connectColab(translationColabUrl.text.trim(), translationColabToken.text)) translationColabToken.text = ""
+                }
+            }
             Item { Layout.fillHeight: true }
-            Text { Layout.fillWidth: true; text: qsTr("Model and runtime are managed from the header. Processing stays on this device."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
         }
     ]
     // This popup is reparented to Overlay.overlay, outside the StudioShell layout.

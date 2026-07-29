@@ -1,15 +1,21 @@
 #include "controllers/dubbing/DubbingTranslationJob.h"
 
+#include "controllers/dubbing/DubbingColabModelRoutes.h"
 #include "controllers/models/StudioConfigurationResolver.h"
 #include "core/ModelManager.h"
 #include "core/RuntimeManager.h"
 #include "core/Logger.h"
+#include "core/Settings.h"
 #include "dubbing/DubbingDuration.h"
 #include "dubbing/DubbingProject.h"
 #include "dubbing/DubbingTimingProfile.h"
 #include "dubbing/DubbingTranslationService.h"
 #include "translation/TranslationEngine.h"
 #include "translation/TranslationService.h"
+#include "translation/GatewayTranslationRunner.h"
+#include "translation/ColabTranslationRunner.h"
+#include "remote/ColabSession.h"
+#include "remote/ExecutionProvider.h"
 #include "tts/TtsEngine.h"
 
 #include <QFileInfo>
@@ -22,6 +28,46 @@ DubbingTranslationJob::DubbingTranslationJob(TranslationEngine *translation,
     : QObject(parent), m_translation(translation), m_models(models),
       m_runtimes(runtimes), m_tts(tts)
 {
+    qRegisterMetaType<TranslationInferenceRequest>("TranslationInferenceRequest");
+    m_gatewayRunner = new GatewayTranslationRunner;
+    m_colabRunner = new ColabTranslationRunner;
+    m_gatewayRunner->moveToThread(&m_remoteThread);
+    m_colabRunner->moveToThread(&m_remoteThread);
+    connect(&m_remoteThread, &QThread::finished, m_gatewayRunner, &QObject::deleteLater);
+    connect(&m_remoteThread, &QThread::finished, m_colabRunner, &QObject::deleteLater);
+    m_remoteThread.start();
+}
+
+DubbingTranslationJob::~DubbingTranslationJob()
+{
+    cancel();
+    if (m_gatewayRunner && m_remoteThread.isRunning())
+        QMetaObject::invokeMethod(m_gatewayRunner, "cancel", Qt::QueuedConnection);
+    if (m_colabRunner && m_remoteThread.isRunning())
+        QMetaObject::invokeMethod(m_colabRunner, "cancel", Qt::QueuedConnection);
+    m_remoteThread.quit();
+    m_remoteThread.wait();
+}
+
+void DubbingTranslationJob::setRemoteServices(Settings *settings, ColabSession *colabSession)
+{
+    m_settings = settings;
+    QObject::disconnect(m_colabSessionConnection);
+    m_colabSession = colabSession;
+    if (m_colabSession) {
+        m_colabSessionConnection = connect(m_colabSession, &ColabSession::sessionChanged,
+                                           this, [this]() {
+            if (!m_running || m_remoteProviderId != QStringLiteral("colab-direct")) {
+                return;
+            }
+            ++m_generation;
+            if (m_remoteCancellation)
+                m_remoteCancellation->store(true, std::memory_order_relaxed);
+            if (m_colabRunner)
+                QMetaObject::invokeMethod(m_colabRunner, "cancel", Qt::QueuedConnection);
+            fail(QStringLiteral("Colab Translation worker session changed during dubbing. Pair the selected model again, then rerun the Translation node."));
+        });
+    }
 }
 
 bool DubbingTranslationJob::prepareRequest(const QString &sourceLanguage,
@@ -110,10 +156,22 @@ bool DubbingTranslationJob::start(const QString &sourceLanguage, const QString &
         fail(QStringLiteral("A translation request is already running."));
         return false;
     }
-    if (!m_translation) { fail(QStringLiteral("Translation engine is unavailable.")); return false; }
+    QVariantMap parameters = configuration.value(QStringLiteral("parameters")).toMap();
+    if (parameters.isEmpty()) parameters = configuration;
+    const QString providerId = configuration.value(
+        QStringLiteral("executionProvider"), parameters.value(QStringLiteral("executionProvider"),
+        QStringLiteral("local-dev"))).toString().trimmed().toLower();
+    ExecutionProvider provider = ExecutionProvider::LocalDev;
+    if (!executionProviderFromId(providerId, &provider)) {
+        fail(QStringLiteral("Unknown dubbing translation provider: %1").arg(providerId));
+        return false;
+    }
+    const bool remote = provider != ExecutionProvider::LocalDev;
+    m_remoteProviderId = remote ? providerId : QString();
+    if (!remote && !m_translation) { fail(QStringLiteral("Translation engine is unavailable.")); return false; }
     TranslationRequest request;
     QString error;
-    if (!prepareRequest(sourceLanguage, targetLanguage, configuration, request, &error)) {
+    if (!remote && !prepareRequest(sourceLanguage, targetLanguage, configuration, request, &error)) {
         fail(error.isEmpty() ? QStringLiteral("Could not resolve a translation model and runtime.") : error);
         return false;
     }
@@ -131,8 +189,6 @@ bool DubbingTranslationJob::start(const QString &sourceLanguage, const QString &
     m_sourceLanguage = sourceLanguage;
     m_targetLanguage = targetLanguage;
     m_durationSettings = DubbingDurationSettings();
-    QVariantMap parameters = configuration.value(QStringLiteral("parameters")).toMap();
-    if (parameters.isEmpty()) parameters = configuration;
     if (parameters.contains(QStringLiteral("durationControl")))
         m_durationSettings = DubbingDurationSettings::fromVariantMap(
             parameters.value(QStringLiteral("durationControl")).toMap());
@@ -143,14 +199,13 @@ bool DubbingTranslationJob::start(const QString &sourceLanguage, const QString &
     // dedicated LLM rewrite service.
     m_durationAware = m_durationSettings.enabled;
     Logger::info(QStringLiteral("DubbingTranslation"),
-                 QStringLiteral("Request ready run=%1 backend=%2 gpu=%3 maxTokens=%4 durationEnabled=%5 durationAware=%6 modelSize=%7 runtimeSize=%8")
-                     .arg(m_runId, request.backend)
+                 QStringLiteral("Request ready run=%1 provider=%2 backend=%3 gpu=%4 maxTokens=%5 durationEnabled=%6 durationAware=%7")
+                     .arg(m_runId, executionProviderId(provider), request.backend)
                      .arg(request.useGpu ? QStringLiteral("true") : QStringLiteral("false"))
-                     .arg(request.maxTokens)
+                     .arg(remote ? qBound(64, parameters.value(QStringLiteral("maxTokens"), 4096).toInt(), 4096)
+                                 : request.maxTokens)
                      .arg(m_durationSettings.enabled ? QStringLiteral("true") : QStringLiteral("false"))
-                     .arg(m_durationAware ? QStringLiteral("true") : QStringLiteral("false"))
-                     .arg(QFileInfo(request.modelPath).size())
-                     .arg(QFileInfo(request.runtimePath).size()));
+                     .arg(m_durationAware ? QStringLiteral("true") : QStringLiteral("false")));
     m_durationRate = 10.0;
     if (m_durationAware && m_tts && !m_tts->activeSignature().isEmpty()) {
         DubbingTimingProfile profile;
@@ -167,6 +222,26 @@ bool DubbingTranslationJob::start(const QString &sourceLanguage, const QString &
             segment.insert(QStringLiteral("durationBudget"), budget.toVariantMap());
         }
         m_inputSegments.append(segment);
+    }
+
+    // A remote node deliberately stops here: it must not resolve, load or even
+    // inspect a local TranslationEngine instance.  Gateway credentials are read
+    // only by the Gateway branch below; the Colab branch reads only its temporary
+    // worker session.  The two routes are independent rather than fallbacks.
+    if (remote) {
+        TranslationInferenceRequest inference;
+        inference.segments = m_inputSegments;
+        inference.sourceLanguage = sourceLanguage;
+        inference.targetLanguage = targetLanguage;
+        inference.task = QStringLiteral("translate");
+        inference.maxTokens = qBound(64, parameters.value(QStringLiteral("maxTokens"), 4096).toInt(), 4096);
+        m_pendingRequest = inference;
+        m_phase = QStringLiteral("reference");
+
+        const QString modelId = configuration.value(
+            QStringLiteral("modelId"), parameters.value(QStringLiteral("modelId"))).toString().trimmed();
+        startRemoteTranslation(providerId, modelId);
+        return m_running;
     }
 
     SessionConfiguration session;
@@ -265,11 +340,91 @@ bool DubbingTranslationJob::start(const QString &sourceLanguage, const QString &
     return true;
 }
 
+void DubbingTranslationJob::startRemoteTranslation(const QString &providerId, const QString &configuredModelId)
+{
+    ExecutionProvider provider = ExecutionProvider::LocalDev;
+    if (!executionProviderFromId(providerId, &provider)) {
+        fail(QStringLiteral("Unknown dubbing translation provider: %1").arg(providerId));
+        return;
+    }
+    const quint64 generation = m_generation;
+    QObject::disconnect(m_remoteProgressConnection);
+    QObject::disconnect(m_remoteFinishedConnection);
+    QObject::disconnect(m_remoteFailedConnection);
+    m_remoteCancellation = std::make_shared<std::atomic_bool>(false);
+    m_pendingRequest.cancellation = InferenceCancellationToken(m_remoteCancellation);
+
+    if (provider == ExecutionProvider::ApiGateway) {
+        if (!m_settings) { fail(QStringLiteral("API Gateway configuration is unavailable.")); return; }
+        if (!m_settings->gatewayApiKeyConfigured()) { fail(QStringLiteral("API Gateway key is required.")); return; }
+        const QString model = configuredModelId.isEmpty()
+            ? (m_settings->gatewayTranslationModel().isEmpty()
+                   ? m_settings->gatewayLlmModel() : m_settings->gatewayTranslationModel())
+            : configuredModelId;
+        if (model.isEmpty()) { fail(QStringLiteral("API Gateway translation model is required.")); return; }
+        m_remoteProgressConnection = connect(m_gatewayRunner, &GatewayTranslationRunner::progress, this,
+                                             [this, generation](int progress) { onRemoteProgress(progress, generation); });
+        m_remoteFinishedConnection = connect(m_gatewayRunner, &GatewayTranslationRunner::finished, this,
+                                             [this, generation](const QVariantList &patches) { onTranslationFinished(patches, generation); });
+        m_remoteFailedConnection = connect(m_gatewayRunner, &GatewayTranslationRunner::failed, this,
+                                           [this, generation](const QString &message) {
+            if (m_running && generation == m_generation) fail(message);
+        });
+        QMetaObject::invokeMethod(m_gatewayRunner, "translate", Qt::QueuedConnection,
+                                  Q_ARG(QString, m_settings->gatewayUrl()),
+                                  Q_ARG(QString, m_settings->gatewayApiKey()),
+                                  Q_ARG(QString, model),
+                                  Q_ARG(TranslationInferenceRequest, m_pendingRequest), Q_ARG(bool, false));
+        return;
+    }
+    if (provider == ExecutionProvider::ColabDirect) {
+        if (!m_colabSession) {
+            fail(QStringLiteral("Connect a Colab GPU worker before running this Translation node."));
+            return;
+        }
+        const QString model = configuredModelId.trimmed().toLower();
+        if (!DubbingColabModelRoutes::supports(QStringLiteral("translate"), model)) {
+            fail(QStringLiteral("Select an exact Colab translation model before running this node."));
+            return;
+        }
+        QString routeError;
+        if (!m_colabSession->hasVerifiedRoute(QStringLiteral("translation"), model, &routeError)) {
+            fail(routeError);
+            return;
+        }
+        m_remoteProgressConnection = connect(m_colabRunner, &ColabTranslationRunner::progress, this,
+                                             [this, generation](int progress) { onRemoteProgress(progress, generation); });
+        m_remoteFinishedConnection = connect(m_colabRunner, &ColabTranslationRunner::finished, this,
+                                             [this, generation](const QVariantList &patches) { onTranslationFinished(patches, generation); });
+        m_remoteFailedConnection = connect(m_colabRunner, &ColabTranslationRunner::failed, this,
+                                           [this, generation](const QString &message) {
+            if (m_running && generation == m_generation) fail(message);
+        });
+        QMetaObject::invokeMethod(m_colabRunner, "translate", Qt::QueuedConnection,
+                                  Q_ARG(QUrl, m_colabSession->endpoint()),
+                                  Q_ARG(QString, m_colabSession->bearerTokenForRequest()),
+                                  Q_ARG(QString, model),
+                                  Q_ARG(TranslationInferenceRequest, m_pendingRequest), Q_ARG(bool, false));
+        return;
+    }
+    fail(QStringLiteral("Dubbing remote translation provider is unsupported."));
+}
+
+void DubbingTranslationJob::onRemoteProgress(int progress, quint64 generation)
+{
+    if (!m_running || generation != m_generation || m_phase != QStringLiteral("reference")) return;
+    emit progressChanged(qBound(0, progress, 99));
+}
+
 void DubbingTranslationJob::cancel()
 {
     if (!m_running) return;
     ++m_generation;
     if (m_instance && m_instance->isProcessing()) m_instance->cancelProcessing();
+    if (m_remoteCancellation) m_remoteCancellation->store(true, std::memory_order_relaxed);
+    if (m_gatewayRunner) QMetaObject::invokeMethod(m_gatewayRunner, "cancel", Qt::QueuedConnection);
+    if (m_colabRunner) QMetaObject::invokeMethod(m_colabRunner, "cancel", Qt::QueuedConnection);
+    m_remoteCancellation.reset();
     m_running = false;
     m_phase.clear();
 }
@@ -365,6 +520,7 @@ void DubbingTranslationJob::finishDurationTranslation()
     }
     m_phase.clear();
     m_running = false;
+    m_remoteCancellation.reset();
     Logger::info(QStringLiteral("DubbingTranslation"),
                  QStringLiteral("Translation job completed run=%1 segments=%2 rewriteCandidates=%3")
                      .arg(m_runId).arg(m_inputSegments.size()).arg(violations.size()));
@@ -379,6 +535,7 @@ void DubbingTranslationJob::fail(const QString &message)
                       .arg(m_runId).arg(m_generation).arg(m_phase, message));
     m_running = false;
     m_phase.clear();
+    m_remoteCancellation.reset();
     emit failed(message);
 }
 

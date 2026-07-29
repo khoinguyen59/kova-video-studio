@@ -135,7 +135,7 @@ Rectangle {
 
             PrimaryButton {
                 text: (root.sttSession && root.sttSession.processing) ? qsTr("Processing...") : qsTr("Transcribe File")
-                enabled: root.sttSession ? (root.sttSession.inputPath !== "" && !root.sttSession.processing && !root.sttSession.inputLoading && root.sttSession.inputError === "") : false
+                enabled: root.sttSession ? (root.sttSession.inputPath !== "" && !root.sttSession.processing && !root.sttSession.inputLoading && root.sttSession.inputError === "" && (!AppController.settings.remoteFirstMode || root.sttSession.colabActive || root.sttSession.gatewayActive)) : false
                 buttonColor: Theme.accent
                 onClicked: if (root.sttSession) root.sttSession.transcribeInput()
             }

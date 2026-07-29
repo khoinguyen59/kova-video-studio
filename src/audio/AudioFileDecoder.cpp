@@ -1,5 +1,6 @@
 #include "AudioFileDecoder.h"
 
+#include "core/MediaRuntimeLocator.h"
 #include "core/Logger.h"
 
 #include <QAudioBuffer>
@@ -10,7 +11,6 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QProcess>
-#include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QUrl>
@@ -137,10 +137,7 @@ WavIO::WavData decodeWithQt(const QString &path, QString *error)
 
 QString ffmpegPath()
 {
-    const QString configured = qEnvironmentVariable("LASTUDIO_FFMPEG");
-    if (!configured.isEmpty() && QFileInfo(configured).isFile())
-        return configured;
-    return QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
+    return MediaRuntimeLocator::resolve().ffmpeg;
 }
 
 WavIO::WavData decodeWithFfmpeg(const QString &path, QString *error)

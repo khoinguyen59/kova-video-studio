@@ -24,6 +24,8 @@ class TranslationEngine;
 class DubbingJobRunner;
 class DubbingTranslationFixService;
 class CapabilityFamilyModel;
+class Settings;
+class ColabSession;
 
 class DubbingController : public QObject
 {
@@ -93,6 +95,10 @@ public:
                       ModelManager *models = nullptr, RuntimeManager *runtimes = nullptr,
                       QObject *parent = nullptr);
     ~DubbingController() override;
+    void setRemoteServices(Settings *settings, ColabSession *translationSession,
+                           ColabSession *ttsSession, ColabSession *voiceCloneSession,
+                           ColabSession *separationSession,
+                           ColabSession *alignmentSession);
 
     bool hasProject() const { return !m_project.projectPath.isEmpty(); }
     QString projectPath() const { return m_project.projectPath; }
@@ -201,6 +207,12 @@ public:
     Q_INVOKABLE bool unloadWorkflowNodeModel(const QString &nodeId);
     Q_INVOKABLE bool reloadWorkflowNodeModel(const QString &nodeId);
     Q_INVOKABLE bool setWorkflowNodeParameters(const QString &nodeId, const QVariantMap &parameters);
+    Q_INVOKABLE QVariantList colabModelOptionsForNode(const QString &nodeId) const;
+    Q_INVOKABLE QString defaultColabModelForNode(const QString &nodeId) const;
+    Q_INVOKABLE QString colabNotebookForNode(const QString &nodeId,
+                                             const QString &modelId) const;
+    Q_INVOKABLE bool selectWorkflowColabModel(const QString &nodeId,
+                                              const QString &modelId);
     Q_INVOKABLE bool fixTranslations(const QVariantMap &configuration = QVariantMap());
     Q_INVOKABLE bool fixTranslationSegment(
         int index, const QVariantMap &configuration = QVariantMap());
@@ -260,8 +272,10 @@ private:
     void loadHistory();
     void recordHistoryEntry();
     QString historyPath() const;
+    void configureRemoteRewriteFromGateway();
 
     DubbingProject m_project;
+    Settings *m_settings = nullptr;
     DubbingJobRunner *m_runner = nullptr;
     NodeRegistry *m_workflowRegistry = nullptr;
     WorkflowGraphRunner *m_workflowRunner = nullptr;

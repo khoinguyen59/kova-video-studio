@@ -41,6 +41,10 @@ public:
     Q_INVOKABLE void clearSttHistory();
 
     Q_INVOKABLE void addVoiceDesignHistoryItem(const QString &text, const QString &voiceDescription, const QString &presetName, const QString &familyId, const QString &modelName);
+    void addVoiceDesignHistorySamples(const QString &text, const QString &voiceDescription,
+                                      const QString &presetName, const QString &familyId,
+                                      const QString &modelName, const QVector<float> &samples,
+                                      int sampleRate);
     Q_INVOKABLE void deleteVoiceDesignHistoryItem(const QString &id);
     Q_INVOKABLE void clearVoiceDesignHistory();
 

@@ -25,6 +25,15 @@
 #include "test_TtsTextPreprocessor.h"
 #include "test_TtsRequestValidator.h"
 #include "test_LlmChatEngine.h"
+#include "test_RemoteExecution.h"
+#include "test_GatewayTtsRunner.h"
+#include "test_ColabTtsRunner.h"
+#include "test_ColabVoiceCloneRunner.h"
+#include "test_ColabVoiceDesignRunner.h"
+#include "test_ColabAlignmentRunner.h"
+#include "test_ColabSeparationRunner.h"
+#include "test_ColabTranslationRunner.h"
+#include "test_ColabChatRunner.h"
 
 #include <QFile>
 #include <QTextStream>
@@ -190,6 +199,45 @@ int main(int argc, char *argv[])
     {
         LAStudio::TestLlmChatEngine suite;
         runSuite(&suite, "TestLlmChatEngine");
+    }
+
+    {
+        LAStudio::TestRemoteExecution suite;
+        runSuite(&suite, "TestRemoteExecution");
+    }
+
+    {
+        LAStudio::TestGatewayTtsRunner suite;
+        runSuite(&suite, "TestGatewayTtsRunner");
+    }
+
+    {
+        LAStudio::TestColabTtsRunner suite;
+        runSuite(&suite, "TestColabTtsRunner");
+    }
+    {
+        LAStudio::TestColabTranslationRunner suite;
+        runSuite(&suite, "TestColabTranslationRunner");
+    }
+    {
+        LAStudio::TestColabChatRunner suite;
+        runSuite(&suite, "TestColabChatRunner");
+    }
+    {
+        LAStudio::TestColabVoiceCloneRunner suite;
+        runSuite(&suite, "TestColabVoiceCloneRunner");
+    }
+    {
+        LAStudio::TestColabVoiceDesignRunner suite;
+        runSuite(&suite, "TestColabVoiceDesignRunner");
+    }
+    {
+        LAStudio::TestColabAlignmentRunner suite;
+        runSuite(&suite, "TestColabAlignmentRunner");
+    }
+    {
+        LAStudio::TestColabSeparationRunner suite;
+        runSuite(&suite, "TestColabSeparationRunner");
     }
 
     std::cout << "\n==================================================\n";

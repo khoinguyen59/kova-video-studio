@@ -36,7 +36,7 @@ WorkflowGraph DubbingWorkflowDefinition::create()
     graph.version = Version;
     graph.kind = QStringLiteral("system");
     graph.title = QStringLiteral("Default Dubbing");
-    graph.description = QStringLiteral("Local-first dubbing workflow with review checkpoints.");
+    graph.description = QStringLiteral("Remote-first dubbing workflow with independent Gateway and Colab routes.");
     graph.interfaceDefinition = {
         {QStringLiteral("inputs"), QVariantList{
             QVariantMap{{QStringLiteral("id"), QStringLiteral("media")}, {QStringLiteral("type"), QStringLiteral("media.source@1")}, {QStringLiteral("required"), true}},
@@ -48,20 +48,29 @@ WorkflowGraph DubbingWorkflowDefinition::create()
         }}
     };
     graph.policies = {{QStringLiteral("defaultFailure"), QStringLiteral("stop")},
-                      {QStringLiteral("maxParallelNodes"), 2}, {QStringLiteral("offlineOnly"), true}};
+                      {QStringLiteral("maxParallelNodes"), 2},
+                      {QStringLiteral("offlineOnly"), false},
+                      {QStringLiteral("remoteExecution"), QStringLiteral("explicit-per-node")}};
     graph.nodes = {
         node(QStringLiteral("media-input"), QStringLiteral("core.input"), QStringLiteral("Source Media"),
              {{QStringLiteral("dataType"), QStringLiteral("media.source@1")}}),
         node(QStringLiteral("ingest"), QStringLiteral("media.ingest"), QStringLiteral("Import and Normalize"),
              {{QStringLiteral("analysisSampleRate"), 16000}, {QStringLiteral("masterSampleRate"), 48000}}),
         node(QStringLiteral("source-separate"), QStringLiteral("audio.source-separate"), QStringLiteral("Isolate Voice"),
-             {{QStringLiteral("qualityPreset"), QStringLiteral("quality")}, {QStringLiteral("fallback"), QStringLiteral("original-audio")}}),
+             {{QStringLiteral("qualityPreset"), QStringLiteral("quality")}, {QStringLiteral("fallback"), QStringLiteral("original-audio")},
+              {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+              {QStringLiteral("modelId"), QStringLiteral("sherpa-onnx-spleeter-2stems-fp16")}}),
         node(QStringLiteral("transcribe"), QStringLiteral("audio.transcribe"), QStringLiteral("Transcribe"),
-             {{QStringLiteral("language"), QStringLiteral("auto")}, {QStringLiteral("wordTimestamps"), true}}),
+             {{QStringLiteral("language"), QStringLiteral("auto")}, {QStringLiteral("wordTimestamps"), true},
+              {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+              {QStringLiteral("modelId"), QStringLiteral("whisper.cpp")},
+              {QStringLiteral("refineAlignmentWithColab"), false},
+              {QStringLiteral("alignmentModelId"), QStringLiteral("mms-forced-aligner-onnx")}}),
         node(QStringLiteral("review-transcript"), QStringLiteral("core.review-gate"), QStringLiteral("Review Transcript"),
              {{QStringLiteral("mode"), QStringLiteral("always")}, {QStringLiteral("editor"), QStringLiteral("dubbing.transcript")}}),
         node(QStringLiteral("translate"), QStringLiteral("text.translate-transcript"), QStringLiteral("Translate Transcript"),
              {{QStringLiteral("sourceLanguage"), QStringLiteral("auto")}, {QStringLiteral("targetLanguage"), QStringLiteral("vi")},
+              {QStringLiteral("executionProvider"), QStringLiteral("api-gateway")},
               {QStringLiteral("qualityPreset"), QStringLiteral("balanced")},
               {QStringLiteral("durationAware"), true}, {QStringLiteral("unit"), QStringLiteral("phoneme-v1")},
               {QStringLiteral("maxPreTtsIterations"), 4}, {QStringLiteral("candidatesPerIteration"), 3},
@@ -71,7 +80,11 @@ WorkflowGraph DubbingWorkflowDefinition::create()
         node(QStringLiteral("assign-voices"), QStringLiteral("dubbing.assign-voices"), QStringLiteral("Assign Voices"),
              {{QStringLiteral("fallbackVoicePolicy"), QStringLiteral("project-default")}}),
         node(QStringLiteral("synthesize"), QStringLiteral("dubbing.synthesize-segments"), QStringLiteral("Synthesize Segments"),
-             {{QStringLiteral("cache"), QStringLiteral("auto")}}),
+             {{QStringLiteral("cache"), QStringLiteral("auto")},
+              {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+              {QStringLiteral("modelId"), QStringLiteral("kokoro")},
+              {QStringLiteral("voice"), QStringLiteral("af_heart")},
+              {QStringLiteral("voiceCloneModelId"), QStringLiteral("omnivoice")}}),
         node(QStringLiteral("fit-timing"), QStringLiteral("dubbing.fit-timing"), QStringLiteral("Fit Timing"),
              {{QStringLiteral("policy"), QStringLiteral("preserve-video")}}),
         node(QStringLiteral("review-conflicts"), QStringLiteral("core.review-gate"), QStringLiteral("Review Timing Conflicts"),

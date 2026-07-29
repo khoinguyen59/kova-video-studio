@@ -9,6 +9,9 @@ Item {
     property Component contentView: null
     property alias studioController: studioController
     property alias studioContext: studioContext
+    property bool colabModelSelectionEnabled: false
+
+    signal colabConfigurationAccepted(string familyId, bool openNotebook)
 
     StudioPageController {
         id: studioController
@@ -24,8 +27,107 @@ Item {
     }
 
     function openConfiguration(familyId) {
-        studioController.openConfiguration(familyId)
+        // A card click in the picker is only a pending choice.  Keep it local
+        // to CapabilityGallery until the user accepts the configuration;
+        // otherwise selectionChanged rebuilds the complete studio behind this
+        // modal while the pointer event is still being handled.
+        var committedFamilyId = studioController.selectedFamilyId || ""
+        var requestedFamilyId = familyId || committedFamilyId
+
+        configurationGallery.searchText = ""
+        configurationGallery.initialSelectedFiles = ({})
+        configurationGallery.selectedFamilyId = requestedFamilyId
+        configurationGallery.ensureSelection()
+
+        if (configurationGallery.selectedFamilyId === committedFamilyId) {
+            configurationGallery.pendingRuntimeId = studioController.runtimeId || ""
+            configurationGallery.pendingRuntimeVersion = studioController.runtimeVersion || ""
+            configurationGallery.initialSelectedFiles = studioController.selectedFiles || ({})
+        } else {
+            configurationGallery.syncPendingRuntime(true)
+        }
         configurationDialog.open()
+    }
+
+    property bool qmlSmokeSelectionRunning: false
+    property bool qmlSmokeSelectionDone: false
+    property bool qmlSmokeSelectionPassed: false
+    property int qmlSmokeSelectionIndex: 0
+    property int qmlSmokeSelectionCount: 0
+    property int qmlSmokeSelectionWaitTicks: 0
+    property string qmlSmokePendingFamilyId: ""
+    property string qmlSmokeControllerFamilyBefore: ""
+    property bool qmlSmokeControllerCommittedBefore: false
+
+    // The smoke test deliberately yields to the event loop between every
+    // model change. The former synchronous test closed the dialog before QML
+    // evaluated its detail bindings and therefore missed the real UI freeze.
+    function qmlSmokePendingSelectionIsolated() {
+        if (qmlSmokeSelectionDone)
+            return qmlSmokeSelectionPassed ? 1 : -1
+        if (qmlSmokeSelectionRunning)
+            return 0
+
+        qmlSmokeControllerFamilyBefore = studioController.selectedFamilyId || ""
+        qmlSmokeControllerCommittedBefore = studioController.selectionCommitted
+        qmlSmokeSelectionIndex = 0
+        qmlSmokeSelectionCount = 0
+        qmlSmokeSelectionWaitTicks = 0
+        qmlSmokePendingFamilyId = ""
+        qmlSmokeSelectionRunning = true
+        openConfiguration(qmlSmokeControllerFamilyBefore)
+        qmlSmokeSelectionTimer.start()
+        return 0
+    }
+
+    function finishQmlSmokeSelection(passed) {
+        qmlSmokeSelectionTimer.stop()
+        configurationDialog.close()
+        qmlSmokeSelectionPassed = passed
+        qmlSmokeSelectionDone = true
+        qmlSmokeSelectionRunning = false
+    }
+
+    Timer {
+        id: qmlSmokeSelectionTimer
+        interval: 100
+        repeat: true
+
+        onTriggered: {
+            var rows = studioController.families || []
+            if (rows.length < 2) {
+                ++root.qmlSmokeSelectionWaitTicks
+                if (root.qmlSmokeSelectionWaitTicks > 50)
+                    root.finishQmlSmokeSelection(false)
+                return
+            }
+
+            if (root.qmlSmokePendingFamilyId !== "") {
+                if (!configurationGallery.qmlSmokeDetailMatchesSelection()) {
+                    root.finishQmlSmokeSelection(false)
+                    return
+                }
+                root.qmlSmokePendingFamilyId = ""
+            }
+
+            while (root.qmlSmokeSelectionIndex < rows.length) {
+                var familyId = rows[root.qmlSmokeSelectionIndex].id || ""
+                ++root.qmlSmokeSelectionIndex
+                if (familyId === "")
+                    continue
+                configurationGallery.selectedFamilyId = familyId
+                root.qmlSmokePendingFamilyId = familyId
+                ++root.qmlSmokeSelectionCount
+                return
+            }
+
+            var isolated = studioController.selectedFamilyId
+                    === root.qmlSmokeControllerFamilyBefore
+                    && studioController.selectionCommitted
+                    === root.qmlSmokeControllerCommittedBefore
+            root.finishQmlSmokeSelection(isolated
+                                         && root.qmlSmokeSelectionCount === rows.length)
+        }
     }
 
     Connections {
@@ -33,13 +135,6 @@ Item {
         
         function onConfigurationDialogClosed() {
             configurationDialog.close()
-        }
-        
-        function onConfigurationGalleryRequestReset() {
-            configurationGallery.searchText = ""
-            configurationGallery.pendingRuntimeId = studioController.runtimeId
-            configurationGallery.pendingRuntimeVersion = studioController.runtimeVersion
-            configurationGallery.initialSelectedFiles = studioController.selectedFiles
         }
     }
 
@@ -66,17 +161,17 @@ Item {
 
             CapabilityGallery {
                 id: configurationGallery
+                objectName: "configurationGallery"
                 anchors.fill: parent
                 capability: root.capabilityId
                 modalMode: true
+                colabModelSelectionEnabled: root.colabModelSelectionEnabled
                 familiesModel: studioController.familiesModel
-                selectedFamilyId: studioController.selectedFamilyId
-                onFamilySelected: function(familyId) {
-                    initialSelectedFiles = ({})
-                    studioController.selectFamily(familyId)
-                }
                 onConfigurationAccepted: function(familyId, runtimeId, runtimeVersion, selectedFiles) {
                     studioController.commitConfigurationSelection(familyId, runtimeId, runtimeVersion, selectedFiles)
+                }
+                onColabConfigurationAccepted: function(familyId, openNotebook) {
+                    root.colabConfigurationAccepted(familyId, openNotebook)
                 }
             }
         }

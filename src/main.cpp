@@ -92,6 +92,10 @@ int main(int argc, char *argv[])
     LAStudio::Logger::init();
     LAStudio::Logger::info("App", "Application starting...");
 
+    // Establish the hardware singleton on the GUI thread before QML or worker
+    // services can access it. GPU discovery itself remains asynchronous.
+    LAStudio::HardwareManager::instance();
+
     QQuickStyle::setStyle(QStringLiteral("Basic"));
 
     QQmlApplicationEngine engine;

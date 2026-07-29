@@ -1,11 +1,26 @@
 import QtQuick
 import "../components/shared"
 import "../components/alignment"
+import "../components/base/colabNotebookUrls.js" as ColabNotebookUrls
 import LAStudio
 
 StudioPageFrame {
     id: alignmentPageFrame
     capabilityId: "forced-alignment"
+    colabModelSelectionEnabled: true
+
+    function colabNotebookUrl(fileName) {
+        return ColabNotebookUrls.forNotebookFile(fileName)
+    }
+
+    onColabConfigurationAccepted: function(familyId, openNotebook) {
+        if (!AppController.colabAlignment.selectColabModel(familyId)) return
+        studioController.saveConfigurationSelection(familyId, "", "", ({}))
+        if (openNotebook) {
+            var notebook = AppController.colabAlignment.colabNotebookFile
+            if (notebook !== "") Qt.openUrlExternally(colabNotebookUrl(notebook))
+        }
+    }
 
     function alignmentFamilyItem() {
         if (!studioController.familiesModel || !studioController.selectedFamilyId) return null
@@ -17,6 +32,8 @@ StudioPageFrame {
         AlignmentStudioView {
             studioController: alignmentPageFrame.studioController
             modelId: {
+                if (AppController.colabAlignment.colabActive)
+                    return AppController.colabAlignment.model
                 var item = alignmentPageFrame.alignmentFamilyItem()
                 return item ? (item.modelId || "") : ""
             }
@@ -33,6 +50,8 @@ StudioPageFrame {
                                    (AppController.runtimes.getRuntimeKindForVersion(runtimeId, runtimeVersion) !== "process" &&
                                     AppController.runtimes.getRuntimePathForVersion(runtimeId, runtimeVersion) !== ""))
             selectedModelName: {
+                if (AppController.colabAlignment.colabActive)
+                    return AppController.colabAlignment.model
                 var item = alignmentPageFrame.alignmentFamilyItem()
                 return item ? item.displayName : qsTr("No alignment model selected")
             }

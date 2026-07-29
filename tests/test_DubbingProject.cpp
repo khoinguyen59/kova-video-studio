@@ -2,7 +2,11 @@
 
 #include "dubbing/DubbingProject.h"
 #include "controllers/dubbing/DubbingController.h"
+#include "controllers/dubbing/DubbingColabModelRoutes.h"
 #include "controllers/dubbing/DubbingJobRunner.h"
+#include "controllers/dubbing/DubbingTranscriptionJob.h"
+#include "controllers/dubbing/DubbingSynthesisJob.h"
+#include "controllers/dubbing/DubbingTranslationJob.h"
 #include "controllers/dubbing/DubbingTranslationFixService.h"
 #include "dubbing/AlignmentRefinementService.h"
 #include "dubbing/DubbingSegmentNormalizer.h"
@@ -12,16 +16,155 @@
 #include "dubbing/media/AtomicMediaCommit.h"
 #include "controllers/app/AppController.h"
 #include "audio/WavIO.h"
+#include "core/Settings.h"
+#include "controllers/stt/SttSessionController.h"
+#include "remote/ColabSession.h"
 #include "stt/SttEngine.h"
 #include "tts/TtsEngine.h"
 
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonObject>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QTemporaryDir>
 #include <QtTest>
 
 namespace LAStudio {
+
+namespace {
+
+class DubbingSttWorkerMock final : public QObject
+{
+public:
+    DubbingSttWorkerMock()
+    {
+        connect(&m_server, &QTcpServer::newConnection, this, [this] {
+            while (QTcpSocket *socket = m_server.nextPendingConnection()) {
+                connect(socket, &QTcpSocket::readyRead, this, [this, socket] {
+                    QByteArray &pending = m_pending[socket];
+                    pending += socket->readAll();
+                    if (!m_request.isEmpty() || !pending.contains("\r\n\r\n")) return;
+                    m_request = pending;
+                    socket->write("HTTP/1.1 503 Service Unavailable\r\n"
+                                  "Content-Length: 0\r\nConnection: close\r\n\r\n");
+                    socket->disconnectFromHost();
+                });
+                connect(socket, &QTcpSocket::disconnected, this, [this, socket] {
+                    m_pending.remove(socket);
+                    socket->deleteLater();
+                });
+            }
+        });
+    }
+
+    ~DubbingSttWorkerMock() override
+    {
+        // QObject destroys C++ members before it disconnects its signal
+        // handlers.  Close test sockets here, while m_pending is still alive,
+        // so a late disconnected() signal cannot access a destroyed QHash.
+        const auto sockets = m_pending.keys();
+        for (QTcpSocket *socket : sockets) {
+            QObject::disconnect(socket, nullptr, this, nullptr);
+            socket->abort();
+            delete socket;
+        }
+        m_pending.clear();
+        m_server.close();
+    }
+
+    bool start() { return m_server.listen(QHostAddress::LocalHost); }
+    QString workerUrl() const
+    {
+        return QStringLiteral("http://127.0.0.1:%1").arg(m_server.serverPort());
+    }
+    QByteArray request() const { return m_request; }
+
+private:
+    QTcpServer m_server;
+    QHash<QTcpSocket *, QByteArray> m_pending;
+    QByteArray m_request;
+};
+
+class ExactRouteWorkerMock final : public QObject
+{
+public:
+    ExactRouteWorkerMock(const QString &capability, const QString &model)
+        : m_capability(capability), m_model(model)
+    {
+        connect(&m_server, &QTcpServer::newConnection, this, [this] {
+            while (QTcpSocket *socket = m_server.nextPendingConnection()) {
+                connect(socket, &QTcpSocket::readyRead, this, [this, socket] {
+                    QByteArray &pending = m_pending[socket];
+                    pending += socket->readAll();
+                    const int headerEnd = pending.indexOf("\r\n\r\n");
+                    if (headerEnd < 0) return;
+                    const QByteArray request = pending.left(headerEnd + 4);
+                    const QByteArray firstLine = request.left(request.indexOf("\r\n"));
+                    QByteArray response;
+                    if (firstLine.startsWith("GET /health ")) {
+                        response = QStringLiteral(
+                            R"({"status":"ready","ready":true,"device":"cuda","model":"%1","cpu_fallback":false})")
+                                       .arg(m_model).toUtf8();
+                    } else if (firstLine.startsWith("GET /v1/capabilities ")) {
+                        response = QStringLiteral(
+                            R"({"contract_version":1,"device":"cuda","capabilities":[{"id":"%1","models":[{"id":"%2","device":"cuda","loaded":true}]}]})")
+                                       .arg(m_capability, m_model).toUtf8();
+                    } else {
+                        socket->write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                        socket->disconnectFromHost();
+                        return;
+                    }
+                    socket->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                                  + QByteArray::number(response.size())
+                                  + "\r\nConnection: close\r\n\r\n" + response);
+                    socket->disconnectFromHost();
+                });
+                connect(socket, &QTcpSocket::disconnected, this, [this, socket] {
+                    m_pending.remove(socket);
+                    socket->deleteLater();
+                });
+            }
+        });
+    }
+
+    ~ExactRouteWorkerMock() override
+    {
+        const auto sockets = m_pending.keys();
+        for (QTcpSocket *socket : sockets) {
+            QObject::disconnect(socket, nullptr, this, nullptr);
+            socket->abort();
+            delete socket;
+        }
+        m_pending.clear();
+        m_server.close();
+    }
+
+    bool start() { return m_server.listen(QHostAddress::LocalHost); }
+    QString workerUrl() const
+    {
+        return QStringLiteral("http://127.0.0.1:%1").arg(m_server.serverPort());
+    }
+
+private:
+    QTcpServer m_server;
+    QHash<QTcpSocket *, QByteArray> m_pending;
+    QString m_capability;
+    QString m_model;
+};
+
+class ColabSessionReset final
+{
+public:
+    explicit ColabSessionReset(ColabSession *session) : m_session(session) {}
+    ~ColabSessionReset() { if (m_session) m_session->clear(); }
+
+private:
+    ColabSession *m_session = nullptr;
+};
+
+} // namespace
 
 void TestDubbingProject::normalizesLmStudioTranslationFixConfiguration()
 {
@@ -82,6 +225,126 @@ void TestDubbingProject::normalizesLmStudioTranslationFixConfiguration()
     QCOMPARE(cliConfig.value(QStringLiteral("cliAgent")).toString(), QStringLiteral("codex"));
     QCOMPARE(cliConfig.value(QStringLiteral("model")).toString(), QStringLiteral("gpt-4o"));
     QVERIFY(cliConfig.value(QStringLiteral("configured")).toBool());
+}
+
+void TestDubbingProject::remoteTranslationRoutesDoNotFallbackBetweenGatewayAndColab()
+{
+    const QVariantList segments = {
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("segment-1")},
+                    {QStringLiteral("sourceText"), QStringLiteral("Hello")}}
+    };
+
+    // Neither case provides a local TranslationEngine.  Each selected remote
+    // route must fail only for its own missing configuration, never by loading
+    // local inference or switching to the other remote route.
+    DubbingTranslationJob job(nullptr, nullptr, nullptr, nullptr);
+    QSignalSpy failures(&job, &DubbingTranslationJob::failed);
+
+    QVERIFY(!job.start(QStringLiteral("en"), QStringLiteral("vi"), segments,
+                        QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("api-gateway")}},
+                        QStringLiteral("gateway-only")));
+    QCOMPARE(failures.count(), 1);
+    QCOMPARE(failures.takeFirst().at(0).toString(),
+             QStringLiteral("API Gateway configuration is unavailable."));
+
+    QVERIFY(!job.start(QStringLiteral("en"), QStringLiteral("vi"), segments,
+                        QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("colab-direct")}},
+                        QStringLiteral("colab-only")));
+    QCOMPARE(failures.count(), 1);
+    QCOMPARE(failures.takeFirst().at(0).toString(),
+             QStringLiteral("Connect a Colab GPU worker before running this Translation node."));
+}
+
+void TestDubbingProject::remoteTtsRoutesDoNotFallbackBetweenGatewayAndColab()
+{
+    const QVariantList segments = {
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("segment-1")},
+                    {QStringLiteral("targetText"), QStringLiteral("Xin chao")},
+                    {QStringLiteral("startMs"), 0},
+                    {QStringLiteral("endMs"), 1000}}
+    };
+
+    // No local TTS engine exists.  Each remote selection must report its own
+    // missing dependency instead of using local synthesis or the other route.
+    DubbingSynthesisJob job(nullptr);
+    QSignalSpy failures(&job, &DubbingSynthesisJob::failed);
+
+    QVERIFY(!job.start(segments, QStringLiteral("C:/temp/project.ladub.json"),
+                        QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("api-gateway")}},
+                        QStringLiteral("gateway-only")));
+    QCOMPARE(failures.count(), 1);
+    QCOMPARE(failures.takeFirst().at(0).toString(),
+             QStringLiteral("API Gateway configuration is unavailable."));
+
+    QVERIFY(!job.start(segments, QStringLiteral("C:/temp/project.ladub.json"),
+                        QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+                                    {QStringLiteral("modelId"), QStringLiteral("kokoro")}},
+                        QStringLiteral("colab-only")));
+    QCOMPARE(failures.count(), 1);
+    QCOMPARE(failures.takeFirst().at(0).toString(),
+             QStringLiteral("Connect a Colab GPU worker before running this TTS node."));
+}
+
+void TestDubbingProject::colabDubbingVoiceCloningIsDirectAndRequiresConsent()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    constexpr int sampleRate = 24000;
+    QVector<float> referenceSamples(sampleRate * 4);
+    constexpr double pi = 3.14159265358979323846;
+    for (int index = 0; index < referenceSamples.size(); ++index)
+        referenceSamples[index] = 0.10F * qSin(2.0 * pi * 180.0 * index / sampleRate);
+    const QString sourcePath = dir.filePath(QStringLiteral("source.wav"));
+    QVERIFY(WavIO::saveFloat(sourcePath, referenceSamples.constData(), referenceSamples.size(), sampleRate));
+
+    const QVariantList segments = {
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("segment-1")},
+                    {QStringLiteral("sourceText"), QStringLiteral("Reference speech")},
+                    {QStringLiteral("targetText"), QStringLiteral("Dubbed speech")},
+                    {QStringLiteral("startMs"), 0},
+                    {QStringLiteral("endMs"), 4000}}
+    };
+    const QString projectPath = dir.filePath(QStringLiteral("project.ladub.json"));
+    DubbingSynthesisJob job(nullptr);
+    QSignalSpy failures(&job, &DubbingSynthesisJob::failed);
+
+    // Gateway must reject voice cloning before it looks for a Colab session
+    // or attempts local voice generation.
+    QVERIFY(!job.start(segments, projectPath,
+                        QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("api-gateway")},
+                                    {QStringLiteral("autoSelectVoiceReference"), true}},
+                        QStringLiteral("gateway-clone")));
+    QCOMPARE(failures.count(), 1);
+    QCOMPARE(failures.takeFirst().at(0).toString(),
+             QStringLiteral("API Gateway TTS does not support direct voice cloning. Select Colab GPU for this node or turn off voice cloning."));
+
+    // Direct Colab requires an explicit permission acknowledgement; it must
+    // not silently use either API Gateway or the local TTS engine.
+    QVERIFY(!job.start(segments, projectPath,
+                        QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+                                    {QStringLiteral("modelId"), QStringLiteral("kokoro")},
+                                    {QStringLiteral("voiceCloneModelId"), QStringLiteral("omnivoice")},
+                                    {QStringLiteral("autoSelectVoiceReference"), true},
+                                    {QStringLiteral("autoReferenceSourcePath"), sourcePath}},
+                        QStringLiteral("colab-without-consent")));
+    QCOMPARE(failures.count(), 1);
+    QCOMPARE(failures.takeFirst().at(0).toString(),
+             QStringLiteral("Confirm permission to clone this voice before starting Colab voice cloning."));
+
+    // Once consented, the selected source reference is resolved locally and
+    // the next dependency checked is only the direct Colab session.
+    QVERIFY(!job.start(segments, projectPath,
+                        QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+                                    {QStringLiteral("modelId"), QStringLiteral("kokoro")},
+                                    {QStringLiteral("voiceCloneModelId"), QStringLiteral("omnivoice")},
+                                    {QStringLiteral("autoSelectVoiceReference"), true},
+                                    {QStringLiteral("voiceCloneConsentConfirmed"), true},
+                                    {QStringLiteral("autoReferenceSourcePath"), sourcePath}},
+                        QStringLiteral("colab-direct-only")));
+    QCOMPARE(failures.count(), 1);
+    QCOMPARE(failures.takeFirst().at(0).toString(),
+             QStringLiteral("Connect a Colab voice-cloning worker before running this TTS node."));
 }
 
 void TestDubbingProject::parsesLmStudioTranslationFixResponses()
@@ -540,6 +803,246 @@ void TestDubbingProject::sourceSeparationExposesModelSelection()
              QStringLiteral("voice-isolation"));
 }
 
+void TestDubbingProject::colabSourceSeparationDoesNotFallbackToLocal()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString audioPath = dir.filePath(QStringLiteral("source.wav"));
+    QFile file(audioPath);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QVERIFY(file.write("audio-placeholder") > 0);
+    file.close();
+
+    DubbingJobRunner runner(nullptr, nullptr);
+    runner.startSourceSeparation(audioPath,
+        QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("colab-direct")}});
+
+    QVERIFY(!runner.processing());
+    QCOMPARE(runner.lastError(),
+             QStringLiteral("Connect a Colab GPU worker before running this Voice Isolation node."));
+}
+
+void TestDubbingProject::dubbingRejectsAConnectedColabWorkerForTheWrongModel()
+{
+    ExactRouteWorkerMock worker(QStringLiteral("tts"), QStringLiteral("kokoro"));
+    QVERIFY(worker.start());
+
+    ColabSession session;
+    QSignalSpy verification(&session, &ColabSession::verificationFinished);
+    QString error;
+    QVERIFY2(session.beginVerifiedSession(worker.workerUrl(), QStringLiteral("test-token"),
+                                          QStringLiteral("tts"), QStringLiteral("kokoro"),
+                                          &error, true), qPrintable(error));
+    QTRY_COMPARE(verification.count(), 1);
+    QVERIFY(verification.constFirst().at(0).toBool());
+
+    const QVariantList segments{
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("segment-1")},
+                    {QStringLiteral("targetText"), QStringLiteral("Xin chao")},
+                    {QStringLiteral("startMs"), 0},
+                    {QStringLiteral("endMs"), 1000}}
+    };
+    DubbingSynthesisJob job(nullptr);
+    job.setRemoteServices(nullptr, &session, nullptr);
+    QSignalSpy failures(&job, &DubbingSynthesisJob::failed);
+    QVERIFY(!job.start(segments, QStringLiteral("C:/temp/project.ladub.json"),
+                        QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+                                    {QStringLiteral("modelId"), QStringLiteral("vibevoice")}},
+                        QStringLiteral("wrong-model")));
+    QCOMPARE(failures.count(), 1);
+    const QString message = failures.constFirst().at(0).toString();
+    QVERIFY(message.contains(QStringLiteral("Wrong Colab worker")));
+    QVERIFY(message.contains(QStringLiteral("tts / vibevoice")));
+    QVERIFY(message.contains(QStringLiteral("tts / kokoro")));
+}
+
+void TestDubbingProject::remoteDubbingWorkflowIsReadyWithoutLocalModels()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString mediaPath = dir.filePath(QStringLiteral("source.wav"));
+    QFile media(mediaPath);
+    QVERIFY(media.open(QIODevice::WriteOnly));
+    QVERIFY(media.write("audio-placeholder") > 0);
+    media.close();
+
+    const auto remoteNode = [](const QString &provider, const QString &modelId) {
+        const QVariantMap parameters{{QStringLiteral("executionProvider"), provider},
+                                     {QStringLiteral("modelId"), modelId}};
+        return QVariantMap{{QStringLiteral("executionProvider"), provider},
+                           {QStringLiteral("modelId"), modelId},
+                           {QStringLiteral("parameters"), parameters}};
+    };
+    DubbingProject project;
+    project.projectPath = dir.filePath(QStringLiteral("remote.ladub.json"));
+    project.sourceMediaPath = mediaPath;
+    project.targetLanguage = QStringLiteral("vi");
+    project.dubbingQuality = QStringLiteral("custom");
+    project.durationControl.insert(QStringLiteral("enabled"), false);
+    project.durationControl.insert(QStringLiteral("autoRewrite"), false);
+    project.workflowNodeConfigurations.insert(
+        QStringLiteral("source-separate"), remoteNode(
+            QStringLiteral("colab-direct"),
+            QStringLiteral("sherpa-onnx-spleeter-2stems-fp16")));
+    project.workflowNodeConfigurations.insert(
+        QStringLiteral("transcribe"), remoteNode(
+            QStringLiteral("colab-direct"), QStringLiteral("whisper.cpp")));
+    project.workflowNodeConfigurations.insert(
+        QStringLiteral("translate"), remoteNode(QStringLiteral("api-gateway"), QStringLiteral("gateway-translate")));
+    project.workflowNodeConfigurations.insert(
+        QStringLiteral("synthesize"), remoteNode(QStringLiteral("colab-direct"), QStringLiteral("kokoro")));
+    QString error;
+    QVERIFY2(project.save(&error), qPrintable(error));
+
+    DubbingController controller(nullptr, nullptr);
+    QVERIFY2(controller.openProject(project.projectPath), qPrintable(controller.lastError()));
+    QVERIFY(controller.customReady());
+    QVERIFY(controller.workflowReady());
+}
+
+void TestDubbingProject::dubbingColabModelsMapToExactNotebooks()
+{
+    const QStringList nodes{
+        QStringLiteral("source-separate"),
+        QStringLiteral("transcribe"),
+        QStringLiteral("translate"),
+        QStringLiteral("synthesize"),
+        QStringLiteral("voice-clone"),
+        QStringLiteral("alignment")
+    };
+    int routeCount = 0;
+    for (const QString &nodeId : nodes) {
+        const QVariantList options =
+            DubbingColabModelRoutes::optionsForNode(nodeId);
+        QVERIFY2(!options.isEmpty(), qPrintable(nodeId));
+        const QString defaultModel =
+            DubbingColabModelRoutes::defaultModelForNode(nodeId);
+        QVERIFY2(DubbingColabModelRoutes::supports(nodeId, defaultModel),
+                 qPrintable(nodeId));
+        for (const QVariant &entry : options) {
+            const QVariantMap option = entry.toMap();
+            const QString model =
+                option.value(QStringLiteral("modelId")).toString();
+            const QString notebook =
+                option.value(QStringLiteral("notebook")).toString();
+            QVERIFY2(!model.isEmpty(), qPrintable(nodeId));
+            QVERIFY2(notebook.startsWith(QStringLiteral("LA_STUDIO_"))
+                         && notebook.endsWith(QStringLiteral("_GPU.ipynb")),
+                     qPrintable(notebook));
+            QCOMPARE(DubbingColabModelRoutes::notebookForModel(nodeId, model),
+                     notebook);
+            QVERIFY2(QFileInfo(QStringLiteral(LASTUDIO_SOURCE_DIR)
+                               + QStringLiteral("/notebooks/") + notebook).isFile(),
+                     qPrintable(notebook));
+            ++routeCount;
+        }
+    }
+    QCOMPARE(routeCount, 27);
+    QVERIFY(DubbingColabModelRoutes::notebookForModel(
+                QStringLiteral("transcribe"),
+                QStringLiteral("not-a-model")).isEmpty());
+}
+
+void TestDubbingProject::dubbingUiUsesExactModelWorkers()
+{
+    QFile settingsPanel(
+        QStringLiteral(LASTUDIO_SOURCE_DIR)
+        + QStringLiteral("/qml/components/dubbing/DubbingNodeSettingsPanel.qml"));
+    QVERIFY(settingsPanel.open(QIODevice::ReadOnly));
+    const QString settingsSource = QString::fromUtf8(settingsPanel.readAll());
+    QVERIFY(settingsSource.contains(
+        QStringLiteral("dubbing.colabModelOptionsForNode(root.nodeId)")));
+    QVERIFY(settingsSource.contains(
+        QStringLiteral("dubbing.selectWorkflowColabModel(root.nodeId")));
+    QVERIFY(settingsSource.contains(
+        QStringLiteral("dubbing.colabNotebookForNode(root.nodeId")));
+    QVERIFY(!settingsSource.contains(
+        QStringLiteral("LA_STUDIO_SPEECH_GPU.ipynb")));
+    QVERIFY(!settingsSource.contains(
+        QStringLiteral("LA_STUDIO_LANGUAGE_GPU.ipynb")));
+    QVERIFY(!settingsSource.contains(
+        QStringLiteral("LA_STUDIO_VOICE_GPU.ipynb")));
+
+    QFile inspector(
+        QStringLiteral(LASTUDIO_SOURCE_DIR)
+        + QStringLiteral("/qml/components/dubbing/DubbingNodeInspector.qml"));
+    QVERIFY(inspector.open(QIODevice::ReadOnly));
+    const QString inspectorSource = QString::fromUtf8(inspector.readAll());
+    QVERIFY(inspectorSource.contains(
+        QStringLiteral("\"voice-clone\", root.voiceCloneModelId")));
+    QVERIFY(inspectorSource.contains(
+        QStringLiteral("AppController.colabVoiceCloneSession.connectTemporaryWorker")));
+    QVERIFY(inspectorSource.contains(
+        QStringLiteral("\"alignment\", root.alignmentModelId")));
+    QVERIFY(inspectorSource.contains(
+        QStringLiteral("AppController.colabAlignmentSession.connectTemporaryWorker")));
+
+    QFile synthesisJob(
+        QStringLiteral(LASTUDIO_SOURCE_DIR)
+        + QStringLiteral("/src/controllers/dubbing/DubbingSynthesisJob.cpp"));
+    QVERIFY(synthesisJob.open(QIODevice::ReadOnly));
+    const QString synthesisSource = QString::fromUtf8(synthesisJob.readAll());
+    QVERIFY(synthesisSource.contains(
+        QStringLiteral("request.model = model;")));
+    QVERIFY(synthesisSource.contains(
+        QStringLiteral("voiceCloneModelId")));
+
+    QFile transcriptionJob(
+        QStringLiteral(LASTUDIO_SOURCE_DIR)
+        + QStringLiteral("/src/controllers/dubbing/DubbingTranscriptionJob.cpp"));
+    QVERIFY(transcriptionJob.open(QIODevice::ReadOnly));
+    const QString transcriptionSource =
+        QString::fromUtf8(transcriptionJob.readAll());
+    QVERIFY(transcriptionSource.contains(
+        QStringLiteral("refineAlignmentWithColab")));
+    QVERIFY(transcriptionSource.contains(
+        QStringLiteral("completeWithoutAlignment")));
+    QVERIFY(transcriptionSource.contains(
+        QStringLiteral("beginTranscriptionAfterInputReady")));
+    QVERIFY(transcriptionSource.contains(
+        QStringLiteral("m_inputLoadStarted = true")));
+    QVERIFY(transcriptionSource.contains(
+        QStringLiteral("m_inputLoadStarted = false")));
+}
+
+void TestDubbingProject::dubbingTranscriptionWaitsForFreshDecodedAudio()
+{
+    DubbingSttWorkerMock worker;
+    QVERIFY(worker.start());
+
+    AppController *app = AppController::instance();
+    QVERIFY(app != nullptr);
+    ColabSession *session = app->colabSttSession();
+    SttSessionController *stt = app->sttSession();
+    QVERIFY(session != nullptr);
+    QVERIFY(stt != nullptr);
+    ColabSessionReset resetSession(session);
+
+    QString sessionError;
+    QVERIFY2(session->setSession(worker.workerUrl(), QStringLiteral("test-token"),
+                                 &sessionError, true), qPrintable(sessionError));
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString audioPath = dir.filePath(QStringLiteral("input.wav"));
+    QVector<float> samples(1600, 0.1F);
+    QVERIFY(WavIO::saveFloat(audioPath, samples.constData(), samples.size(), 16000));
+
+    DubbingTranscriptionJob job(stt, nullptr, nullptr);
+    const QVariantMap configuration{
+        {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+        {QStringLiteral("modelId"), QStringLiteral("whisper.cpp")}
+    };
+    QVERIFY(job.start(QStringLiteral("en"), audioPath, {}, configuration));
+
+    // The worker deliberately rejects the request. What matters here is the
+    // real boundary: an upload is issued only after the fresh WAV decode ends.
+    QTRY_VERIFY_WITH_TIMEOUT(!worker.request().isEmpty(), 5000);
+    QVERIFY(worker.request().startsWith("POST /v2/uploads/stt HTTP/1.1"));
+    job.cancel();
+    stt->cancelProcessing();
+}
+
 void TestDubbingProject::targetLanguageUpdatesVoiceNodeLanguage()
 {
     DubbingController controller(nullptr, nullptr);
@@ -579,12 +1082,18 @@ void TestDubbingProject::transcriptionRequiresReadyModel()
     QVERIFY(media.write("audio-placeholder") > 0);
     media.close();
 
+    Settings *settings = AppController::instance()->settings();
+    QVERIFY(settings != nullptr);
+    const bool originalRemoteFirst = settings->remoteFirstMode();
+    settings->setRemoteFirstMode(false);
     AppController::instance()->stt()->unloadModel();
     DubbingJobRunner runner(AppController::instance()->sttSession(), nullptr);
     runner.startTranscription(QStringLiteral("en"), mediaPath);
 
+    const QString error = runner.lastError();
+    settings->setRemoteFirstMode(originalRemoteFirst);
     QVERIFY(!runner.processing());
-    QVERIFY(runner.lastError().contains(QStringLiteral("not ready")));
+    QVERIFY(error.contains(QStringLiteral("not ready")));
 }
 
 void TestDubbingProject::alignmentRefinementFallsBackWithoutDependencies()

@@ -15,6 +15,8 @@ StudioShell {
     selectedFamilyId: family ? family.id : ""
     studioContext: null
     studioReady: false
+    // VoiceDesign can run entirely on its Colab worker before local setup.
+    settingsRequiresReady: false
     isSettingsOpen: true
     showLeftPanel: true
     isLeftPanelOpen: true
@@ -27,13 +29,18 @@ StudioShell {
 
     property string playingType: "none"
     property string detectedLanguage: "en"
-    property bool outputReady: AppController.tts.lastSampleCount > 0 && AppController.tts.lastGenerationMode === "voice-design"
+    readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
+    readonly property bool colabActive: AppController.colabVoiceDesign && AppController.colabVoiceDesign.colabActive
+    readonly property var activeDesign: colabActive ? AppController.colabVoiceDesign : null
+    property bool outputReady: colabActive
+                               ? activeDesign.lastSampleCount > 0
+                               : (AppController.tts.lastSampleCount > 0 && AppController.tts.lastGenerationMode === "voice-design")
     property string lastSynthesizedText: ""
     property string lastSynthesizedDescription: ""
     property string selectedPresetName: ""
     property string selectedLanguage: "en"
     property string activeLeftTab: "presets"
-    readonly property bool inputsLocked: AppController.tts.processing
+    readonly property bool inputsLocked: AppController.tts.processing || (colabActive && activeDesign.processing)
 
     readonly property var studioConfig: AppController.tts.studioConfigForCapability("voice-design")
     readonly property bool hasLanguageInput: studioConfig && studioConfig.inputs ? studioConfig.inputs.indexOf("language") !== -1 : false
@@ -57,8 +64,9 @@ StudioShell {
     onRequestRuntimeSwitch: function(runtimeId) { root.runtimeSwitchRequested(runtimeId) }
 
     function outputDurationText() {
-        if (!root.outputReady || AppController.tts.sampleRate <= 0) return "--"
-        var seconds = AppController.tts.lastSampleCount / AppController.tts.sampleRate
+        var design = root.colabActive ? root.activeDesign : AppController.tts
+        if (!root.outputReady || design.sampleRate <= 0) return "--"
+        var seconds = design.lastSampleCount / design.sampleRate
         if (seconds < 60) return seconds.toFixed(1) + "s"
         var minutes = Math.floor(seconds / 60)
         var remain = Math.floor(seconds % 60)
@@ -66,7 +74,7 @@ StudioShell {
     }
 
     function sampleCountText() {
-        var count = AppController.tts.lastSampleCount
+        var count = root.colabActive ? root.activeDesign.lastSampleCount : AppController.tts.lastSampleCount
         if (count >= 1000000) return (count / 1000000).toFixed(1) + "M samples"
         if (count >= 1000) return (count / 1000).toFixed(1) + "k samples"
         return count + " samples"
@@ -478,21 +486,33 @@ StudioShell {
                         iconName: "spark"
                         Layout.preferredWidth: 180
                         Layout.preferredHeight: 40
-                        visible: !AppController.tts.processing
-                        enabled: (root.studioController ? root.studioController.canProcess : false)
-                                 && !root.inputsLocked
-                                 && AppController.tts.modelLoaded
-                                 && targetText.text.length > 0
-                                 && (!settingsPanel.requiresInstruct
-                                     || (settingsPanel.freeTextInstruct
-                                     ? (voiceDescriptionText.text.trim().length > 0 || settingsPanel.hasSelectedVoiceAttributes)
-                                     : settingsPanel.hasSelectedVoiceAttributes))
+                        visible: !root.inputsLocked
+                        enabled: {
+                            if (root.remoteFirstMode && !root.colabActive) return false
+                            if (root.colabActive) {
+                                return targetText.text.trim().length > 0
+                                    && voiceDescriptionText.text.trim().length > 0
+                            }
+                            return (root.studioController ? root.studioController.canProcess : false)
+                                   && AppController.tts.modelLoaded
+                                   && targetText.text.length > 0
+                                   && (!settingsPanel.requiresInstruct
+                                       || (settingsPanel.freeTextInstruct
+                                       ? (voiceDescriptionText.text.trim().length > 0 || settingsPanel.hasSelectedVoiceAttributes)
+                                       : settingsPanel.hasSelectedVoiceAttributes))
+                        }
                         onClicked: {
                             var composedDescription = settingsPanel.composedVoiceDescription(settingsPanel.selectedLanguage, voiceDescriptionText.text.normalize("NFC"))
                             root.lastSynthesizedText = targetText.text
                             root.lastSynthesizedDescription = composedDescription
-                            var synSettings = settingsPanel.getSynthesisSettings(settingsPanel.selectedLanguage, voiceDescriptionText.text.normalize("NFC"))
-                            AppController.tts.designVoice(targetText.text.normalize("NFC"), synSettings)
+                            if (root.colabActive) {
+                                root.activeDesign.generate(targetText.text.normalize("NFC"), composedDescription, "",
+                                                           settingsPanel.selectedLanguage, settingsPanel.colabTemperature,
+                                                           settingsPanel.randomSeed ? -1 : settingsPanel.customSeed)
+                            } else if (!root.remoteFirstMode) {
+                                var synSettings = settingsPanel.getSynthesisSettings(settingsPanel.selectedLanguage, voiceDescriptionText.text.normalize("NFC"))
+                                AppController.tts.designVoice(targetText.text.normalize("NFC"), synSettings)
+                            }
                         }
                     }
 
@@ -502,8 +522,11 @@ StudioShell {
                         buttonColor: Theme.danger
                         Layout.preferredWidth: 180
                         Layout.preferredHeight: 40
-                        visible: AppController.tts.processing
-                        onClicked: AppController.tts.cancelProcessing()
+                        visible: root.inputsLocked
+                        onClicked: {
+                            if (root.colabActive) root.activeDesign.cancelProcessing()
+                            else AppController.tts.cancelProcessing()
+                        }
                     }
                 }
 
@@ -511,23 +534,24 @@ StudioShell {
                 GeneratedAudioOutput {
                     family: root.family
                     outputReady: root.outputReady
-                    samples: AppController.tts.lastSamplePreview
+                    samples: root.colabActive ? root.activeDesign.lastSamplePreview : AppController.tts.lastSamplePreview
                     durationText: root.outputDurationText()
-                    sampleRate: AppController.tts.sampleRate
+                    sampleRate: root.colabActive ? root.activeDesign.sampleRate : AppController.tts.sampleRate
                     sampleCountText: root.sampleCountText()
                     isPlaying: root.playingType === "voice-design" && AppController.player.playing
                     isPaused: root.playingType === "voice-design" && AppController.player.paused
                     playbackPositionMs: root.playingType === "voice-design" ? AppController.player.playbackPositionMs : 0
                     playbackDurationMs: root.playingType === "voice-design" ? AppController.player.playbackDurationMs : 0
-                    audioDurationMs: AppController.tts.sampleRate > 0
-                                     ? Math.round(AppController.tts.lastSampleCount * 1000 / AppController.tts.sampleRate) : 0
-                    processing: AppController.tts.processing
-                    generationProgress: AppController.tts.generationProgress
-                    progressEstimated: AppController.tts.generationProgressEstimated
-                    progressLabel: AppController.tts.generationProgressLabel
+                    audioDurationMs: (root.colabActive ? root.activeDesign.sampleRate : AppController.tts.sampleRate) > 0
+                                     ? Math.round((root.colabActive ? root.activeDesign.lastSampleCount : AppController.tts.lastSampleCount) * 1000 / (root.colabActive ? root.activeDesign.sampleRate : AppController.tts.sampleRate)) : 0
+                    processing: root.colabActive ? root.activeDesign.processing : AppController.tts.processing
+                    generationProgress: root.colabActive ? root.activeDesign.progress : AppController.tts.generationProgress
+                    progressEstimated: root.colabActive ? false : AppController.tts.generationProgressEstimated
+                    progressLabel: root.colabActive ? qsTr("Generating on Colab GPU") : AppController.tts.generationProgressLabel
                     onPlayClicked: {
                         root.playingType = "voice-design"
-                        AppController.preview.playLastTts()
+                        if (root.colabActive) root.activeDesign.playOutput()
+                        else AppController.preview.playLastTts()
                     }
                     onPauseClicked: AppController.player.pause()
                     onResumeClicked: AppController.player.resume()
@@ -536,6 +560,8 @@ StudioShell {
                         root.playingType = "voice-design"
                         if (AppController.player.playing)
                             AppController.player.seek(positionMs)
+                        else if (root.colabActive)
+                            root.activeDesign.playOutput(positionMs)
                         else
                             AppController.preview.playLastTtsAtPosition(positionMs)
                     }
@@ -605,6 +631,9 @@ StudioShell {
         title: "Save Designed Voice Audio"
         fileMode: FileDialog.SaveFile
         nameFilters: ["WAV files (*.wav)"]
-        onAccepted: AppController.preview.saveWav(selectedFile.toString())
+        onAccepted: {
+            if (root.colabActive) root.activeDesign.saveWav(selectedFile.toString())
+            else AppController.preview.saveWav(selectedFile.toString())
+        }
     }
 }

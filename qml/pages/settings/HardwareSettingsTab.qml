@@ -201,40 +201,12 @@ ScrollView {
 
                 ThinDivider {}
 
-                RowLayout {
+                Text {
                     Layout.fillWidth: true
-                    spacing: Theme.paddingMedium
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 2
-
-                        Text {
-                            text: qsTr("Offload KV Cache to GPU Memory")
-                            color: Theme.textPrimary
-                            font.pixelSize: Theme.fontSmall
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-
-                        Text {
-                            text: AppController.settings.offloadKvCache
-                                ? qsTr("ON: Runtime may place compatible cache memory on detected GPU memory.")
-                                : qsTr("OFF: KV cache remains on system memory when the runtime allows it.")
-                            color: Theme.textSecondary
-                            font.pixelSize: Theme.fontSmall
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-                    }
-
-                    ToggleRow {
-                        text: ""
-                        checked: AppController.settings.offloadKvCache
-                        Layout.fillWidth: false
-                        Layout.preferredWidth: 42
-                        onToggled: AppController.settings.offloadKvCache = checked
-                    }
+                    text: qsTr("Local processing is CPU-only. GPU models run through the direct Colab worker configured in each studio, so this computer's GPU is never used for inference.")
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSmall
+                    wrapMode: Text.WordWrap
                 }
             }
         }

@@ -9,5 +9,7 @@ private slots:
     void textImportSplitsParagraphsAndRoundTrips();
     void subtitleImportPreservesTimingAndExportsTargetText();
     void rejectsInvalidSubtitleCue();
+    void gatewayRunnerTranslatesSegmentsThroughGateway();
+    void gatewayRunnerRejectsInvalidPatchSchema();
 };
 } // namespace LAStudio

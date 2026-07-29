@@ -12,6 +12,8 @@ param(
     [string] $Preset = "windows-msvc-release",
     [string] $QtRoot,
     [string] $VcpkgRoot,
+    [ValidateRange(1, 64)]
+    [int] $MaxParallelJobs = 4,
     [switch] $NoBuild,
     [switch] $Verbose
 )
@@ -108,8 +110,74 @@ function Resolve-VcpkgRoot {
     return $null
 }
 
+function Test-UnitTestsConfigured {
+    param([Parameter(Mandatory)][string] $BuildDirectory)
+
+    $cachePath = Join-Path $BuildDirectory "CMakeCache.txt"
+    if (-not (Test-Path -LiteralPath (Join-Path $BuildDirectory "build.ninja")) -or
+        -not (Test-Path -LiteralPath $cachePath)) {
+        return $false
+    }
+    return [bool] (Select-String -LiteralPath $cachePath -Pattern '^BUILD_TESTING:BOOL=ON$' -Quiet)
+}
+
+function Configure-UnitTests {
+    param(
+        [Parameter(Mandatory)][string] $BuildPreset,
+        [Parameter(Mandatory)][string] $ResolvedQtRoot,
+        [Parameter(Mandatory)][string] $ResolvedVcpkgRoot
+    )
+
+    $qtKit = if ($BuildPreset -like "*mingw*") { "mingw_64" } else { "msvc2022_64" }
+    $qtPrefix = Join-Path $ResolvedQtRoot $qtKit
+    $toolchain = Join-Path $ResolvedVcpkgRoot "scripts\buildsystems\vcpkg.cmake"
+    $llamaHeaders = Join-Path $RepoRoot ".deps\llama.cpp"
+    if (-not (Test-Path -LiteralPath (Join-Path $qtPrefix "lib\cmake\Qt6\Qt6Config.cmake"))) {
+        throw "Qt6Config.cmake was not found under '$qtPrefix'."
+    }
+    if (-not (Test-Path -LiteralPath $toolchain)) {
+        throw "vcpkg toolchain file was not found: $toolchain"
+    }
+    if (-not (Test-Path -LiteralPath $llamaHeaders)) {
+        throw "llama.cpp headers were not found: $llamaHeaders. Run scripts\bootstrap.ps1 first."
+    }
+
+    # A portable/package configure intentionally turns BUILD_TESTING off.
+    # Reconfigure only the test target with the same pinned dependencies,
+    # rather than invoking the application-packaging build as a side effect.
+    $ninjaPath = (Get-Command "ninja" -ErrorAction Stop).Source.Replace('\', '/')
+    $cmakeArgs = @(
+        "-DBUILD_TESTING=ON",
+        "-DCMAKE_MAKE_PROGRAM=$ninjaPath",
+        "-DCMAKE_PREFIX_PATH=$($qtPrefix.Replace('\', '/'))",
+        "-DCMAKE_TOOLCHAIN_FILE=$($toolchain.Replace('\', '/'))",
+        "-DVCPKG_ROOT=$($ResolvedVcpkgRoot.Replace('\', '/'))",
+        "-DLLAMA_CPP_SOURCE_DIR=$($llamaHeaders.Replace('\', '/'))"
+    )
+    if ($BuildPreset -like "*mingw*") {
+        $cmakeArgs += "-DVCPKG_TARGET_TRIPLET=x64-mingw-dynamic"
+    } else {
+        $cmakeArgs += "-DVCPKG_TARGET_TRIPLET=x64-windows"
+        # Pin MSVC's linker: a stale MinGW ld.exe in PATH must never be used
+        # for an MSVC test configuration.
+        $linkerPath = (Get-Command "link.exe" -ErrorAction Stop).Source.Replace('\', '/')
+        $archiverPath = (Get-Command "lib.exe" -ErrorAction Stop).Source.Replace('\', '/')
+        $cmakeArgs += "-DCMAKE_LINKER=$linkerPath"
+        $cmakeArgs += "-DCMAKE_AR=$archiverPath"
+    }
+
+    $env:VCPKG_ROOT = $ResolvedVcpkgRoot
+    $env:VCPKG_OVERLAY_TRIPLETS = ""
+    $env:VCPKG_DEFAULT_TRIPLET = ""
+    Write-Host ">> Configuring unit test target..." -ForegroundColor Cyan
+    cmake --preset $BuildPreset @cmakeArgs
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
 function Ensure-MsvcEnvironment {
-    if (Test-Command "cl.exe") {
+    $hasCppHeaders = -not [string]::IsNullOrWhiteSpace($env:INCLUDE) -and
+        ($env:INCLUDE -split ";" | Where-Object { Test-Path (Join-Path $_ "type_traits") } | Select-Object -First 1)
+    if ((Test-Command "cl.exe") -and $hasCppHeaders) {
         return
     }
 
@@ -177,20 +245,16 @@ Remove-StaleCMakeBuildDirectory -BuildDirectory $buildDir -ExpectedSourceDirecto
 
 # 1. Build unit tests if requested
 if (-not $NoBuild) {
-    Write-Host ">> Building unit tests target..." -ForegroundColor Cyan
-    # Check if build directory exists and is configured.
-    # If not configured, we bootstrap first.
-    if (-not (Test-Path (Join-Path $buildDir "build.ninja"))) {
-        Write-Host ">> Build directory not configured. Bootstrapping first..." -ForegroundColor Yellow
-        $bootstrapScript = Join-Path $PSScriptRoot "bootstrap.ps1"
-        $resolvedVcpkgRoot = Resolve-VcpkgRoot -Candidate $VcpkgRoot
-        & $bootstrapScript -Preset $Preset -QtRoot $resolvedQtRoot -VcpkgRoot $resolvedVcpkgRoot
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    } else {
-        # Build just the unit tests target
-        cmake --build $buildDir --target LAStudioUnitTests --parallel
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    $resolvedVcpkgRoot = Resolve-VcpkgRoot -Candidate $VcpkgRoot
+    if ([string]::IsNullOrWhiteSpace($resolvedVcpkgRoot)) {
+        throw "vcpkg root was not detected. Pass -VcpkgRoot <path-to-vcpkg>."
     }
+    if (-not (Test-UnitTestsConfigured -BuildDirectory $buildDir)) {
+        Configure-UnitTests -BuildPreset $Preset -ResolvedQtRoot $resolvedQtRoot -ResolvedVcpkgRoot $resolvedVcpkgRoot
+    }
+    Write-Host ">> Building unit tests target..." -ForegroundColor Cyan
+    cmake --build $buildDir --target LAStudioUnitTests --parallel $MaxParallelJobs
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
 # 2. Run the unit tests

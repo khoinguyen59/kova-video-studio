@@ -247,6 +247,19 @@ void HistoryService::addVoiceDesignHistoryItem(const QString &text, const QStrin
     });
 }
 
+void HistoryService::addVoiceDesignHistorySamples(const QString &text, const QString &voiceDescription,
+                                                  const QString &presetName, const QString &familyId,
+                                                  const QString &modelName,
+                                                  const QVector<float> &samples, int sampleRate)
+{
+    if (samples.isEmpty() || sampleRate <= 0) return;
+    QMetaObject::invokeMethod(m_worker, [this, text, voiceDescription, presetName, familyId,
+                                         modelName, samples, sampleRate]() {
+        m_worker->addVoiceDesignHistoryItem(text, voiceDescription, presetName, familyId,
+                                            modelName, samples, sampleRate);
+    });
+}
+
 void HistoryService::deleteVoiceDesignHistoryItem(const QString &id)
 {
     QMetaObject::invokeMethod(m_worker, [this, id]() {

@@ -6,6 +6,14 @@
 
 namespace LAStudio {
 
+void TestHardwareManager::sharesOneInstanceWithQmlFactory()
+{
+    HardwareManager *const nativeInstance = HardwareManager::instance();
+
+    QCOMPARE(HardwareManager::create(nullptr, nullptr), nativeInstance);
+    QCOMPARE(HardwareManager::instance(), nativeInstance);
+}
+
 void TestHardwareManager::rejectsRuntimeWithMissingRequiredCpuFeature()
 {
     const QVariantMap runtime{

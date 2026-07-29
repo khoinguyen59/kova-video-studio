@@ -15,14 +15,14 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $cmakePath = Join-Path $repoRoot "CMakeLists.txt"
 
-if ($Tag -notmatch '^v(\d+\.\d+\.\d+)(-(alpha|beta|rc)\.[1-9][0-9]*)?$') {
-    throw "Release tag must use vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-(alpha|beta|rc).N; got '$Tag'."
+if ($Tag -notmatch '^v(\d+\.\d+\.\d+\.\d+)(-(alpha|beta|rc)\.[1-9][0-9]*)?$') {
+    throw "Release tag must use vMAJOR.MINOR.RELEASE.BUILD or vMAJOR.MINOR.RELEASE.BUILD-(alpha|beta|rc).N; got '$Tag'."
 }
 
 $tagVersion = $Matches[1]
 $tagSuffix = $Matches[2]
 $source = Get-Content -LiteralPath $cmakePath -Raw
-$versionMatch = [regex]::Match($source, 'set\(LASTUDIO_VERSION\s+"([0-9]+\.[0-9]+\.[0-9]+)"')
+$versionMatch = [regex]::Match($source, 'set\(LASTUDIO_VERSION\s+"([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)"')
 if (-not $versionMatch.Success) {
     throw "Could not find a valid LASTUDIO_VERSION in '$cmakePath'."
 }

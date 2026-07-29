@@ -3,10 +3,12 @@ cmake_minimum_required(VERSION 3.21)
 include(cmake/RuntimeAbi.cmake)
 
 # This is the single source of truth for the application version. Release
-# automation may override it with -DLASTUDIO_VERSION=<major.minor.patch>.
-set(LASTUDIO_VERSION "0.2.0" CACHE STRING "LA Studio application version")
-if(NOT LASTUDIO_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
-    message(FATAL_ERROR "LASTUDIO_VERSION must use MAJOR.MINOR.PATCH format; got '${LASTUDIO_VERSION}'")
+# automation may override it with -DLASTUDIO_VERSION=<major.minor.release.build>.
+# Internal builds use four numeric fields so each artifact has an unambiguous,
+# monotonically ordered label: 0.0.0.1 ... 0.0.0.9, then 0.0.1.0.
+set(LASTUDIO_VERSION "0.0.1.4" CACHE STRING "LA Studio application version")
+if(NOT LASTUDIO_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$")
+    message(FATAL_ERROR "LASTUDIO_VERSION must use MAJOR.MINOR.RELEASE.BUILD format; got '${LASTUDIO_VERSION}'")
 endif()
 set(LASTUDIO_RELEASE_SUFFIX "" CACHE STRING
     "Optional SemVer prerelease suffix (for example, -beta.1)")
@@ -58,6 +60,10 @@ configure_file(
     "${LASTUDIO_GENERATED_DIR}/lastudio/AppVersion.h"
     @ONLY
 )
+option(LASTUDIO_PORTABLE_INTERNAL_LAYOUT
+    "Install an internal portable package with executables at its root" OFF)
+set(LASTUDIO_EXECUTABLE_BASENAME "LA-Studio-${LASTUDIO_VERSION}")
+set(LASTUDIO_EXECUTABLE_FILENAME "${LASTUDIO_EXECUTABLE_BASENAME}.exe")
 configure_file(
     "${CMAKE_SOURCE_DIR}/cmake/RuntimeAbi.h.in"
     "${LASTUDIO_GENERATED_DIR}/lastudio/RuntimeAbi.h"
@@ -83,6 +89,7 @@ set(LASTUDIO_SOURCES
     src/core/Logger.cpp
     src/core/CrashHandler.cpp
     src/core/PathUtils.cpp
+    src/core/MediaRuntimeLocator.cpp
     src/core/VoiceCloningUtils.cpp
     src/core/InferenceThreadPolicy.cpp
     src/inference/WorkerThreadHost.cpp
@@ -96,11 +103,19 @@ set(LASTUDIO_SOURCES
     src/translation/TranslationEngine.cpp
     src/translation/TranslationEngineInstance.cpp
     src/translation/TranslationWorker.cpp
+    src/translation/GatewayTranslationRunner.cpp
+    src/translation/ColabTranslationRunner.cpp
     src/translation/backends/TranslationBackendFactory.cpp
     src/translation/backends/CrispTranslationBackend.cpp
     src/translation/backends/LlamaTranslationBackend.cpp
     src/core/Settings.cpp
     src/core/SecureCredentialStore.cpp
+    src/remote/ExecutionProvider.cpp
+    src/remote/ColabSession.cpp
+    src/remote/GatewayClient.cpp
+    src/remote/ColabWorkerClient.cpp
+    src/remote/GatewayModelCatalog.cpp
+    src/remote/ColabCapabilityCatalog.cpp
     src/api/ApiServerService.cpp
     src/core/HFHubClient.cpp
     src/core/DownloadManager.cpp
@@ -124,6 +139,8 @@ set(LASTUDIO_SOURCES
     src/stt/SttEngine.cpp
     src/stt/SttEngineInstance.cpp
     src/stt/SttWorker.cpp
+    src/stt/ColabSttRunner.cpp
+    src/stt/GatewaySttRunner.cpp
     src/stt/backends/SttBackendFactory.cpp
     src/stt/backends/WhisperSttBackend.cpp
     src/stt/backends/QwenSttBackend.cpp
@@ -131,6 +148,12 @@ set(LASTUDIO_SOURCES
     src/tts/TtsEngine.cpp
     src/tts/TtsEngineInstance.cpp
     src/tts/TtsWorker.cpp
+    src/tts/GatewayTtsRunner.cpp
+    src/tts/ColabTtsRunner.cpp
+    src/tts/ColabVoiceCloneRunner.cpp
+    src/tts/ColabVoiceDesignRunner.cpp
+    src/alignment/ColabAlignmentRunner.cpp
+    src/separation/ColabSeparationRunner.cpp
     src/tts/TextNormalizationPolicy.cpp
     src/tts/TtsTextPreprocessor.cpp
     src/tts/TtsRequestValidator.cpp
@@ -149,7 +172,10 @@ set(LASTUDIO_SOURCES
     src/controllers/shared/VoiceClonePresetService.cpp
     src/controllers/shared/VoiceDesignPresetService.cpp
     src/controllers/models/DownloadInstallService.cpp
+    src/controllers/models/RemoteModelCatalogController.cpp
     src/controllers/alignment/AlignmentExecutionService.cpp
+    src/controllers/alignment/ColabAlignmentController.cpp
+    src/controllers/separation/ColabVoiceIsolatorController.cpp
     src/dubbing/AlignmentRefinementService.cpp
     src/dubbing/DubbingSegmentNormalizer.cpp
     src/controllers/alignment/AlignmentTranscriptMatcher.cpp
@@ -157,6 +183,7 @@ set(LASTUDIO_SOURCES
     src/translation/CrispTranslationInterface.cpp
     src/translation/LlamaTranslationInterface.cpp
     src/llm/LlmChatEngine.cpp
+    src/llm/ColabChatRunner.cpp
     src/controllers/llm/LlmChatModelSession.cpp
     src/controllers/llm/LlmChatController.cpp
     src/controllers/models/ModelsPathMigrator.cpp
@@ -179,6 +206,10 @@ set(LASTUDIO_SOURCES
     src/controllers/models/StudioConfigurationResolver.cpp
     src/controllers/models/CapabilitySettingsSchema.cpp
     src/controllers/stt/SttSessionController.cpp
+    src/controllers/tts/GatewayTtsController.cpp
+    src/controllers/tts/ColabTtsController.cpp
+    src/controllers/tts/ColabVoiceCloneController.cpp
+    src/controllers/tts/ColabVoiceDesignController.cpp
     src/controllers/tts/SubtitleVoiceController.cpp
     src/controllers/stt/SttAudioDecoder.cpp
     src/dubbing/DubbingProject.cpp
@@ -234,6 +265,7 @@ set(LASTUDIO_HEADERS
     src/core/Logger.h
     src/core/CrashHandler.h
     src/core/PathUtils.h
+    src/core/MediaRuntimeLocator.h
     src/core/VoiceCloningUtils.h
     src/core/InferenceThreadPolicy.h
     src/inference/InferenceTypes.h
@@ -248,6 +280,12 @@ set(LASTUDIO_HEADERS
     src/runtimehost/HostedLlamaTranslationBackend.h
     src/core/Settings.h
     src/core/SecureCredentialStore.h
+    src/remote/ExecutionProvider.h
+    src/remote/ColabSession.h
+    src/remote/GatewayClient.h
+    src/remote/ColabWorkerClient.h
+    src/remote/GatewayModelCatalog.h
+    src/remote/ColabCapabilityCatalog.h
     src/core/HFHubClient.h
     src/core/DownloadManager.h
     src/core/ModelManager.h
@@ -279,6 +317,8 @@ set(LASTUDIO_HEADERS
     src/stt/SttEngine.h
     src/stt/SttEngineInstance.h
     src/stt/SttWorker.h
+    src/stt/ColabSttRunner.h
+    src/stt/GatewaySttRunner.h
     src/stt/backends/SttBackend.h
     src/stt/backends/SttBackendFactory.h
     src/stt/backends/WhisperSttBackend.h
@@ -287,6 +327,12 @@ set(LASTUDIO_HEADERS
     src/tts/TtsEngine.h
     src/tts/TtsEngineInstance.h
     src/tts/TtsWorker.h
+    src/tts/GatewayTtsRunner.h
+    src/tts/ColabTtsRunner.h
+    src/tts/ColabVoiceCloneRunner.h
+    src/tts/ColabVoiceDesignRunner.h
+    src/alignment/ColabAlignmentRunner.h
+    src/separation/ColabSeparationRunner.h
     src/tts/TextNormalizationPolicy.h
     src/tts/TtsTextPreprocessor.h
     src/tts/TtsRequestValidator.h
@@ -306,7 +352,10 @@ set(LASTUDIO_HEADERS
     src/controllers/shared/VoiceClonePresetService.h
     src/controllers/shared/VoiceDesignPresetService.h
     src/controllers/models/DownloadInstallService.h
+    src/controllers/models/RemoteModelCatalogController.h
     src/controllers/alignment/AlignmentExecutionService.h
+    src/controllers/alignment/ColabAlignmentController.h
+    src/controllers/separation/ColabVoiceIsolatorController.h
     src/dubbing/AlignmentRefinementService.h
     src/dubbing/DubbingSegmentNormalizer.h
     src/controllers/alignment/AlignmentTranscriptMatcher.h
@@ -314,6 +363,7 @@ set(LASTUDIO_HEADERS
     include/runtimes/CrispTranslationInterface.h
     include/runtimes/LlamaTranslationInterface.h
     src/llm/LlmChatEngine.h
+    src/llm/ColabChatRunner.h
     src/controllers/llm/LlmChatModelSession.h
     src/controllers/llm/LlmChatController.h
     src/controllers/models/ModelsPathMigrator.h
@@ -327,6 +377,8 @@ set(LASTUDIO_HEADERS
     src/translation/TranslationEngine.h
     src/translation/TranslationEngineInstance.h
     src/translation/TranslationWorker.h
+    src/translation/GatewayTranslationRunner.h
+    src/translation/ColabTranslationRunner.h
     src/translation/backends/TranslationBackend.h
     src/translation/backends/TranslationBackendFactory.h
     src/translation/backends/CrispTranslationBackend.h
@@ -345,6 +397,10 @@ set(LASTUDIO_HEADERS
     src/controllers/models/StudioConfigurationResolver.h
     src/controllers/models/CapabilitySettingsSchema.h
     src/controllers/stt/SttSessionController.h
+    src/controllers/tts/GatewayTtsController.h
+    src/controllers/tts/ColabTtsController.h
+    src/controllers/tts/ColabVoiceCloneController.h
+    src/controllers/tts/ColabVoiceDesignController.h
     src/controllers/tts/SubtitleVoiceController.h
     src/controllers/stt/SttAudioDecoder.h
     src/dubbing/DubbingProject.h
@@ -434,6 +490,7 @@ qt_add_qml_module(LAStudio
         qml/pages/settings/GeneralSettingsTab.qml
         qml/pages/settings/HardwareSettingsTab.qml
         qml/pages/settings/AboutLicensesTab.qml
+        qml/pages/settings/RemoteInferenceTab.qml
 
         qml/components/Sidebar.qml
         qml/components/AppTitleBar.qml
@@ -448,6 +505,9 @@ qt_add_qml_module(LAStudio
         qml/components/base/AppTextArea.qml
         qml/components/base/AppToolTip.qml
         qml/components/base/LineIcon.qml
+        qml/components/base/colabNotebookUrls.js
+        qml/components/base/ColabNotebookLink.qml
+        qml/components/base/ColabSessionStatus.qml
         qml/components/PrimaryButton.qml
         qml/components/SearchBar.qml
         qml/components/ModelListItem.qml
@@ -542,6 +602,7 @@ target_include_directories(LAStudio PRIVATE
     ${LASTUDIO_GENERATED_DIR}
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/core
+    ${CMAKE_SOURCE_DIR}/src/remote
     ${CMAKE_SOURCE_DIR}/src/api
     ${CMAKE_SOURCE_DIR}/src/audio
     ${CMAKE_SOURCE_DIR}/src/stt
@@ -585,6 +646,41 @@ target_link_libraries(LAStudio PRIVATE
 if(WIN32)
     target_link_libraries(LAStudio PRIVATE dbghelp)
     target_link_libraries(LAStudio PRIVATE shell32 wintrust crypt32)
+
+    # windeployqt deploys Qt but it does not copy runtime DLLs imported from
+    # vcpkg.  LAStudio links libcurl and zlib directly, so a normal developer
+    # build (including the QML smoke executable) must place those DLLs beside
+    # the EXE as well.  Without this the loader exits with 0xc0000135 before
+    # main(), which hides all application diagnostics.
+    add_custom_command(TARGET LAStudio POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:CURL::libcurl>
+            $<TARGET_FILE_DIR:LAStudio>
+        VERBATIM)
+
+    # FindZLIB exposes its Windows import library (zlib.lib), not the
+    # accompanying zlib1.dll, through TARGET_FILE.  Derive the vcpkg prefix
+    # from the import-library directory and stage the actual loader input.
+    set(LASTUDIO_ZLIB_IMPORT_LIBRARY "${ZLIB_LIBRARY_RELEASE}")
+    if(NOT LASTUDIO_ZLIB_IMPORT_LIBRARY OR NOT EXISTS "${LASTUDIO_ZLIB_IMPORT_LIBRARY}")
+        set(LASTUDIO_ZLIB_IMPORT_LIBRARY "${ZLIB_LIBRARY}")
+    endif()
+    get_filename_component(LASTUDIO_ZLIB_LIB_DIR
+        "${LASTUDIO_ZLIB_IMPORT_LIBRARY}" DIRECTORY)
+    get_filename_component(LASTUDIO_ZLIB_PREFIX
+        "${LASTUDIO_ZLIB_LIB_DIR}" DIRECTORY)
+    set(LASTUDIO_ZLIB_RUNTIME_DLL
+        "${LASTUDIO_ZLIB_PREFIX}/bin/zlib1.dll")
+    if(NOT EXISTS "${LASTUDIO_ZLIB_RUNTIME_DLL}")
+        message(FATAL_ERROR
+            "Windows build requires the zlib runtime DLL, but it was not found at "
+            "${LASTUDIO_ZLIB_RUNTIME_DLL}. Check the vcpkg x64-windows installation.")
+    endif()
+    add_custom_command(TARGET LAStudio POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${LASTUDIO_ZLIB_RUNTIME_DLL}"
+            $<TARGET_FILE_DIR:LAStudio>
+        VERBATIM)
 endif()
 
 # Unit tests build.
@@ -610,6 +706,7 @@ add_executable(LAStudioRuntimeHost
     src/audio/AudioFileDecoder.cpp
     src/core/Logger.cpp
     src/core/PathUtils.cpp
+    src/core/MediaRuntimeLocator.cpp
     src/core/InferenceThreadPolicy.cpp
     src/runtimehost/RuntimeHostProtocol.h
     src/runtimehost/RuntimeHostSharedBuffer.h
@@ -643,7 +740,9 @@ target_compile_definitions(LAStudioRuntimeHost PRIVATE
 )
 
 if(BUILD_TESTING)
-    add_dependencies(LAStudioUnitTests LAStudioRuntimeHost)
+    # QML route smoke must exercise the application compiled from the current
+    # source, not a possibly stale executable left by a previous package run.
+    add_dependencies(LAStudioUnitTests LAStudio LAStudioRuntimeHost)
 endif()
 
 if(WIN32)
@@ -656,7 +755,7 @@ endif()
 # Omnivoice is loaded dynamically at runtime via OmnivoiceInterface
 
 set_target_properties(LAStudio PROPERTIES
-    OUTPUT_NAME "LA Studio"
+    OUTPUT_NAME "${LASTUDIO_EXECUTABLE_BASENAME}"
     MACOSX_BUNDLE TRUE
 )
 
@@ -665,7 +764,7 @@ if(WIN32)
     file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}/icons/app_icon.ico" LASTUDIO_ICON_FILE)
     set(LASTUDIO_FILE_DESCRIPTION "LA Studio")
     set(LASTUDIO_INTERNAL_NAME "LAStudio")
-    set(LASTUDIO_ORIGINAL_FILENAME "LA Studio.exe")
+    set(LASTUDIO_ORIGINAL_FILENAME "${LASTUDIO_EXECUTABLE_FILENAME}")
     configure_file(
         "${CMAKE_SOURCE_DIR}/resources/versioninfo.rc.in"
         "${LASTUDIO_GENERATED_DIR}/LAStudioVersionInfo.rc"
@@ -699,6 +798,7 @@ if(WIN32)
     file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}/icons/app_icon.ico" LASTUDIO_INSTALLER_ICON_FILE)
     file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}/LICENSE" LASTUDIO_LICENSE_FILE)
     file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}/resources/SOURCE-OFFER.txt" LASTUDIO_SOURCE_OFFER_FILE)
+    set(LASTUDIO_INSTALLER_APPLICATION_EXE "${LASTUDIO_EXECUTABLE_FILENAME}")
     configure_file(
         "${CMAKE_SOURCE_DIR}/scripts/installer.iss.in"
         "${CMAKE_BINARY_DIR}/installer.iss"
@@ -707,13 +807,18 @@ if(WIN32)
 endif()
 
 # Install the executable
+set(LASTUDIO_RUNTIME_INSTALL_DESTINATION "${CMAKE_INSTALL_BINDIR}")
+if(LASTUDIO_PORTABLE_INTERNAL_LAYOUT)
+    set(LASTUDIO_RUNTIME_INSTALL_DESTINATION ".")
+endif()
+
 install(TARGETS LAStudio
     BUNDLE DESTINATION .
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    RUNTIME DESTINATION ${LASTUDIO_RUNTIME_INSTALL_DESTINATION}
 )
 
 install(TARGETS LAStudioRuntimeHost
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    RUNTIME DESTINATION ${LASTUDIO_RUNTIME_INSTALL_DESTINATION}
 )
 
 install(FILES "${CMAKE_SOURCE_DIR}/LICENSE" DESTINATION .)
@@ -721,6 +826,15 @@ install(FILES "${CMAKE_SOURCE_DIR}/LICENSE" DESTINATION licenses RENAME "AGPL-3.
 install(FILES "${CMAKE_SOURCE_DIR}/resources/SOURCE-OFFER.txt" DESTINATION licenses)
 install(FILES "${CMAKE_SOURCE_DIR}/THIRD-PARTY-NOTICES.md" DESTINATION .)
 install(FILES "${CMAKE_SOURCE_DIR}/THIRD-PARTY-NOTICES.md" DESTINATION licenses)
+
+# Ship the direct Colab workers and their concise operating guide with desktop
+# packages. They are support artifacts only: the application never embeds a
+# Gateway key or uses these notebooks as a Gateway relay.
+install(DIRECTORY "${CMAKE_SOURCE_DIR}/notebooks/"
+    DESTINATION "docs/colab-notebooks"
+    FILES_MATCHING PATTERN "*.ipynb"
+)
+install(FILES "${CMAKE_SOURCE_DIR}/docs/REMOTE_WORKERS.md" DESTINATION "docs")
 
 # Note: Runtime DLLs (Whisper, etc.) and windeployqt will be handled 
 # by the CI/CD script or a post-install step.

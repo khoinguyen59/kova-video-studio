@@ -137,7 +137,7 @@ Rectangle {
             Text {
                 Layout.fillWidth: true
                 text: root.dubbing.dubbingQuality === "fast"
-                      ? qsTr("Fast local workflow · VieNeu-TTS v2 Turbo by default.")
+                      ? qsTr("Fast remote workflow · direct Colab GPU for speech and voice, API Gateway for translation.")
                       : (root.dubbing.dubbingQuality === "custom"
                          ? root.dubbing.customStatusText : root.dubbing.adaptiveStatusText)
                 color: ((root.dubbing.dubbingQuality === "adaptive" && !root.dubbing.adaptiveReady)

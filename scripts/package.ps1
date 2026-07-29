@@ -4,8 +4,9 @@
 .SYNOPSIS
     Build, stage, and package LA Studio into a Windows installer.
 .DESCRIPTION
-    Compiles the project, installs files to out/stage, deploys Qt dependencies,
-    and runs Inno Setup to generate a single-file EXE installer.
+    Compiles the project, installs files to out/stage (or an explicit internal
+    staging directory), deploys Qt dependencies, and runs Inno Setup to
+    generate a single-file EXE installer.
 #>
 
 [CmdletBinding()]
@@ -15,8 +16,12 @@ param(
     [string] $VcpkgRoot,
     [string] $LlamaCppSourceDir,
     [string] $Version,
+    [ValidateRange(1, 64)]
+    [int] $MaxParallelJobs = 4,
     [string] $ReleaseSuffix,
+    [string] $StageDir,
     [switch] $SkipInstaller,
+    [switch] $PortableInternalLayout,
     [switch] $AllowUnsignedEspeakForInternalBuild
 )
 
@@ -58,7 +63,9 @@ function Ensure-Command {
 }
 
 function Ensure-MsvcEnvironment {
-    if (Test-Command "cl.exe") { return }
+    $hasCppHeaders = -not [string]::IsNullOrWhiteSpace($env:INCLUDE) -and
+        ($env:INCLUDE -split ";" | Where-Object { Test-Path (Join-Path $_ "type_traits") } | Select-Object -First 1)
+    if ((Test-Command "cl.exe") -and $hasCppHeaders) { return }
     $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
     if (-not (Test-Path -LiteralPath $vswhere)) {
         throw "cl.exe not found in PATH and vswhere.exe was not found. Install Visual Studio 2022 C++ workload."
@@ -109,10 +116,93 @@ function Normalize-AppVersion {
             $Value = $Value.Substring(1)
         }
     }
-    if ($Value -notmatch '^\d+\.\d+\.\d+$') {
-        throw "Version must use MAJOR.MINOR.PATCH format; got '$Value'."
+    if ($Value -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+        throw "Version must use MAJOR.MINOR.RELEASE.BUILD format; got '$Value'."
     }
     return $Value
+}
+
+function Get-VersionedApplicationExecutableName {
+    param([Parameter(Mandatory = $true)][string] $AppVersion)
+    return "LA-Studio-$AppVersion.exe"
+}
+
+function Assert-StagingDirectoryCanBeRebuilt {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $StageRoot,
+        [Parameter(Mandatory = $true)]
+        [string] $ApplicationExecutableName
+    )
+
+    if (-not (Test-Path -LiteralPath $StageRoot)) { return }
+
+    $pathSeparator = [IO.Path]::DirectorySeparatorChar
+    $normalizedStageRoot = [IO.Path]::GetFullPath($StageRoot).TrimEnd($pathSeparator) + $pathSeparator
+    $blockers = @()
+    $applicationProcessName = [IO.Path]::GetFileNameWithoutExtension($ApplicationExecutableName)
+    $candidates = Get-Process -Name $applicationProcessName, 'LAStudioRuntimeHost' -ErrorAction SilentlyContinue
+    foreach ($candidate in $candidates) {
+        try {
+            $executablePath = $candidate.Path
+        } catch {
+            continue
+        }
+        if ([string]::IsNullOrWhiteSpace($executablePath)) { continue }
+        try {
+            $normalizedExecutablePath = [IO.Path]::GetFullPath($executablePath)
+        } catch {
+            continue
+        }
+        if ($normalizedExecutablePath.StartsWith($normalizedStageRoot, [StringComparison]::OrdinalIgnoreCase)) {
+            $blockers += "{0}.exe (PID {1})" -f $candidate.ProcessName, $candidate.Id
+        }
+    }
+
+    if ($blockers.Count -gt 0) {
+        throw "The existing staging payload is in use by $($blockers -join ', '). Close the staged application before running package.ps1 so its files are not partially replaced."
+    }
+}
+
+function Resolve-StageDirectory {
+    param(
+        [string] $Candidate,
+        [Parameter(Mandatory = $true)]
+        [string] $RepositoryRoot,
+        [Parameter(Mandatory = $true)]
+        [bool] $InstallerRequested,
+        [Parameter(Mandatory = $true)]
+        [string] $AppVersion,
+        [Parameter(Mandatory = $true)]
+        [bool] $PortableLayout
+    )
+
+    $defaultStage = if ($PortableLayout) {
+        Join-Path $RepositoryRoot ("out\LA-Studio-" + $AppVersion)
+    } elseif ($InstallerRequested) {
+        Join-Path $RepositoryRoot 'out\stage'
+    } else {
+        Join-Path $RepositoryRoot 'out\stage'
+    }
+    if ([string]::IsNullOrWhiteSpace($Candidate)) { return $defaultStage }
+
+    if ($InstallerRequested) {
+        throw '-StageDir is for internal staging only; omit it when building an installer.'
+    }
+
+    $candidatePath = $Candidate.Trim().Trim('"')
+    $resolved = if ([IO.Path]::IsPathRooted($candidatePath)) {
+        [IO.Path]::GetFullPath($candidatePath)
+    } else {
+        [IO.Path]::GetFullPath((Join-Path $RepositoryRoot $candidatePath))
+    }
+    $outRoot = [IO.Path]::GetFullPath((Join-Path $RepositoryRoot 'out')).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    $outPrefix = $outRoot + [IO.Path]::DirectorySeparatorChar
+    if (-not $resolved.StartsWith($outPrefix, [StringComparison]::OrdinalIgnoreCase) -or
+        $resolved.TrimEnd([IO.Path]::DirectorySeparatorChar).Equals($outRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "-StageDir must be a directory below '$outRoot'."
+    }
+    return $resolved
 }
 
 function Resolve-SevenZipExecutable {
@@ -382,7 +472,7 @@ function Ensure-Bsdtar {
         "-DENABLE_LZMA=OFF" `
         "-DENABLE_ZSTD=OFF"
     if ($LASTEXITCODE -ne 0) { throw "Failed to configure pinned bsdtar source." }
-    & cmake --build $bsdtarBuildDir --target bsdtar --parallel
+    & cmake --build $bsdtarBuildDir --target bsdtar --parallel $MaxParallelJobs
     if ($LASTEXITCODE -ne 0) { throw "Failed to build pinned bsdtar source." }
 
     $builtBsdtar = Get-ChildItem -Path $bsdtarBuildDir -Filter "bsdtar.exe" -Recurse -File |
@@ -536,6 +626,8 @@ $VcpkgRoot = Resolve-VcpkgRoot -Candidate $VcpkgRoot
 $LlamaCppSourceDir = Resolve-LlamaCppSourceDir -Candidate $LlamaCppSourceDir
 $Version = Normalize-AppVersion -Value $Version
 $ReleaseSuffix = Normalize-ReleaseSuffix -Value $ReleaseSuffix
+$applicationExecutableName = Get-VersionedApplicationExecutableName -AppVersion $Version
+$portableLayout = $SkipInstaller -and ($PortableInternalLayout -or [string]::IsNullOrWhiteSpace($StageDir))
 $kitName = if ($Preset -like "*mingw*") { "mingw_64" } else { "msvc2022_64" }
 
 if ([string]::IsNullOrWhiteSpace($QtRoot)) {
@@ -557,7 +649,8 @@ if (-not (Test-Path $windeployqt)) {
 }
 
 # 2. Setup folders
-$stageDir = Join-Path $RepoRoot "out\stage"
+$stageDir = Resolve-StageDirectory -Candidate $StageDir -RepositoryRoot $RepoRoot -InstallerRequested:(-not $SkipInstaller) -AppVersion $Version -PortableLayout:$portableLayout
+Assert-StagingDirectoryCanBeRebuilt -StageRoot $stageDir -ApplicationExecutableName $applicationExecutableName
 if (Test-Path $stageDir) {
     Write-Host ">> Cleaning old staging directory..." -ForegroundColor Cyan
     Remove-Item $stageDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -569,6 +662,35 @@ Write-Host ">> Configuring CMake..." -ForegroundColor Cyan
 $toolchainFile = Join-Path $VcpkgRoot "scripts\buildsystems\vcpkg.cmake"
 $buildDir = Join-Path $RepoRoot "out\build\$Preset"
 Remove-StaleCMakeBuildDirectory -BuildDirectory $buildDir -ExpectedSourceDirectory $RepoRoot
+if ($Preset -notlike "*mingw*" -and (Test-Path -LiteralPath $buildDir)) {
+    # CMake writes the selected archiver into CMakeCXXCompiler.cmake during
+    # the first compiler probe. Supplying -DCMAKE_AR later does not rewrite
+    # that generated file, so a cache originally created with MinGW's ar.exe
+    # can poison an otherwise MSVC package build. Rebuild that generated
+    # directory only after proving it is inside this repository's build tree.
+    $compilerInfo = Get-ChildItem -LiteralPath (Join-Path $buildDir "CMakeFiles") -Recurse -Filter "CMakeCXXCompiler.cmake" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -ne $compilerInfo) {
+        $archiverMatch = Select-String -LiteralPath $compilerInfo.FullName -Pattern '^set\(CMAKE_AR "([^"]+)"\)' | Select-Object -First 1
+        if ($null -ne $archiverMatch) {
+            $configuredArchiver = $archiverMatch.Matches[0].Groups[1].Value
+            $expectedArchiver = (Get-Command "lib.exe" -ErrorAction Stop).Source
+            $sameArchiver = [string]::Equals(
+                [IO.Path]::GetFullPath($configuredArchiver),
+                [IO.Path]::GetFullPath($expectedArchiver),
+                [System.StringComparison]::OrdinalIgnoreCase)
+            if (-not $sameArchiver) {
+                $resolvedRepo = (Resolve-Path -LiteralPath $RepoRoot).Path.TrimEnd('\', '/')
+                $resolvedBuild = (Resolve-Path -LiteralPath $buildDir).Path
+                if (-not $resolvedBuild.StartsWith($resolvedRepo + '\',
+                                                    [System.StringComparison]::OrdinalIgnoreCase)) {
+                    throw "Refusing to reset a CMake toolchain outside this repository: $resolvedBuild"
+                }
+                Write-Host ">> Resetting stale CMake toolchain cache with archiver '$configuredArchiver'..." -ForegroundColor Yellow
+                Remove-Item -LiteralPath $resolvedBuild -Recurse -Force
+            }
+        }
+    }
+}
 
 $cmakeArgs = @(
     "--preset", $Preset,
@@ -582,10 +704,19 @@ if ($Preset -like "*mingw*") {
     $vcpkgTriplet = "x64-mingw-dynamic"
 } else {
     $vcpkgTriplet = "x64-windows"
+    # Keep the packaging configure step on the MSVC linker even when another
+    # toolchain's ld.exe/ar.exe appears on PATH. CMake caches both tools, so
+    # selecting only link.exe can still make a later archive step invoke GNU
+    # ar.exe with MSVC flags.
+    $linkerCommand = Get-Command "link.exe" -ErrorAction Stop
+    $archiverCommand = Get-Command "lib.exe" -ErrorAction Stop
+    $cmakeArgs += "-DCMAKE_LINKER=$($linkerCommand.Source.Replace('\', '/'))"
+    $cmakeArgs += "-DCMAKE_AR=$($archiverCommand.Source.Replace('\', '/'))"
 }
 $cmakeArgs += "-DVCPKG_TARGET_TRIPLET=$vcpkgTriplet"
 $cmakeArgs += "-DLASTUDIO_VERSION=$Version"
 $cmakeArgs += "-DLASTUDIO_RELEASE_SUFFIX=$ReleaseSuffix"
+$cmakeArgs += "-DLASTUDIO_PORTABLE_INTERNAL_LAYOUT=$(if ($portableLayout) { 'ON' } else { 'OFF' })"
 $cmakeArgs += "-DBUILD_TESTING=OFF"
 
 $env:VCPKG_ROOT = $VcpkgRoot
@@ -593,7 +724,7 @@ $env:VCPKG_ROOT = $VcpkgRoot
 if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed." }
 
 Write-Host ">> Building application..." -ForegroundColor Cyan
-& cmake --build --preset $Preset --parallel
+& cmake --build --preset $Preset --parallel $MaxParallelJobs
 if ($LASTEXITCODE -ne 0) { throw "CMake build failed." }
 
 Write-Host ">> Installing to staging folder..." -ForegroundColor Cyan
@@ -601,7 +732,8 @@ Write-Host ">> Installing to staging folder..." -ForegroundColor Cyan
 if ($LASTEXITCODE -ne 0) { throw "CMake install failed." }
 
 # 4. Deploy Qt libraries and DLLs
-$stagedExe = Join-Path $stageDir "bin\LA Studio.exe"
+$deployRoot = if ($portableLayout) { $stageDir } else { Join-Path $stageDir 'bin' }
+$stagedExe = Join-Path $deployRoot $applicationExecutableName
 if (-not (Test-Path $stagedExe)) {
     throw "Staged executable not found at: $stagedExe"
 }
@@ -609,24 +741,26 @@ if (-not (Test-Path $stagedExe)) {
 Write-Host ">> Running windeployqt to deploy runtime dependencies..." -ForegroundColor Cyan
 & $windeployqt --verbose 0 --qmldir qml --no-translations --compiler-runtime $stagedExe
 if ($LASTEXITCODE -ne 0) { throw "windeployqt failed." }
-Ensure-WebpImageFormatPlugin -QtPrefixPath $qtPrefixPath -DeployRoot (Split-Path -Parent $stagedExe)
+Ensure-WebpImageFormatPlugin -QtPrefixPath $qtPrefixPath -DeployRoot $deployRoot
 Write-Host ">> Deploying vcpkg runtime DLLs..." -ForegroundColor Cyan
-Copy-VcpkgRuntimeLibraries -BuildDirectory $buildDir -Triplet $vcpkgTriplet -DeployDirectory (Split-Path -Parent $stagedExe)
-$sevenZipSource = Ensure-ArchiveExtractor -DeployRoot (Split-Path -Parent $stagedExe) -VcpkgRoot $VcpkgRoot
-Ensure-Bsdtar -RepositoryRoot $RepoRoot -DeployRoot (Split-Path -Parent $stagedExe) -StageRoot $stageDir -BuildDirectory $buildDir -Triplet $vcpkgTriplet
+Copy-VcpkgRuntimeLibraries -BuildDirectory $buildDir -Triplet $vcpkgTriplet -DeployDirectory $deployRoot
+$sevenZipSource = Ensure-ArchiveExtractor -DeployRoot $deployRoot -VcpkgRoot $VcpkgRoot
+Ensure-Bsdtar -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir -BuildDirectory $buildDir -Triplet $vcpkgTriplet
+Ensure-FfmpegRuntime -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir
 Stage-ThirdPartyLicenseTexts -RepositoryRoot $RepoRoot -StageRoot $stageDir -BuildDirectory $buildDir -Triplet $vcpkgTriplet -QtRoot $QtRoot -SevenZipSource $sevenZipSource
 if ($AllowUnsignedEspeakForInternalBuild) {
     Write-Warning "INTERNAL BUILD ONLY: permitting the SHA-256-verified but unsigned eSpeak NG MSI. Do not distribute this package or promote it to a release."
 }
 
-Ensure-EspeakNgRuntime -RepositoryRoot $RepoRoot -DeployRoot (Split-Path -Parent $stagedExe) -AllowUnsignedEspeakForInternalBuild:$AllowUnsignedEspeakForInternalBuild
-Assert-StagedMsvcRuntime -DeployRoot (Split-Path -Parent $stagedExe)
-Assert-StagedRuntimeManifest -DeployRoot (Split-Path -Parent $stagedExe)
+Ensure-EspeakNgRuntime -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -AllowUnsignedEspeakForInternalBuild:$AllowUnsignedEspeakForInternalBuild
+Assert-StagedMsvcRuntime -DeployRoot $deployRoot
+Assert-StagedRuntimeManifest -DeployRoot $deployRoot -ApplicationExecutableName $applicationExecutableName
 Assert-StagedLicenseManifest -StageRoot $stageDir
 
 # 5. Build installer using Inno Setup
 if ($SkipInstaller) {
-    Write-Host "[SUCCESS] Application staged successfully at: $stageDir" -ForegroundColor Green
+    $kind = if ($portableLayout) { 'Portable application' } else { 'Application' }
+    Write-Host "[SUCCESS] $kind staged successfully at: $stagedExe" -ForegroundColor Green
     exit 0
 }
 

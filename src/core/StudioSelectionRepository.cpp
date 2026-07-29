@@ -137,8 +137,11 @@ void StudioSelectionRepository::saveActiveSelection(const StudioConfiguration &s
 
     query.addBindValue(selection.capabilityId);
     query.addBindValue(selection.familyId);
-    query.addBindValue(selection.runtimeId);
-    query.addBindValue(selection.runtimeVersion);
+    // Direct Colab routes deliberately have no local runtime. An empty
+    // QString is not SQL NULL and violates runtime_id's foreign key, which
+    // prevented remote-only model choices from being persisted at all.
+    query.addBindValue(selection.runtimeId.isEmpty() ? QVariant{} : QVariant(selection.runtimeId));
+    query.addBindValue(selection.runtimeVersion.isEmpty() ? QVariant{} : QVariant(selection.runtimeVersion));
     
     QString filesJson = QString::fromUtf8(QJsonDocument::fromVariant(selection.selectedFiles).toJson(QJsonDocument::Compact));
     query.addBindValue(filesJson);
