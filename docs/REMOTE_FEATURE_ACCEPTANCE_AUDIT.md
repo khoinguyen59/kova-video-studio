@@ -19,6 +19,7 @@ must never be sent through Gateway.
 | Existing automated suite | Pass before the new audit fixes | `ctest --test-dir out/build/windows-msvc-release --output-on-failure`: **34/34** tests passed, including all Colab runners, Gateway TTS, remote contract and QML route smoke. |
 | Notebook source inventory | Pass for current source | 38 source notebooks are present, including exact-model workers for STT, TTS, Voice Clone, Voice Design, Forced Alignment, Voice Isolation, Translation and LLM Chat. The prior `0.0.0.5` package predates this inventory and is not acceptance evidence. |
 | Notebook-to-feature mapping | Pass | STT, TTS, Clone, Design, Alignment, Isolation, Translation and Chat panels reference the intended notebook names. |
+| Exact-notebook dependency audit | Pass for the static compatibility gate | All 31 current exact-model notebooks were inspected. Only the four VieNeu v2/v3 routes explicitly replace Torch with 2.8.0; the Voice Clone and TTS variants now also replace torchvision with the matching 0.23.0 CUDA build and preflight the Transformer classes. The other 27 exact routes do not make that partial Torch upgrade. |
 | Current source compile and test suite | Pass | `scripts/run_tests.ps1` completed with exit code **0**. `TestRemoteExecution` now has **31/31** checks, including asynchronous worker verification and the verified-GPU health contract for every exact-model notebook. |
 | Current QML syntax gate | Pass | `scripts/lint_qml.ps1` completed with exit code **0** after all feature panels gained a visible Colab verification state. |
 | Current remote UI contract gate | Pass | `scripts/verify_remote_feature_surface.ps1` verified **8/8** direct Colab routes, including notebook, URL/token fields, CUDA guard and endpoint surface. |
@@ -69,6 +70,15 @@ replaces any retained Colab torchvision build with the CUDA 12.8-compatible
 before it starts the worker.  This makes the PyTorch/Transformers environment
 deterministic and stops at the installation cell with a full traceback if a
 future Colab image changes a dependency again.
+
+The same audit found the equivalent gap in the two TTS VieNeu notebooks, so
+they now use the same explicit Torch/torchvision pair and import preflight.
+All eight exact TTS notebooks now also retain their worker log, verify the
+exact CUDA health response and permit a 20-minute cold start rather than
+hiding any model initialization exception behind a six-minute generic timeout.
+The retained legacy Voice Clone notebook creates its own fresh Python virtual
+environment, so it cannot retain Colab's old torchvision build and is not on
+the current exact-model UI route.
 
 ## Feature route matrix
 

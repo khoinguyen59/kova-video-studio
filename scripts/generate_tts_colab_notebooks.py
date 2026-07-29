@@ -129,31 +129,77 @@ def speech(request: SpeechRequest, authorization: str | None = Header(default=No
 '''
 
 START_CELL = r'''
-import os, re, secrets, subprocess, sys, time, urllib.request
+import json, os, re, secrets, subprocess, sys, time, urllib.error, urllib.request
+from pathlib import Path
 
 TOKEN = secrets.token_urlsafe(32)
+STARTUP_TIMEOUT_SECONDS = 20 * 60
+WORKER_LOG = Path("/content/la_studio_tts_worker.log")
 env = os.environ.copy()
 env["LA_STUDIO_COLAB_TTS_TOKEN"] = TOKEN
 env["PYTHONUNBUFFERED"] = "1"
-worker = subprocess.Popen(
-    [sys.executable, "-m", "uvicorn", "la_studio_tts_worker:app", "--host", "127.0.0.1", "--port", "3921"],
-    cwd="/content",
-    env=env,
-)
-for _ in range(180):
+
+def worker_log_tail() -> str:
     try:
-        check = urllib.request.Request(
-            "http://127.0.0.1:3921/health",
-            headers={"Authorization": "Bearer " + TOKEN},
-        )
-        with urllib.request.urlopen(check, timeout=5) as response:
-            if response.status == 200:
+        return WORKER_LOG.read_text(encoding="utf-8", errors="replace")[-12000:]
+    except FileNotFoundError:
+        return "(worker log was not created)"
+
+def fail_startup(message: str) -> None:
+    if worker.poll() is None:
+        worker.terminate()
+        try:
+            worker.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            worker.kill()
+    raise RuntimeError(
+        message + "\\n\\n---- LA Studio TTS worker log (last 12,000 characters) ----\\n" + worker_log_tail()
+    )
+
+with WORKER_LOG.open("w", encoding="utf-8", buffering=1) as worker_output:
+    worker = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "la_studio_tts_worker:app", "--host", "127.0.0.1", "--port", "3921"],
+        cwd="/content",
+        env=env,
+        stdout=worker_output,
+        stderr=subprocess.STDOUT,
+    )
+    print("Starting exact CUDA TTS worker; initial model download can take several minutes.")
+    deadline = time.monotonic() + STARTUP_TIMEOUT_SECONDS
+    next_report = time.monotonic()
+    last_error = "worker has not answered /health yet"
+    while time.monotonic() < deadline:
+        exit_code = worker.poll()
+        if exit_code is not None:
+            fail_startup(f"The exact-model TTS worker exited before becoming ready (exit code {exit_code}).")
+        try:
+            check = urllib.request.Request(
+                "http://127.0.0.1:3921/health",
+                headers={"Authorization": "Bearer " + TOKEN},
+            )
+            with urllib.request.urlopen(check, timeout=10) as response:
+                health = json.loads(response.read().decode("utf-8"))
+            if (response.status == 200
+                    and health.get("ready") is True
+                    and health.get("device") == "cuda"
+                    and health.get("model") == MODEL_ID
+                    and health.get("cpu_fallback") is False):
+                print("Exact CUDA TTS worker is ready:", health)
                 break
-    except Exception:
+            last_error = "unexpected /health response: " + json.dumps(health, ensure_ascii=False)
+        except urllib.error.HTTPError as error:
+            last_error = f"/health returned HTTP {error.code}: " + error.read().decode("utf-8", errors="replace")[:1000]
+        except Exception as error:
+            last_error = f"/health is not ready: {type(error).__name__}: {error}"
+        if time.monotonic() >= next_report:
+            print("Waiting for the exact CUDA TTS model…", last_error)
+            next_report = time.monotonic() + 30
         time.sleep(2)
-else:
-    worker.terminate()
-    raise RuntimeError("The exact-model TTS worker did not become ready. Inspect the cell output above.")
+    else:
+        fail_startup(
+            f"The exact-model TTS worker did not become CUDA-ready within {STARTUP_TIMEOUT_SECONDS // 60} minutes. "
+            f"Last health-check result: {last_error}"
+        )
 
 subprocess.run(
     ["bash", "-lc", "wget -q -O /content/cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb && dpkg -i /content/cloudflared.deb"],
@@ -182,6 +228,31 @@ print("\nLA_STUDIO_COLAB_TTS_URL=" + public_url)
 print("LA_STUDIO_COLAB_TTS_TOKEN=" + TOKEN)
 print("LA_STUDIO_COLAB_TTS_MODEL=" + MODEL_ID)
 print("DEVICE=cuda; CPU_FALLBACK=false")
+'''
+
+VIENEU_CUDA_IMPORT_PREFLIGHT = r'''
+
+# Colab can retain an older torchvision after torch is upgraded. Transformers
+# then masks the binary mismatch as a missing PreTrainedModel/Qwen3 class.
+import importlib.metadata as package_metadata
+import traceback
+
+import torch
+import torchvision
+
+print("PyTorch stack:", torch.__version__, torchvision.__version__)
+assert torch.cuda.is_available(), "CUDA is unavailable. In Colab choose Runtime > Change runtime type > GPU."
+assert package_metadata.version("torchvision").split("+")[0] == "0.23.0", "VieNeu requires torchvision 0.23.0 with torch 2.8.0."
+try:
+    from transformers import PreTrainedModel
+    from transformers.models.qwen3.modeling_qwen3 import Qwen3ForCausalLM
+except Exception as error:
+    traceback.print_exc()
+    raise RuntimeError(
+        "The Colab PyTorch/Transformers stack is not importable for VieNeu. "
+        "Restart the runtime, rerun this install cell, then run all cells again."
+    ) from error
+print("Transformers imports verified for VieNeu:", PreTrainedModel.__name__, Qwen3ForCausalLM.__name__)
 '''
 
 SPECS = [
@@ -425,8 +496,9 @@ def synthesize_exact_model(request: SpeechRequest):
         "install": r'''
 !nvidia-smi
 %pip install -q "torch==2.8.0" "torchaudio==2.8.0" --index-url https://download.pytorch.org/whl/cu128
+%pip install -q --upgrade --force-reinstall --no-deps "torchvision==0.23.0" --index-url https://download.pytorch.org/whl/cu128
 %pip install -q "transformers==4.57.6" "git+https://github.com/pnnbao97/VieNeu-TTS.git@f56ce97ffb37" "onnxruntime-gpu==1.22.0" "soundfile==0.13.1" "fastapi==0.115.12" "uvicorn==0.34.3"
-''',
+''' + VIENEU_CUDA_IMPORT_PREFLIGHT,
         "adapter": r'''
 from vieneu import Vieneu
 
@@ -457,8 +529,9 @@ def synthesize_exact_model(request: SpeechRequest):
         "install": r'''
 !nvidia-smi
 %pip install -q "torch==2.8.0" "torchaudio==2.8.0" --index-url https://download.pytorch.org/whl/cu128
+%pip install -q --upgrade --force-reinstall --no-deps "torchvision==0.23.0" --index-url https://download.pytorch.org/whl/cu128
 %pip install -q "transformers==4.57.6" "git+https://github.com/pnnbao97/VieNeu-TTS.git@f56ce97ffb37" "soundfile==0.13.1" "fastapi==0.115.12" "uvicorn==0.34.3"
-''',
+''' + VIENEU_CUDA_IMPORT_PREFLIGHT,
         "adapter": r'''
 from vieneu import Vieneu
 

@@ -232,6 +232,22 @@ void TestColabTtsRunner::ttsNotebookMatchesDirectColabContract()
         QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_TTS_TOKEN")));
         QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_TTS_MODEL")));
         QVERIFY(source.contains(QStringLiteral("cloudflared")));
+        QVERIFY2(source.contains(QStringLiteral("STARTUP_TIMEOUT_SECONDS = 20 * 60")),
+                 "Exact-model TTS notebook must allow a cold CUDA model download to finish.");
+        QVERIFY2(source.contains(QStringLiteral("WORKER_LOG")),
+                 "Exact-model TTS notebook must retain startup logs when a worker fails.");
+        QVERIFY2(source.contains(QStringLiteral("LA Studio TTS worker log")),
+                 "Exact-model TTS notebook must return the root worker error instead of a generic timeout.");
+        QVERIFY2(source.contains(QStringLiteral("health.get(\"model\") == MODEL_ID")),
+                 "Exact-model TTS notebook must validate that the ready worker is the selected model.");
+        if (expected.familyId.startsWith(QStringLiteral("vieneu-tts-"))) {
+            QVERIFY2(source.contains(QStringLiteral("torchvision==0.23.0")),
+                     "VieNeu TTS must replace Colab's potentially incompatible torchvision build.");
+            QVERIFY2(source.contains(QStringLiteral("Qwen3ForCausalLM")),
+                     "VieNeu TTS must validate the Qwen3 Transformers import before starting its worker.");
+            QVERIFY2(source.contains(QStringLiteral("PreTrainedModel")),
+                     "VieNeu TTS must validate the v3 Transformers import before starting its worker.");
+        }
         QVERIFY(!source.contains(QStringLiteral("API_GATEWAY")));
     }
 
