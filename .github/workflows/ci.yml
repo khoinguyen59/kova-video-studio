@@ -38,7 +38,11 @@ jobs:
             $commits = @(git rev-parse HEAD)
           }
           foreach ($commit in $commits) {
-            $message = git log -1 --format=%B $commit
+            # Native commands return one PowerShell array item per output
+            # line. Join the full commit message before applying the multiline
+            # trailer expression; otherwise the non-sign-off subject line
+            # makes every signed commit fail this gate.
+            $message = (git log -1 --format=%B $commit) -join "`n"
             if ($message -notmatch '(?mi)^Signed-off-by:\s+.+\s+<[^>]+>\s*$') {
               throw "Commit $commit is missing a valid Signed-off-by trailer. Use git commit -s."
             }
