@@ -82,7 +82,7 @@
 <context>
     <name>AlignmentPage</name>
     <message>
-        <location filename="../qml/pages/AlignmentPage.qml" line="+38"/>
+        <location filename="../qml/pages/AlignmentPage.qml" line="+56"/>
         <source>No alignment model selected</source>
         <translation>Chưa chọn mô hình căn chỉnh</translation>
     </message>
@@ -117,7 +117,12 @@
 <context>
     <name>AlignmentSetupPanel</name>
     <message>
-        <location filename="../qml/components/alignment/AlignmentSetupPanel.qml" line="+58"/>
+        <location filename="../qml/components/alignment/AlignmentSetupPanel.qml" line="+28"/>
+        <source>Chinese</source>
+        <translation type="unfinished">Tiếng Trung</translation>
+    </message>
+    <message>
+        <location line="+93"/>
         <source>Alignment Settings</source>
         <translation>Cài đặt căn chỉnh</translation>
     </message>
@@ -132,12 +137,27 @@
         <translation>ĐANG XỬ LÝ</translation>
     </message>
     <message>
+        <location line="+2"/>
+        <source>Direct Colab GPU alignment is selected. It does not use API Gateway or local model downloads.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Remote-first: pair a direct Colab alignment worker.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Local alignment uses installed models and runtimes.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+5"/>
         <source>Language</source>
         <translation>Ngôn ngữ</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+13"/>
         <source>Timestamps</source>
         <translation>Nhãn thời gian</translation>
     </message>
@@ -162,7 +182,79 @@
         <translation>Chuẩn hóa văn bản</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+16"/>
+        <source>DIRECT COLAB GPU</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The exact selected aligner receives only the chosen audio and transcript. Direct Colab is independent of API Gateway.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Worker URL</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>https://â€¦trycloudflare.com</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Session token</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Connected â€” enter token to replace</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Temporary token from Colab</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Selected Colab model</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Exact notebook</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Verifying CUDA and exact model...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Direct Colab alignment active</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <location line="+1"/>
+        <source>Use direct Colab alignment</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-1"/>
+        <location line="+1"/>
+        <source>Connect direct Colab alignment</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Use local alignment</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+27"/>
         <source>Advanced voice activity detection</source>
         <translation>Phát hiện hoạt động giọng nói nâng cao (VAD)</translation>
     </message>
@@ -190,9 +282,14 @@
 <context>
     <name>AlignmentStudioView</name>
     <message>
-        <location filename="../qml/components/alignment/AlignmentStudioView.qml" line="+23"/>
+        <location filename="../qml/components/alignment/AlignmentStudioView.qml" line="+25"/>
         <source>Alignment Studio</source>
         <translation>Phòng căn chỉnh</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Direct Colab Alignment</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
@@ -205,7 +302,7 @@
         <translation>Thay đổi mô hình và môi trường chạy</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+18"/>
         <source>No alignment model selected</source>
         <translation>Chưa chọn mô hình căn chỉnh</translation>
     </message>
@@ -216,23 +313,28 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+13"/>
+        <location line="+21"/>
         <source>Setup required</source>
         <translation>Yêu cầu cài đặt</translation>
     </message>
     <message>
-        <location line="-4"/>
-        <location line="+981"/>
+        <location line="-7"/>
+        <location line="+1013"/>
         <source>Alignment workflow</source>
         <translation>Luồng xử lý căn chỉnh</translation>
     </message>
     <message>
-        <location line="-977"/>
+        <location line="-1009"/>
         <source>Workflow ready</source>
         <translation>Luồng xử lý đã sẵn sàng</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+2"/>
+        <source>Remote-first: pair a direct Colab alignment worker</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>View workflow</source>
         <translation>Xem luồng xử lý</translation>
     </message>
@@ -262,7 +364,17 @@
         <translation>Đầu vào đã sẵn sàng</translation>
     </message>
     <message>
-        <location line="+294"/>
+        <location line="+206"/>
+        <source>Connect the direct Colab alignment worker in Settings.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Choose an audio file and paste its transcript.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+117"/>
         <source>Source</source>
         <translation>Nguồn</translation>
     </message>
@@ -448,6 +560,11 @@
     </message>
     <message>
         <location line="+3"/>
+        <source>Colab worker not connected</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>Alignment model unloaded</source>
         <translation>Mô hình căn chỉnh đã được giải phóng</translation>
     </message>
@@ -462,12 +579,12 @@
         <translation>Bộ xử lý căn chỉnh không khả dụng</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="-748"/>
         <source>Load the alignment model before running alignment.</source>
         <translation>Tải mô hình căn chỉnh trước khi chạy căn chỉnh.</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+2"/>
         <source>Choose an audio file to begin.</source>
         <translation>Chọn một tệp âm thanh để bắt đầu.</translation>
     </message>
@@ -477,7 +594,7 @@
         <translation>Dán hoặc nhập văn bản được nói trong âm thanh.</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+3"/>
         <source>Complete the required inputs to run alignment.</source>
         <translation>Hoàn thành các đầu vào yêu cầu để chạy căn chỉnh.</translation>
     </message>
@@ -487,7 +604,7 @@
         <translation>Cấu hình và cài đặt mô hình căn chỉnh và môi trường chạy.</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+783"/>
         <source>Execution stages, data flow, and the runtime provider used by each model.</source>
         <translation>Các giai đoạn thực thi, luồng dữ liệu và nhà cung cấp môi trường chạy được sử dụng bởi mỗi mô hình.</translation>
     </message>
@@ -507,7 +624,7 @@
         <translation>Tải luồng xử lý</translation>
     </message>
     <message>
-        <location line="+43"/>
+        <location line="+42"/>
         <source>Select audio file</source>
         <translation>Chọn tệp âm thanh</translation>
     </message>
@@ -708,7 +825,7 @@
 <context>
     <name>CapabilityGallery</name>
     <message>
-        <location filename="../qml/components/shared/CapabilityGallery.qml" line="+370"/>
+        <location filename="../qml/components/shared/CapabilityGallery.qml" line="+462"/>
         <location line="+143"/>
         <location line="+161"/>
         <source>All languages</source>
@@ -726,7 +843,7 @@
     </message>
     <message>
         <location line="+207"/>
-        <location line="+183"/>
+        <location line="+192"/>
         <location line="+70"/>
         <source>LA Studio Pick</source>
         <translation>Gợi ý của LA Studio</translation>
@@ -742,12 +859,12 @@
         <translation>Tính năng:</translation>
     </message>
     <message>
-        <location line="+83"/>
+        <location line="+140"/>
         <source>Required Files</source>
         <translation>Tệp tin yêu cầu</translation>
     </message>
     <message>
-        <location line="+109"/>
+        <location line="+110"/>
         <source>Installed</source>
         <translation>Đã cài đặt</translation>
     </message>
@@ -767,18 +884,18 @@
         <translation>Đang tải</translation>
     </message>
     <message>
-        <location line="+208"/>
+        <location line="+211"/>
         <source>Selected</source>
         <translation>Đã chọn</translation>
     </message>
     <message>
-        <location line="-1387"/>
-        <location line="+1224"/>
+        <location line="-1473"/>
+        <location line="+1308"/>
         <source>Runtime</source>
         <translation>Môi trường chạy</translation>
     </message>
     <message>
-        <location line="-1318"/>
+        <location line="-1402"/>
         <source>Unknown</source>
         <translation>Không xác định</translation>
     </message>
@@ -828,19 +945,54 @@
         <translation>Giấy phép nguồn chưa được xác minh là cấp quyền thương mại chung. Hãy xem điều khoản nhà phát hành trước khi sử dụng hoặc phân phối.</translation>
     </message>
     <message>
-        <location line="+111"/>
-        <location line="+1"/>
-        <location line="+1335"/>
+        <location line="+120"/>
+        <location line="+2"/>
+        <location line="+1411"/>
         <source>Use</source>
         <translation>Sử dụng</translation>
     </message>
     <message>
-        <location line="-1333"/>
+        <location line="-1411"/>
+        <source>Use local CPU</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Remote-first mode</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>Quick install</source>
         <translation>Cài đặt nhanh</translation>
     </message>
     <message>
-        <location line="+977"/>
+        <location line="+0"/>
+        <source>Install local CPU</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+998"/>
+        <source>Run this exact model on Colab GPU</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Selects %1 without downloading or loading the model on this PC. The notebook and worker must report the same model ID.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Select for Colab</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Select + open notebook</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+27"/>
         <source>License: %1</source>
         <translation>Giấy phép: %1</translation>
     </message>
@@ -850,18 +1002,28 @@
         <translation>Điều khoản</translation>
     </message>
     <message>
-        <location line="+133"/>
+        <location line="+134"/>
         <source>Update</source>
         <translation>Cập nhật</translation>
     </message>
     <message>
         <location line="+0"/>
-        <location line="+211"/>
+        <location line="+214"/>
         <source>Download</source>
         <translation>Tải xuống</translation>
     </message>
     <message>
-        <location line="-160"/>
+        <location line="-168"/>
+        <source>Local CPU runtime</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Local execution is limited to CPU; GPU execution uses the model-specific Colab notebook above.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Compatibility is evaluated from detected CPU and GPU capabilities.</source>
         <translation>Khả năng tương thích được đánh giá dựa trên tài nguyên CPU và GPU phát hiện được.</translation>
     </message>
@@ -886,7 +1048,7 @@
         <translation>Không khả dụng</translation>
     </message>
     <message>
-        <location line="+167"/>
+        <location line="+170"/>
         <source>License acknowledgement required</source>
         <translation>Yêu cầu xác nhận giấy phép</translation>
     </message>
@@ -901,13 +1063,13 @@
         <translation>Hủy</translation>
     </message>
     <message>
-        <location line="-1486"/>
-        <location line="+1336"/>
+        <location line="-1564"/>
+        <location line="+1411"/>
         <source>Installing...</source>
         <translation>Đang cài đặt...</translation>
     </message>
     <message>
-        <location line="+87"/>
+        <location line="+90"/>
         <source>README</source>
         <translation>README</translation>
     </message>
@@ -932,21 +1094,21 @@
         <translation>Cài đặt hoặc chọn các phiên bản runtime</translation>
     </message>
     <message>
-        <location line="-1486"/>
+        <location line="-1566"/>
         <location line="+4"/>
-        <location line="+619"/>
+        <location line="+626"/>
         <source>Setup Required</source>
         <translation>Yêu cầu cài đặt</translation>
     </message>
     <message>
-        <location line="-620"/>
-        <location line="+619"/>
+        <location line="-627"/>
+        <location line="+626"/>
         <source>Ready</source>
         <translation>Sẵn sàng</translation>
     </message>
     <message>
-        <location line="-617"/>
-        <location line="+619"/>
+        <location line="-624"/>
+        <location line="+626"/>
         <source>Incompatible</source>
         <translation>Không tương thích</translation>
     </message>
@@ -959,6 +1121,48 @@
         <location line="+81"/>
         <source>Search models...</source>
         <translation>Tìm kiếm mô hình...</translation>
+    </message>
+</context>
+<context>
+    <name>ColabNotebookLink</name>
+    <message>
+        <location filename="../qml/components/base/ColabNotebookLink.qml" line="+22"/>
+        <source>Notebook to run in Colab: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>GitHub-backed notebook: open the named file on this branch, run it with a Colab GPU runtime, then copy only the temporary worker URL and token shown by the notebook. Sign in to GitHub only if this repository is private.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Open this notebook in Colab</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Open notebook folder</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>ColabSessionStatus</name>
+    <message>
+        <location filename="../qml/components/base/ColabSessionStatus.qml" line="+32"/>
+        <location line="+5"/>
+        <source>Colab worker is not connected</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>Checking…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Check connection</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -1046,30 +1250,30 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+155"/>
+        <location line="+165"/>
         <source>Text to Speech</source>
         <translation>Tổng hợp giọng nói (TTS)</translation>
     </message>
     <message>
-        <location line="-154"/>
-        <location line="+155"/>
+        <location line="-164"/>
+        <location line="+165"/>
         <source>Speech to Text</source>
         <translation>Nhận dạng giọng nói (STT)</translation>
     </message>
     <message>
-        <location line="-154"/>
-        <location line="+155"/>
+        <location line="-164"/>
+        <location line="+165"/>
         <source>Voice Cloning</source>
         <translation>Nhân bản giọng nói</translation>
     </message>
     <message>
-        <location line="-154"/>
-        <location line="+155"/>
+        <location line="-164"/>
+        <location line="+165"/>
         <source>Voice Design</source>
         <translation>Thiết kế giọng nói</translation>
     </message>
     <message>
-        <location line="-143"/>
+        <location line="-153"/>
         <source>Running</source>
         <translation>Đang chạy</translation>
     </message>
@@ -1080,12 +1284,12 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+376"/>
+        <location line="+381"/>
         <source>Stopped</source>
         <translation>Đã dừng</translation>
     </message>
     <message>
-        <location line="-365"/>
+        <location line="-370"/>
         <source>No TTS model selected</source>
         <translation>Chưa chọn mô hình TTS</translation>
     </message>
@@ -1120,8 +1324,8 @@
         <translation>Sẵn sàng</translation>
     </message>
     <message>
-        <location line="+82"/>
-        <location line="+183"/>
+        <location line="+92"/>
+        <location line="+178"/>
         <source>Load Model</source>
         <translation>Tải mô hình</translation>
     </message>
@@ -1637,7 +1841,7 @@
 <context>
     <name>DubbingNodeInspector</name>
     <message>
-        <location filename="../qml/components/dubbing/DubbingNodeInspector.qml" line="+83"/>
+        <location filename="../qml/components/dubbing/DubbingNodeInspector.qml" line="+98"/>
         <source>%1 Settings</source>
         <translation>Cài đặt %1</translation>
     </message>
@@ -1677,17 +1881,79 @@
         <translation>Sao chép giọng nói</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+5"/>
         <source>Auto-select a clean voice reference</source>
         <translation>Tự chọn mẫu tham chiếu giọng sạch</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+16"/>
+        <source>I have permission to clone this voice</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Direct Colab only: a 3-15 second reference is sent to the paired temporary worker. Its voice profile stays in that worker session and is never sent to or stored by API Gateway.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Scores 3-15 second source speech windows, saves the best window as a reference, and uses its transcript to clone the source voice.</source>
         <translation>Chấm điểm các đoạn lời nói nguồn 3–15 giây, lưu đoạn tốt nhất làm tham chiếu và dùng bản chép lời để sao chép giọng nguồn.</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+13"/>
+        <source>Voice-cloning model</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+29"/>
+        <source>Clone worker connected</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Clone worker not connected</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <location line="+64"/>
+        <source>Reconnect</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-64"/>
+        <location line="+64"/>
+        <source>Connect</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-53"/>
+        <source>Forced alignment</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Refine STT timestamps on Colab</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+40"/>
+        <source>Alignment worker connected</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Alignment worker not connected</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>This is a separate temporary Colab worker. If disabled, Dubbing keeps the timestamps returned by STT and does not load an alignment model locally.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
         <source>Segment duration</source>
         <translation>Thời lượng phân đoạn</translation>
     </message>
@@ -1781,11 +2047,49 @@
         <source>Model and runtime files are selected from Open model.</source>
         <translation>Tệp mô hình và môi trường chạy được chọn từ Mở mô hình.</translation>
     </message>
+    <message>
+        <location line="+19"/>
+        <source>Voice-cloning Colab worker</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Select an exact voice-cloning model.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+24"/>
+        <location line="+72"/>
+        <source>Exact model: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-64"/>
+        <location line="+72"/>
+        <source>https://…trycloudflare.com</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-65"/>
+        <location line="+72"/>
+        <source>Temporary token from Colab</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-49"/>
+        <source>Forced-alignment Colab worker</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Select an exact alignment model.</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>DubbingNodeSettingsPanel</name>
     <message>
-        <location filename="../qml/components/dubbing/DubbingNodeSettingsPanel.qml" line="+41"/>
+        <location filename="../qml/components/dubbing/DubbingNodeSettingsPanel.qml" line="+43"/>
         <source>%1 settings</source>
         <translation>Cài đặt %1</translation>
     </message>
@@ -1830,7 +2134,159 @@
         <translation>Tiếp theo</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+11"/>
+        <source>Route</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <location line="+4"/>
+        <source>Local Dev</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-3"/>
+        <location line="+5"/>
+        <source>Colab GPU</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-1"/>
+        <source>API Gateway</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+57"/>
+        <source>Local model selected above</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Refresh the selected provider&apos;s model catalog</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>No compatible model is currently available for this node.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Configure route</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>API Gateway for %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Enter the API Gateway URL.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Enter an API key, or configure one in Settings first.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Use the shared Gateway configuration below, or enter it here for this workflow. The key is stored securely on this device and is not sent to Colab.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Gateway URL</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>https://gateway.example/v1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>API key</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Saved key available — enter to replace</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Enter API key</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Model ID</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Model exposed by the API Gateway</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+18"/>
+        <source>Colab GPU for %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>Select one of the exact Colab models listed for this node.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>This workflow node has no Colab worker route.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+18"/>
+        <source>Run this GPU node directly on its matching Colab worker. The temporary URL and token stay only in memory and are never forwarded through API Gateway.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Worker URL</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>https://…trycloudflare.com</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Session token</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Temporary token from Colab</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Exact worker model</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Choose a model before opening Colab.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>This notebook loads only the selected model and rejects mismatched requests.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+100"/>
         <source>Open model</source>
         <translation>Mở mô hình</translation>
     </message>
@@ -1888,7 +2344,7 @@
 <context>
     <name>DubbingPage</name>
     <message>
-        <location filename="../qml/pages/DubbingPage.qml" line="+85"/>
+        <location filename="../qml/pages/DubbingPage.qml" line="+84"/>
         <location line="+252"/>
         <source>Import</source>
         <translation>Nhập</translation>
@@ -2358,8 +2814,8 @@
     </message>
     <message>
         <location line="+15"/>
-        <source>Fast local workflow · VieNeu-TTS v2 Turbo by default.</source>
-        <translation>Quy trình cục bộ nhanh · mặc định dùng VieNeu-TTS v2 Turbo.</translation>
+        <source>Fast remote workflow · direct Colab GPU for speech and voice, API Gateway for translation.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+14"/>
@@ -3340,12 +3796,12 @@
     </message>
     <message>
         <location line="+22"/>
-        <location line="+212"/>
+        <location line="+184"/>
         <source>CPU</source>
         <translation>CPU</translation>
     </message>
     <message>
-        <location line="-211"/>
+        <location line="-183"/>
         <source>Compatible</source>
         <translation>Tương thích</translation>
     </message>
@@ -3401,22 +3857,12 @@
         <translation>Dung lượng VRAM: %1 - Mã thiết bị: %2</translation>
     </message>
     <message>
-        <location line="+22"/>
-        <source>Offload KV Cache to GPU Memory</source>
-        <translation>Đẩy KV Cache lên bộ nhớ GPU</translation>
+        <location line="+15"/>
+        <source>Local processing is CPU-only. GPU models run through the direct Colab worker configured in each studio, so this computer&apos;s GPU is never used for inference.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+9"/>
-        <source>ON: Runtime may place compatible cache memory on detected GPU memory.</source>
-        <translation>BẬT: Runtime có thể đặt bộ nhớ cache tương thích lên bộ nhớ GPU phát hiện được.</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>OFF: KV cache remains on system memory when the runtime allows it.</source>
-        <translation>TẮT: KV cache được giữ trên bộ nhớ hệ thống khi runtime cho phép.</translation>
-    </message>
-    <message>
-        <location line="+23"/>
+        <location line="+12"/>
         <source>Resource Monitor</source>
         <translation>Giám sát tài nguyên</translation>
     </message>
@@ -3499,7 +3945,7 @@
 <context>
     <name>LAStudio::AppController</name>
     <message>
-        <location filename="../src/controllers/app/AppController.cpp" line="+226"/>
+        <location filename="../src/controllers/app/AppController.cpp" line="+266"/>
         <source>Could not create the local diagnostics package.</source>
         <translation>Không thể tạo gói chẩn đoán cục bộ.</translation>
     </message>
@@ -3534,6 +3980,16 @@
         <location line="+17"/>
         <source>Could not finalize the local diagnostics package.</source>
         <translation>Không thể hoàn tất gói chẩn đoán cục bộ.</translation>
+    </message>
+    <message>
+        <location line="+56"/>
+        <source>The packaged Colab notebooks folder could not be found.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Could not open the packaged Colab notebooks folder.</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -3648,12 +4104,12 @@
         <translation>Ngôn ngữ</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+25"/>
         <source>Language code: %1</source>
         <translation>Mã ngôn ngữ: %1</translation>
     </message>
     <message>
-        <location line="+80"/>
+        <location line="+76"/>
         <source>e.g. en, vi, auto</source>
         <translation>Ví dụ: en, vi, auto</translation>
     </message>
@@ -3661,7 +4117,7 @@
 <context>
     <name>LlmChatStudioView</name>
     <message>
-        <location filename="../qml/components/llm/LlmChatStudioView.qml" line="+39"/>
+        <location filename="../qml/components/llm/LlmChatStudioView.qml" line="+40"/>
         <source>LLM Chat Studio</source>
         <translation>Phòng trò chuyện LLM</translation>
     </message>
@@ -3706,6 +4162,16 @@
         <translation>Trò chuyện cục bộ</translation>
     </message>
     <message>
+        <location line="+0"/>
+        <source>Direct Colab conversation</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>9Router conversation</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+1"/>
         <source>Generating</source>
         <translation>Đang tạo</translation>
@@ -3744,6 +4210,21 @@
         <location line="+10"/>
         <source>Message the local model...</source>
         <translation>Nhắn cho mô hình cục bộ...</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Message the direct Colab model...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Message the 9Router model...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Connect API Gateway or a direct Colab worker...</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+1"/>
@@ -3816,9 +4297,129 @@
         <translation>Top K</translation>
     </message>
     <message>
-        <location line="+9"/>
-        <source>Local llama.cpp runtime</source>
-        <translation>Môi trường llama.cpp cục bộ</translation>
+        <location line="+5"/>
+        <source>Inference source</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>9Router is an independent API path. It does not start or connect to Colab.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Gateway URL</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>https://gateway.example/v1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>API key</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>API key saved — enter to replace</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Stored encrypted on this device</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Chat model</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Model ID exposed by 9Router</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Using 9Router</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Use 9Router</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Colab GPU Worker</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>This direct temporary worker has its own URL and token. It does not use, start, or forward through API Gateway.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Worker URL</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>https://…trycloudflare.com</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Session token</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Connected — enter token to replace</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Temporary token from Colab</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Selected Colab model</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Exact notebook</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Verifying CUDA and exact model...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Using Colab GPU</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Connect Colab GPU</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Remote-first is enabled: choose API Gateway or direct Colab GPU for chat.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Choose a local model from the model picker to switch back to llama.cpp.</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -3918,7 +4519,7 @@
 <context>
     <name>Main</name>
     <message>
-        <location filename="../qml/Main.qml" line="+29"/>
+        <location filename="../qml/Main.qml" line="+28"/>
         <source>Downloading...</source>
         <translation>Đang tải xuống...</translation>
     </message>
@@ -3984,7 +4585,7 @@
         <translation>Không phải bây giờ</translation>
     </message>
     <message>
-        <location line="+66"/>
+        <location line="+159"/>
         <source>LA Studio v%1 is ready to install</source>
         <translation>LA Studio v%1 đã sẵn sàng để cài đặt</translation>
     </message>
@@ -4012,7 +4613,7 @@
 <context>
     <name>MediaInputSourcePicker</name>
     <message>
-        <location filename="../qml/components/shared/MediaInputSourcePicker.qml" line="+102"/>
+        <location filename="../qml/components/shared/MediaInputSourcePicker.qml" line="+101"/>
         <source>Replace</source>
         <translation>Thay thế</translation>
     </message>
@@ -4187,7 +4788,7 @@
 <context>
     <name>ModelListItem</name>
     <message>
-        <location filename="../qml/components/ModelListItem.qml" line="+44"/>
+        <location filename="../qml/components/ModelListItem.qml" line="+43"/>
         <location line="+2"/>
         <source>Unnamed Model</source>
         <translation>Mô hình chưa đặt tên</translation>
@@ -4539,6 +5140,184 @@ Path: %2</source>
     </message>
 </context>
 <context>
+    <name>RemoteInferenceTab</name>
+    <message>
+        <location filename="../qml/pages/settings/RemoteInferenceTab.qml" line="+54"/>
+        <source>Unnamed model</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>worker %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>rev %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>needs %1 GB VRAM</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Unavailable</source>
+        <translation type="unfinished">Không khả dụng</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Available</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+18"/>
+        <source>Local work starts on this computer&apos;s CPU and needs no network configuration. GPU work is connected directly from the studio that needs it: paste that Colab worker&apos;s URL and temporary token there. API Gateway is optional and never starts automatically.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Optional API Gateway Models</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>This is optional. Leave these fields empty to use local CPU and direct Colab GPU only. When configured, it uses only the Gateway URL and encrypted API key; no Colab worker is contacted.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Gateway URL</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>https://gateway.example/v1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>API key</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Saved securely — enter to replace</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Stored encrypted on this device</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Refreshing models…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Test &amp; Refresh Gateway Models</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>%1 Gateway model(s) available</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Active Colab GPU Connections</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>This is an overview only. Connect each GPU worker from the exact studio that uses it (Speech-to-Text, Text-to-Speech, Voice Clone, Voice Design, Isolation, Alignment, Translation, or Chat). Worker models are never merged with Gateway credentials.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Worker URL</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>https://…trycloudflare.com</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Session token</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Connected — enter to replace</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Temporary token from Colab</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Refreshing active workers…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Refresh Active Workers</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Pair STT &amp; Refresh Workers</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Open Notebook</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Refreshing active connections...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Refresh active connections</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>%1 direct Colab model(s) reported by active workers</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Local CPU Models</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>These installed models run on this computer&apos;s CPU. Configure a direct Colab worker at a GPU feature when that feature requires GPU acceleration.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>No local models installed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>Local CPU</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>RuntimeVersionManagerDialog</name>
     <message>
         <location filename="../qml/components/RuntimeVersionManagerDialog.qml" line="+110"/>
@@ -4607,18 +5386,24 @@ Path: %2</source>
 <context>
     <name>SettingsPage</name>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="+18"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="+16"/>
         <source>General Settings</source>
         <translation>Cài đặt chung</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+27"/>
+        <location line="+30"/>
         <source>Hardware</source>
         <translation>Phần cứng</translation>
     </message>
     <message>
-        <location line="-25"/>
+        <location line="-28"/>
+        <location line="+20"/>
+        <source>GPU &amp; Optional API</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-19"/>
         <source>Settings</source>
         <translation>Cài đặt</translation>
     </message>
@@ -4633,28 +5418,33 @@ Path: %2</source>
         <translation>Giới hạn CPU, bộ nhớ, GPU và giới hạn khi tải mô hình.</translation>
     </message>
     <message>
+        <location line="+2"/>
+        <source>Use local CPU by default, connect Colab GPU workers per feature, and optionally configure an API Gateway.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+36"/>
         <source>SETTINGS</source>
         <translation>CÀI ĐẶT</translation>
     </message>
     <message>
-        <location line="-27"/>
+        <location line="-28"/>
         <source>General</source>
         <translation>Chung</translation>
     </message>
     <message>
-        <location line="-18"/>
-        <location line="+19"/>
+        <location line="-20"/>
+        <location line="+22"/>
         <source>About &amp; Licenses</source>
         <translation>Giới thiệu &amp; Giấy phép</translation>
     </message>
     <message>
-        <location line="-9"/>
+        <location line="-11"/>
         <source>License obligations, third-party notices, and source availability.</source>
         <translation>Nghĩa vụ giấy phép, thông báo bên thứ ba và khả năng cung cấp mã nguồn.</translation>
     </message>
     <message>
-        <location line="+53"/>
+        <location line="+55"/>
         <source>SYSTEM</source>
         <translation>HỆ THỐNG</translation>
     </message>
@@ -4724,7 +5514,7 @@ Path: %2</source>
 <context>
     <name>SrtVoiceView</name>
     <message>
-        <location filename="../qml/components/tts/SrtVoiceView.qml" line="+50"/>
+        <location filename="../qml/components/tts/SrtVoiceView.qml" line="+49"/>
         <source>SRT to Voice</source>
         <translation>SRT sang giọng nói</translation>
     </message>
@@ -4973,7 +5763,7 @@ Path: %2</source>
 <context>
     <name>SttSettingsPanel</name>
     <message>
-        <location filename="../qml/components/stt/SttSettingsPanel.qml" line="+54"/>
+        <location filename="../qml/components/stt/SttSettingsPanel.qml" line="+68"/>
         <source>Auto</source>
         <translation>Tự động</translation>
     </message>
@@ -4983,12 +5773,132 @@ Path: %2</source>
         <translation>Cài đặt mô hình</translation>
     </message>
     <message>
-        <location line="+37"/>
+        <location line="+39"/>
         <source>Core</source>
         <translation>Cơ bản</translation>
     </message>
     <message>
         <location line="+20"/>
+        <source>Colab GPU Worker</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>This direct temporary worker is independent of API Gateway.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Selected Colab model: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>No Colab model selected. Open Load Model and use Select for Colab.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Worker URL</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>https://….trycloudflare.com</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Session token</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Connected — enter token to replace</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Temporary token from Colab</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Verifying CUDA and exact model...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Using Colab GPU</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Use or connect Colab GPU</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>Disconnect Colab worker</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>API Gateway STT</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>This is a separate Gateway path and never uses the Colab session.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Gateway URL</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>https://gateway.example/v1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>API key</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>API key saved — enter to replace</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Stored encrypted on this device</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>STT model</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Gateway STT model ID</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Disconnect API Gateway</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Use API Gateway STT</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>Model Parameters</source>
         <translation>Thông số mô hình</translation>
     </message>
@@ -5006,7 +5916,7 @@ Path: %2</source>
         <translation>Phòng thu Nhận dạng Giọng nói</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+10"/>
         <source>Model + Runtime</source>
         <translation>Mô hình + Môi trường chạy</translation>
     </message>
@@ -5029,6 +5939,11 @@ Path: %2</source>
         <location line="+10"/>
         <source>The studio stays lightweight until you choose a compatible STT configuration.</source>
         <translation>Studio sẽ giữ ở trạng thái nhẹ cho đến khi bạn chọn cấu hình STT tương thích.</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Remote-first: select API Gateway or pair and select a direct Colab STT worker.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+10"/>
@@ -5054,7 +5969,7 @@ Path: %2</source>
 <context>
     <name>SttTranscriptionView</name>
     <message>
-        <location filename="../qml/components/stt/SttTranscriptionView.qml" line="+29"/>
+        <location filename="../qml/components/stt/SttTranscriptionView.qml" line="+31"/>
         <source>Transcription</source>
         <translation>Văn bản nhận dạng</translation>
     </message>
@@ -5386,12 +6301,12 @@ Path: %2</source>
 <context>
     <name>TranslationStudioView</name>
     <message>
-        <location filename="../qml/components/translation/TranslationStudioView.qml" line="+26"/>
+        <location filename="../qml/components/translation/TranslationStudioView.qml" line="+41"/>
         <source>Translation Studio</source>
         <translation>Xưởng dịch</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+10"/>
         <source>Model + Runtime</source>
         <translation>Mô hình + Môi trường chạy</translation>
     </message>
@@ -5477,6 +6392,11 @@ Path: %2</source>
         <translation>Bản dịch được xử lý cục bộ bằng môi trường dịch đã cài đặt.</translation>
     </message>
     <message>
+        <location line="+0"/>
+        <source>Remote-first: choose API Gateway or pair a direct Colab translation worker in settings.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+3"/>
         <source>Choose model and runtime</source>
         <translation>Chọn mô hình và môi trường chạy</translation>
@@ -5518,12 +6438,12 @@ Path: %2</source>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+172"/>
+        <location line="+232"/>
         <source>New text</source>
         <translation>Văn bản mới</translation>
     </message>
     <message>
-        <location line="-171"/>
+        <location line="-231"/>
         <source>Add segment</source>
         <translation>Thêm phân đoạn</translation>
     </message>
@@ -5609,16 +6529,141 @@ Path: %2</source>
     </message>
     <message>
         <location line="+2"/>
-        <source>Model and runtime are managed from the header. Processing stays on this device.</source>
-        <translation>Mô hình và môi trường chạy được quản lý ở thanh đầu trang. Việc xử lý diễn ra trên thiết bị này.</translation>
+        <source>Inference source</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>9Router is a separate API path. It does not start or connect to Colab.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Gateway URL</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>https://gateway.example/v1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>API key</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>API key saved — enter to replace</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Stored encrypted on this device</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+8"/>
+        <source>Translation model</source>
+        <translation type="unfinished">Mô hình dịch</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Use a 9Router model ID</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Using 9Router</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Use 9Router</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Translation requests go directly to 9Router.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Remote-first: choose API Gateway or direct Colab GPU; local translation is disabled.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Choose a local model from the header to process on this device.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Colab GPU Worker</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Direct temporary worker. Its URL and session token are independent from API Gateway and never use its API key.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Worker URL</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>https://…trycloudflare.com</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Session token</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Connected — enter token to replace</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Temporary token from Colab</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Selected Colab model</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Exact notebook</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Verifying CUDA and exact model...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Using Colab GPU</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Connect Colab GPU</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
         <source>Paste text. Empty lines create separate translation segments.</source>
         <translation>Dán văn bản. Mỗi dòng trống tạo một phân đoạn dịch riêng.</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+3"/>
         <source>Open Translation project</source>
         <translation>Mở dự án dịch</translation>
     </message>
@@ -5710,7 +6755,7 @@ Path: %2</source>
 <context>
     <name>TtsSettingsPanel</name>
     <message>
-        <location filename="../qml/components/tts/TtsSettingsPanel.qml" line="+183"/>
+        <location filename="../qml/components/tts/TtsSettingsPanel.qml" line="+205"/>
         <source>TTS Settings</source>
         <translation>Cài đặt TTS</translation>
     </message>
@@ -5751,6 +6796,185 @@ Path: %2</source>
     </message>
     <message>
         <location line="+21"/>
+        <source>API Gateway TTS</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>This independent route uses API Gateway only; it never uses a Colab worker or token.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Gateway URL</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>https://gateway.example/v1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>API key</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>API key saved — enter to replace</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Stored encrypted on this device</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>TTS model</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>OpenAI-compatible TTS model</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <location line="+62"/>
+        <source>Voice</source>
+        <translation type="unfinished">Giọng nói</translation>
+    </message>
+    <message>
+        <location line="-59"/>
+        <source>alloy</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>API Gateway TTS selected</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <location line="+4"/>
+        <source>Select API Gateway TTS</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-3"/>
+        <location line="+3"/>
+        <source>Use API Gateway TTS</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-1"/>
+        <location line="+72"/>
+        <source>Use local TTS</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-54"/>
+        <source>Colab GPU TTS</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>This direct temporary worker is independent of API Gateway. Its token stays only in this desktop session.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Selected Colab model: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>No Colab model selected. Open Load Model and use Select for Colab.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Worker URL</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>https://…trycloudflare.com</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Session token</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Connected — enter token to replace</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Temporary token from Colab</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>af_heart</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Language</source>
+        <translation type="unfinished">Ngôn ngữ</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>en</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Verifying CUDA and exact model...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Direct Colab GPU TTS selected</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Select direct Colab GPU TTS</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Use direct Colab GPU TTS</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Connect direct Colab GPU TTS</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Select Colab GPU TTS</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Use Colab GPU TTS</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Connect Colab GPU TTS</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+20"/>
         <source>Model Parameters</source>
         <translation>Thông số mô hình</translation>
     </message>
@@ -5783,7 +7007,7 @@ Path: %2</source>
 <context>
     <name>TtsStudioView</name>
     <message>
-        <location filename="../qml/components/tts/TtsStudioView.qml" line="+23"/>
+        <location filename="../qml/components/tts/TtsStudioView.qml" line="+26"/>
         <source>Model + Runtime</source>
         <translation>Mô hình + Môi trường chạy</translation>
     </message>
@@ -5798,7 +7022,17 @@ Path: %2</source>
         <translation>Thay đổi mô hình và môi trường chạy</translation>
     </message>
     <message>
-        <location line="+181"/>
+        <location line="+17"/>
+        <source>API Gateway</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Colab GPU</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+203"/>
         <source>Select a TTS model and runtime</source>
         <translation>Chọn một mô hình TTS và môi trường chạy</translation>
     </message>
@@ -5858,12 +7092,17 @@ Path: %2</source>
         <translation>Tạo giọng nói</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+18"/>
         <source>Stop</source>
         <translation>Dừng</translation>
     </message>
     <message>
-        <location line="+70"/>
+        <location line="+31"/>
+        <source>Generating with %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+44"/>
         <source>Text to Speech</source>
         <translation>Tổng hợp giọng nói (TTS)</translation>
     </message>
@@ -5888,7 +7127,7 @@ Path: %2</source>
         <translation>Mở thư viện mô hình</translation>
     </message>
     <message>
-        <location line="+49"/>
+        <location line="+56"/>
         <source>Text-to-Speech Examples</source>
         <translation>Ví dụ tổng hợp giọng nói</translation>
     </message>
@@ -5911,7 +7150,7 @@ Path: %2</source>
 <context>
     <name>VoiceCloningStudioView</name>
     <message>
-        <location filename="../qml/components/voicecloning/VoiceCloningStudioView.qml" line="+24"/>
+        <location filename="../qml/components/voicecloning/VoiceCloningStudioView.qml" line="+27"/>
         <source>Model + Runtime</source>
         <translation>Mô hình + Môi trường chạy</translation>
     </message>
@@ -5926,7 +7165,7 @@ Path: %2</source>
         <translation>Thay đổi mô hình và môi trường chạy</translation>
     </message>
     <message>
-        <location line="+46"/>
+        <location line="+51"/>
         <source>English</source>
         <translation>Tiếng Anh</translation>
     </message>
@@ -6006,7 +7245,7 @@ Path: %2</source>
         <translation>Mã ngôn ngữ: vi</translation>
     </message>
     <message>
-        <location line="+162"/>
+        <location line="+163"/>
         <source>Select a Voice Cloning model</source>
         <translation>Chọn một mô hình Nhân bản Giọng nói</translation>
     </message>
@@ -6051,17 +7290,17 @@ Path: %2</source>
         <translation>⚠️ VieNeu-TTS Turbo có thể kém ổn định hơn với các cụm từ dưới 5 từ.</translation>
     </message>
     <message>
-        <location line="+55"/>
+        <location line="+58"/>
         <source>Clone Voice</source>
         <translation>Nhân bản giọng nói</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+32"/>
         <source>Stop</source>
         <translation>Dừng</translation>
     </message>
     <message>
-        <location line="+40"/>
+        <location line="+43"/>
         <source>Choose a model to unlock settings</source>
         <translation>Chọn một mô hình để mở khóa cài đặt</translation>
     </message>
@@ -6076,7 +7315,7 @@ Path: %2</source>
         <translation>Mở thư viện mô hình</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+34"/>
         <source>Voice Cloning Examples</source>
         <translation>Ví dụ nhân bản giọng nói</translation>
     </message>
@@ -6115,9 +7354,92 @@ Path: %2</source>
     </message>
 </context>
 <context>
+    <name>VoiceDesignSettingsPanel</name>
+    <message>
+        <location filename="../qml/components/voicedesign/VoiceDesignSettingsPanel.qml" line="+280"/>
+        <source>Colab GPU VoiceDesign</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>This direct VoiceDesign worker is independent of API Gateway. The notebook and worker must match the model selected in the gallery.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Worker URL</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>https://…trycloudflare.com</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Session token</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Connected — enter token to replace</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Temporary token from Colab</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Model</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Temperature</source>
+        <translation type="unfinished">Nhiệt độ</translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Verifying CUDA and exact model...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Direct Colab GPU VoiceDesign active</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Use direct Colab GPU VoiceDesign</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Connect direct Colab GPU VoiceDesign</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Use local VoiceDesign</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Use Colab GPU VoiceDesign</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Connect Colab GPU VoiceDesign</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>VoiceDesignStudioView</name>
     <message>
-        <location filename="../qml/components/voicedesign/VoiceDesignStudioView.qml" line="+23"/>
+        <location filename="../qml/components/voicedesign/VoiceDesignStudioView.qml" line="+25"/>
         <source>Model + Runtime</source>
         <translation>Mô hình + Môi trường chạy</translation>
     </message>
@@ -6132,7 +7454,7 @@ Path: %2</source>
         <translation>Thay đổi mô hình và môi trường chạy</translation>
     </message>
     <message>
-        <location line="+76"/>
+        <location line="+82"/>
         <source>English</source>
         <translation>Tiếng Anh</translation>
     </message>
@@ -6292,12 +7614,17 @@ Path: %2</source>
         <translation>Tạo giọng nói</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+35"/>
         <source>Stop</source>
         <translation>Dừng</translation>
     </message>
     <message>
-        <location line="+79"/>
+        <location line="+30"/>
+        <source>Generating on Colab GPU</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+55"/>
         <source>Load model to view parameters</source>
         <translation>Tải mô hình để xem các thông số</translation>
     </message>
@@ -6331,9 +7658,17 @@ Path: %2</source>
     </message>
 </context>
 <context>
+    <name>VoiceIsolatorPage</name>
+    <message>
+        <location filename="../qml/pages/VoiceIsolatorPage.qml" line="+38"/>
+        <source>Direct Colab Voice Isolation · %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>VoiceIsolatorStudioView</name>
     <message>
-        <location filename="../qml/components/voiceisolator/VoiceIsolatorStudioView.qml" line="+25"/>
+        <location filename="../qml/components/voiceisolator/VoiceIsolatorStudioView.qml" line="+27"/>
         <source>Model + Runtime</source>
         <translation>Mô hình + Môi trường chạy</translation>
     </message>
@@ -6348,7 +7683,7 @@ Path: %2</source>
         <translation>Thay đổi mô hình và môi trường chạy</translation>
     </message>
     <message>
-        <location line="+59"/>
+        <location line="+61"/>
         <source>Source media loaded</source>
         <translation>Đã tải tệp phương tiện nguồn</translation>
     </message>
@@ -6403,9 +7738,106 @@ Path: %2</source>
         <translation>Cấu hình và tải môi trường chạy sherpa-onnx cùng mô hình tách.</translation>
     </message>
     <message>
+        <location line="+0"/>
+        <source>Direct Colab GPU separation is ready.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Remote-first: pair a direct Colab separation worker.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+37"/>
         <source>Export stem WAV</source>
         <translation>Xuất file WAV nguồn tách</translation>
+    </message>
+    <message>
+        <location line="+29"/>
+        <source>Voice Isolation</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Remote-first requires direct Colab GPU. Local Dev is available only after disabling Remote-first mode.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Local model and direct Colab GPU are independent choices.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>DIRECT COLAB GPU</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The worker receives the selected media directly and returns vocals/background WAV artifacts. It never uses API Gateway.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Worker URL</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>https://â€¦trycloudflare.com</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Session token</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Connected â€” enter token to replace</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Temporary token from Colab</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Selected Colab model</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Exact notebook</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Verifying CUDA and exact model...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Direct Colab isolation active</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <location line="+1"/>
+        <source>Use direct Colab isolation</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-1"/>
+        <location line="+1"/>
+        <source>Connect direct Colab isolation</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Use local isolation</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -6578,7 +8010,7 @@ Path: %2</source>
 <context>
     <name>VoiceSeparationOutput</name>
     <message>
-        <location filename="../qml/components/shared/VoiceSeparationOutput.qml" line="+28"/>
+        <location filename="../qml/components/shared/VoiceSeparationOutput.qml" line="+27"/>
         <source>Vocals</source>
         <translation>Giọng nói/giọng hát</translation>
     </message>
@@ -6636,7 +8068,7 @@ Path: %2</source>
 <context>
     <name>VoiceSettingsPanel</name>
     <message>
-        <location filename="../qml/components/voicecloning/VoiceSettingsPanel.qml" line="+111"/>
+        <location filename="../qml/components/voicecloning/VoiceSettingsPanel.qml" line="+129"/>
         <source>Cloning Settings</source>
         <translation>Cài đặt nhân bản</translation>
     </message>
@@ -6647,6 +8079,106 @@ Path: %2</source>
     </message>
     <message>
         <location line="+34"/>
+        <source>Colab GPU Voice Cloning</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>This direct temporary worker is independent of API Gateway. The notebook and worker must match the model selected in the gallery.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Selected model</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Worker URL</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>https://…trycloudflare.com</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Session token</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Connected — enter token to replace</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Temporary token from Colab</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Profile name</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Voice profile name</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>I have permission to clone this voice</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Verifying CUDA and exact model...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Direct Colab GPU voice cloning active</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Use direct Colab GPU voice cloning</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Connect direct Colab GPU voice cloning</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Use local voice cloning</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Use Colab GPU voice cloning</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Connect Colab GPU voice cloning</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>A voice profile is cached only in memory for this reference while the Colab session is active.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Delete cached Colab profile</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
         <source>Core</source>
         <translation>Cơ bản</translation>
     </message>
@@ -6823,12 +8355,7 @@ Path: %2</source>
         <translation>Chào mừng đến với LA Studio</translation>
     </message>
     <message>
-        <location line="+10"/>
-        <source>LA Studio runs models locally. Choose a storage location with enough free space before downloading your first model.</source>
-        <translation>LA Studio chạy model trên máy của bạn. Hãy chọn vị trí lưu trữ còn đủ dung lượng trước khi tải model đầu tiên.</translation>
-    </message>
-    <message>
-        <location line="+6"/>
+        <location line="+16"/>
         <source>Models directory: %1</source>
         <translation>Thư mục model: %1</translation>
     </message>
@@ -6878,9 +8405,14 @@ Path: %2</source>
         <translation>TRANG CHỦ</translation>
     </message>
     <message>
-        <location line="+9"/>
-        <source>Create, transcribe, and shape speech locally.</source>
-        <translation>Tạo, phiên âm và định hình giọng nói cục bộ.</translation>
+        <location line="-170"/>
+        <source>LA Studio starts with local CPU processing and no required API configuration. For GPU features, connect the direct Colab worker from that feature&apos;s settings using its temporary URL and token.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+179"/>
+        <source>Create, transcribe, and shape speech with independent remote GPU routes.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+11"/>
