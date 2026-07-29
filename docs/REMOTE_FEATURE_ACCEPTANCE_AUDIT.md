@@ -19,7 +19,7 @@ must never be sent through Gateway.
 | Existing automated suite | Pass before the new audit fixes | `ctest --test-dir out/build/windows-msvc-release --output-on-failure`: **34/34** tests passed, including all Colab runners, Gateway TTS, remote contract and QML route smoke. |
 | Notebook source inventory | Pass for current source | 38 source notebooks are present, including exact-model workers for STT, TTS, Voice Clone, Voice Design, Forced Alignment, Voice Isolation, Translation and LLM Chat. The prior `0.0.0.5` package predates this inventory and is not acceptance evidence. |
 | Notebook-to-feature mapping | Pass | STT, TTS, Clone, Design, Alignment, Isolation, Translation and Chat panels reference the intended notebook names. |
-| Current source compile and test suite | Pass | Rebuilt `LA-Studio-0.0.0.9.exe` with the MSVC environment; `scripts/run_tests.ps1 -NoBuild` completed with exit code **0**. The Remote Execution suite now has **30/30** checks, including asynchronous worker verification. |
+| Current source compile and test suite | Pass | `scripts/run_tests.ps1` completed with exit code **0**. `TestRemoteExecution` now has **31/31** checks, including asynchronous worker verification and the verified-GPU health contract for every exact-model notebook. |
 | Current QML syntax gate | Pass | `scripts/lint_qml.ps1` completed with exit code **0** after all feature panels gained a visible Colab verification state. |
 | Current remote UI contract gate | Pass | `scripts/verify_remote_feature_surface.ps1` verified **8/8** direct Colab routes, including notebook, URL/token fields, CUDA guard and endpoint surface. |
 | Dubbing exact-route contract | Pass | **27** exact routes are mapped across isolation, STT, translation, TTS, clone and optional alignment; `TestDubbingProject` passed **52/52**. |
@@ -32,6 +32,18 @@ The source has changed after the prior package while correcting the UI audit
 findings below.  Therefore `0.0.0.5` is **not** the acceptance candidate and
 must not be handed off as proof of these source changes until a fresh UI and
 feature regression pass is complete.
+
+### Latest notebook-contract correction
+
+The four exact STT notebooks previously returned `/health` without
+`ready=true`.  This was a real end-to-end defect: `ColabSession` correctly
+rejects an unready worker, so a CUDA worker could never become active even
+when its selected model and bearer token were valid.  Commit `20accfc` fixes
+the generator and all four generated notebooks to return `ready=true`,
+`device=cuda`, the GPU name, the exact model and `cpu_fallback=false`.
+The `TestRemoteExecution` regression gate now checks those requirements,
+plus the capability, exact model and feature endpoint, for all 31 active
+model-specific notebooks.
 
 ## Feature route matrix
 
