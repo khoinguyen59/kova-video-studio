@@ -22,6 +22,11 @@ if ($LASTEXITCODE -ne 0) {
     throw 'Generated exact-model Colab notebooks are stale or incomplete.'
 }
 
+& python (Join-Path $repoRoot 'scripts\test_live_colab_acceptance_contract.py')
+if ($LASTEXITCODE -ne 0) {
+    throw 'The live Colab acceptance runner contract failed.'
+}
+
 function Get-SourceText {
     param([Parameter(Mandatory)][string] $RelativePath)
     $path = Join-Path $repoRoot $RelativePath

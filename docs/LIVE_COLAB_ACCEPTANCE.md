@@ -78,6 +78,11 @@ notebook metadata and checked by `verify_generated_colab_notebooks.py`. A
 model cannot be added, renamed, or removed without updating its live
 acceptance entry.
 
+The CI route gate also runs a localhost contract test of the acceptance runner
+across all eight capability endpoint shapes. It proves the runner itself sends
+the expected exact-model and artifact checks; it does **not** count as a live
+Colab or model result.
+
 For `stt`, `forced-alignment`, `voice-isolation`, and `voice-cloning`, the
 worker entry must include `audio_path`.  Alignment also needs `transcript`;
 voice cloning needs `reference_text`.  These are mandatory so the tool cannot
