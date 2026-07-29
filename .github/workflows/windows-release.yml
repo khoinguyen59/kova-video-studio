@@ -100,6 +100,10 @@ jobs:
         shell: pwsh
         run: python scripts/verify_catalog_checksums.py
 
+      - name: Verify exact-model Colab notebook contracts
+        shell: pwsh
+        run: .\scripts\verify_remote_feature_surface.ps1
+
       - name: Verify translation catalogs are current
         shell: pwsh
         run: |

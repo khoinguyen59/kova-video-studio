@@ -17,6 +17,11 @@ param()
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 
+& python (Join-Path $repoRoot 'scripts\verify_generated_colab_notebooks.py')
+if ($LASTEXITCODE -ne 0) {
+    throw 'Generated exact-model Colab notebooks are stale or incomplete.'
+}
+
 function Get-SourceText {
     param([Parameter(Mandatory)][string] $RelativePath)
     $path = Join-Path $repoRoot $RelativePath
