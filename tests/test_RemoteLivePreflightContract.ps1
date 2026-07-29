@@ -64,8 +64,10 @@ $workers = @(
 )
 
 $port = Get-FreeLoopbackPort
-$configFile = New-TemporaryFile
-$configPath = $configFile.FullName
+# New-TemporaryFile is not a PowerShell built-in and is absent on the hosted
+# GitHub Windows image.  The .NET API is available in both Windows PowerShell
+# 5.1 and PowerShell 7, creates the file atomically, and is removed in finally.
+$configPath = [System.IO.Path]::GetTempFileName()
 $reportPath = Join-Path $RepoRoot "out\remote-live-preflight-contract-$PID.json"
 $wrongModelReportPath = Join-Path $RepoRoot "out\remote-live-preflight-wrong-model-contract-$PID.json"
 $serverJob = $null
