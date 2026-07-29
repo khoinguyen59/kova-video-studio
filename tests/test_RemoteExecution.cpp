@@ -339,6 +339,60 @@ void TestRemoteExecution::everyGpuFeatureSurfacesVerifiedColabSessionState()
     QVERIFY(source.contains(QStringLiteral("contract_version")));
 }
 
+void TestRemoteExecution::everyGpuControllerUsesExactVerifiedColabRoute()
+{
+    const QDir sourceRoot(QStringLiteral(LASTUDIO_SOURCE_DIR));
+    const QList<QPair<QString, QString>> controllerRoutes{
+        {QStringLiteral("src/controllers/stt/SttSessionController.cpp"),
+         QStringLiteral("QStringLiteral(\"stt\")")},
+        {QStringLiteral("src/controllers/tts/ColabTtsController.cpp"),
+         QStringLiteral("QStringLiteral(\"tts\")")},
+        {QStringLiteral("src/controllers/tts/ColabVoiceCloneController.cpp"),
+         QStringLiteral("QStringLiteral(\"voice-cloning\")")},
+        {QStringLiteral("src/controllers/tts/ColabVoiceDesignController.cpp"),
+         QStringLiteral("QStringLiteral(\"voice-design\")")},
+        {QStringLiteral("src/controllers/alignment/ColabAlignmentController.cpp"),
+         QStringLiteral("QStringLiteral(\"forced-alignment\")")},
+        {QStringLiteral("src/controllers/separation/ColabVoiceIsolatorController.cpp"),
+         QStringLiteral("QStringLiteral(\"voice-isolation\")")},
+        {QStringLiteral("src/controllers/translation/TranslationController.cpp"),
+         QStringLiteral("QStringLiteral(\"translation\")")},
+        {QStringLiteral("src/controllers/llm/LlmChatController.cpp"),
+         QStringLiteral("QStringLiteral(\"llm-chat\")")},
+    };
+    for (const auto &[relativePath, capability] : controllerRoutes) {
+        QFile file(sourceRoot.filePath(relativePath));
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(relativePath));
+        const QString source = QString::fromUtf8(file.readAll());
+        QVERIFY2(source.contains(QStringLiteral("beginVerifiedSession")),
+                 qPrintable(relativePath + QStringLiteral(
+                     " must use verified Colab pairing")));
+        QVERIFY2(source.contains(capability),
+                 qPrintable(relativePath + QStringLiteral(
+                     " must bind the worker to its exact capability")));
+        QVERIFY2(!source.contains(QStringLiteral("->setSession(workerUrl, bearerToken")),
+                 qPrintable(relativePath + QStringLiteral(
+                     " must not activate a feature from URL/token syntax alone")));
+    }
+
+    const QList<QPair<QString, QString>> dubbingRoutes{
+        {QStringLiteral("qml/components/dubbing/DubbingNodeSettingsPanel.qml"),
+         QStringLiteral("colabCapabilityForNode")},
+        {QStringLiteral("qml/components/dubbing/DubbingNodeInspector.qml"),
+         QStringLiteral("\"voice-cloning\"")},
+        {QStringLiteral("qml/components/dubbing/DubbingNodeInspector.qml"),
+         QStringLiteral("\"forced-alignment\"")},
+    };
+    for (const auto &[relativePath, expected] : dubbingRoutes) {
+        QFile file(sourceRoot.filePath(relativePath));
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(relativePath));
+        const QString source = QString::fromUtf8(file.readAll());
+        QVERIFY2(source.contains(QStringLiteral("connectTemporaryWorker(")),
+                 qPrintable(relativePath));
+        QVERIFY2(source.contains(expected), qPrintable(relativePath));
+    }
+}
+
 void TestRemoteExecution::appControllerScopesColabSessionsPerCapability()
 {
     AppController *app = AppController::instance();

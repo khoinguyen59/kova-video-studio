@@ -17,6 +17,7 @@ private slots:
     void temporaryColabWorkerRejectsCpuWrongModelAndWrongCapability();
     void newerColabVerificationSupersedesStaleRequest();
     void everyGpuFeatureSurfacesVerifiedColabSessionState();
+    void everyGpuControllerUsesExactVerifiedColabRoute();
     void appControllerScopesColabSessionsPerCapability();
     void gatewayCredentialUsesDedicatedSecureStoreEntry();
     void remoteFirstModeIsExplicitAndPersistent();
