@@ -645,6 +645,41 @@ target_link_libraries(LAStudio PRIVATE
 if(WIN32)
     target_link_libraries(LAStudio PRIVATE dbghelp)
     target_link_libraries(LAStudio PRIVATE shell32 wintrust crypt32)
+
+    # windeployqt deploys Qt but it does not copy runtime DLLs imported from
+    # vcpkg.  LAStudio links libcurl and zlib directly, so a normal developer
+    # build (including the QML smoke executable) must place those DLLs beside
+    # the EXE as well.  Without this the loader exits with 0xc0000135 before
+    # main(), which hides all application diagnostics.
+    add_custom_command(TARGET LAStudio POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:CURL::libcurl>
+            $<TARGET_FILE_DIR:LAStudio>
+        VERBATIM)
+
+    # FindZLIB exposes its Windows import library (zlib.lib), not the
+    # accompanying zlib1.dll, through TARGET_FILE.  Derive the vcpkg prefix
+    # from the import-library directory and stage the actual loader input.
+    set(LASTUDIO_ZLIB_IMPORT_LIBRARY "${ZLIB_LIBRARY_RELEASE}")
+    if(NOT LASTUDIO_ZLIB_IMPORT_LIBRARY OR NOT EXISTS "${LASTUDIO_ZLIB_IMPORT_LIBRARY}")
+        set(LASTUDIO_ZLIB_IMPORT_LIBRARY "${ZLIB_LIBRARY}")
+    endif()
+    get_filename_component(LASTUDIO_ZLIB_LIB_DIR
+        "${LASTUDIO_ZLIB_IMPORT_LIBRARY}" DIRECTORY)
+    get_filename_component(LASTUDIO_ZLIB_PREFIX
+        "${LASTUDIO_ZLIB_LIB_DIR}" DIRECTORY)
+    set(LASTUDIO_ZLIB_RUNTIME_DLL
+        "${LASTUDIO_ZLIB_PREFIX}/bin/zlib1.dll")
+    if(NOT EXISTS "${LASTUDIO_ZLIB_RUNTIME_DLL}")
+        message(FATAL_ERROR
+            "Windows build requires the zlib runtime DLL, but it was not found at "
+            "${LASTUDIO_ZLIB_RUNTIME_DLL}. Check the vcpkg x64-windows installation.")
+    endif()
+    add_custom_command(TARGET LAStudio POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${LASTUDIO_ZLIB_RUNTIME_DLL}"
+            $<TARGET_FILE_DIR:LAStudio>
+        VERBATIM)
 endif()
 
 # Unit tests build.

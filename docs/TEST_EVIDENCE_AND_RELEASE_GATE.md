@@ -14,6 +14,7 @@ That wording must not be used as feature-acceptance evidence again.
 
 | Scope | Result | What it proves | What it does not prove |
 | --- | --- | --- | --- |
+| Full CTest regression gate | 35 passed, 0 failed | All registered suites, including the packaged-layout QML offscreen startup smoke and the separate VietNorm test executable, complete on the repair build | A person-driven UI flow or live remote inference |
 | `TestRemoteExecution` | 31 passed, 0 failed, 0 skipped | Endpoint validation, independent Gateway/Colab routing, CUDA/exact-model handshake parsing, and rejection of the wrong capability or model using isolated loopback workers | A public Colab tunnel, a running GPU or real model inference |
 | `TestDubbingProject` | 49 passed, 0 failed, 5 skipped | Dubbing orchestration, remote-route guards and a loopback handshake proving that a worker verified for `tts/kokoro` is rejected before a `tts/vibevoice` inference request | A full desktop click-through, media export using real remote models, or live Colab GPU work |
 | eSpeak-dependent Dubbing cases | 5 skipped | Nothing releasable | The eSpeak NG runtime is absent from this test environment. These must pass in a staged runtime before a release can be accepted. |
@@ -23,11 +24,16 @@ socket `disconnected` callback could access its mock's already-destroyed
 request buffer.  A suite that crashes cannot be treated as green even if its
 previous output contained only `PASS` lines.
 
-`ctest -N` currently lists 35 registered entries in the repair build. That
-folder was intentionally built only for `LAStudioUnitTests`, so its separately
-registered `VietNormUnitTests.exe` has not been produced yet. Consequently a
-full `ctest` result has **not** been claimed for this source state; the build
-must be complete before that gate is run.
+The repair build lists 35 registered CTest entries. The separately registered
+`VietNormUnitTests.exe` was built before the full run; the resulting full CTest
+gate completed at 35 passed and 0 failed.
+
+The QML smoke initially failed with loader status `0xc0000135`: its normal
+build directory contained Qt DLLs from `windeployqt` but omitted vcpkg's
+`libcurl.dll` and `zlib1.dll`. The Windows `LAStudio` target now stages those
+two loader dependencies alongside the executable, and the smoke passes. This
+is runtime deployment evidence, not an assertion that every product workflow
+has been exercised.
 
 ## Required gates, in order
 
