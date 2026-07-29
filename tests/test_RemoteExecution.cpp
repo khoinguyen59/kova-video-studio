@@ -4,6 +4,8 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QPointer>
 #include <QSettings>
 #include <QTcpServer>
@@ -940,6 +942,21 @@ void TestRemoteExecution::colabNotebooksAdvertiseCapabilityContractVersion()
         QFile file(sourceRoot.filePath(QStringLiteral("notebooks/") + notebook.file));
         QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(notebook.file));
         const QByteArray source = file.readAll();
+        const QJsonDocument notebookDocument = QJsonDocument::fromJson(source);
+        QVERIFY2(notebookDocument.isObject(), qPrintable(notebook.file));
+        const QJsonObject laStudioMetadata = notebookDocument.object()
+                                                 .value(QStringLiteral("metadata"))
+                                                 .toObject()
+                                                 .value(QStringLiteral("la_studio"))
+                                                 .toObject();
+        QCOMPARE(laStudioMetadata.value(QStringLiteral("capability")).toString(),
+                 notebook.capability);
+        QCOMPARE(laStudioMetadata.value(QStringLiteral("family_id")).toString(),
+                 notebook.model);
+        QCOMPARE(laStudioMetadata.value(QStringLiteral("contract_version")).toInt(), 1);
+        QCOMPARE(laStudioMetadata.value(QStringLiteral("device")).toString(),
+                 QStringLiteral("cuda"));
+        QCOMPARE(laStudioMetadata.value(QStringLiteral("cpu_fallback")).toBool(), false);
         const bool hasHealth = source.contains("@app.get('/health')")
             || source.contains("@app.get(\\\"/health\\\")");
         const bool hasCapabilities = source.contains("@app.get('/v1/capabilities')")

@@ -459,6 +459,7 @@ def notebook(spec: dict[str, str]) -> dict:
                 "capability": "stt",
                 "family_id": spec["family_id"],
                 "upstream_model": spec["upstream"],
+                "contract_version": 1,
                 "device": "cuda",
                 "cpu_fallback": False,
             },
