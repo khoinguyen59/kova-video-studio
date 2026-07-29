@@ -170,16 +170,19 @@ void TestColabSeparationRunner::separationNotebookMatchesDirectColabContract()
         QString model;
         QString notebook;
         QString upstream;
+        QString artifactUrl;
         QString adapterNeedle;
     };
     const QList<Expectation> expectations{
         {QStringLiteral("sherpa-onnx-spleeter-2stems-fp16"),
          QStringLiteral("LA_STUDIO_SEPARATION_SPLEETER_2STEMS_GPU.ipynb"),
          QStringLiteral("k2-fsa/sherpa-onnx-spleeter-2stems-fp16"),
+         QStringLiteral("https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/sherpa-onnx-spleeter-2stems-fp16.tar.bz2"),
          QStringLiteral("OfflineSourceSeparationSpleeterModelConfig")},
         {QStringLiteral("sherpa-onnx-uvr-vocals-ft"),
          QStringLiteral("LA_STUDIO_SEPARATION_UVR_VOCALS_GPU.ipynb"),
          QStringLiteral("k2-fsa/sherpa-onnx-uvr-vocals-ft"),
+         QStringLiteral("https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/UVR-MDX-NET-Voc_FT.onnx"),
          QStringLiteral("OfflineSourceSeparationUvrModelConfig")},
     };
 
@@ -203,6 +206,7 @@ void TestColabSeparationRunner::separationNotebookMatchesDirectColabContract()
         QCOMPARE(metadata.value(QStringLiteral("capability")).toString(), QStringLiteral("voice-isolation"));
         QCOMPARE(metadata.value(QStringLiteral("family_id")).toString(), expected.model);
         QCOMPARE(metadata.value(QStringLiteral("upstream_model")).toString(), expected.upstream);
+        QCOMPARE(metadata.value(QStringLiteral("artifact_url")).toString(), expected.artifactUrl);
         QCOMPARE(metadata.value(QStringLiteral("device")).toString(), QStringLiteral("cuda"));
         QVERIFY(!metadata.value(QStringLiteral("cpu_fallback")).toBool(true));
 
@@ -214,6 +218,7 @@ void TestColabSeparationRunner::separationNotebookMatchesDirectColabContract()
             for (const QJsonValue &line : lines) source += line.toString();
         }
         QVERIFY2(source.contains(expected.adapterNeedle), qPrintable(expected.notebook));
+        QVERIFY2(source.contains(expected.artifactUrl), qPrintable(expected.notebook));
         QVERIFY(source.contains(QStringLiteral("MODEL_ID = \"%1\"").arg(expected.model)));
         QVERIFY(source.contains(QStringLiteral("provider=\"cuda\"")));
         QVERIFY(source.contains(QStringLiteral("@app.post(\"/v1/audio/separations\")")));

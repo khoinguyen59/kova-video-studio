@@ -538,6 +538,7 @@ def capabilities(authorization: str | None = Header(default=None)):
                 "id": MODEL_ID,
                 "name": MODEL_NAME,
                 "upstream_model": UPSTREAM_MODEL,
+                "artifact_url": ARTIFACT_URL,
                 "stems": ["vocals", "background"],
                 "formats": ["wav"],
                 "device": "cuda",
@@ -628,6 +629,7 @@ SEPARATION_ADAPTER = r'''
 MODEL_ID = "{family_id}"
 MODEL_NAME = "{name}"
 UPSTREAM_MODEL = "{upstream}"
+ARTIFACT_URL = "{artifact_url}"
 {config}
 if not CONFIG.validate():
     raise RuntimeError("The exact sherpa-onnx CUDA separation configuration is invalid")
@@ -793,6 +795,7 @@ CONFIG = sherpa_onnx.OfflineSourceSeparationConfig(
             "family_id": "sherpa-onnx-spleeter-2stems-fp16",
             "name": "Spleeter 2-stem FP16",
             "upstream": "k2-fsa/sherpa-onnx-spleeter-2stems-fp16",
+            "artifact_url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/sherpa-onnx-spleeter-2stems-fp16.tar.bz2",
             "file": "LA_STUDIO_SEPARATION_SPLEETER_2STEMS_GPU.ipynb",
             "install": install + r'''
 !wget -q --show-progress -O /content/spleeter.tar.bz2 https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/sherpa-onnx-spleeter-2stems-fp16.tar.bz2
@@ -802,6 +805,7 @@ CONFIG = sherpa_onnx.OfflineSourceSeparationConfig(
                 family_id="sherpa-onnx-spleeter-2stems-fp16",
                 name="Spleeter 2-stem FP16",
                 upstream="k2-fsa/sherpa-onnx-spleeter-2stems-fp16",
+                artifact_url="https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/sherpa-onnx-spleeter-2stems-fp16.tar.bz2",
                 config=dedent(spleeter_config).strip(),
             ),
         },
@@ -809,6 +813,7 @@ CONFIG = sherpa_onnx.OfflineSourceSeparationConfig(
             "family_id": "sherpa-onnx-uvr-vocals-ft",
             "name": "UVR MDX-Net Vocals FT",
             "upstream": "k2-fsa/sherpa-onnx-uvr-vocals-ft",
+            "artifact_url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/UVR-MDX-NET-Voc_FT.onnx",
             "file": "LA_STUDIO_SEPARATION_UVR_VOCALS_GPU.ipynb",
             "install": install + r'''
 !wget -q --show-progress -O /content/UVR-MDX-NET-Voc_FT.onnx https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/UVR-MDX-NET-Voc_FT.onnx
@@ -817,6 +822,7 @@ CONFIG = sherpa_onnx.OfflineSourceSeparationConfig(
                 family_id="sherpa-onnx-uvr-vocals-ft",
                 name="UVR MDX-Net Vocals FT",
                 upstream="k2-fsa/sherpa-onnx-uvr-vocals-ft",
+                artifact_url="https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/UVR-MDX-NET-Voc_FT.onnx",
                 config=dedent(uvr_config).strip(),
             ),
         },
@@ -838,6 +844,16 @@ def make_notebook(spec: dict[str, str], capability: str, common: str, start: str
         f"WORKER.write_text({worker_source!r}, encoding='utf-8')\n"
         "print('Worker source:', WORKER)\n"
     )
+    la_studio_metadata = {
+        "capability": capability,
+        "family_id": spec["family_id"],
+        "upstream_model": spec["upstream"],
+        "contract_version": 1,
+        "device": "cuda",
+        "cpu_fallback": False,
+    }
+    if spec.get("artifact_url"):
+        la_studio_metadata["artifact_url"] = spec["artifact_url"]
     return {
         "cells": [
             {
@@ -871,14 +887,7 @@ def make_notebook(spec: dict[str, str], capability: str, common: str, start: str
             "colab": {"gpuType": "T4", "provenance": []},
             "kernelspec": {"display_name": "Python 3", "name": "python3"},
             "language_info": {"name": "python"},
-            "la_studio": {
-                "capability": capability,
-                "family_id": spec["family_id"],
-                "upstream_model": spec["upstream"],
-                "contract_version": 1,
-                "device": "cuda",
-                "cpu_fallback": False,
-            },
+            "la_studio": la_studio_metadata,
         },
         "nbformat": 4,
         "nbformat_minor": 5,

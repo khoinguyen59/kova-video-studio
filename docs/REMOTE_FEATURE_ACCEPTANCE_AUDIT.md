@@ -77,6 +77,11 @@ required properties:
 - Keeps Gateway URL/key out of the notebook and worker process.
 - Exposes `/health` and `/v1/capabilities` alongside the feature endpoint.
 
+The two Voice Isolation workers expose their immutable model family IDs and
+the exact public `k2-fsa/sherpa-onnx` GitHub Release asset as `artifact_url`.
+They do not claim that those ONNX assets are Hugging Face repositories.  The
+artifact URLs were checked as reachable before this audit update.
+
 The final printed variables are capability-specific, for example
 `LA_STUDIO_COLAB_STT_URL` / `LA_STUDIO_COLAB_STT_TOKEN` for STT,
 `LA_STUDIO_COLAB_TRANSLATION_URL` / `LA_STUDIO_COLAB_TRANSLATION_TOKEN`
