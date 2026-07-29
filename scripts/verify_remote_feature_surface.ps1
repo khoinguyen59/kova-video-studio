@@ -36,7 +36,7 @@ function Assert-Contains {
 }
 
 $features = @(
-    @{ id = 'stt'; qml = 'qml/components/stt/SttSettingsPanel.qml'; shell = 'qml/components/stt/SttStudioView.qml'; notebook = 'LA_STUDIO_STT_WHISPER_GPU.ipynb'; qmlNeedle = 'colabNotebookFile'; cudaGuard = 'torch.cuda.is_available()'; capability = 'MODEL_ID'; endpoint = '/v1/audio/transcriptions'; url = 'LA_STUDIO_COLAB_STT_URL'; token = 'LA_STUDIO_COLAB_STT_TOKEN' },
+    @{ id = 'stt'; qml = 'qml/components/stt/SttSettingsPanel.qml'; shell = 'qml/components/stt/SttStudioView.qml'; notebook = 'LA_STUDIO_STT_WHISPER_GPU.ipynb'; qmlNeedle = 'colabNotebookFile'; cudaGuard = 'torch.cuda.is_available()'; capability = 'MODEL_ID'; endpoint = '/v2/jobs/transcriptions'; url = 'LA_STUDIO_COLAB_STT_URL'; token = 'LA_STUDIO_COLAB_STT_TOKEN' },
     @{ id = 'tts'; qml = 'qml/components/tts/TtsSettingsPanel.qml'; shell = 'qml/components/tts/TtsStudioView.qml'; notebook = 'LA_STUDIO_TTS_KOKORO_GPU.ipynb'; qmlNeedle = 'colabNotebookFile'; cudaGuard = 'torch.cuda.is_available()'; capability = '"capability": "tts"'; endpoint = '/v1/audio/speech'; url = 'LA_STUDIO_COLAB_TTS_URL'; token = 'LA_STUDIO_COLAB_TTS_TOKEN' },
     @{ id = 'voice-cloning'; qml = 'qml/components/voicecloning/VoiceSettingsPanel.qml'; shell = 'qml/components/voicecloning/VoiceCloningStudioView.qml'; notebook = 'LA_STUDIO_VOICE_CLONE_OMNIVOICE_GPU.ipynb'; qmlNeedle = 'colabNotebookFile'; cudaGuard = 'torch.cuda.is_available()'; capability = '"capability": "voice-cloning"'; endpoint = '/v2/jobs/profile'; url = 'LA_STUDIO_COLAB_VOICE_CLONE_URL'; token = 'LA_STUDIO_COLAB_VOICE_CLONE_TOKEN' },
     @{ id = 'voice-design'; qml = 'qml/components/voicedesign/VoiceDesignSettingsPanel.qml'; shell = 'qml/components/voicedesign/VoiceDesignStudioView.qml'; notebook = 'LA_STUDIO_VOICE_DESIGN_QWEN3_1_7B_GPU.ipynb'; qmlNeedle = 'colabNotebookFile'; cudaGuard = 'torch.cuda.is_available()'; capability = '"capability": "voice-design"'; endpoint = '/v1/audio/voice_designs'; url = 'LA_STUDIO_COLAB_VOICE_DESIGN_URL'; token = 'LA_STUDIO_COLAB_VOICE_DESIGN_TOKEN' },
@@ -85,6 +85,11 @@ foreach ($entry in $sttNotebooks) {
     $source = Get-Content -LiteralPath $path -Raw
     Assert-Contains $source $entry.model "stt notebook $($entry.file)"
     Assert-Contains $source 'if model.strip().lower() != MODEL_ID' "stt notebook $($entry.file)"
+    Assert-Contains $source 'async def create_transcription_job(' "stt notebook $($entry.file)"
+    Assert-Contains $source 'status_code=202' "stt notebook $($entry.file)"
+    Assert-Contains $source 'async def transcription_job_status(' "stt notebook $($entry.file)"
+    Assert-Contains $source 'async def cancel_transcription_job(' "stt notebook $($entry.file)"
+    Assert-Contains $source 'transcription_jobs' "stt notebook $($entry.file)"
     Assert-Contains $source 'LA_STUDIO_COLAB_STT_MODEL' "stt notebook $($entry.file)"
 }
 

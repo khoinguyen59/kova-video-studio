@@ -59,7 +59,7 @@ source of each entry; it never combines their tokens or routes.
 
 | Capability | Notebook | Direct worker contract |
 | --- | --- | --- |
-| Speech-to-Text | One exact-model notebook selected from the four `LA_STUDIO_STT_*_GPU.ipynb` workers | model-bound `/v1/audio/transcriptions` |
+| Speech-to-Text | One exact-model notebook selected from the four `LA_STUDIO_STT_*_GPU.ipynb` workers | model-bound asynchronous `/v2/jobs/transcriptions`; the worker retains `/v1/audio/transcriptions` only for older desktop builds |
 | Text-to-Speech | One exact-model notebook selected from the eight `LA_STUDIO_TTS_*_GPU.ipynb` workers | model-bound `/v1/audio/speech` |
 | Voice Cloning | One exact-model `LA_STUDIO_VOICE_CLONE_*_GPU.ipynb` notebook selected from the model gallery | model-bound profile and generation jobs |
 | Voice Design | One exact-model `LA_STUDIO_VOICE_DESIGN_*_GPU.ipynb` notebook selected from the model gallery | model-bound voice design jobs |
