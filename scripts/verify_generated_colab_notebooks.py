@@ -79,6 +79,18 @@ def main() -> int:
                     mismatches.append(f"notebook metadata has no exact worker identity: {generated.name}")
                 else:
                     generated_workers.add((capability, model, generated.name))
+                if capability == "stt":
+                    worker_source = "".join(
+                        "".join(cell.get("source", []))
+                        for cell in json.loads(generated.read_text(encoding="utf-8")).get("cells", [])
+                        if cell.get("cell_type") == "code"
+                    )
+                    if "await prune_finished_jobs()" in worker_source:
+                        mismatches.append(
+                            f"STT worker awaits synchronous prune_finished_jobs: {generated.name}"
+                        )
+                    if "def prune_finished_jobs()" not in worker_source:
+                        mismatches.append(f"STT worker has no finished-job pruning function: {generated.name}")
             except (OSError, json.JSONDecodeError) as error:
                 mismatches.append(f"notebook metadata cannot be read: {generated.name}: {error}")
 

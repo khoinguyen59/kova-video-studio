@@ -359,7 +359,7 @@ async def commit_chunked_stt_upload(upload_id: str,
     queued = False
     try:
         validate_audio_duration(path)
-        await prune_finished_jobs()
+        prune_finished_jobs()
         job_id = secrets.token_urlsafe(18)
         with JOB_LOCK:
             upload = UPLOADS.pop(upload_id, None)
@@ -424,7 +424,7 @@ async def create_transcription_job(
             # Compressed formats may not be readable by libsndfile; the
             # model-specific decoder below remains the source of truth.
             pass
-        await prune_finished_jobs()
+        prune_finished_jobs()
         job_id = secrets.token_urlsafe(18)
         with JOB_LOCK:
             JOBS[job_id] = {
@@ -454,7 +454,7 @@ async def create_transcription_job(
 async def transcription_job_status(job_id: str,
                                    authorization: str | None = Header(default=None)):
     require_token(authorization)
-    await prune_finished_jobs()
+    prune_finished_jobs()
     with JOB_LOCK:
         job = JOBS.get(job_id)
         if job is None:
