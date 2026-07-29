@@ -266,6 +266,7 @@ Rectangle {
         id: colabWorkerDialog
         parent: Overlay.overlay
         modal: true
+        property bool awaitingVerification: false
         title: qsTr("Colab GPU for %1").arg(root.nodeTitle)
         width: Math.min(520, Overlay.overlay.width - Theme.paddingXL * 2)
         anchors.centerIn: parent
@@ -279,8 +280,10 @@ Rectangle {
             }
             var session = root.colabSessionForNode()
             colabWorkerUrl.text = session ? session.workerUrl : ""
-            colabWorkerToken.text = ""
-            colabWorkerError.text = ""
+            if (!awaitingVerification) {
+                colabWorkerToken.text = ""
+                colabWorkerError.text = ""
+            }
         }
         onAccepted: {
             var selected = root.currentRemoteModel()
@@ -302,7 +305,23 @@ Rectangle {
                 colabWorkerDialog.open()
                 return
             }
+            awaitingVerification = true
             colabWorkerToken.text = ""
+        }
+        onRejected: {
+            if (!awaitingVerification) return
+            awaitingVerification = false
+            var session = root.colabSessionForNode()
+            if (session && session.checking) session.disconnectTemporaryWorker()
+        }
+        onClosed: {
+            var session = root.colabSessionForNode()
+            if (awaitingVerification && session && session.checking) {
+                Qt.callLater(function() {
+                    if (colabWorkerDialog.awaitingVerification && session.checking)
+                        colabWorkerDialog.open()
+                })
+            }
         }
 
         contentItem: ColumnLayout {
@@ -359,6 +378,20 @@ Rectangle {
                 font.pixelSize: Theme.fontSmall
                 wrapMode: Text.WordWrap
             }
+        }
+    }
+
+    Connections {
+        target: root.colabSessionForNode()
+        function onVerificationFinished(success, message) {
+            if (!colabWorkerDialog.awaitingVerification) return
+            colabWorkerDialog.awaitingVerification = false
+            if (success) {
+                colabWorkerDialog.close()
+                return
+            }
+            colabWorkerError.text = message
+            if (!colabWorkerDialog.visible) colabWorkerDialog.open()
         }
     }
 

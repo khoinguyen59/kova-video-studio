@@ -107,6 +107,22 @@ foreach ($pagePath in $modelSelectionPages) {
     Assert-NotContains $page 'colab.research.google.com/github/khoinguyen59/kova-video-studio' "$pagePath"
 }
 
+# Dubbing connects each workflow node through the same asynchronous Colab
+# handshake.  Its dialog must remain available while the worker is checking
+# and must surface a failed verification; otherwise a wrong-model or expired
+# worker appears to have connected and the user has no place to read the
+# error or retry.
+$dubbingConnectionPanels = @(
+    'qml/components/dubbing/DubbingNodeSettingsPanel.qml',
+    'qml/components/dubbing/DubbingNodeInspector.qml'
+)
+foreach ($panelPath in $dubbingConnectionPanels) {
+    $panel = Get-SourceText $panelPath
+    Assert-Contains $panel 'awaitingVerification' "$panelPath async Colab dialog"
+    Assert-Contains $panel 'onVerificationFinished' "$panelPath async Colab dialog"
+    Assert-Contains $panel 'disconnectTemporaryWorker()' "$panelPath async Colab dialog"
+}
+
 $passed = 0
 foreach ($feature in $features) {
     $panel = Get-SourceText $feature.qml

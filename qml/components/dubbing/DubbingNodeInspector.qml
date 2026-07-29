@@ -531,14 +531,17 @@ Rectangle {
         id: voiceCloneColabDialog
         parent: Overlay.overlay
         modal: true
+        property bool awaitingVerification: false
         anchors.centerIn: parent
         width: Math.min(520, Overlay.overlay.width - Theme.paddingXL * 2)
         title: qsTr("Voice-cloning Colab worker")
         standardButtons: Dialog.Ok | Dialog.Cancel
         onOpened: {
             voiceCloneWorkerUrl.text = AppController.colabVoiceCloneSession.workerUrl
-            voiceCloneWorkerToken.text = ""
-            voiceCloneWorkerError.text = ""
+            if (!awaitingVerification) {
+                voiceCloneWorkerToken.text = ""
+                voiceCloneWorkerError.text = ""
+            }
         }
         onAccepted: {
             if (!root.dubbing.selectWorkflowColabModel(
@@ -557,7 +560,23 @@ Rectangle {
                 voiceCloneColabDialog.open()
                 return
             }
+            awaitingVerification = true
             voiceCloneWorkerToken.text = ""
+        }
+        onRejected: {
+            if (!awaitingVerification) return
+            awaitingVerification = false
+            if (AppController.colabVoiceCloneSession.checking)
+                AppController.colabVoiceCloneSession.disconnectTemporaryWorker()
+        }
+        onClosed: {
+            if (awaitingVerification && AppController.colabVoiceCloneSession.checking) {
+                Qt.callLater(function() {
+                    if (voiceCloneColabDialog.awaitingVerification
+                            && AppController.colabVoiceCloneSession.checking)
+                        voiceCloneColabDialog.open()
+                })
+            }
         }
         contentItem: ColumnLayout {
             spacing: Theme.paddingSmall
@@ -599,18 +618,35 @@ Rectangle {
         }
     }
 
+    Connections {
+        target: AppController.colabVoiceCloneSession
+        function onVerificationFinished(success, message) {
+            if (!voiceCloneColabDialog.awaitingVerification) return
+            voiceCloneColabDialog.awaitingVerification = false
+            if (success) {
+                voiceCloneColabDialog.close()
+                return
+            }
+            voiceCloneWorkerError.text = message
+            if (!voiceCloneColabDialog.visible) voiceCloneColabDialog.open()
+        }
+    }
+
     Dialog {
         id: alignmentColabDialog
         parent: Overlay.overlay
         modal: true
+        property bool awaitingVerification: false
         anchors.centerIn: parent
         width: Math.min(520, Overlay.overlay.width - Theme.paddingXL * 2)
         title: qsTr("Forced-alignment Colab worker")
         standardButtons: Dialog.Ok | Dialog.Cancel
         onOpened: {
             alignmentWorkerUrl.text = AppController.colabAlignmentSession.workerUrl
-            alignmentWorkerToken.text = ""
-            alignmentWorkerError.text = ""
+            if (!awaitingVerification) {
+                alignmentWorkerToken.text = ""
+                alignmentWorkerError.text = ""
+            }
         }
         onAccepted: {
             if (!root.dubbing.selectWorkflowColabModel(
@@ -629,7 +665,23 @@ Rectangle {
                 alignmentColabDialog.open()
                 return
             }
+            awaitingVerification = true
             alignmentWorkerToken.text = ""
+        }
+        onRejected: {
+            if (!awaitingVerification) return
+            awaitingVerification = false
+            if (AppController.colabAlignmentSession.checking)
+                AppController.colabAlignmentSession.disconnectTemporaryWorker()
+        }
+        onClosed: {
+            if (awaitingVerification && AppController.colabAlignmentSession.checking) {
+                Qt.callLater(function() {
+                    if (alignmentColabDialog.awaitingVerification
+                            && AppController.colabAlignmentSession.checking)
+                        alignmentColabDialog.open()
+                })
+            }
         }
         contentItem: ColumnLayout {
             spacing: Theme.paddingSmall
@@ -668,6 +720,20 @@ Rectangle {
                 font.pixelSize: Theme.fontSmall
                 wrapMode: Text.WordWrap
             }
+        }
+    }
+
+    Connections {
+        target: AppController.colabAlignmentSession
+        function onVerificationFinished(success, message) {
+            if (!alignmentColabDialog.awaitingVerification) return
+            alignmentColabDialog.awaitingVerification = false
+            if (success) {
+                alignmentColabDialog.close()
+                return
+            }
+            alignmentWorkerError.text = message
+            if (!alignmentColabDialog.visible) alignmentColabDialog.open()
         }
     }
 }
