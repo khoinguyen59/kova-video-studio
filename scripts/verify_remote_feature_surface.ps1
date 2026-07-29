@@ -63,7 +63,7 @@ $features = @(
 )
 
 $notebookUrlHelper = Get-SourceText 'qml/components/base/colabNotebookUrls.js'
-Assert-Contains $notebookUrlHelper 'colab.research.google.com/github/khoinguyen59/kova-video-studio/blob/codex/remote-inference/notebooks/' 'Shared Colab notebook URL helper'
+Assert-Contains $notebookUrlHelper 'colab.research.google.com/github/khoinguyen59/kova-video-studio/blob/main/notebooks/' 'Shared Colab notebook URL helper'
 Assert-Contains $notebookUrlHelper 'function forNotebookFile(fileName)' 'Shared Colab notebook URL helper'
 
 $notebookLink = Get-SourceText 'qml/components/base/ColabNotebookLink.qml'
