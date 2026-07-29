@@ -739,7 +739,10 @@ if (-not (Test-Path $stagedExe)) {
 }
 
 Write-Host ">> Running windeployqt to deploy runtime dependencies..." -ForegroundColor Cyan
-& $windeployqt --verbose 0 --qmldir qml --no-translations --compiler-runtime $stagedExe
+# Keep the offscreen platform in portable builds so the shipped executable can
+# be exercised by the same headless QML route smoke used by CI. The Windows
+# platform remains the normal interactive path; qoffscreen is test-only.
+& $windeployqt --verbose 0 --qmldir qml --no-translations --compiler-runtime --include-plugins qoffscreen $stagedExe
 if ($LASTEXITCODE -ne 0) { throw "windeployqt failed." }
 Ensure-WebpImageFormatPlugin -QtPrefixPath $qtPrefixPath -DeployRoot $deployRoot
 Write-Host ">> Deploying vcpkg runtime DLLs..." -ForegroundColor Cyan

@@ -262,6 +262,7 @@ function Assert-StagedRuntimeManifest {
         "Qt6Quick.dll",
         "Qt6Multimedia.dll",
         "platforms\qwindows.dll",
+        "platforms\qoffscreen.dll",
         "imageformats\qwebp.dll",
         "libcurl.dll",
         "zlib1.dll",

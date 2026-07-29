@@ -1351,7 +1351,10 @@ Rectangle {
                                 }
                                 Text {
                                     Layout.fillWidth: true
-                                    text: qsTr("Selects %1 without downloading or loading the model on this PC. The notebook and worker must report the same model ID.").arg(detailPanel.f.familyId)
+                                    // `visible` does not suppress QML bindings. During a
+                                    // catalog refresh the selected map can briefly be null,
+                                    // so guard this text binding as well as the parent item.
+                                    text: qsTr("Selects %1 without downloading or loading the model on this PC. The notebook and worker must report the same model ID.").arg(detailPanel.hasFamily ? detailPanel.f.familyId : "")
                                     color: Theme.textSecondary
                                     font.pixelSize: Theme.fontSmall
                                     wrapMode: Text.WordWrap

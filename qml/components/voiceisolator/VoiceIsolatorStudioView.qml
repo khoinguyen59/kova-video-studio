@@ -171,7 +171,18 @@ StudioShell {
                 }
             }
 
-            FileDialog { id: exportDialog; title: qsTr("Export stem WAV"); fileMode: FileDialog.SaveFile; currentFile: "stem.wav"; onAccepted: root.isolator.exportStem(root.exportSource, root.localPath(file)) }
+            FileDialog {
+                id: exportDialog
+                title: qsTr("Export stem WAV")
+                fileMode: FileDialog.SaveFile
+                defaultSuffix: "wav"
+                nameFilters: [qsTr("WAV audio (*.wav)")]
+                // A bare relative currentFile is coerced to an empty URL by
+                // Qt Quick Dialogs during component creation. Do not bind a
+                // non-existent file here; the native Save dialog supplies the
+                // filename and its selected folder at interaction time.
+                onAccepted: root.isolator.exportStem(root.exportSource, root.localPath(file))
+            }
         }
     ]
 

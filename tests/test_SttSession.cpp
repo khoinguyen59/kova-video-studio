@@ -483,6 +483,7 @@ void TestSttSession::testSpeechNotebookMatchesDirectColabSttContract()
     QVERIFY(gallerySource.contains("localRuntimeOptions"));
     QVERIFY(gallerySource.contains("readonly property bool hasFamily: root.hasFamilyValue(f)"));
     QVERIFY(gallerySource.contains("property var family: detailPanel.hasFamily"));
+    QVERIFY(gallerySource.contains("detailPanel.hasFamily ? detailPanel.f.familyId : \"\""));
 
     QFile remoteInferenceTab(QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
                                   .filePath(QStringLiteral("qml/pages/settings/RemoteInferenceTab.qml")));
