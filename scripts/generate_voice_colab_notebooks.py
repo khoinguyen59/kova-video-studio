@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 from textwrap import dedent
 
+from colab_worker_launch import build_worker_launch
 
 ROOT = Path(__file__).resolve().parents[1]
 NOTEBOOKS = ROOT / "notebooks"
@@ -870,27 +871,27 @@ def make_notebook(spec: dict, capability: str) -> dict:
         "print('Worker source:', WORKER)\n"
     )
     if capability == "voice-cloning":
-        start = START_TEMPLATE.format(
-            token_env="LA_STUDIO_COLAB_VOICE_CLONE_TOKEN",
-            module=module,
+        start = build_worker_launch(
+            capability_label="Voice Cloning",
+            module=f"{module}:app",
             port=3923,
-            log_name="voice_clone",
             model_id=spec["family_id"],
-            url_label="LA_STUDIO_COLAB_VOICE_CLONE_URL",
-            token_label="LA_STUDIO_COLAB_VOICE_CLONE_TOKEN",
-            model_label="LA_STUDIO_COLAB_VOICE_CLONE_MODEL",
+            token_env="LA_STUDIO_COLAB_VOICE_CLONE_TOKEN",
+            url_env="LA_STUDIO_COLAB_VOICE_CLONE_URL",
+            model_env="LA_STUDIO_COLAB_VOICE_CLONE_MODEL",
+            log_path="/content/la_studio_voice_clone_worker.log",
         )
         panel = "Voice Cloning"
     else:
-        start = START_TEMPLATE.format(
-            token_env="LA_STUDIO_COLAB_VOICE_DESIGN_TOKEN",
-            module=module,
+        start = build_worker_launch(
+            capability_label="Voice Design",
+            module=f"{module}:app",
             port=3924,
-            log_name="voice_design",
             model_id=spec["family_id"],
-            url_label="LA_STUDIO_COLAB_VOICE_DESIGN_URL",
-            token_label="LA_STUDIO_COLAB_VOICE_DESIGN_TOKEN",
-            model_label="LA_STUDIO_COLAB_VOICE_DESIGN_MODEL",
+            token_env="LA_STUDIO_COLAB_VOICE_DESIGN_TOKEN",
+            url_env="LA_STUDIO_COLAB_VOICE_DESIGN_URL",
+            model_env="LA_STUDIO_COLAB_VOICE_DESIGN_MODEL",
+            log_path="/content/la_studio_voice_design_worker.log",
         )
         panel = "Voice Design"
     return {

@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 from textwrap import dedent
 
+from colab_worker_launch import build_worker_launch
 
 ROOT = Path(__file__).resolve().parents[1]
 NOTEBOOKS = ROOT / "notebooks"
@@ -519,14 +520,15 @@ def notebook(
         f"WORKER.write_text({dedent(worker_source).strip()!r} + '\\n', encoding='utf-8')\n"
         "print('Worker source:', WORKER)\n"
     )
-    start = START_TEMPLATE.format(
-        token_env=token_env,
-        log_path=f"/content/{module}.log",
+    start = build_worker_launch(
+        capability_label=capability,
         module=f"{module}:app",
-        port=str(port),
-        url_name=url_name,
-        token_name=token_name,
-        model_name=model_name,
+        port=port,
+        model_id=family_id,
+        token_env=token_env,
+        url_env=url_name,
+        model_env=model_name,
+        log_path=f"/content/{module}.log",
     )
     return {
         "cells": [

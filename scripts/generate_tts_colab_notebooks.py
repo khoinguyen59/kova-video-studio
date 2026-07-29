@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 from textwrap import dedent
 
+from colab_worker_launch import build_worker_launch
 
 ROOT = Path(__file__).resolve().parents[1]
 NOTEBOOKS = ROOT / "notebooks"
@@ -639,7 +640,16 @@ def notebook(spec: dict[str, str]) -> dict:
                 "execution_count": None,
                 "metadata": {},
                 "outputs": [],
-                "source": source_lines(f"MODEL_ID = {spec['family_id']!r}\n" + START_CELL),
+                "source": source_lines(build_worker_launch(
+                    capability_label="TTS",
+                    module="la_studio_tts_worker:app",
+                    port=3921,
+                    model_id=spec["family_id"],
+                    token_env="LA_STUDIO_COLAB_TTS_TOKEN",
+                    url_env="LA_STUDIO_COLAB_TTS_URL",
+                    model_env="LA_STUDIO_COLAB_TTS_MODEL",
+                    log_path="/content/la_studio_tts_worker.log",
+                )),
             },
         ],
         "metadata": {

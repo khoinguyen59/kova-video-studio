@@ -1,0 +1,256 @@
+"""Shared, self-contained launch cell for exact-model Colab workers.
+
+The generated code deliberately lives inside every notebook: the desktop app
+only receives a temporary tunnel URL and token, never a local dependency on
+this script.  Keeping the launch protocol in one generator helper prevents a
+fix for one Colab capability from leaving the others with stale process or
+tunnel behaviour.
+"""
+
+from __future__ import annotations
+
+from textwrap import dedent
+
+
+LAUNCH_REVISION = "launch-2026-07-30.1"
+
+
+def build_worker_launch(
+    *,
+    capability_label: str,
+    module: str,
+    port: int,
+    model_id: str,
+    token_env: str,
+    url_env: str,
+    model_env: str,
+    log_path: str,
+) -> str:
+    """Return a Colab code cell that launches one exact CUDA worker safely."""
+    if not all((capability_label, module, model_id, token_env, url_env, model_env, log_path)):
+        raise ValueError("Colab launch metadata must be complete")
+    if not 1 <= port <= 65535:
+        raise ValueError(f"Invalid Colab worker port: {port}")
+
+    template = r'''
+# LA Studio worker launch contract: __REVISION__
+import json
+import os
+import queue
+import re
+import secrets
+import socket
+import subprocess
+import sys
+import threading
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+CAPABILITY_LABEL = __CAPABILITY_LABEL__
+MODEL_ID = __MODEL_ID__
+PORT = __PORT__
+TOKEN_ENV = __TOKEN_ENV__
+URL_ENV = __URL_ENV__
+MODEL_ENV = __MODEL_ENV__
+WORKER_LOG = Path(__LOG_PATH__)
+STARTUP_TIMEOUT_SECONDS = 20 * 60
+TUNNEL_TIMEOUT_SECONDS = 90
+TOKEN = secrets.token_urlsafe(32)
+
+
+def port_is_occupied(port: int) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
+def worker_log_tail() -> str:
+    try:
+        return WORKER_LOG.read_text(encoding="utf-8", errors="replace")[-12000:]
+    except FileNotFoundError:
+        return "(worker log was not created)"
+
+
+def stop_process(process) -> None:
+    if process is None or process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+
+
+if port_is_occupied(PORT):
+    raise RuntimeError(
+        f"Port {PORT} is already occupied by an earlier Colab worker. "
+        "Use Runtime > Disconnect and delete runtime, then Run all once for this exact model."
+    )
+
+env = os.environ.copy()
+env[TOKEN_ENV] = TOKEN
+env["PYTHONUNBUFFERED"] = "1"
+worker = None
+tunnel = None
+
+with WORKER_LOG.open("w", encoding="utf-8", buffering=1) as worker_output:
+    worker = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", __MODULE__, "--host", "127.0.0.1", "--port", str(PORT)],
+        cwd="/content",
+        env=env,
+        stdout=worker_output,
+        stderr=subprocess.STDOUT,
+    )
+    print(f"Starting exact CUDA {CAPABILITY_LABEL} worker; initial model load can take several minutes.")
+    deadline = time.monotonic() + STARTUP_TIMEOUT_SECONDS
+    last_error = "worker has not answered /health yet"
+    next_report = time.monotonic()
+    while time.monotonic() < deadline:
+        exit_code = worker.poll()
+        if exit_code is not None:
+            raise RuntimeError(
+                f"The exact-model {CAPABILITY_LABEL} worker exited before becoming ready (exit code {exit_code}).\n\n"
+                "---- LA Studio worker log (last 12,000 characters) ----\n" + worker_log_tail()
+            )
+        try:
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{PORT}/health",
+                headers={"Authorization": "Bearer " + TOKEN},
+            )
+            with urllib.request.urlopen(request, timeout=10) as response:
+                health = json.loads(response.read().decode("utf-8"))
+            if (response.status == 200
+                    and health.get("ready") is True
+                    and str(health.get("device", "")).lower() == "cuda"
+                    and str(health.get("model", "")).strip().lower() == MODEL_ID
+                    and health.get("cpu_fallback") is False):
+                print("Exact CUDA worker is ready:", health)
+                break
+            last_error = "unexpected /health response: " + json.dumps(health, ensure_ascii=False)
+        except urllib.error.HTTPError as error:
+            last_error = f"/health returned HTTP {error.code}: " + error.read().decode("utf-8", errors="replace")[:1000]
+        except Exception as error:
+            last_error = f"/health is not ready: {type(error).__name__}: {error}"
+        if time.monotonic() >= next_report:
+            print("Waiting for the exact CUDA model…", last_error)
+            next_report = time.monotonic() + 30
+        time.sleep(2)
+    else:
+        stop_process(worker)
+        raise RuntimeError(
+            f"The exact-model {CAPABILITY_LABEL} worker did not become CUDA-ready within "
+            f"{STARTUP_TIMEOUT_SECONDS // 60} minutes. Last health-check result: {last_error}\n\n"
+            "---- LA Studio worker log (last 12,000 characters) ----\n" + worker_log_tail()
+        )
+
+
+def cloudflared_ready() -> bool:
+    try:
+        return subprocess.run(
+            ["cloudflared", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            check=False,
+        ).returncode == 0
+    except OSError:
+        return False
+
+
+def ensure_cloudflared() -> None:
+    if cloudflared_ready():
+        return
+    package_path = "/content/la-studio-cloudflared.deb"
+    download = subprocess.run(
+        [
+            "curl", "--fail", "--location", "--retry", "4", "--retry-all-errors",
+            "--output", package_path,
+            "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb",
+        ],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    if download.returncode != 0:
+        detail = download.stdout[-1200:].strip() or "no download output"
+        raise RuntimeError("Could not download cloudflared: " + detail)
+    install = subprocess.run(
+        ["dpkg", "-i", package_path], text=True, stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, check=False,
+    )
+    if install.returncode != 0 or not cloudflared_ready():
+        detail = install.stdout[-1200:].strip() or "no installation output"
+        raise RuntimeError("Could not install cloudflared: " + detail)
+
+
+ensure_cloudflared()
+tunnel = subprocess.Popen(
+    ["cloudflared", "tunnel", "--url", f"http://127.0.0.1:{PORT}", "--no-autoupdate"],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+    text=True,
+    bufsize=1,
+)
+tunnel_lines = queue.Queue()
+
+
+def collect_tunnel_output() -> None:
+    assert tunnel.stdout is not None
+    for line in tunnel.stdout:
+        tunnel_lines.put(line)
+
+
+threading.Thread(target=collect_tunnel_output, daemon=True).start()
+public_url = ""
+recent_tunnel_lines = []
+deadline = time.monotonic() + TUNNEL_TIMEOUT_SECONDS
+while time.monotonic() < deadline and not public_url:
+    if tunnel.poll() is not None:
+        break
+    try:
+        line = tunnel_lines.get(timeout=1)
+    except queue.Empty:
+        continue
+    recent_tunnel_lines.append(line.rstrip())
+    recent_tunnel_lines = recent_tunnel_lines[-10:]
+    print(line, end="")
+    match = re.search(r"https://[^\s\"']+\.trycloudflare\.com", line)
+    if match:
+        # The desktop Check Colab action is the authoritative public endpoint,
+        # bearer-token, capability, and exact-model verification.
+        public_url = match.group(0)
+
+if not public_url:
+    stop_process(tunnel)
+    stop_process(worker)
+    tail = "\n".join(recent_tunnel_lines) or "(no cloudflared output)"
+    raise RuntimeError(
+        f"cloudflared did not publish a trycloudflare URL within {TUNNEL_TIMEOUT_SECONDS} seconds.\n"
+        "---- cloudflared output ----\n" + tail
+    )
+
+os.environ[URL_ENV] = public_url
+os.environ[TOKEN_ENV] = TOKEN
+os.environ[MODEL_ENV] = MODEL_ID
+print("\nLA Studio exact-model Colab worker is ready")
+print(URL_ENV + "=" + public_url)
+print(TOKEN_ENV + "=" + TOKEN)
+print(MODEL_ENV + "=" + MODEL_ID)
+print("Click Check Colab in the matching LA Studio feature before running it.")
+'''
+    replacements = {
+        "__REVISION__": LAUNCH_REVISION,
+        "__CAPABILITY_LABEL__": repr(capability_label),
+        "__MODEL_ID__": repr(model_id.strip().lower()),
+        "__PORT__": str(port),
+        "__TOKEN_ENV__": repr(token_env),
+        "__URL_ENV__": repr(url_env),
+        "__MODEL_ENV__": repr(model_env),
+        "__LOG_PATH__": repr(log_path),
+        "__MODULE__": repr(module),
+    }
+    for placeholder, value in replacements.items():
+        template = template.replace(placeholder, value)
+    return dedent(template).strip() + "\n"

@@ -71,20 +71,30 @@ def main() -> int:
             if generated.read_bytes() != tracked.read_bytes():
                 mismatches.append(f"notebook is stale; regenerate it: {generated.name}")
             try:
-                metadata = json.loads(generated.read_text(encoding="utf-8")) \
-                    .get("metadata", {}).get("la_studio", {})
+                document = json.loads(generated.read_text(encoding="utf-8"))
+                metadata = document.get("metadata", {}).get("la_studio", {})
                 capability = str(metadata.get("capability", "")).strip().lower()
                 model = str(metadata.get("family_id", "")).strip().lower()
                 if not capability or not model:
                     mismatches.append(f"notebook metadata has no exact worker identity: {generated.name}")
                 else:
                     generated_workers.add((capability, model, generated.name))
-                if capability == "stt":
-                    worker_source = "".join(
-                        "".join(cell.get("source", []))
-                        for cell in json.loads(generated.read_text(encoding="utf-8")).get("cells", [])
-                        if cell.get("cell_type") == "code"
+                worker_source = "".join(
+                    "".join(cell.get("source", []))
+                    for cell in document.get("cells", [])
+                    if cell.get("cell_type") == "code"
+                )
+                executable_source = "".join(
+                    line for line in worker_source.splitlines(keepends=True)
+                    if not line.lstrip().startswith(("%", "!"))
+                )
+                try:
+                    compile(executable_source, generated.name, "exec")
+                except SyntaxError as error:
+                    mismatches.append(
+                        f"Exact worker notebook Python syntax is invalid: {generated.name}: {error}"
                     )
+                if capability == "stt":
                     if "await prune_finished_jobs()" in worker_source:
                         mismatches.append(
                             f"STT worker awaits synchronous prune_finished_jobs: {generated.name}"
@@ -110,15 +120,16 @@ def main() -> int:
                         mismatches.append(
                             f"STT worker still overwrites cloudflared on every rerun: {generated.name}"
                         )
-                    executable_source = "".join(
-                        line for line in worker_source.splitlines(keepends=True)
-                        if not line.lstrip().startswith("%")
-                    )
-                    try:
-                        compile(executable_source, generated.name, "exec")
-                    except SyntaxError as error:
+                else:
+                    if "LA Studio worker launch contract:" not in worker_source \
+                            or "def port_is_occupied" not in worker_source \
+                            or "Click Check Colab in the matching LA Studio feature before running it." not in worker_source:
                         mismatches.append(
-                            f"STT worker Python syntax is invalid: {generated.name}: {error}"
+                            f"Exact worker does not use the hardened shared launch contract: {generated.name}"
+                        )
+                    if "/content/cloudflared.deb" in worker_source:
+                        mismatches.append(
+                            f"Exact worker still uses the unsafe legacy cloudflared installer: {generated.name}"
                         )
             except (OSError, json.JSONDecodeError) as error:
                 mismatches.append(f"notebook metadata cannot be read: {generated.name}: {error}")

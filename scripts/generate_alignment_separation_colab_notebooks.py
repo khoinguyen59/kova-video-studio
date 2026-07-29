@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 from textwrap import dedent
 
+from colab_worker_launch import build_worker_launch
 
 ROOT = Path(__file__).resolve().parents[1]
 NOTEBOOKS = ROOT / "notebooks"
@@ -833,7 +834,7 @@ def source_lines(source: str) -> list[str]:
     return (dedent(source).strip() + "\n").splitlines(keepends=True)
 
 
-def make_notebook(spec: dict[str, str], capability: str, common: str, start: str, worker_name: str) -> dict:
+def make_notebook(spec: dict[str, str], capability: str, common: str, worker_name: str) -> dict:
     marker = "# __ADAPTER__"
     if marker not in common:
         raise ValueError(f"Worker template for {capability} has no adapter marker")
@@ -854,6 +855,30 @@ def make_notebook(spec: dict[str, str], capability: str, common: str, start: str
     }
     if spec.get("artifact_url"):
         la_studio_metadata["artifact_url"] = spec["artifact_url"]
+    if capability == "forced-alignment":
+        start = build_worker_launch(
+            capability_label="Forced Alignment",
+            module="la_studio_alignment_worker:app",
+            port=3923,
+            model_id=spec["family_id"],
+            token_env="LA_STUDIO_COLAB_ALIGNMENT_TOKEN",
+            url_env="LA_STUDIO_COLAB_ALIGNMENT_URL",
+            model_env="LA_STUDIO_COLAB_ALIGNMENT_MODEL",
+            log_path="/content/la_studio_alignment_worker.log",
+        )
+    elif capability == "voice-isolation":
+        start = build_worker_launch(
+            capability_label="Voice Isolation",
+            module="la_studio_separation_worker:app",
+            port=3924,
+            model_id=spec["family_id"],
+            token_env="LA_STUDIO_COLAB_SEPARATION_TOKEN",
+            url_env="LA_STUDIO_COLAB_SEPARATION_URL",
+            model_env="LA_STUDIO_COLAB_SEPARATION_MODEL",
+            log_path="/content/la_studio_separation_worker.log",
+        )
+    else:
+        raise ValueError(f"Unsupported Colab capability: {capability}")
     return {
         "cells": [
             {
@@ -901,7 +926,7 @@ def main() -> None:
         target.write_text(
             json.dumps(
                 make_notebook(
-                    spec, "forced-alignment", ALIGNMENT_COMMON, ALIGNMENT_START,
+                    spec, "forced-alignment", ALIGNMENT_COMMON,
                     "la_studio_alignment_worker.py",
                 ),
                 indent=1,
@@ -916,7 +941,7 @@ def main() -> None:
         target.write_text(
             json.dumps(
                 make_notebook(
-                    spec, "voice-isolation", SEPARATION_COMMON, SEPARATION_START,
+                    spec, "voice-isolation", SEPARATION_COMMON,
                     "la_studio_separation_worker.py",
                 ),
                 indent=1,
