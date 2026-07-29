@@ -443,7 +443,10 @@ from vibevoice.processor.vibevoice_streaming_processor import VibeVoiceStreaming
 MODEL_ID = "vibevoice"
 MODEL_NAME = "VibeVoice Realtime 0.5B"
 UPSTREAM_MODEL = "microsoft/VibeVoice-Realtime-0.5B"
-SUPPORTED_LANGUAGES = ["en", "de", "fr", "it", "ja", "ko", "nl", "pl", "pt", "es"]
+# The pinned VibeVoice Realtime 0.5B release is English-only. Advertising
+# unsupported languages here would let the desktop UI select a route the
+# upstream model explicitly describes as unpredictable.
+SUPPORTED_LANGUAGES = ["en"]
 VOICE_DIR = Path("/content/VibeVoice/demo/voices/streaming_model")
 VOICE_FILES = {Path(path).stem.lower(): path for path in glob.glob(str(VOICE_DIR / "**" / "*.pt"), recursive=True)}
 if not VOICE_FILES:

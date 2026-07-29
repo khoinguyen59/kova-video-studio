@@ -9,6 +9,7 @@ the source notebooks.
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import io
 import json
@@ -94,6 +95,21 @@ def main() -> int:
                     mismatches.append(
                         f"Exact worker notebook Python syntax is invalid: {generated.name}: {error}"
                     )
+                else:
+                    syntax_tree = ast.parse(executable_source, generated.name)
+                    synchronous_functions = {
+                        node.name for node in ast.walk(syntax_tree)
+                        if isinstance(node, ast.FunctionDef)
+                    }
+                    for node in ast.walk(syntax_tree):
+                        if not isinstance(node, ast.Await) or not isinstance(node.value, ast.Call):
+                            continue
+                        function = node.value.func
+                        if isinstance(function, ast.Name) and function.id in synchronous_functions:
+                            mismatches.append(
+                                f"Exact worker awaits synchronous function '{function.id}': "
+                                f"{generated.name}:{node.lineno}"
+                            )
                 if capability == "stt":
                     if "await prune_finished_jobs()" in worker_source:
                         mismatches.append(
@@ -131,6 +147,10 @@ def main() -> int:
                         mismatches.append(
                             f"Exact worker still uses the unsafe legacy cloudflared installer: {generated.name}"
                         )
+                if model == "vibevoice" and 'SUPPORTED_LANGUAGES = ["en"]' not in worker_source:
+                    mismatches.append(
+                        f"VibeVoice Realtime must advertise its upstream English-only capability: {generated.name}"
+                    )
             except (OSError, json.JSONDecodeError) as error:
                 mismatches.append(f"notebook metadata cannot be read: {generated.name}: {error}")
 
