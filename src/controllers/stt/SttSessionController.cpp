@@ -194,6 +194,11 @@ QString SttSessionController::colabNotebookFile() const
 void SttSessionController::setColabModel(const QString &model)
 {
     const QString normalized = model.trimmed().toLower();
+    if (notebookForColabModel(normalized).isEmpty()) {
+        emit transcriptionFailed(
+            QStringLiteral("No Colab notebook is mapped for STT model '%1'.").arg(model));
+        return;
+    }
     if (m_colabModel == normalized) return;
     if (processing() && m_selectedProvider == ExecutionProvider::ColabDirect)
         cancelProcessing();

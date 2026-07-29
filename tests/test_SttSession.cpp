@@ -342,6 +342,14 @@ void TestSttSession::testColabSttModelNotebookMapping()
     QSignalSpy failures(&session, &SttSessionController::transcriptionFailed);
     QVERIFY(!session.selectColabModel(QStringLiteral("unknown-stt")));
     QCOMPARE(failures.count(), 1);
+
+    // colabModel is a writable QML property. It must enforce the same exact
+    // notebook mapping as the explicit selector so no UI binding can leave
+    // STT configured with a model that has no matching Colab worker.
+    const QString selectedModel = session.colabModel();
+    session.setColabModel(QStringLiteral("unknown-stt-from-binding"));
+    QCOMPARE(session.colabModel(), selectedModel);
+    QCOMPARE(failures.count(), 2);
 }
 
 void TestSttSession::testColabSttRunnerUsesAsynchronousJobContract()
