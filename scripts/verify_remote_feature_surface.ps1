@@ -66,6 +66,22 @@ $notebookUrlHelper = Get-SourceText 'qml/components/base/colabNotebookUrls.js'
 Assert-Contains $notebookUrlHelper 'colab.research.google.com/github/khoinguyen59/kova-video-studio/blob/main/notebooks/' 'Shared Colab notebook URL helper'
 Assert-Contains $notebookUrlHelper 'function forNotebookFile(fileName)' 'Shared Colab notebook URL helper'
 
+# The app and the operational acceptance guides must name the same release
+# branch.  A stale guide can make a user open an older notebook manually and
+# then appear to hit an exact-model failure even though the desktop selected
+# the right current model.
+$operationalColabDocs = @(
+    'docs/DUBBING_REMOTE_EXECUTION_AUDIT.md',
+    'docs/REMOTE_FEATURE_ACCEPTANCE_AUDIT.md',
+    'docs/COLAB_EXACT_MODEL_STATUS_0.0.1.1.md',
+    'docs/STT_COLAB_MODEL_AUDIT_0.0.0.9.md'
+)
+foreach ($docPath in $operationalColabDocs) {
+    $doc = Get-SourceText $docPath
+    Assert-Contains $doc 'main' "$docPath Colab branch guidance"
+    Assert-NotContains $doc 'codex/remote-inference' "$docPath Colab branch guidance"
+}
+
 $notebookLink = Get-SourceText 'qml/components/base/ColabNotebookLink.qml'
 Assert-Contains $notebookLink 'ColabNotebookUrls.forNotebookFile(notebookFile)' 'Colab notebook link'
 Assert-Contains $notebookLink 'Open this notebook in Colab' 'Colab notebook link'

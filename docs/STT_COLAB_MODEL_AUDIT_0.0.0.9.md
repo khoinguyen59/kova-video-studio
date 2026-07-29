@@ -63,23 +63,23 @@ All four workers:
 
 ## GitHub visibility and public access
 
-The repository `khoinguyen59/kova-video-studio` remains **private**, matching
-the owner's earlier instruction. The notebooks are committed to
-`codex/remote-inference`, not the default `main` branch.
+This archived `0.0.0.9` audit predates the current public-test setup. Current
+Colab buttons point to the public `main` branch of
+`khoinguyen59/kova-video-studio`, so every selected model opens the same
+notebook revision that is shipped by the current source.
 
 Consequences:
 
-- the direct Colab link works only for a user who is signed in to GitHub and
-  has authorized Colab to access the private repository;
-- the notebook files are not anonymously public;
+- the direct Colab link can be opened anonymously while the repository remains
+  temporarily public for live GPU testing;
 - once a notebook is running, the generated `trycloudflare.com` worker URL is
   publicly routable for that session, but its endpoints require the random
   bearer token;
-- no repository or notebook was made public as part of this change.
+- the repository must return to private visibility after the reviewed live
+  acceptance run.
 
-If anonymous one-click Colab access is required later, publish only the
-reviewed notebooks to a separate public notebook repository. Do not change the
-application source repository from private without an explicit decision.
+This temporary public state was explicitly authorized for testing; do not use
+it as authorization to distribute a release package publicly.
 
 ## Verification completed
 

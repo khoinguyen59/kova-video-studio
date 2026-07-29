@@ -1,7 +1,7 @@
 # Dubbing remote-execution audit
 
 Date: 2026-07-29
-Source candidate: `codex/remote-inference`
+Source candidate: `main`
 Packaging status: not packaged; live Colab inference is still required
 
 ## Result
@@ -84,8 +84,8 @@ Total Dubbing-specific exact routes: **27**.
 | Remote STT avoids hidden local alignment | Pass |
 
 The notebook inventory was checked against the public
-`khoinguyen59/kova-video-studio` repository on branch
-`codex/remote-inference`. The repository remains temporarily public only for
+`khoinguyen59/kova-video-studio` repository on branch `main`. The repository
+remains temporarily public only for
 the pending live Colab tests.
 
 ## Live acceptance still required

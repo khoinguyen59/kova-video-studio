@@ -76,8 +76,7 @@ For every model the user intends to use:
 4. After Isolation, STT, Translation and TTS/Clone each pass live separately,
    run one complete Dubbing source-to-export workflow.
 
-The public GitHub and Colab URL for the Whisper notebook were checked without
-authentication and returned HTTP 200 on the `codex/remote-inference` branch.
-On 2026-07-29, the later `0.0.1.2` verification also checked every checked-in
-notebook URL on that branch: **38/38 returned HTTP 200**. Exact
+The public GitHub and Colab URL for the Whisper notebook are now served from
+the repository's `main` branch. The historical `0.0.1.2` verification checked
+every checked-in notebook URL: **38/38 returned HTTP 200**. Exact
 file-to-model mappings remain covered by the tests above.

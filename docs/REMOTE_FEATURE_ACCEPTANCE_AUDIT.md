@@ -27,7 +27,7 @@ must never be sent through Gateway.
 | Remote preflight transport contract | Pass | `tests/test_RemoteLivePreflightContract.ps1` uses isolated loopback workers for Gateway plus all 8 Colab capability groups. It verifies bearer-token isolation and proves that a worker is rejected when its health/capabilities advertise a model other than the configured exact model, or when the model is not a loaded CUDA worker. This is protocol evidence, not a substitute for a user-owned live Colab GPU run. |
 | Desktop exact-model activation contract | Pass | `TestRemoteExecution` now rejects a worker when the selected model entry omits `loaded=true` or omits its own `device=cuda` proof, even if the worker or capability claims CUDA generally. The desktop therefore applies the same exact-model gate as the preflight script before activating a feature session. |
 | Dubbing exact-route contract | Pass | **27** exact routes are mapped across isolation, STT, translation, TTS, clone and optional alignment; `TestDubbingProject` passed **52/52**. |
-| Public notebook inventory | Pass | All **27/27** exact notebooks used by Dubbing are visible on public branch `codex/remote-inference`. |
+| Public notebook inventory | Pass | All **27/27** exact notebooks used by Dubbing are visible on public branch `main`. |
 | Model-picker stability: open | Pass | Rebuilt executable opened the STT model picker immediately; its UI rendered CPU Whisper.cpp as compatible and CUDA unavailable without loading/downloading any model. |
 | Model-picker stability: switching card | Pending rerun | The first automated switch attempt lost foreground focus to Codex; no state-changing selection is accepted as evidence. Rerun in an isolated LA Studio window is required. |
 | Live Gateway/Colab inference | Not run | There is no active `LASTUDIO_*` credential/configuration in this session. A real Gateway key and active GPU Colab sessions are required; mock/local HTTP tests cannot replace this gate. |
@@ -141,7 +141,7 @@ into the matching studio; no token is persisted in Settings.
 
 2. **“Open Colab” opened a blank Colab page.** The button now builds an exact
    `colab.research.google.com/github/khoinguyen59/kova-video-studio/...`
-   link for the selected notebook on `codex/remote-inference`, rather than a
+   link for the selected notebook on `main`, rather than a
    generic home page. The repository is temporarily public for Colab testing
    and must be returned to private after live acceptance. The packaged
    notebook-folder button remains as an offline fallback.
