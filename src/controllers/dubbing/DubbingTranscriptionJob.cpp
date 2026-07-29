@@ -58,16 +58,7 @@ DubbingTranscriptionJob::DubbingTranscriptionJob(SttSessionController *stt,
         if (m_running && !m_stt->inputError().isEmpty()) fail(m_stt->inputError());
     });
     connect(m_stt, &SttSessionController::inputLoadingChanged, this, [this]() {
-        if (!m_running || !m_waitingForInput || m_stt->inputLoading()) return;
-        if (!m_stt->inputError().isEmpty()) return;
-        m_waitingForInput = false;
-        emit progressChanged(3);
-        ExecutionProvider provider = ExecutionProvider::LocalDev;
-        if (!executionProviderFromId(m_executionProviderId, &provider)) {
-            fail(QStringLiteral("Unknown dubbing STT provider: %1").arg(m_executionProviderId));
-            return;
-        }
-        m_stt->transcribeInputForProvider(provider, m_modelId, m_language, false);
+        beginTranscriptionAfterInputReady();
     });
 }
 
@@ -146,6 +137,7 @@ bool DubbingTranscriptionJob::start(const QString &language, const QString &audi
     m_audioPath = audioPath;
     m_fallbackAudioPath = fallbackAudioPath;
     m_retriedWithFallback = false;
+    m_inputLoadStarted = false;
     m_language = language;
     emit progressChanged(1);
     startAudioInput(audioPath);
@@ -156,18 +148,32 @@ void DubbingTranscriptionJob::startAudioInput(const QString &audioPath)
 {
     m_audioPath = audioPath;
     m_waitingForInput = true;
+    m_inputLoadStarted = false;
     emit progressChanged(2);
     m_stt->selectFileInput(audioPath);
-    if (!m_stt->inputLoading() && m_stt->inputError().isEmpty()) {
-        m_waitingForInput = false;
-        emit progressChanged(3);
-        ExecutionProvider provider = ExecutionProvider::LocalDev;
-        if (!executionProviderFromId(m_executionProviderId, &provider)) {
-            fail(QStringLiteral("Unknown dubbing STT provider: %1").arg(m_executionProviderId));
-            return;
-        }
-        m_stt->transcribeInputForProvider(provider, m_modelId, m_language, false);
+    // selectFileInput() first clears the previous input and emits a synchronous
+    // "not loading" signal.  Ignore that stale signal until the new selection
+    // has been established, otherwise transcription starts with zero samples.
+    m_inputLoadStarted = true;
+    beginTranscriptionAfterInputReady();
+}
+
+void DubbingTranscriptionJob::beginTranscriptionAfterInputReady()
+{
+    if (!m_running || !m_waitingForInput || !m_inputLoadStarted || !m_stt
+        || m_stt->inputLoading() || !m_stt->inputError().isEmpty()) {
+        return;
     }
+
+    m_waitingForInput = false;
+    m_inputLoadStarted = false;
+    emit progressChanged(3);
+    ExecutionProvider provider = ExecutionProvider::LocalDev;
+    if (!executionProviderFromId(m_executionProviderId, &provider)) {
+        fail(QStringLiteral("Unknown dubbing STT provider: %1").arg(m_executionProviderId));
+        return;
+    }
+    m_stt->transcribeInputForProvider(provider, m_modelId, m_language, false);
 }
 
 void DubbingTranscriptionJob::cancel()
@@ -182,6 +188,7 @@ void DubbingTranscriptionJob::cancel()
         QMetaObject::invokeMethod(m_colabAlignmentRunner, "cancel", Qt::QueuedConnection);
     m_pendingAlignmentSegments.clear();
     m_waitingForInput = false;
+    m_inputLoadStarted = false;
     m_running = false;
 }
 
@@ -449,6 +456,7 @@ void DubbingTranscriptionJob::fail(const QString &message)
     if (!m_running && message.isEmpty()) return;
     m_running = false;
     m_waitingForInput = false;
+    m_inputLoadStarted = false;
     m_pendingAlignmentSegments.clear();
     if (m_colabAlignmentCancel)
         m_colabAlignmentCancel->store(true, std::memory_order_relaxed);

@@ -420,6 +420,7 @@ void SttSessionController::transcribeInputForProvider(ExecutionProvider provider
         request.samples = m_activeJob.samples;
         request.language = m_activeJob.language;
         request.cancellation = InferenceCancellationToken(m_colabCancellation);
+        request.allowInsecureLocalhost = m_colabSession->allowsInsecureLocalhostForTests();
         QMetaObject::invokeMethod(m_colabRunner, "transcribe", Qt::QueuedConnection,
                                   Q_ARG(ColabSttRequest, request));
         return;

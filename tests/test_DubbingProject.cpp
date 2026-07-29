@@ -4,6 +4,7 @@
 #include "controllers/dubbing/DubbingController.h"
 #include "controllers/dubbing/DubbingColabModelRoutes.h"
 #include "controllers/dubbing/DubbingJobRunner.h"
+#include "controllers/dubbing/DubbingTranscriptionJob.h"
 #include "controllers/dubbing/DubbingSynthesisJob.h"
 #include "controllers/dubbing/DubbingTranslationJob.h"
 #include "controllers/dubbing/DubbingTranslationFixService.h"
@@ -16,16 +17,72 @@
 #include "controllers/app/AppController.h"
 #include "audio/WavIO.h"
 #include "core/Settings.h"
+#include "controllers/stt/SttSessionController.h"
+#include "remote/ColabSession.h"
 #include "stt/SttEngine.h"
 #include "tts/TtsEngine.h"
 
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonObject>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QTemporaryDir>
 #include <QtTest>
 
 namespace LAStudio {
+
+namespace {
+
+class DubbingSttWorkerMock final : public QObject
+{
+public:
+    DubbingSttWorkerMock()
+    {
+        connect(&m_server, &QTcpServer::newConnection, this, [this] {
+            while (QTcpSocket *socket = m_server.nextPendingConnection()) {
+                connect(socket, &QTcpSocket::readyRead, this, [this, socket] {
+                    QByteArray &pending = m_pending[socket];
+                    pending += socket->readAll();
+                    if (!m_request.isEmpty() || !pending.contains("\r\n\r\n")) return;
+                    m_request = pending;
+                    socket->write("HTTP/1.1 503 Service Unavailable\r\n"
+                                  "Content-Length: 0\r\nConnection: close\r\n\r\n");
+                    socket->disconnectFromHost();
+                });
+                connect(socket, &QTcpSocket::disconnected, this, [this, socket] {
+                    m_pending.remove(socket);
+                    socket->deleteLater();
+                });
+            }
+        });
+    }
+
+    bool start() { return m_server.listen(QHostAddress::LocalHost); }
+    QString workerUrl() const
+    {
+        return QStringLiteral("http://127.0.0.1:%1").arg(m_server.serverPort());
+    }
+    QByteArray request() const { return m_request; }
+
+private:
+    QTcpServer m_server;
+    QHash<QTcpSocket *, QByteArray> m_pending;
+    QByteArray m_request;
+};
+
+class ColabSessionReset final
+{
+public:
+    explicit ColabSessionReset(ColabSession *session) : m_session(session) {}
+    ~ColabSessionReset() { if (m_session) m_session->clear(); }
+
+private:
+    ColabSession *m_session = nullptr;
+};
+
+} // namespace
 
 void TestDubbingProject::normalizesLmStudioTranslationFixConfiguration()
 {
@@ -824,6 +881,50 @@ void TestDubbingProject::dubbingUiUsesExactModelWorkers()
         QStringLiteral("refineAlignmentWithColab")));
     QVERIFY(transcriptionSource.contains(
         QStringLiteral("completeWithoutAlignment")));
+    QVERIFY(transcriptionSource.contains(
+        QStringLiteral("beginTranscriptionAfterInputReady")));
+    QVERIFY(transcriptionSource.contains(
+        QStringLiteral("m_inputLoadStarted = true")));
+    QVERIFY(transcriptionSource.contains(
+        QStringLiteral("m_inputLoadStarted = false")));
+}
+
+void TestDubbingProject::dubbingTranscriptionWaitsForFreshDecodedAudio()
+{
+    DubbingSttWorkerMock worker;
+    QVERIFY(worker.start());
+
+    AppController *app = AppController::instance();
+    QVERIFY(app != nullptr);
+    ColabSession *session = app->colabSttSession();
+    SttSessionController *stt = app->sttSession();
+    QVERIFY(session != nullptr);
+    QVERIFY(stt != nullptr);
+    ColabSessionReset resetSession(session);
+
+    QString sessionError;
+    QVERIFY2(session->setSession(worker.workerUrl(), QStringLiteral("test-token"),
+                                 &sessionError, true), qPrintable(sessionError));
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString audioPath = dir.filePath(QStringLiteral("input.wav"));
+    QVector<float> samples(1600, 0.1F);
+    QVERIFY(WavIO::saveFloat(audioPath, samples.constData(), samples.size(), 16000));
+
+    DubbingTranscriptionJob job(stt, nullptr, nullptr);
+    const QVariantMap configuration{
+        {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+        {QStringLiteral("modelId"), QStringLiteral("whisper.cpp")}
+    };
+    QVERIFY(job.start(QStringLiteral("en"), audioPath, {}, configuration));
+
+    // The worker deliberately rejects the request. What matters here is the
+    // real boundary: an upload is issued only after the fresh WAV decode ends.
+    QTRY_VERIFY_WITH_TIMEOUT(!worker.request().isEmpty(), 5000);
+    QVERIFY(worker.request().startsWith("POST /v2/uploads/stt HTTP/1.1"));
+    job.cancel();
+    stt->cancelProcessing();
 }
 
 void TestDubbingProject::targetLanguageUpdatesVoiceNodeLanguage()

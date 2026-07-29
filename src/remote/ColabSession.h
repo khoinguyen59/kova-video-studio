@@ -76,6 +76,9 @@ public:
 
     // Never expose this value as a QML property or serialize it to a project.
     QString bearerTokenForRequest() const;
+    // Not exposed to QML. This only propagates an explicit loopback-test opt-in
+    // from a trusted contract session to its runner request.
+    bool allowsInsecureLocalhostForTests() const { return m_allowInsecureLocalhostForTests; }
 
 signals:
     void sessionChanged();

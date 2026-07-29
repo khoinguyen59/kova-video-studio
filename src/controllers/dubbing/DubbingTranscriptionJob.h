@@ -53,6 +53,7 @@ private:
     void completeWithoutAlignment(const QVariantList &segments,
                                   const QString &diagnostic);
     void startAudioInput(const QString &audioPath);
+    void beginTranscriptionAfterInputReady();
     void fail(const QString &message);
 
     SttSessionController *m_stt = nullptr;
@@ -73,6 +74,7 @@ private:
     QString m_alignmentModelId = QStringLiteral("mms-forced-aligner-onnx");
     bool m_refineAlignmentWithColab = false;
     bool m_waitingForInput = false;
+    bool m_inputLoadStarted = false;
     bool m_running = false;
     bool m_retriedWithFallback = false;
     quint64 m_generation = 0;

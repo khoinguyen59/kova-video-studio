@@ -58,6 +58,7 @@ private slots:
     void remoteDubbingWorkflowIsReadyWithoutLocalModels();
     void dubbingColabModelsMapToExactNotebooks();
     void dubbingUiUsesExactModelWorkers();
+    void dubbingTranscriptionWaitsForFreshDecodedAudio();
 };
 
 } // namespace LAStudio
