@@ -9,6 +9,7 @@ class TestMediaIngestService final : public QObject {
 
 private slots:
     void rejectsMissingInputExactlyOnce();
+    void prefersBundledMediaToolsOverExternalConfiguration();
 };
 
 } // namespace LAStudio

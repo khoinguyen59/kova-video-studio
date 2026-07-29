@@ -160,6 +160,7 @@ set(TEST_SOURCES
     ../src/core/LogViewService.cpp
     ../src/core/CacheLifecycleService.cpp
     ../src/core/PathUtils.cpp
+    ../src/core/MediaRuntimeLocator.cpp
     ../src/core/Logger.cpp
     ../src/core/InferenceThreadPolicy.cpp
     ../src/inference/WorkerThreadHost.cpp
@@ -200,6 +201,7 @@ set(TEST_SOURCES
     ../src/audio/WaveformProvider.cpp
 
     ../src/core/DownloadManager.h
+    ../src/core/MediaRuntimeLocator.h
     ../src/api/ApiServerService.h
     ../src/stt/SttEngine.h
     ../src/stt/SttEngineInstance.h

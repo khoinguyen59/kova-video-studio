@@ -713,6 +713,7 @@ Write-Host ">> Deploying vcpkg runtime DLLs..." -ForegroundColor Cyan
 Copy-VcpkgRuntimeLibraries -BuildDirectory $buildDir -Triplet $vcpkgTriplet -DeployDirectory $deployRoot
 $sevenZipSource = Ensure-ArchiveExtractor -DeployRoot $deployRoot -VcpkgRoot $VcpkgRoot
 Ensure-Bsdtar -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir -BuildDirectory $buildDir -Triplet $vcpkgTriplet
+Ensure-FfmpegRuntime -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir
 Stage-ThirdPartyLicenseTexts -RepositoryRoot $RepoRoot -StageRoot $stageDir -BuildDirectory $buildDir -Triplet $vcpkgTriplet -QtRoot $QtRoot -SevenZipSource $sevenZipSource
 if ($AllowUnsignedEspeakForInternalBuild) {
     Write-Warning "INTERNAL BUILD ONLY: permitting the SHA-256-verified but unsigned eSpeak NG MSI. Do not distribute this package or promote it to a release."

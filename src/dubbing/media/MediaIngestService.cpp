@@ -1,5 +1,6 @@
 #include "dubbing/media/MediaIngestService.h"
 
+#include "core/MediaRuntimeLocator.h"
 #include "core/PathUtils.h"
 
 #include <QCryptographicHash>
@@ -9,7 +10,6 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
-#include <QStandardPaths>
 #include <QSaveFile>
 #include <QtMath>
 
@@ -31,26 +31,12 @@ MediaIngestService::MediaIngestService(QObject *parent)
 
 QString MediaIngestService::ffmpegPath() const
 {
-    const QString configured = qEnvironmentVariable("LASTUDIO_FFMPEG");
-    if (!configured.isEmpty() && QFileInfo(configured).isFile()) return configured;
-    return QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
+    return MediaRuntimeLocator::resolve().ffmpeg;
 }
 
 QString MediaIngestService::ffprobePath() const
 {
-    const QString configured = qEnvironmentVariable("LASTUDIO_FFPROBE");
-    if (!configured.isEmpty() && QFileInfo(configured).isFile()) return configured;
-    const QString ffmpeg = ffmpegPath();
-    if (!ffmpeg.isEmpty()) {
-        const QFileInfo info(ffmpeg);
-        const QString sibling = info.absolutePath() + QLatin1Char('/') + QStringLiteral("ffprobe")
-#ifdef Q_OS_WIN
-            + QStringLiteral(".exe")
-#endif
-            ;
-        if (QFileInfo(sibling).isFile()) return sibling;
-    }
-    return QStandardPaths::findExecutable(QStringLiteral("ffprobe"));
+    return MediaRuntimeLocator::resolve().ffprobe;
 }
 
 bool MediaIngestService::available() const
@@ -68,7 +54,7 @@ void MediaIngestService::ingest(const QString &path)
         return;
     }
     if (!available()) {
-        fail(QStringLiteral("FFmpeg and FFprobe are required for media import."));
+        fail(QStringLiteral("Bundled FFmpeg and FFprobe are unavailable. Repair or reinstall LA Studio."));
         return;
     }
 

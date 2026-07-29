@@ -28,7 +28,7 @@ Install these before running bootstrap:
 3. CMake 3.21+
 4. Ninja
 5. Git (used to provision the pinned vcpkg baseline and llama.cpp b10036 headers automatically)
-6. FFmpeg and FFprobe on `PATH` (required by Video Dubbing, source separation, and audio decoding fallback)
+6. FFmpeg and FFprobe on `PATH` for development builds (release packages bundle a pinned runtime; Video Dubbing, source separation, and audio decoding fallback use it automatically)
 7. Internet access for the first non-`-SkipDeploy` build, unless the eSpeak NG MSI is already cached in `.deps/espeak-ng`
 
 Packaging only additionally requires 7-Zip and Inno Setup 6. eSpeak NG is downloaded and staged next

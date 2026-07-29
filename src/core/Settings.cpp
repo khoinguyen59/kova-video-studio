@@ -1,4 +1,5 @@
 #include "Settings.h"
+#include "MediaRuntimeLocator.h"
 #include "PathUtils.h"
 #include "Logger.h"
 #include "SecureCredentialStore.h"
@@ -862,21 +863,7 @@ qint64 Settings::modelsPathAvailableBytes() const
 
 bool Settings::externalMediaToolsAvailable() const
 {
-    const QString configuredFfmpeg = qEnvironmentVariable("LASTUDIO_FFMPEG");
-    const QString ffmpeg = !configuredFfmpeg.isEmpty() && QFileInfo(configuredFfmpeg).isFile()
-        ? configuredFfmpeg : QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
-    if (ffmpeg.isEmpty()) return false;
-    const QString configuredFfprobe = qEnvironmentVariable("LASTUDIO_FFPROBE");
-    if (!configuredFfprobe.isEmpty() && QFileInfo(configuredFfprobe).isFile()) return true;
-    const QFileInfo ffmpegInfo(ffmpeg);
-    const QString sibling = QDir(ffmpegInfo.absolutePath()).filePath(
-        QStringLiteral("ffprobe")
-#ifdef Q_OS_WIN
-        + QStringLiteral(".exe")
-#endif
-    );
-    return QFileInfo(sibling).isFile()
-        || !QStandardPaths::findExecutable(QStringLiteral("ffprobe")).isEmpty();
+    return MediaRuntimeLocator::resolve().isComplete();
 }
 
 } // namespace LAStudio

@@ -74,7 +74,7 @@ release.
 
 ## Validate the draft
 
-Perform the clean-machine smoke test in Windows Sandbox or a fresh VM with no Visual Studio, VC++ redistributable, FFmpeg, or eSpeak NG installed.
+Perform the clean-machine smoke test in Windows Sandbox or a fresh VM with no Visual Studio, VC++ redistributable, system FFmpeg, or eSpeak NG installed. The packaged FFmpeg runtime must satisfy the Dubbing flow without relying on `PATH`.
 
 1. Install the draft artifact.
 2. Start `LA-Studio-<version>.exe`, verify the main window and `app.log` are created.

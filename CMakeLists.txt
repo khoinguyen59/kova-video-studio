@@ -6,7 +6,7 @@ include(cmake/RuntimeAbi.cmake)
 # automation may override it with -DLASTUDIO_VERSION=<major.minor.release.build>.
 # Internal builds use four numeric fields so each artifact has an unambiguous,
 # monotonically ordered label: 0.0.0.1 ... 0.0.0.9, then 0.0.1.0.
-set(LASTUDIO_VERSION "0.0.0.9" CACHE STRING "LA Studio application version")
+set(LASTUDIO_VERSION "0.0.1.0" CACHE STRING "LA Studio application version")
 if(NOT LASTUDIO_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$")
     message(FATAL_ERROR "LASTUDIO_VERSION must use MAJOR.MINOR.RELEASE.BUILD format; got '${LASTUDIO_VERSION}'")
 endif()
@@ -89,6 +89,7 @@ set(LASTUDIO_SOURCES
     src/core/Logger.cpp
     src/core/CrashHandler.cpp
     src/core/PathUtils.cpp
+    src/core/MediaRuntimeLocator.cpp
     src/core/VoiceCloningUtils.cpp
     src/core/InferenceThreadPolicy.cpp
     src/inference/WorkerThreadHost.cpp
@@ -264,6 +265,7 @@ set(LASTUDIO_HEADERS
     src/core/Logger.h
     src/core/CrashHandler.h
     src/core/PathUtils.h
+    src/core/MediaRuntimeLocator.h
     src/core/VoiceCloningUtils.h
     src/core/InferenceThreadPolicy.h
     src/inference/InferenceTypes.h
@@ -668,6 +670,7 @@ add_executable(LAStudioRuntimeHost
     src/audio/AudioFileDecoder.cpp
     src/core/Logger.cpp
     src/core/PathUtils.cpp
+    src/core/MediaRuntimeLocator.cpp
     src/core/InferenceThreadPolicy.cpp
     src/runtimehost/RuntimeHostProtocol.h
     src/runtimehost/RuntimeHostSharedBuffer.h
