@@ -1,8 +1,9 @@
 #include "dubbing/media/MediaToolService.h"
 
+#include "core/MediaRuntimeLocator.h"
+
 #include <QFileInfo>
 #include <QRegularExpression>
-#include <QStandardPaths>
 
 namespace LAStudio {
 
@@ -20,9 +21,7 @@ MediaToolService::MediaToolService(QObject *parent)
 
 QString MediaToolService::executablePath() const
 {
-    const QString configured = qEnvironmentVariable("LASTUDIO_FFMPEG");
-    if (!configured.isEmpty() && QFileInfo(configured).isFile()) return configured;
-    return QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
+    return MediaRuntimeLocator::resolve().ffmpeg;
 }
 
 bool MediaToolService::available() const

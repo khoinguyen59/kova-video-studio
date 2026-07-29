@@ -23,7 +23,7 @@ OutputBaseFilename=LA-Studio-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-UninstallDisplayIcon={app}\bin\LA Studio.exe
+UninstallDisplayIcon={app}\bin\@LASTUDIO_INSTALLER_APPLICATION_EXE@
 SetupIconFile=@LASTUDIO_INSTALLER_ICON_FILE@
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
@@ -38,13 +38,13 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "@LASTUDIO_INSTALLER_STAGE_DIR@\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\LA Studio"; Filename: "{app}\bin\LA Studio.exe"
-Name: "{autodesktop}\LA Studio"; Filename: "{app}\bin\LA Studio.exe"; Tasks: desktopicon
+Name: "{group}\LA Studio"; Filename: "{app}\bin\@LASTUDIO_INSTALLER_APPLICATION_EXE@"
+Name: "{autodesktop}\LA Studio"; Filename: "{app}\bin\@LASTUDIO_INSTALLER_APPLICATION_EXE@"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\bin\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing Microsoft Visual C++ Runtime..."; Flags: waituntilterminated runhidden; Check: VcRedistIsStaged
-Filename: "{app}\bin\LA Studio.exe"; Description: "{cm:LaunchProgram,LA Studio}"; Flags: nowait postinstall skipifsilent
-Filename: "{app}\bin\LA Studio.exe"; Flags: nowait skipifnotsilent
+Filename: "{app}\bin\@LASTUDIO_INSTALLER_APPLICATION_EXE@"; Description: "{cm:LaunchProgram,LA Studio}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\bin\@LASTUDIO_INSTALLER_APPLICATION_EXE@"; Flags: nowait skipifnotsilent
 
 [Code]
 var

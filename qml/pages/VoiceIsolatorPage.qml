@@ -5,6 +5,21 @@ import "../components/voiceisolator"
 StudioPageFrame {
     id: isolatorPageFrame
     capabilityId: "voice-isolation"
+    colabModelSelectionEnabled: true
+
+    function colabNotebookUrl(fileName) {
+        return fileName === "" ? ""
+            : "https://colab.research.google.com/github/khoinguyen59/kova-video-studio/blob/codex/remote-inference/notebooks/" + fileName
+    }
+
+    onColabConfigurationAccepted: function(familyId, openNotebook) {
+        if (!AppController.colabVoiceIsolator.selectColabModel(familyId)) return
+        studioController.saveConfigurationSelection(familyId, "", "", ({}))
+        if (openNotebook) {
+            var notebook = AppController.colabVoiceIsolator.colabNotebookFile
+            if (notebook !== "") Qt.openUrlExternally(colabNotebookUrl(notebook))
+        }
+    }
 
     contentView: Component {
         VoiceIsolatorStudioView {
@@ -18,8 +33,10 @@ StudioPageFrame {
             }
             families: studioController.families
             selectedFamilyId: studioController.selectedFamilyId
-            studioReady: studioController.studioReady
-            studioTitle: studioController.studioHeaderTitle
+            studioReady: AppController.colabVoiceIsolator.colabActive || studioController.studioReady
+            studioTitle: AppController.colabVoiceIsolator.colabActive
+                         ? qsTr("Direct Colab Voice Isolation · %1").arg(AppController.colabVoiceIsolator.model)
+                         : studioController.studioHeaderTitle
             modalSelectionTitle: studioController.modalSelectionTitle
             modalSelectionValue: studioController.modalSelectionValue
             modalSelectionDetail: studioController.modalSelectionDetail

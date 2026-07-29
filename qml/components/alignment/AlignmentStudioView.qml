@@ -15,12 +15,14 @@ WorkflowStudioShell {
     family: null
     families: []
     capability: "forced-alignment"
-    studioReady: studioController ? studioController.studioReady : root.configurationReady
+    studioReady: root.colabSelected ? AppController.colabAlignment.colabActive : (studioController ? studioController.studioReady : root.configurationReady)
+    // Direct Colab alignment is configured before any local workflow setup.
+    settingsRequiresReady: false
     isSettingsOpen: true
     showLeftPanel: false
     modalSelectionMode: true
     showSwitcher: false
-    studioTitle: studioController ? studioController.studioHeaderTitle : qsTr("Alignment Studio")
+    studioTitle: root.colabSelected ? qsTr("Direct Colab Alignment") : (studioController ? studioController.studioHeaderTitle : qsTr("Alignment Studio"))
     studioIconName: "alignment"
     modalSelectionTitle: qsTr("Model + Runtime")
     modalSelectionValue: root.selectedModelName
@@ -39,38 +41,49 @@ WorkflowStudioShell {
     property bool alignmentDefaultCommitted: false
     property bool sttDefaultCommitted: false
     property var pendingAlignmentRequest: null
-    readonly property bool processing: AppController.alignment.processing
+    readonly property bool colabSelected: AppController.colabAlignment.colabActive
+    readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
+    readonly property var alignmentExecution: colabSelected ? AppController.colabAlignment : AppController.alignment
+    readonly property bool processing: alignmentExecution.processing
     property string selectedModelName: qsTr("No alignment model selected")
     property string selectedModelDetail: qsTr("Choose a forced-alignment model and compatible runtime.")
     property string configurationStatus: qsTr("Setup required")
     property int resultViewMode: 0 // 0: karaoke, 1: table
     property bool ownsReviewPlayback: false
     readonly property bool canonicalMode: modeInput.currentIndex === 0
-    readonly property bool inputReady: audioPath !== "" && (!canonicalMode || transcriptInput.text.trim().length > 0)
-                                       && settingsPanel.anchorModelAvailable
-    readonly property bool sessionReady: studioController ? studioController.canProcess : configurationReady
-    readonly property bool canAlign: executionBackendReady && sessionReady && inputReady
-                                     && !processing && pendingAlignmentRequest === null
+    readonly property bool inputReady: colabSelected
+                                       ? audioPath !== "" && transcriptInput.text.trim().length > 0
+                                       : (audioPath !== "" && (!canonicalMode || transcriptInput.text.trim().length > 0)
+                                          && settingsPanel.anchorModelAvailable)
+    readonly property bool sessionReady: colabSelected ? AppController.colabAlignment.colabConnected
+                                                       : (studioController ? studioController.canProcess : configurationReady)
+    readonly property bool canAlign: colabSelected
+                                     ? inputReady && !processing
+                                     : (executionBackendReady && sessionReady && inputReady
+                                        && !processing && pendingAlignmentRequest === null)
     workflowTitle: qsTr("Alignment workflow")
-    workflowReady: AppController.alignment.workflowReady && executionBackendReady && sessionReady
+    workflowReady: colabSelected ? sessionReady : (AppController.alignment.workflowReady && executionBackendReady && sessionReady)
     workflowBusy: defaultSetupActive || (studioController ? studioController.statusText === "Loading" : false)
     workflowProgress: defaultSetupProgress()
-    workflowStatusText: workflowReady ? qsTr("Workflow ready") : qsTr("Setup required")
+    workflowStatusText: workflowReady ? qsTr("Workflow ready")
+                        : (remoteFirstMode && !colabSelected
+                           ? qsTr("Remote-first: pair a direct Colab alignment worker")
+                           : qsTr("Setup required"))
     workflowActionText: workflowReady ? qsTr("View workflow") : qsTr("Set up workflow")
     readonly property string inputStatusText: audioPath === ""
                                               ? qsTr("Audio required")
-                                              : (canonicalMode && transcriptInput.text.trim().length === 0
+                                              : ((colabSelected || canonicalMode) && transcriptInput.text.trim().length === 0
                                                  ? qsTr("Transcript required")
-                                                 : (!settingsPanel.anchorModelAvailable
+                                                 : (!colabSelected && !settingsPanel.anchorModelAvailable
                                                     ? qsTr("STT anchor model required")
                                                     : qsTr("Inputs ready")))
     readonly property color inputStatusColor: inputReady ? Theme.success : Theme.warning
     readonly property int reviewPositionMs: ownsReviewPlayback ? AppController.player.playbackPositionMs : 0
-    readonly property int reviewDurationMs: AppController.alignment.duration > 0
-                                            ? Math.round(AppController.alignment.duration * 1000)
+    readonly property int reviewDurationMs: alignmentExecution.duration > 0
+                                            ? Math.round(alignmentExecution.duration * 1000)
                                             : (ownsReviewPlayback ? AppController.player.playbackDurationMs : 0)
-    readonly property int activeSegmentIndex: AppController.alignment.segmentIndexAt(reviewPositionMs / 1000.0)
-    readonly property int activeKaraokeLineIndex: AppController.alignment.karaokeLineIndexAt(reviewPositionMs / 1000.0)
+    readonly property int activeSegmentIndex: alignmentExecution.segmentIndexAt(reviewPositionMs / 1000.0)
+    readonly property int activeKaraokeLineIndex: alignmentExecution.karaokeLineIndexAt(reviewPositionMs / 1000.0)
 
     onActiveSegmentIndexChanged: {
         if (activeSegmentIndex < 0) return
@@ -143,6 +156,10 @@ WorkflowStudioShell {
     }
 
     function loadDefaultWorkflow() {
+        if (remoteFirstMode && !colabSelected) {
+            defaultSetupActive = false
+            return
+        }
         defaultSetupActive = true
         alignmentDefaultCommitted = false
         sttDefaultCommitted = false
@@ -164,7 +181,17 @@ WorkflowStudioShell {
 
     function openNodeModel(nodeId) {
         if (nodeId === "stt") {
-            sttWorkflowController.openConfiguration(selectedSttFamilyId)
+            var committedFamilyId = sttWorkflowController.selectedFamilyId || ""
+            sttConfigurationGallery.initialSelectedFiles = ({})
+            sttConfigurationGallery.selectedFamilyId = selectedSttFamilyId || committedFamilyId
+            sttConfigurationGallery.ensureSelection()
+            if (sttConfigurationGallery.selectedFamilyId === committedFamilyId) {
+                sttConfigurationGallery.pendingRuntimeId = sttWorkflowController.runtimeId || ""
+                sttConfigurationGallery.pendingRuntimeVersion = sttWorkflowController.runtimeVersion || ""
+                sttConfigurationGallery.initialSelectedFiles = sttWorkflowController.selectedFiles || ({})
+            } else {
+                sttConfigurationGallery.syncPendingRuntime(true)
+            }
             sttConfigurationDialog.open()
         } else if (nodeId === "aligner") {
             workflowDialog.close()
@@ -193,11 +220,16 @@ WorkflowStudioShell {
         stopReviewPlayback()
         var nextPath = AppController.files.urlToLocalPath(path)
         if (audioPath !== nextPath)
-            AppController.alignment.clearResult()
+            root.alignmentExecution.clearResult()
         audioPath = nextPath
     }
 
     function runAlignment() {
+        if (colabSelected) {
+            AppController.colabAlignment.runAlignment(audioPath, transcriptInput.text,
+                                                      settingsPanel.languageCode, settingsPanel.outputFormat)
+            return
+        }
         var request = workflowRequest()
         if (!AppController.alignment.prepareWorkflow(request)) {
             workflowDialog.open()
@@ -235,6 +267,7 @@ WorkflowStudioShell {
     }
 
     function showWorkflow() {
+        if (colabSelected) return
         AppController.alignment.prepareWorkflow(workflowRequest())
         workflowDialog.open()
     }
@@ -243,6 +276,23 @@ WorkflowStudioShell {
         if (confidence >= 0.75) return Theme.success
         if (confidence >= 0.45) return Theme.warning
         return Theme.danger
+    }
+
+    function emptyStateMessage() {
+        if (alignmentExecution.errorMessage !== "" && inputReady)
+            return alignmentExecution.errorMessage
+        if (colabSelected && !sessionReady)
+            return qsTr("Connect the direct Colab alignment worker in Settings.")
+        if (executionBackendReady && !sessionReady)
+            return qsTr("Load the alignment model before running alignment.")
+        if (audioPath === "")
+            return qsTr("Choose an audio file to begin.")
+        if ((colabSelected || canonicalMode) && transcriptInput.text.trim().length === 0)
+            return qsTr("Paste or import the transcript spoken in the audio.")
+        if (colabSelected)
+            return qsTr("Choose an audio file and paste its transcript.")
+        return executionBackendReady ? qsTr("Complete the required inputs to run alignment.")
+                                     : qsTr("Configure and install an alignment model and process runtime.")
     }
 
     function formatReviewTime(milliseconds) {
@@ -282,10 +332,10 @@ WorkflowStudioShell {
     }
 
     Connections {
-        target: AppController.alignment
+        target: root.alignmentExecution
         function onResultChanged() {
             root.stopReviewPlayback()
-            if (AppController.alignment.segments.length > 0)
+            if (root.alignmentExecution.segments.length > 0)
                 root.resultViewMode = 0
         }
     }
@@ -380,7 +430,7 @@ WorkflowStudioShell {
                             id: modeInput
                             Layout.fillWidth: true
                             model: [qsTr("Use existing transcript"), qsTr("Generate from audio")]
-                            onCurrentIndexChanged: AppController.alignment.clearResult()
+                            onCurrentIndexChanged: root.alignmentExecution.clearResult()
                         }
                     }
 
@@ -508,8 +558,8 @@ WorkflowStudioShell {
                                 placeholderText: qsTr("Paste the transcript spoken in the audio...")
                                 selectByMouse: true
                                 onTextChanged: {
-                                    if (!root.processing && AppController.alignment.segments.length > 0)
-                                        AppController.alignment.clearResult()
+                                    if (!root.processing && root.alignmentExecution.segments.length > 0)
+                                        root.alignmentExecution.clearResult()
                                 }
                             }
                         }
@@ -526,13 +576,13 @@ WorkflowStudioShell {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 42
                         text: root.processing ? qsTr("Cancel")
-                                              : (root.canonicalMode ? qsTr("Align transcript")
+                                              : (root.colabSelected || root.canonicalMode ? qsTr("Align transcript")
                                                                     : qsTr("Generate timestamps"))
                         iconName: root.processing ? "stop" : "alignment"
                         enabled: root.processing || root.canAlign
                         onClicked: {
                             if (root.processing) {
-                                AppController.alignment.cancel()
+                                root.alignmentExecution.cancel()
                                 return
                             }
                             root.runAlignment()
@@ -563,8 +613,8 @@ WorkflowStudioShell {
                         AlignmentSectionHeader {
                             Layout.fillWidth: true
                             title: qsTr("Aligned output")
-                            detail: AppController.alignment.segments.length > 0
-                                    ? qsTr("%1 segments aligned in %2").arg(AppController.alignment.segments.length)
+                            detail: root.alignmentExecution.segments.length > 0
+                                    ? qsTr("%1 segments aligned in %2").arg(root.alignmentExecution.segments.length)
                                                                     .arg(root.formatReviewTime(root.reviewDurationMs))
                                     : qsTr("Word and character timestamps appear here.")
                         }
@@ -604,7 +654,7 @@ WorkflowStudioShell {
                             text: qsTr("Export")
                             iconName: "save"
                             quiet: true
-                            enabled: AppController.alignment.output !== ""
+                            enabled: root.alignmentExecution.output !== ""
                             implicitWidth: 96
                             implicitHeight: 34
                             onClicked: outputFileDialog.open()
@@ -615,11 +665,11 @@ WorkflowStudioShell {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 44
                         spacing: Theme.paddingXL
-                        visible: AppController.alignment.segments.length > 0
+                        visible: root.alignmentExecution.segments.length > 0
 
                         AlignmentResultMetric {
                             label: qsTr("SEGMENTS")
-                            value: String(AppController.alignment.segments.length)
+                            value: String(root.alignmentExecution.segments.length)
                         }
 
                         AlignmentResultMetric {
@@ -629,8 +679,8 @@ WorkflowStudioShell {
 
                         AlignmentResultMetric {
                             label: qsTr("AVG. CONFIDENCE")
-                            value: Math.round(AppController.alignment.averageConfidence * 100) + "%"
-                            valueColor: root.confidenceColor(AppController.alignment.averageConfidence)
+                            value: Math.round(root.alignmentExecution.averageConfidence * 100) + "%"
+                            valueColor: root.confidenceColor(root.alignmentExecution.averageConfidence)
                         }
 
                         Item { Layout.fillWidth: true }
@@ -653,7 +703,7 @@ WorkflowStudioShell {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 70
                                 color: Theme.surfaceAlt
-                                visible: AppController.alignment.segments.length > 0
+                                visible: root.alignmentExecution.segments.length > 0
 
                                 RowLayout {
                                     anchors.fill: parent
@@ -703,7 +753,7 @@ WorkflowStudioShell {
                                         from: 0
                                         to: Math.max(1, root.reviewDurationMs)
                                         value: root.reviewPositionMs
-                                        enabled: root.audioPath !== "" && AppController.alignment.segments.length > 0
+                                        enabled: root.audioPath !== "" && root.alignmentExecution.segments.length > 0
                                         onMoved: root.seekReview(Math.round(value))
 
                                         background: Rectangle {
@@ -741,7 +791,7 @@ WorkflowStudioShell {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 currentIndex: root.resultViewMode
-                                visible: AppController.alignment.segments.length > 0
+                                visible: root.alignmentExecution.segments.length > 0
 
                                 Rectangle {
                                     color: Theme.surface
@@ -753,7 +803,7 @@ WorkflowStudioShell {
                                         anchors.bottomMargin: Theme.paddingMedium
                                         clip: true
                                         spacing: Theme.paddingSmall
-                                        model: AppController.alignment.karaokeLines
+                                        model: root.alignmentExecution.karaokeLines
                                         ScrollBar.vertical: ScrollBar { }
 
                                         delegate: Rectangle {
@@ -872,7 +922,7 @@ WorkflowStudioShell {
                                             Layout.fillWidth: true
                                             Layout.fillHeight: true
                                             clip: true
-                                            model: AppController.alignment.segments
+                                            model: root.alignmentExecution.segments
                                             ScrollBar.vertical: ScrollBar { }
 
                                             delegate: Rectangle {
@@ -957,7 +1007,7 @@ WorkflowStudioShell {
                             Item {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
-                                visible: AppController.alignment.segments.length === 0
+                                visible: root.alignmentExecution.segments.length === 0
 
                                 ColumnLayout {
                                     anchors.centerIn: parent
@@ -975,13 +1025,15 @@ WorkflowStudioShell {
 
                                     Text {
                                         Layout.fillWidth: true
-                                        text: AppController.alignment.errorMessage !== ""
+                                        text: root.alignmentExecution.errorMessage !== ""
                                               && root.inputReady ? qsTr("Alignment failed")
-                                              : (root.processing ? AppController.alignment.statusText
-                                                                 : (root.executionBackendReady && !root.sessionReady
+                                              : (root.processing ? root.alignmentExecution.statusText
+                                                                 : (root.colabSelected && !root.sessionReady
+                                                                    ? qsTr("Colab worker not connected")
+                                                                    : (root.executionBackendReady && !root.sessionReady
                                                                     ? qsTr("Alignment model unloaded")
-                                                                    : (root.executionBackendReady ? qsTr("Ready for alignment") : qsTr("Alignment backend unavailable"))))
-                                        color: AppController.alignment.errorMessage !== "" && root.inputReady ? Theme.danger : Theme.textPrimary
+                                                                    : (root.colabSelected || root.executionBackendReady ? qsTr("Ready for alignment") : qsTr("Alignment backend unavailable")))))
+                                        color: root.alignmentExecution.errorMessage !== "" && root.inputReady ? Theme.danger : Theme.textPrimary
                                         font.pixelSize: Theme.fontMedium
                                         font.bold: true
                                         horizontalAlignment: Text.AlignHCenter
@@ -989,17 +1041,7 @@ WorkflowStudioShell {
 
                                     Text {
                                         Layout.fillWidth: true
-                                        text: AppController.alignment.errorMessage !== "" && root.inputReady
-                                              ? AppController.alignment.errorMessage
-                                                  : (root.executionBackendReady && !root.sessionReady
-                                                  ? qsTr("Load the alignment model before running alignment.")
-                                                  : (root.executionBackendReady
-                                                  ? (root.audioPath === ""
-                                                     ? qsTr("Choose an audio file to begin.")
-                                                     : (root.canonicalMode && transcriptInput.text.trim().length === 0
-                                                        ? qsTr("Paste or import the transcript spoken in the audio.")
-                                                        : qsTr("Complete the required inputs to run alignment.")))
-                                                  : qsTr("Configure and install an alignment model and process runtime.")))
+                                        text: root.emptyStateMessage()
                                         color: Theme.textSecondary
                                         font.pixelSize: Theme.fontSmall
                                         wrapMode: Text.Wrap
@@ -1062,14 +1104,10 @@ WorkflowStudioShell {
             border.color: Qt.rgba(1, 1, 1, 0.10)
         }
         contentItem: CapabilityGallery {
+            id: sttConfigurationGallery
             capability: "stt"
             modalMode: true
             familiesModel: sttWorkflowController.familiesModel
-            selectedFamilyId: root.selectedSttFamilyId
-            onFamilySelected: function(familyId) {
-                root.selectedSttFamilyId = familyId
-                sttWorkflowController.selectFamily(familyId)
-            }
             onConfigurationAccepted: function(familyId, runtimeId, runtimeVersion, selectedFiles) {
                 root.selectedSttFamilyId = familyId
                 sttWorkflowController.saveConfigurationSelection(familyId, runtimeId, runtimeVersion, selectedFiles)
@@ -1107,7 +1145,7 @@ WorkflowStudioShell {
                      : (settingsPanel.outputFormat === "webvtt"
                         ? [qsTr("WebVTT subtitles (*.vtt)")]
                         : [qsTr("JSON files (*.json)")])
-        onAccepted: AppController.files.writeTextFile(selectedFile.toString(), AppController.alignment.output)
+        onAccepted: AppController.files.writeTextFile(selectedFile.toString(), root.alignmentExecution.output)
     }
 
     component TableHeader: Text {

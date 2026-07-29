@@ -154,7 +154,7 @@ void ModelsPathMigrationService::changeDirectory(const QString &pathUrl)
                     }
                     if (weakThis->m_models) {
                         weakThis->m_models->setModelsRoot(newPath);
-                        weakThis->m_models->scanLocalModels();
+                        weakThis->m_models->scanLocalModelsAsync();
                     }
 
                     weakThis->m_running = false;

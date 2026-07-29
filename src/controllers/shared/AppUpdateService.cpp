@@ -85,7 +85,7 @@ struct ParsedUpdateVersion {
 ParsedUpdateVersion parseUpdateVersion(const QString &version)
 {
     const QRegularExpression pattern(
-        QStringLiteral(R"(^(\d+\.\d+\.\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$)"));
+        QStringLiteral(R"(^(\d+\.\d+\.\d+\.\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$)"));
     const QRegularExpressionMatch match = pattern.match(cleanVersion(version));
     if (!match.hasMatch()) {
         return {};

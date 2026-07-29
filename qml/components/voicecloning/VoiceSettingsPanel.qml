@@ -17,6 +17,24 @@ ColumnLayout {
     property bool randomSeed: true
     property int customSeed: 42
     property bool locked: false
+    property bool colabConsent: false
+    property string colabProfileName: "LA Studio voice"
+    readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
+
+    component ColabField: TextField {
+        Layout.fillWidth: true
+        color: Theme.textPrimary
+        placeholderTextColor: Theme.textSecondary
+        font.pixelSize: Theme.fontSmall
+        padding: Theme.paddingSmall
+        selectByMouse: true
+        background: Rectangle {
+            radius: Theme.radiusSmall
+            color: Qt.rgba(1, 1, 1, 0.035)
+            border.color: parent.activeFocus ? Theme.accent : Qt.rgba(1, 1, 1, 0.09)
+            border.width: parent.activeFocus ? 2 : 1
+        }
+    }
 
     property var capabilitySchema: []
     property var basicSchema: []
@@ -153,6 +171,85 @@ ColumnLayout {
         ColumnLayout {
             width: parent.width - 16
             spacing: Theme.paddingMedium
+
+            SettingsSection {
+                title: qsTr("Colab GPU Voice Cloning")
+                iconName: "cloud"
+
+                Text { Layout.fillWidth: true; text: qsTr("This direct temporary worker is independent of API Gateway. The notebook and worker must match the model selected in the gallery."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                Text { text: qsTr("Selected model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                Text { Layout.fillWidth: true; text: AppController.colabVoiceClone.model; color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WrapAnywhere }
+                ColabNotebookLink { notebookFile: AppController.colabVoiceClone.colabNotebookFile }
+                Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                ColabField {
+                    id: colabUrl
+                    text: AppController.colabVoiceCloneSession.workerUrl
+                    placeholderText: qsTr("https://…trycloudflare.com")
+                    enabled: !root.locked
+                }
+                Text { text: qsTr("Session token"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                ColabField {
+                    id: colabToken
+                    echoMode: TextInput.Password
+                    placeholderText: AppController.colabVoiceClone.colabConnected ? qsTr("Connected — enter token to replace") : qsTr("Temporary token from Colab")
+                    enabled: !root.locked
+                }
+                ColabSessionStatus {
+                    session: AppController.colabVoiceCloneSession
+                }
+                Text { text: qsTr("Profile name"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                ColabField {
+                    text: root.colabProfileName
+                    placeholderText: qsTr("Voice profile name")
+                    enabled: !root.locked
+                    onTextChanged: root.colabProfileName = text
+                }
+                ToggleRow {
+                    text: qsTr("I have permission to clone this voice")
+                    checked: root.colabConsent
+                    enabled: !root.locked
+                    onCheckedChanged: root.colabConsent = checked
+                }
+                PrimaryButton {
+                    Layout.fillWidth: true
+                    enabled: !root.locked
+                             && AppController.colabVoiceClone.colabNotebookFile !== ""
+                             && !AppController.colabVoiceCloneSession.checking
+                             && !(root.remoteFirstMode && AppController.colabVoiceClone.colabActive)
+                    text: AppController.colabVoiceCloneSession.checking
+                          ? qsTr("Verifying CUDA and exact model...")
+                          : (root.remoteFirstMode
+                          ? (AppController.colabVoiceClone.colabActive ? qsTr("Direct Colab GPU voice cloning active") : (AppController.colabVoiceClone.colabConnected ? qsTr("Use direct Colab GPU voice cloning") : qsTr("Connect direct Colab GPU voice cloning")))
+                          : (AppController.colabVoiceClone.colabActive ? qsTr("Use local voice cloning") : (AppController.colabVoiceClone.colabConnected ? qsTr("Use Colab GPU voice cloning") : qsTr("Connect Colab GPU voice cloning"))))
+                    iconName: root.remoteFirstMode || !AppController.colabVoiceClone.colabActive ? "cloud" : "close"
+                    onClicked: {
+                        if (AppController.colabVoiceClone.colabActive && !root.remoteFirstMode) {
+                            AppController.colabVoiceClone.useLocal()
+                        } else if (AppController.colabVoiceClone.colabConnected) {
+                            AppController.colabVoiceClone.useColab()
+                        } else if (AppController.colabVoiceClone.connectColab(colabUrl.text.trim(), colabToken.text)) {
+                            colabToken.text = ""
+                        }
+                    }
+                }
+                Text {
+                    Layout.fillWidth: true
+                    visible: AppController.colabVoiceClone.profileId !== ""
+                    text: qsTr("A voice profile is cached only in memory for this reference while the Colab session is active.")
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSmall
+                    wrapMode: Text.WordWrap
+                }
+                PrimaryButton {
+                    Layout.fillWidth: true
+                    visible: AppController.colabVoiceClone.profileId !== ""
+                    enabled: !root.locked
+                    text: qsTr("Delete cached Colab profile")
+                    iconName: "trash"
+                    quiet: true
+                    onClicked: AppController.colabVoiceClone.deleteColabProfile()
+                }
+            }
 
             SettingsSection {
                 title: qsTr("Core")

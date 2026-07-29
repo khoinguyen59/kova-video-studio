@@ -1,4 +1,5 @@
 #include "Settings.h"
+#include "MediaRuntimeLocator.h"
 #include "PathUtils.h"
 #include "Logger.h"
 #include "SecureCredentialStore.h"
@@ -19,7 +20,10 @@ namespace LAStudio {
 
 namespace {
 
-constexpr int kSettingsSchemaVersion = 1;
+// Schema 2 deliberately moves existing installations to the same safe
+// execution policy as a fresh install: CPU for local work and no implicit
+// remote route. GPU work is selected explicitly from the relevant Colab panel.
+constexpr int kSettingsSchemaVersion = 2;
 
 QString settingsFilePath()
 {
@@ -191,6 +195,14 @@ Settings::Settings(QObject *parent)
                           QStringLiteral("Settings schema version %1 is newer than this application supports (%2)")
                               .arg(storedVersion).arg(kSettingsSchemaVersion));
         } else if (storedVersion < kSettingsSchemaVersion) {
+            if (storedVersion < 2) {
+                // Older builds defaulted to remote-first and could retain a
+                // local GPU cache-offload preference. Neither is appropriate
+                // for the CPU-local / Colab-GPU workflow.
+                m_settings.setValue(QStringLiteral("engine/device"), QStringLiteral("cpu"));
+                m_settings.setValue(QStringLiteral("hardware/offloadKvCache"), false);
+                m_settings.setValue(QStringLiteral("remote/remoteFirstMode"), false);
+            }
             m_settings.setValue(QStringLiteral("meta/schemaVersion"), kSettingsSchemaVersion);
             m_settings.sync();
             if (m_settings.status() != QSettings::NoError) {
@@ -202,7 +214,10 @@ Settings::Settings(QObject *parent)
     }
 
     // Initialize cached values from QSettings
-    m_device = m_settings.value(QStringLiteral("engine/device"), QStringLiteral("cpu")).toString();
+    // Local execution is intentionally CPU-only. GPU workloads are run by the
+    // direct Colab workers configured at the feature that needs them.
+    m_device = QStringLiteral("cpu");
+    m_settings.setValue(QStringLiteral("engine/device"), m_device);
     m_threads = m_settings.value(QStringLiteral("engine/threads"), 4).toInt();
     m_language = m_settings.value(QStringLiteral("engine/language"), QStringLiteral("en")).toString();
     m_uiLanguage = m_settings.value(QStringLiteral("ui/language"), QStringLiteral("en")).toString();
@@ -238,7 +253,8 @@ Settings::Settings(QObject *parent)
     m_sttLanguage = m_settings.value(QStringLiteral("stt/language"), QStringLiteral("auto")).toString();
     m_sttThreads = m_settings.value(QStringLiteral("stt/threads"), 0).toInt();
     m_sttTranslate = m_settings.value(QStringLiteral("stt/translate"), false).toBool();
-    m_offloadKvCache = m_settings.value(QStringLiteral("hardware/offloadKvCache"), true).toBool();
+    m_offloadKvCache = false;
+    m_settings.setValue(QStringLiteral("hardware/offloadKvCache"), false);
     m_guardrailMode = m_settings.value(QStringLiteral("hardware/guardrailMode"), 3).toInt(); // Default to Strict (index 3)
     m_apiServerEnabled = m_settings.value(QStringLiteral("api/serverEnabled"), false).toBool();
     m_apiServerAllowLan = m_settings.value(QStringLiteral("api/serverAllowLan"), false).toBool();
@@ -249,6 +265,21 @@ Settings::Settings(QObject *parent)
     if (!credentialError.isEmpty()) {
         Logger::error(QStringLiteral("Settings"), QStringLiteral("API credential migration failed: %1").arg(credentialError));
     }
+    m_gatewayUrl = m_settings.value(QStringLiteral("remote/gatewayUrl"), QString()).toString().trimmed();
+    credentialError.clear();
+    m_gatewayApiKey = SecureCredentialStore::migrateLegacy(
+        m_settings, QStringLiteral("remote-gateway"), QStringLiteral("remote/gatewayApiKey"), &credentialError);
+    if (!credentialError.isEmpty()) {
+        Logger::error(QStringLiteral("Settings"), QStringLiteral("Gateway credential migration failed: %1").arg(credentialError));
+    }
+    m_gatewayLlmModel = m_settings.value(QStringLiteral("remote/gatewayLlmModel"), QString()).toString().trimmed();
+    m_gatewayTranslationModel = m_settings.value(QStringLiteral("remote/gatewayTranslationModel"), QString()).toString().trimmed();
+    m_gatewaySttModel = m_settings.value(QStringLiteral("remote/gatewaySttModel"), QString()).toString().trimmed();
+    m_gatewayTtsModel = m_settings.value(QStringLiteral("remote/gatewayTtsModel"), QString()).toString().trimmed();
+    m_gatewayTtsVoice = m_settings.value(QStringLiteral("remote/gatewayTtsVoice"), QStringLiteral("alloy")).toString().trimmed();
+    // Local CPU is always usable without any API or remote-worker setup. A
+    // feature switches to its Colab GPU worker only when the user connects it.
+    m_remoteFirstMode = m_settings.value(QStringLiteral("remote/remoteFirstMode"), false).toBool();
     // Network activity must be an explicit choice. Existing installs without
     // this key therefore default to no automatic update request.
     m_automaticUpdateChecks = m_settings.value(QStringLiteral("updates/automaticChecks"), false).toBool();
@@ -268,9 +299,11 @@ QString Settings::device() const
 
 void Settings::setDevice(const QString &v)
 {
-    if (m_device != v) {
-        m_device = v;
-        m_settings.setValue(QStringLiteral("engine/device"), v);
+    Q_UNUSED(v);
+    const QString cpu = QStringLiteral("cpu");
+    if (m_device != cpu) {
+        m_device = cpu;
+        m_settings.setValue(QStringLiteral("engine/device"), cpu);
         m_settings.sync();
         emit deviceChanged();
     }
@@ -541,9 +574,10 @@ bool Settings::offloadKvCache() const
 
 void Settings::setOffloadKvCache(bool v)
 {
-    if (m_offloadKvCache != v) {
-        m_offloadKvCache = v;
-        m_settings.setValue(QStringLiteral("hardware/offloadKvCache"), v);
+    Q_UNUSED(v);
+    if (m_offloadKvCache) {
+        m_offloadKvCache = false;
+        m_settings.setValue(QStringLiteral("hardware/offloadKvCache"), false);
         m_settings.sync();
         emit offloadKvCacheChanged();
     }
@@ -630,6 +664,136 @@ void Settings::setApiServerApiKey(const QString &v)
     }
 }
 
+QString Settings::gatewayUrl() const
+{
+    return m_gatewayUrl;
+}
+
+void Settings::setGatewayUrl(const QString &v)
+{
+    const QString normalized = v.trimmed();
+    if (m_gatewayUrl == normalized) return;
+    m_gatewayUrl = normalized;
+    m_settings.setValue(QStringLiteral("remote/gatewayUrl"), normalized);
+    m_settings.sync();
+    emit gatewayUrlChanged();
+}
+
+QString Settings::gatewayApiKey() const
+{
+    return m_gatewayApiKey;
+}
+
+bool Settings::gatewayApiKeyConfigured() const
+{
+    return !m_gatewayApiKey.isEmpty();
+}
+
+bool Settings::setGatewayApiKey(const QString &v)
+{
+    const QString normalized = v.trimmed();
+    if (m_gatewayApiKey == normalized) return true;
+    QString credentialError;
+    if (!SecureCredentialStore::write(m_settings, QStringLiteral("remote-gateway"), normalized, &credentialError)) {
+        Logger::error(QStringLiteral("Settings"), QStringLiteral("Gateway credential was not persisted: %1").arg(credentialError));
+        return false;
+    }
+    m_gatewayApiKey = normalized;
+    m_settings.remove(QStringLiteral("remote/gatewayApiKey"));
+    m_settings.sync();
+    emit gatewayApiKeyChanged();
+    return true;
+}
+
+QString Settings::gatewayLlmModel() const
+{
+    return m_gatewayLlmModel;
+}
+
+void Settings::setGatewayLlmModel(const QString &v)
+{
+    const QString normalized = v.trimmed();
+    if (m_gatewayLlmModel == normalized) return;
+    m_gatewayLlmModel = normalized;
+    m_settings.setValue(QStringLiteral("remote/gatewayLlmModel"), normalized);
+    m_settings.sync();
+    emit gatewayLlmModelChanged();
+}
+
+QString Settings::gatewayTranslationModel() const
+{
+    return m_gatewayTranslationModel;
+}
+
+void Settings::setGatewayTranslationModel(const QString &v)
+{
+    const QString normalized = v.trimmed();
+    if (m_gatewayTranslationModel == normalized) return;
+    m_gatewayTranslationModel = normalized;
+    m_settings.setValue(QStringLiteral("remote/gatewayTranslationModel"), normalized);
+    m_settings.sync();
+    emit gatewayTranslationModelChanged();
+}
+
+QString Settings::gatewaySttModel() const
+{
+    return m_gatewaySttModel;
+}
+
+void Settings::setGatewaySttModel(const QString &v)
+{
+    const QString normalized = v.trimmed();
+    if (m_gatewaySttModel == normalized) return;
+    m_gatewaySttModel = normalized;
+    m_settings.setValue(QStringLiteral("remote/gatewaySttModel"), normalized);
+    m_settings.sync();
+    emit gatewaySttModelChanged();
+}
+
+QString Settings::gatewayTtsModel() const
+{
+    return m_gatewayTtsModel;
+}
+
+void Settings::setGatewayTtsModel(const QString &v)
+{
+    const QString normalized = v.trimmed();
+    if (m_gatewayTtsModel == normalized) return;
+    m_gatewayTtsModel = normalized;
+    m_settings.setValue(QStringLiteral("remote/gatewayTtsModel"), normalized);
+    m_settings.sync();
+    emit gatewayTtsModelChanged();
+}
+
+QString Settings::gatewayTtsVoice() const
+{
+    return m_gatewayTtsVoice;
+}
+
+void Settings::setGatewayTtsVoice(const QString &v)
+{
+    const QString normalized = v.trimmed();
+    if (m_gatewayTtsVoice == normalized) return;
+    m_gatewayTtsVoice = normalized;
+    m_settings.setValue(QStringLiteral("remote/gatewayTtsVoice"), normalized);
+    m_settings.sync();
+    emit gatewayTtsVoiceChanged();
+}
+
+bool Settings::remoteFirstMode() const
+{
+    return m_remoteFirstMode;
+}
+
+void Settings::setRemoteFirstMode(bool v)
+{
+    if (m_remoteFirstMode == v) return;
+    m_remoteFirstMode = v;
+    m_settings.setValue(QStringLiteral("remote/remoteFirstMode"), v);
+    m_settings.sync();
+    emit remoteFirstModeChanged();
+}
+
 bool Settings::automaticUpdateChecks() const
 {
     return m_automaticUpdateChecks;
@@ -699,21 +863,7 @@ qint64 Settings::modelsPathAvailableBytes() const
 
 bool Settings::externalMediaToolsAvailable() const
 {
-    const QString configuredFfmpeg = qEnvironmentVariable("LASTUDIO_FFMPEG");
-    const QString ffmpeg = !configuredFfmpeg.isEmpty() && QFileInfo(configuredFfmpeg).isFile()
-        ? configuredFfmpeg : QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
-    if (ffmpeg.isEmpty()) return false;
-    const QString configuredFfprobe = qEnvironmentVariable("LASTUDIO_FFPROBE");
-    if (!configuredFfprobe.isEmpty() && QFileInfo(configuredFfprobe).isFile()) return true;
-    const QFileInfo ffmpegInfo(ffmpeg);
-    const QString sibling = QDir(ffmpegInfo.absolutePath()).filePath(
-        QStringLiteral("ffprobe")
-#ifdef Q_OS_WIN
-        + QStringLiteral(".exe")
-#endif
-    );
-    return QFileInfo(sibling).isFile()
-        || !QStandardPaths::findExecutable(QStringLiteral("ffprobe")).isEmpty();
+    return MediaRuntimeLocator::resolve().isComplete();
 }
 
 } // namespace LAStudio

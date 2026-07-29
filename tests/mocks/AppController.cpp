@@ -1,5 +1,6 @@
 #include "controllers/app/AppController.h"
 #include "core/PathUtils.h"
+#include "remote/ColabSession.h"
 
 namespace LAStudio {
 
@@ -29,8 +30,16 @@ AppController::AppController(QObject *parent)
     m_history = new HistoryService(m_tts, m_recorder, this);
     m_modelsMigration = new ModelsPathMigrationService(m_settings, m_models, m_downloads, m_stt, m_tts, this);
     m_files = new FileAccessService(this);
-    m_downloadInstall = new DownloadInstallService(m_downloads, m_models, m_runtimes, this);
+    m_downloadInstall = new DownloadInstallService(m_downloads, m_models, m_runtimes, m_settings, this);
     m_alignment = new AlignmentExecutionService(m_runtimes, m_models, this);
+    m_colabSession = new ColabSession(this);
+    m_colabTtsSession = new ColabSession(this);
+    m_colabVoiceCloneSession = new ColabSession(this);
+    m_colabVoiceDesignSession = new ColabSession(this);
+    m_colabAlignmentSession = new ColabSession(this);
+    m_colabSeparationSession = new ColabSession(this);
+    m_colabTranslationSession = new ColabSession(this);
+    m_colabChatSession = new ColabSession(this);
     m_voiceIsolator = new VoiceIsolatorController(this);
     m_sessionRegistry = new ModelSessionRegistry(m_stt, m_tts, m_alignment, m_voiceIsolator, this);
     m_voiceClonePresets = new VoiceClonePresetService(this);
@@ -64,7 +73,9 @@ void AppController::copyToClipboard(const QString &) {}
 QString AppController::logsDir() const { return PathUtils::logsDir(); }
 QString AppController::dataDir() const { return PathUtils::dataDir(); }
 QString AppController::licensesDir() const { return PathUtils::dataDir(); }
+QString AppController::colabNotebooksDir() const { return QString(); }
 QString AppController::createProblemReport() { return QString(); }
+bool AppController::openColabNotebooksDirectory() { return false; }
 void AppController::onError(const QString &) {}
 
 } // namespace LAStudio

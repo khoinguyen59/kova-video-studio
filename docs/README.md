@@ -5,6 +5,7 @@ This directory contains public-facing documentation for LA Studio.
 ## Available Documents
 
 - [Build from Source](BUILD.md): Windows build prerequisites and bootstrap commands.
+- [Remote Inference Workers](REMOTE_WORKERS.md): independent API Gateway and direct Colab GPU setup.
 - [Catalog and Local Registry Architecture](architecture/catalog_registry.md): Catalog source layout, generated runtime bundle, and local registry design.
 - [Examples](../examples/README.md): Prompt and settings examples for manual model validation and future smoke tests.
 

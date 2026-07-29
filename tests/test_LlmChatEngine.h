@@ -10,6 +10,8 @@ class TestLlmChatEngine final : public QObject
 
 private slots:
     void rejectsMissingLocalRuntime();
+    void gatewayChatUsesOpenAiCompatibleEndpoint();
+    void gatewayChatRejectsIncompleteConfiguration();
 };
 
 } // namespace LAStudio

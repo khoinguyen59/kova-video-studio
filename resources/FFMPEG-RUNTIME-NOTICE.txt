@@ -1,0 +1,19 @@
+LA Studio bundles an unmodified FFmpeg/FFprobe runtime for Windows x64.
+
+Runtime provenance
+------------------
+Build provider: BtbN FFmpeg Builds
+Release tag: autobuild-2026-07-28-13-32
+Archive: ffmpeg-N-125829-gfe953596e9-win64-lgpl-shared.zip
+SHA-256: 51af6309b252e9eddb4a68b0c4b2122f4b1150a558ab390bbbb9e49cf3bc2d08
+Archive URL:
+https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-07-28-13-32/ffmpeg-N-125829-gfe953596e9-win64-lgpl-shared.zip
+
+Corresponding source and build information
+------------------------------------------
+FFmpeg source: https://github.com/FFmpeg/FFmpeg
+BtbN build recipes: https://github.com/BtbN/FFmpeg-Builds/tree/8c736b2d6fe5da2a10a8896d01e53bfb0ca4f665
+
+The packaged runtime's LICENSE.txt is installed beside this notice. The
+runtime is dynamically linked (the shared build), and LA Studio does not link
+its own code into the FFmpeg libraries.

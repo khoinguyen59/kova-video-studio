@@ -100,6 +100,10 @@ jobs:
         shell: pwsh
         run: python scripts/verify_catalog_checksums.py
 
+      - name: Verify exact-model Colab notebook contracts
+        shell: pwsh
+        run: .\scripts\verify_remote_feature_surface.ps1
+
       - name: Verify translation catalogs are current
         shell: pwsh
         run: |
@@ -154,12 +158,12 @@ jobs:
             throw "QT_ROOT_DIR was not exported by install-qt-action."
           }
           $qtRoot = Split-Path -Parent $env:QT_ROOT_DIR
-          if ($env:GITHUB_REF_NAME -notmatch '^v(\d+\.\d+\.\d+)(-(alpha|beta|rc)\.[1-9][0-9]*)?$') {
+          if ($env:GITHUB_REF_NAME -notmatch '^v(\d+\.\d+\.\d+\.\d+)(-(alpha|beta|rc)\.[1-9][0-9]*)?$') {
             throw "Unsupported release tag format: $env:GITHUB_REF_NAME"
           }
           $version = $Matches[1]
           $releaseSuffix = $Matches[2]
-          .\scripts\package.ps1 -Preset windows-msvc-release -QtRoot $qtRoot -VcpkgRoot $env:VCPKG_ROOT -LlamaCppSourceDir "$env:GITHUB_WORKSPACE\.deps\llama.cpp" -Version $version -ReleaseSuffix $releaseSuffix -SkipInstaller
+          .\scripts\package.ps1 -Preset windows-msvc-release -QtRoot $qtRoot -VcpkgRoot $env:VCPKG_ROOT -LlamaCppSourceDir "$env:GITHUB_WORKSPACE\.deps\llama.cpp" -Version $version -ReleaseSuffix $releaseSuffix -StageDir out\stage -SkipInstaller
 
       - name: Upload unsigned application payload for SignPath
         id: upload-unsigned-application
@@ -167,7 +171,7 @@ jobs:
         with:
           name: LA-Studio-${{ github.ref_name }}-unsigned-application
           path: |
-            out/stage/bin/LA Studio.exe
+            out/stage/bin/LA-Studio-*.exe
             out/stage/bin/LAStudioRuntimeHost.exe
           if-no-files-found: error
           retention-days: 1
@@ -190,12 +194,17 @@ jobs:
           SIGNPATH_CERTIFICATE_SUBJECT: ${{ vars.SIGNPATH_CERTIFICATE_SUBJECT }}
         run: |
           $signedRoot = 'out\signed-application'
-          foreach ($name in @('LA Studio.exe', 'LAStudioRuntimeHost.exe')) {
-            $matches = @(Get-ChildItem -LiteralPath $signedRoot -Filter $name -Recurse -File)
+          $applicationMatches = @(Get-ChildItem -LiteralPath $signedRoot -Filter 'LA-Studio-*.exe' -Recurse -File)
+          $hostMatches = @(Get-ChildItem -LiteralPath $signedRoot -Filter 'LAStudioRuntimeHost.exe' -Recurse -File)
+          foreach ($entry in @(
+              @{ Label = 'application'; Matches = $applicationMatches },
+              @{ Label = 'runtime host'; Matches = $hostMatches }
+          )) {
+            $matches = @($entry.Matches)
             if ($matches.Count -ne 1) {
-              throw "Expected exactly one signed '$name' in '$signedRoot'; found $($matches.Count)."
+              throw "Expected exactly one signed $($entry.Label) executable in '$signedRoot'; found $($matches.Count)."
             }
-            $target = Join-Path 'out\stage\bin' $name
+            $target = Join-Path 'out\stage\bin' $matches[0].Name
             Copy-Item -LiteralPath $matches[0].FullName -Destination $target -Force
             $signature = Get-AuthenticodeSignature -LiteralPath $target
             if ($signature.Status -ne 'Valid') {

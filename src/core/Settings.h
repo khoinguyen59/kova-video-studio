@@ -35,6 +35,14 @@ class Settings : public QObject {
     Q_PROPERTY(bool apiServerAllowLan READ apiServerAllowLan WRITE setApiServerAllowLan NOTIFY apiServerAllowLanChanged)
     Q_PROPERTY(int apiServerPort READ apiServerPort WRITE setApiServerPort NOTIFY apiServerPortChanged)
     Q_PROPERTY(QString apiServerApiKey READ apiServerApiKey WRITE setApiServerApiKey NOTIFY apiServerApiKeyChanged)
+    Q_PROPERTY(QString gatewayUrl READ gatewayUrl WRITE setGatewayUrl NOTIFY gatewayUrlChanged)
+    Q_PROPERTY(bool gatewayApiKeyConfigured READ gatewayApiKeyConfigured NOTIFY gatewayApiKeyChanged)
+    Q_PROPERTY(QString gatewayLlmModel READ gatewayLlmModel WRITE setGatewayLlmModel NOTIFY gatewayLlmModelChanged)
+    Q_PROPERTY(QString gatewayTranslationModel READ gatewayTranslationModel WRITE setGatewayTranslationModel NOTIFY gatewayTranslationModelChanged)
+    Q_PROPERTY(QString gatewaySttModel READ gatewaySttModel WRITE setGatewaySttModel NOTIFY gatewaySttModelChanged)
+    Q_PROPERTY(QString gatewayTtsModel READ gatewayTtsModel WRITE setGatewayTtsModel NOTIFY gatewayTtsModelChanged)
+    Q_PROPERTY(QString gatewayTtsVoice READ gatewayTtsVoice WRITE setGatewayTtsVoice NOTIFY gatewayTtsVoiceChanged)
+    Q_PROPERTY(bool remoteFirstMode READ remoteFirstMode WRITE setRemoteFirstMode NOTIFY remoteFirstModeChanged)
     Q_PROPERTY(bool automaticUpdateChecks READ automaticUpdateChecks WRITE setAutomaticUpdateChecks NOTIFY automaticUpdateChecksChanged)
     Q_PROPERTY(bool updateCheckConsentAsked READ updateCheckConsentAsked WRITE setUpdateCheckConsentAsked NOTIFY updateCheckConsentAskedChanged)
     Q_PROPERTY(bool onboardingComplete READ onboardingComplete WRITE setOnboardingComplete NOTIFY onboardingCompleteChanged)
@@ -120,6 +128,25 @@ public:
     QString apiServerApiKey() const;
     void setApiServerApiKey(const QString &v);
 
+    QString gatewayUrl() const;
+    void setGatewayUrl(const QString &v);
+    QString gatewayApiKey() const;
+    bool gatewayApiKeyConfigured() const;
+    Q_INVOKABLE bool setGatewayApiKey(const QString &v);
+    QString gatewayLlmModel() const;
+    void setGatewayLlmModel(const QString &v);
+    QString gatewayTranslationModel() const;
+    void setGatewayTranslationModel(const QString &v);
+    QString gatewaySttModel() const;
+    void setGatewaySttModel(const QString &v);
+    QString gatewayTtsModel() const;
+    void setGatewayTtsModel(const QString &v);
+    QString gatewayTtsVoice() const;
+    void setGatewayTtsVoice(const QString &v);
+
+    bool remoteFirstMode() const;
+    void setRemoteFirstMode(bool v);
+
     bool automaticUpdateChecks() const;
     void setAutomaticUpdateChecks(bool v);
 
@@ -162,6 +189,14 @@ signals:
     void apiServerAllowLanChanged();
     void apiServerPortChanged();
     void apiServerApiKeyChanged();
+    void gatewayUrlChanged();
+    void gatewayApiKeyChanged();
+    void gatewayLlmModelChanged();
+    void gatewayTranslationModelChanged();
+    void gatewaySttModelChanged();
+    void gatewayTtsModelChanged();
+    void gatewayTtsVoiceChanged();
+    void remoteFirstModeChanged();
     void automaticUpdateChecksChanged();
     void updateCheckConsentAskedChanged();
     void onboardingCompleteChanged();
@@ -194,6 +229,14 @@ private:
     bool m_apiServerAllowLan;
     int m_apiServerPort;
     QString m_apiServerApiKey;
+    QString m_gatewayUrl;
+    QString m_gatewayApiKey;
+    QString m_gatewayLlmModel;
+    QString m_gatewayTranslationModel;
+    QString m_gatewaySttModel;
+    QString m_gatewayTtsModel;
+    QString m_gatewayTtsVoice;
+    bool m_remoteFirstMode = false;
     bool m_automaticUpdateChecks;
     bool m_updateCheckConsentAsked;
     bool m_onboardingComplete = false;

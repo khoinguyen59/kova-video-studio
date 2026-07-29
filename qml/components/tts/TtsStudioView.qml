@@ -15,6 +15,9 @@ StudioShell {
     selectedFamilyId: family ? family.id : ""
     studioContext: null
     studioReady: false
+    // Let users pair independent Gateway/Colab routes without first loading
+    // a local TTS family.
+    settingsRequiresReady: false
     isSettingsOpen: true
     showLeftPanel: true
     isLeftPanelOpen: true
@@ -27,12 +30,28 @@ StudioShell {
 
     property string playingType: "none"
     property string detectedLanguage: "en"
-    property bool outputReady: AppController.tts.lastSampleCount > 0 && !AppController.tts.isCloneAction
+    // Selection is presentation state only.  Each remote controller owns its
+    // own connection and credentials, so choosing a route must never tear
+    // down the other one.
+    property string selectedRemoteProvider: ""
+    readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
+    readonly property bool gatewayActive: AppController.gatewayTts && AppController.gatewayTts.gatewayActive
+    readonly property bool colabActive: AppController.colabTts && AppController.colabTts.colabActive
+    readonly property var remoteTts: selectedRemoteProvider === "gateway" && gatewayActive
+                                 ? AppController.gatewayTts
+                                 : (selectedRemoteProvider === "colab" && colabActive
+                                    ? AppController.colabTts : null)
+    readonly property bool remoteActive: remoteTts !== null
+    readonly property string remoteTtsLabel: selectedRemoteProvider === "gateway"
+                                             ? qsTr("API Gateway") : qsTr("Colab GPU")
+    property bool outputReady: remoteActive
+                              ? remoteTts.lastSampleCount > 0
+                              : (AppController.tts.lastSampleCount > 0 && !AppController.tts.isCloneAction)
     property string lastSynthesizedText: ""
     property bool srtVoiceMode: false
     property real mainHorizontalInset: Theme.paddingXL
     property real promptInset: Theme.paddingSmall
-    readonly property bool inputsLocked: AppController.tts.processing
+    readonly property bool inputsLocked: remoteActive ? remoteTts.processing : AppController.tts.processing
     readonly property var nonVerbalTags: {
         if (family && family.studio && family.studio[root.capability] && family.studio[root.capability].nonVerbalTags)
             return family.studio[root.capability].nonVerbalTags
@@ -45,6 +64,26 @@ StudioShell {
     signal ejectRequested()
     signal modelSwitchRequested(string familyId)
     signal runtimeSwitchRequested(string runtimeId)
+
+    function selectRemoteProvider(provider) {
+        if (provider === "gateway" && gatewayActive)
+            selectedRemoteProvider = "gateway"
+        else if (provider === "colab" && colabActive)
+            selectedRemoteProvider = "colab"
+        else if (provider === "")
+            selectedRemoteProvider = ""
+    }
+
+    onGatewayActiveChanged: {
+        if (!gatewayActive && selectedRemoteProvider === "gateway")
+            selectedRemoteProvider = ""
+    }
+    onColabActiveChanged: {
+        if (!colabActive && selectedRemoteProvider === "colab")
+            selectedRemoteProvider = ""
+        else if (colabActive)
+            selectedRemoteProvider = "colab"
+    }
 
     onRequestBack: root.backToGallery()
     onRequestConfigurationPicker: root.backToGallery()
@@ -68,8 +107,10 @@ StudioShell {
     }
 
     function outputDurationText() {
-        if (!root.outputReady || AppController.tts.sampleRate <= 0) return "--"
-        var seconds = AppController.tts.lastSampleCount / AppController.tts.sampleRate
+        var rate = root.remoteActive ? root.remoteTts.sampleRate : AppController.tts.sampleRate
+        var count = root.remoteActive ? root.remoteTts.lastSampleCount : AppController.tts.lastSampleCount
+        if (!root.outputReady || rate <= 0) return "--"
+        var seconds = count / rate
         if (seconds < 60) return seconds.toFixed(1) + "s"
         var minutes = Math.floor(seconds / 60)
         var remain = Math.floor(seconds % 60)
@@ -77,7 +118,7 @@ StudioShell {
     }
 
     function sampleCountText() {
-        var count = AppController.tts.lastSampleCount
+        var count = root.remoteActive ? root.remoteTts.lastSampleCount : AppController.tts.lastSampleCount
         if (count >= 1000000) return (count / 1000000).toFixed(1) + "M samples"
         if (count >= 1000) return (count / 1000).toFixed(1) + "k samples"
         return count + " samples"
@@ -127,6 +168,7 @@ StudioShell {
     Connections {
         target: AppController.tts
         function onSynthesisFinished(pcm16, sampleRate) {
+            if (root.remoteActive) return;
             if (AppController.tts.lastGenerationMode !== "tts") return;
             // Subtitle synthesis is a single batch workflow. Its per-cue
             // completions are previews, not standalone TTS history entries.
@@ -426,12 +468,16 @@ StudioShell {
                         iconName: "spark"
                         Layout.preferredWidth: 180
                         Layout.preferredHeight: 42
-                        visible: !AppController.tts.processing
-                        enabled: (root.studioController ? root.studioController.canProcess : false) && AppController.tts.modelLoaded && inputText.text.length > 0 && !root.inputsLocked
+                        visible: !root.inputsLocked
+                        enabled: (root.remoteActive || (!root.remoteFirstMode && (root.studioController ? root.studioController.canProcess : false) && AppController.tts.modelLoaded)) && inputText.text.length > 0 && !root.inputsLocked
                         onClicked: {
                             root.lastSynthesizedText = inputText.text
-                            var synSettings = settingsPanel.getSynthesisSettings()
-                            AppController.tts.synthesize(inputText.text.normalize("NFC"), 0, 1.0, synSettings)
+                            if (root.remoteActive) {
+                                root.remoteTts.synthesize(inputText.text.normalize("NFC"), 1.0)
+                            } else if (!root.remoteFirstMode) {
+                                var synSettings = settingsPanel.getSynthesisSettings()
+                                AppController.tts.synthesize(inputText.text.normalize("NFC"), 0, 1.0, synSettings)
+                            }
                         }
                     }
 
@@ -441,8 +487,11 @@ StudioShell {
                         buttonColor: Theme.danger
                         Layout.preferredWidth: 180
                         Layout.preferredHeight: 42
-                        visible: AppController.tts.processing
-                        onClicked: AppController.tts.cancelProcessing()
+                        visible: root.inputsLocked
+                        onClicked: {
+                            if (root.remoteActive) root.remoteTts.cancelProcessing()
+                            else AppController.tts.cancelProcessing()
+                        }
                     }
                 }
 
@@ -451,23 +500,24 @@ StudioShell {
                     Layout.alignment: Qt.AlignHCenter
                     family: root.family
                     outputReady: root.outputReady
-                    samples: AppController.tts.lastSamplePreview
+                    samples: root.remoteActive ? root.remoteTts.lastSamplePreview : AppController.tts.lastSamplePreview
                     durationText: root.outputDurationText()
-                    sampleRate: AppController.tts.sampleRate
+                    sampleRate: root.remoteActive ? root.remoteTts.sampleRate : AppController.tts.sampleRate
                     sampleCountText: root.sampleCountText()
                     isPlaying: root.playingType === "tts" && AppController.player.playing
                     isPaused: root.playingType === "tts" && AppController.player.paused
                     playbackPositionMs: root.playingType === "tts" ? AppController.player.playbackPositionMs : 0
                     playbackDurationMs: root.playingType === "tts" ? AppController.player.playbackDurationMs : 0
-                    audioDurationMs: AppController.tts.sampleRate > 0
-                                     ? Math.round(AppController.tts.lastSampleCount * 1000 / AppController.tts.sampleRate) : 0
-                    processing: AppController.tts.processing
-                    generationProgress: AppController.tts.generationProgress
-                    progressEstimated: AppController.tts.generationProgressEstimated
-                    progressLabel: AppController.tts.generationProgressLabel
+                    audioDurationMs: (root.remoteActive ? root.remoteTts.sampleRate : AppController.tts.sampleRate) > 0
+                                     ? Math.round((root.remoteActive ? root.remoteTts.lastSampleCount : AppController.tts.lastSampleCount) * 1000 / (root.remoteActive ? root.remoteTts.sampleRate : AppController.tts.sampleRate)) : 0
+                    processing: root.inputsLocked
+                    generationProgress: root.remoteActive ? root.remoteTts.progress : AppController.tts.generationProgress
+                    progressEstimated: root.remoteActive ? true : AppController.tts.generationProgressEstimated
+                    progressLabel: root.remoteActive ? qsTr("Generating with %1").arg(root.remoteTtsLabel) : AppController.tts.generationProgressLabel
                     onPlayClicked: {
                         root.playingType = "tts"
-                        AppController.preview.playLastTts()
+                        if (root.remoteActive) root.remoteTts.playOutput()
+                        else AppController.preview.playLastTts()
                     }
                     onPauseClicked: AppController.player.pause()
                     onResumeClicked: AppController.player.resume()
@@ -477,7 +527,8 @@ StudioShell {
                         if (AppController.player.playing)
                             AppController.player.seek(positionMs)
                         else
-                            AppController.preview.playLastTtsAtPosition(positionMs)
+                            if (root.remoteActive) root.remoteTts.playOutput(positionMs)
+                            else AppController.preview.playLastTtsAtPosition(positionMs)
                     }
                     onSaveClicked: saveDialog.open()
                 }
@@ -582,6 +633,8 @@ StudioShell {
                 backendType: root.resolveBackendType()
                 locked: root.inputsLocked
                 onCloseRequested: root.isSettingsOpen = false
+                selectedRemoteProvider: root.selectedRemoteProvider
+                onRemoteProviderSelected: function(provider) { root.selectRemoteProvider(provider) }
                 }
             }
 
@@ -593,6 +646,8 @@ StudioShell {
                 suggestedLanguage: root.detectedLanguage
                 backendType: root.resolveBackendType()
                 locked: AppController.subtitleVoice ? AppController.subtitleVoice.processing : false
+                showGatewaySettings: false
+                showColabSettings: false
                 onCloseRequested: root.isSettingsOpen = false
             }
         }
@@ -603,7 +658,10 @@ StudioShell {
         title: "Save Audio File"
         fileMode: FileDialog.SaveFile
         nameFilters: ["WAV files (*.wav)"]
-        onAccepted: AppController.preview.saveWav(selectedFile.toString())
+        onAccepted: {
+            if (root.remoteActive) root.remoteTts.saveWav(selectedFile.toString())
+            else AppController.preview.saveWav(selectedFile.toString())
+        }
     }
 
     ExamplePickerDialog {

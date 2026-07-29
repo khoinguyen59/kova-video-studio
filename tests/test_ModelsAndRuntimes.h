@@ -24,6 +24,7 @@ private slots:
     void testStudioSelectionRepositoryRemembersFilesPerFamily();
     void testVieNeuV3CatalogIncludesMossExternalData();
     void testCapabilityFamilyModelAcceptsExistingModelFiles();
+    void testCapabilityFamilyModelIgnoresEmptyInitialSelection();
     void testQwen3TtsUsesAutomaticFrameLimit();
     void testQwen3TtsDoesNotExposeUnsupportedLengthScale();
     void testLogViewServicePending();

@@ -17,6 +17,12 @@ Rectangle {
     property string pendingRuntimeId: ""
     property string pendingRuntimeVersion: ""
     property var initialSelectedFiles: ({})
+    // Hosts opt in when the selected capability has a model-specific Colab
+    // worker. Local download/install remains a separate CPU-only path.
+    property bool colabModelSelectionEnabled: false
+    // Local installs are a deliberate development-mode choice. This gallery
+    // must not start Hugging Face/GitHub downloads while remote-first is on.
+    readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
 
     property var familiesModel: null
 
@@ -33,6 +39,7 @@ Rectangle {
     signal familySelected(string familyId)
     signal openStudio(string capability, string familyId)
     signal configurationAccepted(string familyId, string runtimeId, string runtimeVersion, var selectedFiles)
+    signal colabConfigurationAccepted(string familyId, bool openNotebook)
 
     color: Theme.background
 
@@ -45,15 +52,16 @@ Rectangle {
     onSelectedFamilyIdChanged: {
         if (activeModel) {
             activeModel.setSelectedFamilyId(selectedFamilyId)
-            if (initialSelectedFiles && Object.keys(initialSelectedFiles).length > 0) {
-                activeModel.setInitialSelectedFiles(selectedFamilyId, initialSelectedFiles)
-            }
         }
         syncPendingRuntime(true)
     }
 
     onInitialSelectedFilesChanged: {
-        if (activeModel && selectedFamilyId !== "") {
+        // Hosts intentionally set this to {} while changing cards.  Do not
+        // forward that placeholder to C++: it neither selects a file nor
+        // should force a full synchronous catalogue refresh.
+        if (activeModel && selectedFamilyId !== "" && initialSelectedFiles
+                && Object.keys(initialSelectedFiles).length > 0) {
             activeModel.setInitialSelectedFiles(selectedFamilyId, initialSelectedFiles)
         }
     }
@@ -103,12 +111,80 @@ Rectangle {
         return firstId !== "" ? activeModel.itemForFamily(firstId) : null
     }
 
+    function qmlSmokeDetailMatchesSelection() {
+        return detailPanel.hasFamily
+                && detailPanel.f.familyId === selectedFamilyId
+    }
+
     function selectedFilesForFamily(familyItem) {
-        return familyItem && familyItem.selectedFiles ? familyItem.selectedFiles : ({})
+        return root.hasFamilyValue(familyItem) && familyItem.selectedFiles !== undefined
+                ? familyItem.selectedFiles : ({})
+    }
+
+    function hasFamilyValue(familyItem) {
+        return familyItem !== null && familyItem !== undefined
+                && familyItem.familyId !== undefined && familyItem.familyId !== ""
+    }
+
+    function hasColabModelAction(familyItem) {
+        return root.colabModelSelectionEnabled
+                && root.hasFamilyValue(familyItem)
+                && familyItem.familyCapability === root.capability
+    }
+
+    function localRuntimeOptions(familyItem) {
+        var options = root.hasFamilyValue(familyItem)
+                && familyItem.runtimeOptions !== undefined ? familyItem.runtimeOptions : []
+        if (!root.hasColabModelAction(familyItem)) return options
+        var cpu = []
+        for (var i = 0; i < options.length; ++i) {
+            var id = (options[i].id || "").toLowerCase()
+            var label = (options[i].label || "").toLowerCase()
+            if (id.indexOf("cpu") !== -1 || label === "cpu") cpu.push(options[i])
+        }
+        return cpu
+    }
+
+    function localInstallFamilyItem(familyItem) {
+        if (!root.hasColabModelAction(familyItem)) return familyItem
+        var localItem = {}
+        for (var key in familyItem) localItem[key] = familyItem[key]
+        localItem.runtimeOptions = root.localRuntimeOptions(familyItem)
+        return localItem
+    }
+
+    function localFamilyReady(familyItem) {
+        if (!root.hasColabModelAction(familyItem))
+            return root.hasFamilyValue(familyItem) && familyItem.ready === true
+        var files = familyItem.requiredFiles || []
+        for (var i = 0; i < files.length; ++i) {
+            if (!files[i].installed && files[i].installState !== 3) return false
+        }
+        var runtimes = root.localRuntimeOptions(familyItem)
+        for (var r = 0; r < runtimes.length; ++r) {
+            if (runtimes[r].compatible
+                    && (runtimes[r].installed || runtimes[r].installState === 3)) return true
+        }
+        return runtimes.length === 0
+    }
+
+    function localSetupInProgress(familyItem) {
+        if (!root.hasColabModelAction(familyItem)) return root.setupInProgress(familyItem)
+        var localItem = root.localInstallFamilyItem(familyItem)
+        return root.setupInProgress(localItem)
+    }
+
+    function selectFamilyForColab(openNotebook) {
+        var familyItem = detailPanel.f
+        if (!root.hasColabModelAction(familyItem)) return
+        root.runWithLicenseConsent(familyItem, function() {
+            root.colabConfigurationAccepted(familyItem.familyId, openNotebook)
+        })
     }
 
     function licenseInfo(familyItem) {
-        var metadata = familyItem ? (familyItem.rawMetadata || familyItem) : ({})
+        var metadata = root.hasFamilyValue(familyItem)
+                ? (familyItem.rawMetadata || familyItem) : ({})
         return {
             id: metadata.license || qsTr("Unknown"),
             url: metadata.licenseUrl || metadata.modelCardUrl || "",
@@ -202,7 +278,7 @@ Rectangle {
     }
 
     function openRuntimeVersionManager(runtime) {
-        if (!runtime) return
+        if (!runtime || (root.remoteFirstMode && !runtime.installed)) return
         runtimeVersionDialog.engineId = runtime.id || ""
         runtimeVersionDialog.engineName = runtime.name || qsTr("Runtime")
         runtimeVersionDialog.engineFamily = runtime.engineFamily || ""
@@ -210,24 +286,33 @@ Rectangle {
         runtimeVersionDialog.sourceUrl = runtime.source || ""
         runtimeVersionDialog.defaultVersion = runtime.latestVersion || runtime.defaultVersion || runtime.version || ""
         runtimeVersionDialog.availableVersions = runtime.availableVersions || []
-        runtimeVersionDialog.engineType = detailPanel.f && (detailPanel.f.familyCapability === "stt" || detailPanel.f.familyCapability === "voice-isolation")
-                                          ? "stt"
-                                          : (detailPanel.f && detailPanel.f.familyCapability === "forced-alignment" ? "alignment" : "tts")
-        runtimeVersionDialog.accentColor = detailPanel.f ? (detailPanel.f.accent || Theme.accent) : Theme.accent
+        runtimeVersionDialog.engineType = detailPanel.hasFamily && (detailPanel.f.familyCapability === "stt" || detailPanel.f.familyCapability === "voice-isolation")
+                                           ? "stt"
+                                           : (detailPanel.hasFamily && detailPanel.f.familyCapability === "forced-alignment" ? "alignment" : "tts")
+        runtimeVersionDialog.accentColor = detailPanel.hasFamily ? (detailPanel.f.accent || Theme.accent) : Theme.accent
         runtimeVersionDialog.open()
     }
 
     function syncPendingRuntime(force) {
         var item = selectedFamilyItem()
         if (!item) return
+        var runtimeOptions = root.localRuntimeOptions(item)
         if (!force && pendingRuntimeId !== "") {
-            for (var i = 0; i < item.runtimeOptions.length; i++) {
-                var current = item.runtimeOptions[i]
+            for (var i = 0; i < runtimeOptions.length; i++) {
+                var current = runtimeOptions[i]
                 if (current.id === pendingRuntimeId && current.compatible && current.installed) return
             }
         }
-        pendingRuntimeId = item.preferredRuntimeId || ""
-        pendingRuntimeVersion = item.preferredRuntimeVersion || ""
+        for (var r = 0; r < runtimeOptions.length; ++r) {
+            var candidate = runtimeOptions[r]
+            if (candidate.compatible && candidate.installed) {
+                pendingRuntimeId = candidate.id || ""
+                pendingRuntimeVersion = candidate.version || ""
+                return
+            }
+        }
+        pendingRuntimeId = ""
+        pendingRuntimeVersion = ""
     }
 
     function selectedStatus() {
@@ -242,7 +327,7 @@ Rectangle {
     }
 
     function setupInProgress(familyItem) {
-        if (!familyItem) return false
+        if (!root.hasFamilyValue(familyItem)) return false
         var files = familyItem.requiredFiles || []
         for (var i = 0; i < files.length; i++) {
             if (files[i].installState === 1 || files[i].installState === 2) return true
@@ -255,27 +340,34 @@ Rectangle {
     }
 
     function primaryActionText(familyItem) {
-        if (!familyItem) return qsTr("Use")
-        if (familyItem.ready) return qsTr("Use")
-        if (root.setupInProgress(familyItem)) return qsTr("Installing...")
-        return qsTr("Quick install")
+        if (!root.hasFamilyValue(familyItem)) return qsTr("Use")
+        if (root.localFamilyReady(familyItem)) return root.hasColabModelAction(familyItem)
+                ? qsTr("Use local CPU") : qsTr("Use")
+        if (root.remoteFirstMode) return qsTr("Remote-first mode")
+        if (root.localSetupInProgress(familyItem)) return qsTr("Installing...")
+        return root.hasColabModelAction(familyItem)
+                ? qsTr("Install local CPU") : qsTr("Quick install")
     }
 
     function primaryActionIcon(familyItem) {
-        if (!familyItem) return "check"
-        if (familyItem.ready) return root.modalMode ? "check" : "chevron-right"
-        if (root.setupInProgress(familyItem)) return "download"
+        if (!root.hasFamilyValue(familyItem)) return "check"
+        if (root.localFamilyReady(familyItem)) return root.modalMode ? "check" : "chevron-right"
+        if (root.remoteFirstMode) return "cloud"
+        if (root.localSetupInProgress(familyItem)) return "download"
         return "download"
     }
 
     function primaryActionEnabled(familyItem) {
-        if (!familyItem) return false
-        return familyItem.ready || familyItem.statusKind !== "incompatible" || root.setupInProgress(familyItem)
+        if (!root.hasFamilyValue(familyItem)) return false
+        if (root.remoteFirstMode && !root.localFamilyReady(familyItem)) return false
+        return root.localFamilyReady(familyItem)
+                || familyItem.statusKind !== "incompatible"
+                || root.localSetupInProgress(familyItem)
     }
 
     function useSelectedFamily() {
         var familyItem = detailPanel.f
-        if (!familyItem || !familyItem.ready) return
+        if (!root.hasFamilyValue(familyItem) || !root.localFamilyReady(familyItem)) return
         if (root.modalMode) {
             var runtimeId = root.pendingRuntimeId !== "" ? root.pendingRuntimeId : familyItem.preferredRuntimeId
             var runtimeVersion = root.pendingRuntimeVersion !== "" ? root.pendingRuntimeVersion : familyItem.preferredRuntimeVersion
@@ -287,8 +379,8 @@ Rectangle {
 
     function installSelectedFamily() {
         var familyItem = detailPanel.f
-        if (!familyItem) return
-        if (root.setupInProgress(familyItem)) {
+        if (!root.hasFamilyValue(familyItem) || root.remoteFirstMode) return
+        if (root.localSetupInProgress(familyItem)) {
             Theme.requestShowDownloads()
             return
         }
@@ -300,7 +392,7 @@ Rectangle {
                 root.selectedFilesForFamily(familyItem))
         }
         root.runWithLicenseConsent(familyItem, function() {
-            if (AppController.downloadInstall.enqueueRecommendedSetup(familyItem)) {
+            if (AppController.downloadInstall.enqueueRecommendedSetup(root.localInstallFamilyItem(familyItem))) {
                 Theme.requestShowDownloads()
             }
         })
@@ -308,9 +400,9 @@ Rectangle {
 
     function runPrimaryAction() {
         var familyItem = detailPanel.f
-        if (!familyItem) return
-        if (familyItem.ready) root.useSelectedFamily()
-        else root.installSelectedFamily()
+        if (!root.hasFamilyValue(familyItem)) return
+        if (root.localFamilyReady(familyItem)) root.useSelectedFamily()
+        else if (!root.remoteFirstMode) root.installSelectedFamily()
     }
 
     function badgeFill(tone) {
@@ -918,8 +1010,17 @@ Rectangle {
             border.color: Theme.surfaceAlt
             border.width: 1
 
-            property var f: root.activeModel && root.activeModel.revision >= 0
+            // Never coerce f itself to bool. It is a large QVariantMap and Qt
+            // recursively converts the whole catalog entry when a bool binding
+            // reads it, which can pin the GUI thread in QV4 conversion/GC.
+            property var f: root.activeModel !== null
+                && root.selectedFamilyId !== ""
+                && root.activeModel.revision >= 0
                 ? root.selectedFamilyItem() : null
+            // The selected id can outlive a catalog refresh. Only expose a
+            // detail entry once the actual QVariantMap is present; bindings
+            // behind a hidden item are still evaluated by QML.
+            readonly property bool hasFamily: root.hasFamilyValue(f)
             readonly property int requiredFileComboWidth: root.modalMode
                 ? Math.max(220, Math.min(360, Math.round(width * 0.38)))
                 : 240
@@ -945,14 +1046,14 @@ Rectangle {
                             Layout.preferredHeight: 54
                             radius: 8
                             color: Theme.background
-                            border.color: detailPanel.f ? (detailPanel.f.accent || Theme.accent) : Theme.accent
+                            border.color: detailPanel.hasFamily ? (detailPanel.f.accent || Theme.accent) : Theme.accent
                             border.width: 1
                             clip: true
                             Image {
                                 id: detailThumbnail
                                 anchors.fill: parent
                                 anchors.margins: 7
-                                source: detailPanel.f ? detailPanel.f.thumbnailSource : ""
+                                source: detailPanel.hasFamily ? detailPanel.f.thumbnailSource : ""
                                 fillMode: Image.PreserveAspectFit
                                 smooth: true
                                 mipmap: true
@@ -960,8 +1061,8 @@ Rectangle {
                             }
                             LineIcon {
                                 anchors.centerIn: parent
-                                name: detailPanel.f ? detailPanel.f.iconName : "volume"
-                                color: detailPanel.f ? (detailPanel.f.accent || Theme.accent) : Theme.accent
+                                name: detailPanel.hasFamily ? detailPanel.f.iconName : "volume"
+                                color: detailPanel.hasFamily ? (detailPanel.f.accent || Theme.accent) : Theme.accent
                                 width: 24
                                 height: 24
                                 visible: !detailThumbnail.visible
@@ -978,8 +1079,8 @@ Rectangle {
                                 spacing: Theme.paddingSmall
 
                                 Text {
-                                    width: Math.min(implicitWidth, detailNameRow.width - (detailPanel.f && detailPanel.f.isLastudioPick ? 26 : 0))
-                                    text: detailPanel.f ? detailPanel.f.displayName : ""
+                                    width: Math.min(implicitWidth, detailNameRow.width - (detailPanel.hasFamily && detailPanel.f.isLastudioPick ? 26 : 0))
+                                    text: detailPanel.hasFamily ? detailPanel.f.displayName : ""
                                     color: Theme.textPrimary
                                     font.pixelSize: Theme.fontLarge
                                     font.bold: true
@@ -993,7 +1094,7 @@ Rectangle {
                                     color: "#3f7cff"
                                     border.color: "#a7c0ff"
                                     border.width: 1
-                                    visible: detailPanel.f && detailPanel.f.isLastudioPick
+                                    visible: detailPanel.hasFamily && detailPanel.f.isLastudioPick
 
                                     LineIcon {
                                         anchors.centerIn: parent
@@ -1008,14 +1109,14 @@ Rectangle {
 
                                     AppToolTip {
                                         visible: detailPickHover.hovered
-                                        text: detailPanel.f ? (detailPanel.f.pickReason || qsTr("LA Studio Pick")) : ""
+                                        text: detailPanel.hasFamily ? (detailPanel.f.pickReason || qsTr("LA Studio Pick")) : ""
                                     }
                                 }
                             }
 
                             Text {
                                 Layout.fillWidth: true
-                                text: detailPanel.f ? detailPanel.f.rawMetadata.modelId : ""
+                                text: detailPanel.hasFamily ? detailPanel.f.rawMetadata.modelId : ""
                                 color: Theme.textSecondary
                                 font.pixelSize: Theme.fontSmall
                                 elide: Text.ElideRight
@@ -1078,12 +1179,12 @@ Rectangle {
                         }
 
                         PrimaryButton {
-                            text: detailPanel.f && detailPanel.f.isLastudioPick ? qsTr("LA Studio Pick") : qsTr("Model Card")
-                            iconName: detailPanel.f && detailPanel.f.isLastudioPick ? "external-link" : "file"
+                            text: detailPanel.hasFamily && detailPanel.f.isLastudioPick ? qsTr("LA Studio Pick") : qsTr("Model Card")
+                            iconName: detailPanel.hasFamily && detailPanel.f.isLastudioPick ? "external-link" : "file"
                             quiet: true
-                            implicitWidth: detailPanel.f && detailPanel.f.isLastudioPick ? 148 : 122
+                            implicitWidth: detailPanel.hasFamily && detailPanel.f.isLastudioPick ? 148 : 122
                             implicitHeight: 34
-                            visible: detailPanel.f && detailPanel.f.modelCardUrl !== ""
+                            visible: detailPanel.hasFamily && detailPanel.f.modelCardUrl !== ""
                             onClicked: Qt.openUrlExternally(detailPanel.f.modelCardUrl)
                         }
                     }
@@ -1095,10 +1196,10 @@ Rectangle {
                         Flow {
                             Layout.fillWidth: true
                             spacing: Theme.paddingSmall
-                            visible: detailPanel.f && detailPanel.f.statsBadges && detailPanel.f.statsBadges.length > 0
+                            visible: detailPanel.hasFamily && detailPanel.f.statsBadges && detailPanel.f.statsBadges.length > 0
 
                             Repeater {
-                                model: detailPanel.f ? (detailPanel.f.statsBadges || []) : []
+                                model: detailPanel.hasFamily ? (detailPanel.f.statsBadges || []) : []
                                 Rectangle {
                                     implicitWidth: statRow.implicitWidth + 14
                                     implicitHeight: 26
@@ -1140,7 +1241,7 @@ Rectangle {
                             spacing: Theme.paddingMedium
 
                             Repeater {
-                                model: detailPanel.f ? (detailPanel.f.infoBadges || []) : []
+                                model: detailPanel.hasFamily ? (detailPanel.f.infoBadges || []) : []
                                 Row {
                                     spacing: 6
                                     height: 24
@@ -1174,7 +1275,7 @@ Rectangle {
                         Flow {
                             Layout.fillWidth: true
                             spacing: 6
-                            visible: detailPanel.f && detailPanel.f.capabilityBadges && detailPanel.f.capabilityBadges.length > 0
+                            visible: detailPanel.hasFamily && detailPanel.f.capabilityBadges && detailPanel.f.capabilityBadges.length > 0
 
                             Text {
                                 height: 22
@@ -1186,7 +1287,7 @@ Rectangle {
                             }
 
                             Repeater {
-                                model: detailPanel.f ? (detailPanel.f.capabilityBadges || []) : []
+                                model: detailPanel.hasFamily ? (detailPanel.f.capabilityBadges || []) : []
                                 Rectangle {
                                     implicitWidth: capabilityValue.implicitWidth + 16
                                     implicitHeight: 22
@@ -1210,7 +1311,7 @@ Rectangle {
                     // Description
                     Text {
                         Layout.fillWidth: true
-                        text: detailPanel.f ? detailPanel.f.description : ""
+                        text: detailPanel.hasFamily ? detailPanel.f.description : ""
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fontMedium
                         wrapMode: Text.WordWrap
@@ -1218,12 +1319,69 @@ Rectangle {
 
                     Rectangle {
                         Layout.fillWidth: true
+                        implicitHeight: colabModelLayout.implicitHeight + Theme.paddingLarge * 2
+                        radius: 8
+                        color: Qt.rgba(0.49, 0.30, 1.0, 0.10)
+                        border.color: Qt.rgba(0.49, 0.30, 1.0, 0.45)
+                        border.width: 1
+                        visible: detailPanel.hasFamily && root.hasColabModelAction(detailPanel.f)
+
+                        RowLayout {
+                            id: colabModelLayout
+                            anchors.fill: parent
+                            anchors.margins: Theme.paddingLarge
+                            spacing: Theme.paddingMedium
+
+                            LineIcon {
+                                name: "cloud"
+                                color: Theme.accentLight
+                                Layout.preferredWidth: 22
+                                Layout.preferredHeight: 22
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 3
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Run this exact model on Colab GPU")
+                                    color: Theme.textPrimary
+                                    font.pixelSize: Theme.fontMedium
+                                    font.bold: true
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Selects %1 without downloading or loading the model on this PC. The notebook and worker must report the same model ID.").arg(detailPanel.f.familyId)
+                                    color: Theme.textSecondary
+                                    font.pixelSize: Theme.fontSmall
+                                    wrapMode: Text.WordWrap
+                                }
+                            }
+
+                            PrimaryButton {
+                                text: qsTr("Select for Colab")
+                                iconName: "check"
+                                implicitWidth: 142
+                                onClicked: root.selectFamilyForColab(false)
+                            }
+
+                            PrimaryButton {
+                                text: qsTr("Select + open notebook")
+                                iconName: "cloud"
+                                implicitWidth: 190
+                                onClicked: root.selectFamilyForColab(true)
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
                         implicitHeight: licenseLayout.implicitHeight + Theme.paddingMedium * 2
                         radius: 7
                         color: Qt.rgba(1, 1, 1, 0.025)
-                        border.color: detailPanel.f && root.requiresLicenseConsent(detailPanel.f) ? Theme.warning : Theme.surfaceAlt
+                        border.color: detailPanel.hasFamily && root.requiresLicenseConsent(detailPanel.f) ? Theme.warning : Theme.surfaceAlt
                         border.width: 1
-                        visible: detailPanel.f
+                        visible: detailPanel.hasFamily
 
                         RowLayout {
                             id: licenseLayout
@@ -1243,7 +1401,7 @@ Rectangle {
                                 Text {
                                     Layout.fillWidth: true
                                     text: root.licenseSummary(detailPanel.f)
-                                    color: detailPanel.f && root.requiresLicenseConsent(detailPanel.f) ? Theme.warning : Theme.textSecondary
+                                    color: detailPanel.hasFamily && root.requiresLicenseConsent(detailPanel.f) ? Theme.warning : Theme.textSecondary
                                     font.pixelSize: 11
                                     wrapMode: Text.WordWrap
                                 }
@@ -1266,11 +1424,11 @@ Rectangle {
                         color: Theme.textPrimary
                         font.pixelSize: Theme.fontMedium
                         font.bold: true
-                        visible: !!(detailPanel.f && detailPanel.f.requiredFiles && detailPanel.f.requiredFiles.length > 0)
+                        visible: detailPanel.hasFamily && detailPanel.f.requiredFiles && detailPanel.f.requiredFiles.length > 0
                     }
 
                     Repeater {
-                        model: detailPanel.f ? (detailPanel.f.requiredFiles || []) : []
+                        model: detailPanel.hasFamily ? (detailPanel.f.requiredFiles || []) : []
 
                         delegate: Rectangle {
                             Layout.fillWidth: true
@@ -1281,8 +1439,9 @@ Rectangle {
                             border.width: 1
 
                             property int modelRevision: root.activeModel ? root.activeModel.revision : 0
-                            property var family: modelRevision >= 0 ? detailPanel.f : null
-                            property var familyMetadata: family ? family.rawMetadata : null
+                            property var family: detailPanel.hasFamily && modelRevision >= 0
+                                ? detailPanel.f : null
+                            property var familyMetadata: family !== null ? family.rawMetadata : null
                             property string selectedFile: modelData.selectedFile || ""
                             property int installState: {
                                 if (modelData.installState === 3) return 3; // Installed
@@ -1385,8 +1544,8 @@ Rectangle {
                                     PrimaryButton {
                                         text: installState === 1 ? qsTr("Downloading") : (installState === 5 ? qsTr("Update") : qsTr("Download"))
                                         iconName: installState === 1 ? "" : "download"
-                                        enabled: installState === 0 || installState === 1 || installState === 5
-                                        visible: installState === 0 || installState === 1 || installState === 5
+                                        enabled: installState === 1 || (!root.remoteFirstMode && (installState === 0 || installState === 5))
+                                        visible: installState === 1 || (!root.remoteFirstMode && (installState === 0 || installState === 5))
                                         implicitWidth: 100
                                         implicitHeight: 32
                                         Layout.minimumWidth: 100
@@ -1422,19 +1581,22 @@ Rectangle {
 
                     RowLayout {
                         Layout.fillWidth: true
-                        visible: !!(detailPanel.f && detailPanel.f.runtimeOptions && detailPanel.f.runtimeOptions.length > 0)
+                        visible: detailPanel.hasFamily && detailPanel.f.runtimeOptions && detailPanel.f.runtimeOptions.length > 0
 
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 2
                             Text {
-                                text: qsTr("Runtime")
+                                text: root.hasColabModelAction(detailPanel.f)
+                                      ? qsTr("Local CPU runtime") : qsTr("Runtime")
                                 color: Theme.textPrimary
                                 font.pixelSize: Theme.fontMedium
                                 font.bold: true
                             }
                             Text {
-                                text: qsTr("Compatibility is evaluated from detected CPU and GPU capabilities.")
+                                text: root.hasColabModelAction(detailPanel.f)
+                                      ? qsTr("Local execution is limited to CPU; GPU execution uses the model-specific Colab notebook above.")
+                                      : qsTr("Compatibility is evaluated from detected CPU and GPU capabilities.")
                                 color: Theme.textSecondary
                                 font.pixelSize: 11
                             }
@@ -1468,7 +1630,7 @@ Rectangle {
                     }
 
                     Repeater {
-                        model: detailPanel.f ? (detailPanel.f.runtimeOptions || []) : []
+                        model: detailPanel.hasFamily ? root.localRuntimeOptions(detailPanel.f) : []
 
                         delegate: Rectangle {
                             id: runtimeRow
@@ -1601,14 +1763,16 @@ Rectangle {
                                         if (installState === 2) return "";
                                         return "download";
                                     }
-                                    enabled: modelData.compatible && (installState !== 2)
+                                    enabled: modelData.compatible && installState !== 2
+                                             && (installState === 3 || installState === 1 || !root.remoteFirstMode)
+                                    visible: installState === 3 || installState === 1 || installState === 2 || !root.remoteFirstMode
                                     implicitWidth: 108
                                     implicitHeight: 32
                                     quiet: (installState === 3 && !runtimeRow.selected) || installState === 1
                                     onClicked: {
                                         if (installState === 3) root.selectRuntime(modelData)
                                         else if (installState === 1) Theme.requestShowDownloads()
-                                        else root.runWithLicenseConsent(detailPanel.f, function() {
+                                        else if (!root.remoteFirstMode) root.runWithLicenseConsent(detailPanel.f, function() {
                                             AppController.downloadInstall.enqueueRuntime(detailPanel.f.rawMetadata, detailPanel.f.familyCapability, detailPanel.f.familyId, modelData)
                                         })
                                     }
@@ -1618,6 +1782,7 @@ Rectangle {
                                     id: runtimeMenuButton
                                     implicitWidth: 32
                                     implicitHeight: 34
+                                    visible: !root.remoteFirstMode || installState === 3
                                     onClicked: {
                                         runtimeMenu.currentRuntime = modelData
                                         runtimeMenu.rebuild()
@@ -1650,7 +1815,7 @@ Rectangle {
                         border.color: Theme.surfaceAlt
                         border.width: 1
                         clip: true
-                        visible: detailPanel.f && detailPanel.f.readmeContent !== ""
+                        visible: detailPanel.hasFamily && detailPanel.f.readmeContent !== ""
 
                         ColumnLayout {
                             id: readmeLayout
@@ -1692,10 +1857,10 @@ Rectangle {
                             Text {
                                 Layout.fillWidth: true
                                 Layout.margins: Theme.paddingMedium
-                                text: detailPanel.f ? detailPanel.f.readmeContent : ""
+                                text: detailPanel.hasFamily ? detailPanel.f.readmeContent : ""
                                 textFormat: Text.MarkdownText
                                 color: Theme.textPrimary
-                                linkColor: detailPanel.f ? (detailPanel.f.accent || Theme.accent) : Theme.accent
+                                linkColor: detailPanel.hasFamily ? (detailPanel.f.accent || Theme.accent) : Theme.accent
                                 font.pixelSize: 13
                                 lineHeight: 1.18
                                 wrapMode: Text.WordWrap

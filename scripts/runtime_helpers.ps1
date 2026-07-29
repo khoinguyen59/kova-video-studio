@@ -165,14 +165,98 @@ function Ensure-EspeakNgRuntime {
     Write-Host ">> Staged eSpeak NG runtime: $runtimeRoot" -ForegroundColor Green
 }
 
+function Ensure-FfmpegRuntime {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $RepositoryRoot,
+        [Parameter(Mandatory = $true)]
+        [string] $DeployRoot,
+        [Parameter(Mandatory = $true)]
+        [string] $StageRoot
+    )
+
+    # A fixed release tag and archive hash make the portable package
+    # reproducible. Do not replace these with BtbN's moving `latest` URL.
+    $releaseTag = "autobuild-2026-07-28-13-32"
+    $archiveName = "ffmpeg-N-125829-gfe953596e9-win64-lgpl-shared.zip"
+    $expectedSha256 = "51af6309b252e9eddb4a68b0c4b2122f4b1150a558ab390bbbb9e49cf3bc2d08"
+    $archiveUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/$releaseTag/$archiveName"
+    $cacheRoot = Join-Path $RepositoryRoot ".deps\ffmpeg"
+    $archivePath = Join-Path $cacheRoot $archiveName
+    $runtimeRoot = Join-Path $DeployRoot "media-tools"
+    $ffmpegTarget = Join-Path $runtimeRoot "ffmpeg.exe"
+    $ffprobeTarget = Join-Path $runtimeRoot "ffprobe.exe"
+
+    New-Item -ItemType Directory -Path $cacheRoot -Force | Out-Null
+    if (-not (Test-Path -LiteralPath $archivePath -PathType Leaf)) {
+        Write-Host ">> Downloading pinned FFmpeg runtime" -ForegroundColor Cyan
+        Invoke-WebRequest -Headers @{ "User-Agent" = "LA-Studio-packaging" } -Uri $archiveUrl -OutFile $archivePath -UseBasicParsing
+    }
+    $actualSha256 = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actualSha256 -ne $expectedSha256) {
+        throw "FFmpeg runtime SHA-256 mismatch. Expected $expectedSha256 but got $actualSha256."
+    }
+
+    $extractRoot = Join-Path $DeployRoot (".ffmpeg-extract-" + [Guid]::NewGuid().ToString("N"))
+    $normalizedDeployRoot = [IO.Path]::GetFullPath($DeployRoot).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+    $normalizedExtractRoot = [IO.Path]::GetFullPath($extractRoot)
+    if (-not $normalizedExtractRoot.StartsWith($normalizedDeployRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to extract FFmpeg outside the deployment root: $extractRoot"
+    }
+
+    try {
+        Write-Host ">> Extracting pinned FFmpeg runtime" -ForegroundColor Cyan
+        Expand-Archive -LiteralPath $archivePath -DestinationPath $extractRoot -Force
+        $ffmpegSource = Get-ChildItem -LiteralPath $extractRoot -Filter "ffmpeg.exe" -Recurse -File | Select-Object -First 1
+        if ($null -eq $ffmpegSource) {
+            throw "Pinned FFmpeg archive did not contain ffmpeg.exe."
+        }
+        $sourceBin = Split-Path -Parent $ffmpegSource.FullName
+        $ffprobeSource = Join-Path $sourceBin "ffprobe.exe"
+        if (-not (Test-Path -LiteralPath $ffprobeSource -PathType Leaf)) {
+            throw "Pinned FFmpeg archive did not contain ffprobe.exe beside ffmpeg.exe."
+        }
+
+        New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
+        Get-ChildItem -LiteralPath $sourceBin -File | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $runtimeRoot $_.Name) -Force
+        }
+
+        $licenseSource = Get-ChildItem -LiteralPath $extractRoot -Filter "LICENSE.txt" -Recurse -File | Select-Object -First 1
+        if ($null -eq $licenseSource) {
+            throw "Pinned FFmpeg archive did not contain LICENSE.txt."
+        }
+        $licenseRoot = Join-Path $StageRoot "licenses\ffmpeg"
+        New-Item -ItemType Directory -Path $licenseRoot -Force | Out-Null
+        Copy-Item -LiteralPath $licenseSource.FullName -Destination (Join-Path $licenseRoot "LICENSE.txt") -Force
+        $noticeSource = Join-Path $RepositoryRoot "resources\FFMPEG-RUNTIME-NOTICE.txt"
+        if (-not (Test-Path -LiteralPath $noticeSource -PathType Leaf)) {
+            throw "FFmpeg runtime notice was not found: $noticeSource"
+        }
+        Copy-Item -LiteralPath $noticeSource -Destination (Join-Path $licenseRoot "NOTICE.txt") -Force
+    } finally {
+        if (Test-Path -LiteralPath $extractRoot) {
+            Remove-Item -LiteralPath $extractRoot -Recurse -Force
+        }
+    }
+
+    if (-not (Test-Path -LiteralPath $ffmpegTarget -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $ffprobeTarget -PathType Leaf)) {
+        throw "FFmpeg runtime staging was incomplete: $runtimeRoot"
+    }
+    Write-Host ">> Staged pinned FFmpeg runtime: $runtimeRoot" -ForegroundColor Green
+}
+
 function Assert-StagedRuntimeManifest {
     param(
         [Parameter(Mandatory = $true)]
-        [string] $DeployRoot
+        [string] $DeployRoot,
+        [Parameter(Mandatory = $true)]
+        [string] $ApplicationExecutableName
     )
 
     $required = @(
-        "LA Studio.exe",
+        $ApplicationExecutableName,
         "LAStudioRuntimeHost.exe",
         "Qt6Core.dll",
         "Qt6Quick.dll",
@@ -183,6 +267,8 @@ function Assert-StagedRuntimeManifest {
         "zlib1.dll",
         "7z.exe",
         "bsdtar.exe",
+        "media-tools\ffmpeg.exe",
+        "media-tools\ffprobe.exe",
         "espeak-ng\libespeak-ng.dll",
         "espeak-ng\espeak-ng-data\voices"
     )
@@ -232,6 +318,8 @@ function Assert-StagedLicenseManifest {
         "licenses\zlib\LICENSE",
         "licenses\bzip2\LICENSE",
         "licenses\7-Zip\License.txt",
+        "licenses\ffmpeg\LICENSE.txt",
+        "licenses\ffmpeg\NOTICE.txt",
         "licenses\qt",
         "licenses\vietnorm\LICENSE",
         "licenses\vietnorm\NOTICE",

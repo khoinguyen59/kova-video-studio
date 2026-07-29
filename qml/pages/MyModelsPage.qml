@@ -309,7 +309,7 @@ Rectangle {
 
     Component.onCompleted: {
         loadPinnedModels()
-        AppController.models.scanLocalModels()
+        AppController.models.scanLocalModelsAsync()
         refreshModels()
     }
 
@@ -1042,7 +1042,7 @@ Rectangle {
             if (root.confirmationModelToDelete) {
                 AppController.models.removeModel(root.confirmationModelToDelete.id)
                 root.confirmationModelToDelete = null
-                AppController.models.scanLocalModels()
+                AppController.models.scanLocalModelsAsync()
                 root.refreshModels()
             }
         }

@@ -16,6 +16,23 @@ ColumnLayout {
     property bool randomSeed: true
     property int customSeed: 42
     property bool locked: false
+    property real colabTemperature: 0.9
+    readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
+
+    component ColabField: TextField {
+        Layout.fillWidth: true
+        color: Theme.textPrimary
+        placeholderTextColor: Theme.textSecondary
+        font.pixelSize: Theme.fontSmall
+        padding: Theme.paddingSmall
+        selectByMouse: true
+        background: Rectangle {
+            radius: Theme.radiusSmall
+            color: Qt.rgba(1, 1, 1, 0.035)
+            border.color: parent.activeFocus ? Theme.accent : Qt.rgba(1, 1, 1, 0.09)
+            border.width: parent.activeFocus ? 2 : 1
+        }
+    }
 
     property var capabilitySchema: []
     property var basicSchema: []
@@ -258,6 +275,62 @@ ColumnLayout {
         ColumnLayout {
             width: parent.width - 16
             spacing: Theme.paddingMedium
+
+            SettingsSection {
+                title: qsTr("Colab GPU VoiceDesign")
+                iconName: "cloud"
+
+                Text { Layout.fillWidth: true; text: qsTr("This direct VoiceDesign worker is independent of API Gateway. The notebook and worker must match the model selected in the gallery."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                ColabNotebookLink { notebookFile: AppController.colabVoiceDesign.colabNotebookFile }
+                Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                ColabField {
+                    id: colabUrl
+                    text: AppController.colabVoiceDesignSession.workerUrl
+                    placeholderText: qsTr("https://…trycloudflare.com")
+                    enabled: !root.locked
+                }
+                Text { text: qsTr("Session token"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                ColabField {
+                    id: colabToken
+                    echoMode: TextInput.Password
+                    placeholderText: AppController.colabVoiceDesign.colabConnected ? qsTr("Connected — enter token to replace") : qsTr("Temporary token from Colab")
+                    enabled: !root.locked
+                }
+                ColabSessionStatus {
+                    session: AppController.colabVoiceDesignSession
+                }
+                Text { text: qsTr("Model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                Text { Layout.fillWidth: true; text: AppController.colabVoiceDesign.model; color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WrapAnywhere }
+                Text { text: qsTr("Temperature"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                ColabField {
+                    text: root.colabTemperature.toFixed(2)
+                    validator: DoubleValidator { bottom: 0.1; top: 2.0; decimals: 2 }
+                    enabled: !root.locked
+                    onEditingFinished: root.colabTemperature = Math.max(0.1, Math.min(2.0, parseFloat(text) || 0.9))
+                }
+                PrimaryButton {
+                    Layout.fillWidth: true
+                    enabled: !root.locked
+                             && AppController.colabVoiceDesign.colabNotebookFile !== ""
+                             && !AppController.colabVoiceDesignSession.checking
+                             && !(root.remoteFirstMode && AppController.colabVoiceDesign.colabActive)
+                    text: AppController.colabVoiceDesignSession.checking
+                          ? qsTr("Verifying CUDA and exact model...")
+                          : (root.remoteFirstMode
+                          ? (AppController.colabVoiceDesign.colabActive ? qsTr("Direct Colab GPU VoiceDesign active") : (AppController.colabVoiceDesign.colabConnected ? qsTr("Use direct Colab GPU VoiceDesign") : qsTr("Connect direct Colab GPU VoiceDesign")))
+                          : (AppController.colabVoiceDesign.colabActive ? qsTr("Use local VoiceDesign") : (AppController.colabVoiceDesign.colabConnected ? qsTr("Use Colab GPU VoiceDesign") : qsTr("Connect Colab GPU VoiceDesign"))))
+                    iconName: root.remoteFirstMode || !AppController.colabVoiceDesign.colabActive ? "cloud" : "close"
+                    onClicked: {
+                        if (AppController.colabVoiceDesign.colabActive && !root.remoteFirstMode) {
+                            AppController.colabVoiceDesign.useLocal()
+                        } else if (AppController.colabVoiceDesign.colabConnected) {
+                            AppController.colabVoiceDesign.useColab()
+                        } else if (AppController.colabVoiceDesign.connectColab(colabUrl.text.trim(), colabToken.text)) {
+                            colabToken.text = ""
+                        }
+                    }
+                }
+            }
 
             SettingsSection {
                 title: "Core"

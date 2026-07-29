@@ -345,7 +345,7 @@ Item {
             defaultExportPath: root.defaultExportPath()
             historyOpen: root.isHistoryOpen
             settingsOpen: root.isNodeInspectorOpen
-            onStepSelected: {
+            onStepSelected: function(stepId) {
                 if (!root.dubbing.processing) root.reviewStepId = stepId
             }
             onHistoryToggled: root.isHistoryOpen = !root.isHistoryOpen

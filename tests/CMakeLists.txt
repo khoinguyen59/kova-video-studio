@@ -10,10 +10,27 @@ set(TEST_SOURCES
     test_AudioPreviewService.cpp
     test_ModelsAndRuntimes.cpp
     test_SttSession.cpp
+    test_GatewayTtsRunner.cpp
+    test_GatewayTtsRunner.h
+    test_ColabTtsRunner.cpp
+    test_ColabTtsRunner.h
+    test_ColabVoiceCloneRunner.cpp
+    test_ColabVoiceCloneRunner.h
+    test_ColabVoiceDesignRunner.cpp
+    test_ColabVoiceDesignRunner.h
+    test_ColabAlignmentRunner.cpp
+    test_ColabAlignmentRunner.h
+    test_ColabSeparationRunner.cpp
+    test_ColabSeparationRunner.h
+    test_ColabTranslationRunner.cpp
+    test_ColabTranslationRunner.h
+    test_ColabChatRunner.cpp
+    test_ColabChatRunner.h
     test_SubtitleVoice.cpp
     test_TtsTextPreprocessor.cpp
     test_TtsRequestValidator.cpp
     test_LlmChatEngine.cpp
+    test_RemoteExecution.cpp
     test_StudioCapabilities.cpp
     test_AlignmentTranscriptMatcher.cpp
     test_AlignmentWorkflow.cpp
@@ -42,7 +59,10 @@ set(TEST_SOURCES
     ../src/controllers/shared/AppUpdateService.cpp
     ../src/controllers/shared/ExampleManager.cpp
     ../src/controllers/models/DownloadInstallService.cpp
+    ../src/controllers/models/RemoteModelCatalogController.cpp
     ../src/controllers/alignment/AlignmentExecutionService.cpp
+    ../src/controllers/alignment/ColabAlignmentController.cpp
+    ../src/controllers/separation/ColabVoiceIsolatorController.cpp
     ../src/dubbing/AlignmentRefinementService.cpp
     ../src/dubbing/DubbingSegmentNormalizer.cpp
     ../src/controllers/alignment/AlignmentTranscriptMatcher.cpp
@@ -50,6 +70,7 @@ set(TEST_SOURCES
     ../src/translation/CrispTranslationInterface.cpp
     ../src/translation/LlamaTranslationInterface.cpp
     ../src/llm/LlmChatEngine.cpp
+    ../src/llm/ColabChatRunner.cpp
     ../src/controllers/llm/LlmChatModelSession.cpp
     ../src/controllers/llm/LlmChatController.cpp
     ../src/controllers/models/ModelsPathMigrator.cpp
@@ -66,6 +87,8 @@ set(TEST_SOURCES
     ../src/translation/TranslationEngine.cpp
     ../src/translation/TranslationEngineInstance.cpp
     ../src/translation/TranslationWorker.cpp
+    ../src/translation/GatewayTranslationRunner.cpp
+    ../src/translation/ColabTranslationRunner.cpp
     ../src/translation/backends/TranslationBackendFactory.cpp
     ../src/translation/backends/CrispTranslationBackend.cpp
     ../src/translation/backends/LlamaTranslationBackend.cpp
@@ -79,6 +102,10 @@ set(TEST_SOURCES
     ../src/controllers/models/StudioConfigurationResolver.cpp
     ../src/controllers/models/CapabilitySettingsSchema.cpp
     ../src/controllers/stt/SttSessionController.cpp
+    ../src/controllers/tts/GatewayTtsController.cpp
+    ../src/controllers/tts/ColabTtsController.cpp
+    ../src/controllers/tts/ColabVoiceCloneController.cpp
+    ../src/controllers/tts/ColabVoiceDesignController.cpp
     ../src/controllers/tts/SubtitleVoiceController.cpp
     ../src/subtitles/SrtTimelineParser.cpp
     ../src/tts/SubtitleSmartFitPlanner.cpp
@@ -133,6 +160,7 @@ set(TEST_SOURCES
     ../src/core/LogViewService.cpp
     ../src/core/CacheLifecycleService.cpp
     ../src/core/PathUtils.cpp
+    ../src/core/MediaRuntimeLocator.cpp
     ../src/core/Logger.cpp
     ../src/core/InferenceThreadPolicy.cpp
     ../src/inference/WorkerThreadHost.cpp
@@ -142,6 +170,20 @@ set(TEST_SOURCES
     ../src/core/StudioSelectionRepository.cpp
     ../src/core/Settings.cpp
     ../src/core/SecureCredentialStore.cpp
+    ../src/remote/ExecutionProvider.cpp
+    ../src/remote/ColabSession.cpp
+    ../src/remote/GatewayClient.cpp
+    ../src/remote/ColabWorkerClient.cpp
+    ../src/remote/GatewayModelCatalog.cpp
+    ../src/remote/ColabCapabilityCatalog.cpp
+    ../src/stt/ColabSttRunner.cpp
+    ../src/stt/GatewaySttRunner.cpp
+    ../src/tts/GatewayTtsRunner.cpp
+    ../src/tts/ColabTtsRunner.cpp
+    ../src/tts/ColabVoiceCloneRunner.cpp
+    ../src/tts/ColabVoiceDesignRunner.cpp
+    ../src/alignment/ColabAlignmentRunner.cpp
+    ../src/separation/ColabSeparationRunner.cpp
     ../src/core/LocalizationManager.cpp
     ../src/core/ModelManager.cpp
     ../src/core/CatalogManager.cpp
@@ -159,6 +201,7 @@ set(TEST_SOURCES
     ../src/audio/WaveformProvider.cpp
 
     ../src/core/DownloadManager.h
+    ../src/core/MediaRuntimeLocator.h
     ../src/api/ApiServerService.h
     ../src/stt/SttEngine.h
     ../src/stt/SttEngineInstance.h
@@ -170,6 +213,25 @@ set(TEST_SOURCES
     ../src/audio/AudioFileDecoder.h
     ../src/runtimehost/RuntimeHostProtocol.h
     ../src/core/HFHubClient.h
+    ../src/remote/GatewayClient.h
+    ../src/remote/ColabWorkerClient.h
+    ../src/remote/GatewayModelCatalog.h
+    ../src/remote/ColabCapabilityCatalog.h
+    ../src/stt/ColabSttRunner.h
+    ../src/stt/GatewaySttRunner.h
+    ../src/tts/GatewayTtsRunner.h
+    ../src/tts/ColabTtsRunner.h
+    ../src/tts/ColabVoiceCloneRunner.h
+    ../src/tts/ColabVoiceDesignRunner.h
+    ../src/alignment/ColabAlignmentRunner.h
+    ../src/separation/ColabSeparationRunner.h
+    ../src/controllers/tts/GatewayTtsController.h
+    ../src/controllers/tts/ColabTtsController.h
+    ../src/controllers/tts/ColabVoiceCloneController.h
+    ../src/controllers/tts/ColabVoiceDesignController.h
+    ../src/controllers/models/RemoteModelCatalogController.h
+    ../src/controllers/alignment/ColabAlignmentController.h
+    ../src/controllers/separation/ColabVoiceIsolatorController.h
     ../src/controllers/app/AppController.h
     ../src/controllers/shared/AppUpdateService.h
     ../src/controllers/shared/ExampleManager.h
@@ -186,6 +248,8 @@ set(TEST_SOURCES
     ../src/translation/TranslationEngine.h
     ../src/translation/TranslationEngineInstance.h
     ../src/translation/TranslationWorker.h
+    ../src/translation/GatewayTranslationRunner.h
+    ../src/translation/ColabTranslationRunner.h
     ../src/translation/backends/TranslationBackend.h
     ../src/translation/backends/TranslationBackendFactory.h
     ../src/translation/backends/CrispTranslationBackend.h
@@ -195,6 +259,7 @@ set(TEST_SOURCES
     ../src/controllers/separation/VoiceIsolatorModelSession.h
     ../src/controllers/models/ModelSessionRegistry.h
     ../src/llm/LlmChatEngine.h
+    ../src/llm/ColabChatRunner.h
     ../src/controllers/llm/LlmChatModelSession.h
     ../src/controllers/llm/LlmChatController.h
     ../src/controllers/app/WorkflowActivityManager.h
@@ -227,6 +292,7 @@ set(TEST_SOURCES
     test_MediaIngestService.h
     test_MediaToolService.h
     test_LlmChatEngine.h
+    test_RemoteExecution.h
     test_HardwareManager.h
     test_TranslationProject.h
     ../src/controllers/separation/VoiceIsolatorController.h
@@ -244,6 +310,7 @@ add_custom_command(TARGET LAStudioUnitTests POST_BUILD
 target_compile_definitions(LAStudioUnitTests PRIVATE
     NOMINMAX
     WIN32_LEAN_AND_MEAN
+    LASTUDIO_UNIT_TESTS=1
     LASTUDIO_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
 )
 
@@ -321,6 +388,15 @@ set(LASTUDIO_TEST_SUITES
     TestTtsTextPreprocessor
     TestTtsRequestValidator
     TestLlmChatEngine
+    TestRemoteExecution
+    TestGatewayTtsRunner
+    TestColabTtsRunner
+    TestColabVoiceCloneRunner
+    TestColabVoiceDesignRunner
+    TestColabAlignmentRunner
+    TestColabSeparationRunner
+    TestColabTranslationRunner
+    TestColabChatRunner
 )
 
 foreach(LASTUDIO_TEST_SUITE IN LISTS LASTUDIO_TEST_SUITES)
@@ -332,6 +408,18 @@ foreach(LASTUDIO_TEST_SUITE IN LISTS LASTUDIO_TEST_SUITES)
     )
 endforeach()
 
+if(WIN32)
+    find_program(POWERSHELL_EXECUTABLE NAMES powershell.exe powershell)
+    if(POWERSHELL_EXECUTABLE)
+        add_test(NAME RemoteLivePreflightContract
+            COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -ExecutionPolicy Bypass
+                -File "${CMAKE_CURRENT_SOURCE_DIR}/test_RemoteLivePreflightContract.ps1")
+        set_tests_properties(RemoteLivePreflightContract PROPERTIES
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+            TIMEOUT 30)
+    endif()
+endif()
+
 add_test(NAME QmlRouteSmoke COMMAND $<TARGET_FILE:LAStudio>)
 set_tests_properties(QmlRouteSmoke PROPERTIES
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
@@ -339,3 +427,22 @@ set_tests_properties(QmlRouteSmoke PROPERTIES
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${QT_BIN_DIR}"
     TIMEOUT 75
 )
+
+if(WIN32)
+    # main.cpp intentionally removes PATH from the DLL search order. Deploy
+    # the Qt runtime beside the smoke executable so this test verifies the
+    # same trusted-layout rule used by the portable package, rather than
+    # weakening the production DLL-search policy just for tests.
+    find_program(WINDEPLOYQT_EXECUTABLE NAMES windeployqt.exe windeployqt
+        HINTS "${QT_BIN_DIR}" REQUIRED)
+    add_test(NAME PrepareQmlRouteSmokeRuntime
+        COMMAND "${WINDEPLOYQT_EXECUTABLE}" --verbose 0
+            --qmldir "${CMAKE_SOURCE_DIR}/qml" --no-translations
+            --compiler-runtime "$<TARGET_FILE:LAStudio>")
+    set_tests_properties(PrepareQmlRouteSmokeRuntime PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+        FIXTURES_SETUP QmlRouteSmokeRuntime
+        TIMEOUT 60)
+    set_tests_properties(QmlRouteSmoke PROPERTIES
+        FIXTURES_REQUIRED QmlRouteSmokeRuntime)
+endif()

@@ -2,6 +2,7 @@
 #include "runtimes/LlamaTranslationInterface.h"
 #include "runtimehost/RuntimeHostClient.h"
 #include "runtimehost/RuntimeHostManager.h"
+#include "remote/GatewayClient.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -20,6 +21,8 @@ public:
 public slots:
     void load(const QString &runtimePath, const QString &modelPath, bool useGpu)
     {
+        m_gateway.clear();
+        m_gatewayActive = false;
         const QByteArray hostOverride = qgetenv("LASTUDIO_RUNTIME_HOST").trimmed().toLower();
         m_hosted = hostOverride != "0" && hostOverride != "off" && hostOverride != "false";
         if (m_hosted) {
@@ -56,8 +59,30 @@ public slots:
         const bool ok = m_interface.load(runtimePath, modelPath, &error, useGpu);
         emit loaded(ok, error);
     }
+    void loadGateway(const QString &gatewayUrl, const QString &apiKey, const QString &model,
+                     bool allowInsecureLocalhost)
+    {
+        m_interface.unload();
+        if (m_hosted) {
+            QString ignored;
+            m_hostClient.shutdown(&ignored);
+            RuntimeHostManager::instance().release(QStringLiteral("llama-chat"), m_gpuPermit);
+            m_gpuPermit = false;
+            m_hosted = false;
+        }
+        QString error;
+        const bool ok = m_gateway.configure(gatewayUrl, apiKey, model, allowInsecureLocalhost, &error);
+        m_gatewayActive = ok;
+        emit loaded(ok, error);
+    }
     void unload()
     {
+        if (m_gatewayActive) {
+            m_gateway.clear();
+            m_gatewayActive = false;
+            emit unloaded();
+            return;
+        }
         if (m_hosted) {
             QString ignored;
             m_hostClient.shutdown(&ignored);
@@ -76,6 +101,24 @@ public slots:
     {
         auto cancelToken = std::make_shared<std::atomic_bool>(false);
         m_cancelToken = cancelToken;
+        if (m_gatewayActive) {
+            QString text;
+            QString error;
+            const GatewayClient::ChatOptions options{maxTokens, temperature, topP};
+            const bool ok = m_gateway.streamChat(
+                messages, options, cancelToken,
+                [this, requestId](const QString &token) { emit tokenGenerated(requestId, token); },
+                &text, &error);
+            m_cancelToken.reset();
+            if (cancelToken->load(std::memory_order_relaxed)) {
+                emit cancelled(requestId, text);
+            } else if (ok) {
+                emit finished(requestId, text);
+            } else {
+                emit failed(requestId, error);
+            }
+            return;
+        }
         if (m_hosted) {
             m_hostClient.setProgressCallback([this, requestId](const QCborMap &progress) {
                 emit tokenGenerated(requestId, progress.value(QStringLiteral("stage")).toString());
@@ -123,6 +166,11 @@ public slots:
     }
     void cancel()
     {
+        if (m_gatewayActive) {
+            if (m_cancelToken) m_cancelToken->store(true, std::memory_order_relaxed);
+            m_gateway.cancel();
+            return;
+        }
         if (m_hosted) {
             if (m_cancelToken) m_cancelToken->store(true, std::memory_order_relaxed);
             m_hostClient.cancelCurrent();
@@ -143,7 +191,9 @@ signals:
 private:
     LlamaTranslationInterface m_interface;
     RuntimeHostClient m_hostClient;
+    GatewayClient m_gateway;
     bool m_hosted = false;
+    bool m_gatewayActive = false;
     bool m_gpuPermit = false;
     std::shared_ptr<std::atomic_bool> m_cancelToken;
 };
@@ -175,10 +225,34 @@ LlmChatEngine::~LlmChatEngine()
 
 void LlmChatEngine::load(const QString &runtimePath, const QString &modelPath, bool useGpu)
 {
+    m_pendingGateway = false;
+    if (m_modelLoaded) {
+        m_modelLoaded = false;
+        emit modelLoadedChanged();
+    }
+    if (m_gatewayActive) {
+        m_gatewayActive = false;
+        emit gatewayActiveChanged();
+    }
     m_state = Loading;
     emit stateChanged();
     QMetaObject::invokeMethod(m_worker, "load", Qt::QueuedConnection,
                               Q_ARG(QString, runtimePath), Q_ARG(QString, modelPath), Q_ARG(bool, useGpu));
+}
+
+void LlmChatEngine::loadGateway(const QString &gatewayUrl, const QString &apiKey, const QString &model,
+                                bool allowInsecureLocalhost)
+{
+    m_pendingGateway = true;
+    if (m_modelLoaded) {
+        m_modelLoaded = false;
+        emit modelLoadedChanged();
+    }
+    m_state = Loading;
+    emit stateChanged();
+    QMetaObject::invokeMethod(m_worker, "loadGateway", Qt::QueuedConnection,
+                              Q_ARG(QString, gatewayUrl), Q_ARG(QString, apiKey), Q_ARG(QString, model),
+                              Q_ARG(bool, allowInsecureLocalhost));
 }
 
 void LlmChatEngine::unload()
@@ -186,6 +260,11 @@ void LlmChatEngine::unload()
     m_state = Unloaded;
     m_modelLoaded = false;
     m_processing = false;
+    m_pendingGateway = false;
+    if (m_gatewayActive) {
+        m_gatewayActive = false;
+        emit gatewayActiveChanged();
+    }
     emit modelLoadedChanged();
     emit processingChanged();
     emit stateChanged();
@@ -218,6 +297,12 @@ void LlmChatEngine::onLoaded(bool ok, const QString &error)
 {
     m_modelLoaded = ok;
     m_state = ok ? Ready : Error;
+    const bool gatewayActive = ok && m_pendingGateway;
+    if (m_gatewayActive != gatewayActive) {
+        m_gatewayActive = gatewayActive;
+        emit gatewayActiveChanged();
+    }
+    m_pendingGateway = false;
     emit modelLoadedChanged();
     emit stateChanged();
     if (!ok) emit errorOccurred(error);

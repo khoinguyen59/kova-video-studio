@@ -25,11 +25,13 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QClipboard>
+#include <QDesktopServices>
 #include <QSaveFile>
 #include <QSysInfo>
 #include <QTextStream>
 #include "core/Logger.h"
 #include <QTimer>
+#include <QUrl>
 
 namespace LAStudio {
 
@@ -61,30 +63,59 @@ AppController::AppController(QObject *parent)
     m_tts       = new TtsEngine(this);
     m_translationEngine = new TranslationEngine({}, this);
     m_llmEngine = new LlmChatEngine(this);
+    m_colabSession = new ColabSession(this);
+    m_colabTtsSession = new ColabSession(this);
+    m_colabVoiceCloneSession = new ColabSession(this);
+    m_colabVoiceDesignSession = new ColabSession(this);
+    m_colabAlignmentSession = new ColabSession(this);
+    m_colabSeparationSession = new ColabSession(this);
+    m_colabTranslationSession = new ColabSession(this);
+    m_colabChatSession = new ColabSession(this);
     Logger::info(QStringLiteral("App"), QStringLiteral("Initializing runtime services."));
     m_runtimes  = new RuntimeManager(m_catalog, m_settings, this);
     m_alignment = new AlignmentExecutionService(m_runtimes, m_models, this);
+    m_colabAlignment = new ColabAlignmentController(m_colabAlignmentSession, m_settings, this);
     m_voiceIsolator = new VoiceIsolatorController(this);
+    m_colabVoiceIsolator = new ColabVoiceIsolatorController(m_colabSeparationSession, m_settings, this);
     Logger::info(QStringLiteral("App"), QStringLiteral("Initializing model session registry."));
     m_sessionRegistry = new ModelSessionRegistry(m_stt, m_tts, m_translationEngine, m_llmEngine, m_alignment, m_voiceIsolator, this);
     m_translation = new TranslationController(m_translationEngine,
-        qobject_cast<TranslationModelSession*>(m_sessionRegistry->sessionForCapability(QStringLiteral("translation"))), this);
+        qobject_cast<TranslationModelSession*>(m_sessionRegistry->sessionForCapability(QStringLiteral("translation"))),
+        m_settings, m_colabTranslationSession, this);
     m_llmChat = new LlmChatController(m_llmEngine,
-        qobject_cast<LlmChatModelSession*>(m_sessionRegistry->sessionForCapability(QStringLiteral("llm-chat"))), this);
+        qobject_cast<LlmChatModelSession*>(m_sessionRegistry->sessionForCapability(QStringLiteral("llm-chat"))),
+        m_settings, m_colabChatSession, this);
     m_recorder  = new AudioRecorder(this);
     m_player    = new AudioPlayer(this);
     m_waveformProvider = new WaveformProvider();
 
     m_preview   = new AudioPreviewService(m_tts, m_player, m_waveformProvider, this);
     m_history   = new HistoryService(m_tts, m_recorder, this);
+    m_gatewayTts = new GatewayTtsController(m_settings, m_player, m_waveformProvider, m_history, this);
+    m_colabTts = new ColabTtsController(m_colabTtsSession, m_settings, m_player, m_waveformProvider, m_history, this);
+    m_colabVoiceClone = new ColabVoiceCloneController(m_colabVoiceCloneSession, m_settings, m_player, m_waveformProvider, m_history, this);
+    m_colabVoiceDesign = new ColabVoiceDesignController(m_colabVoiceDesignSession, m_settings, m_player, m_waveformProvider, m_history, this);
     m_modelsMigration = new ModelsPathMigrationService(m_settings, m_models, m_downloads, m_stt, m_tts, this);
     m_files     = new FileAccessService(this);
-    m_downloadInstall = new DownloadInstallService(m_downloads, m_models, m_runtimes, this);
+    m_downloadInstall = new DownloadInstallService(m_downloads, m_models, m_runtimes, m_settings, this);
+    m_remoteModels = new RemoteModelCatalogController(m_settings, {
+        {QStringLiteral("stt"), m_colabSession},
+        {QStringLiteral("tts"), m_colabTtsSession},
+        {QStringLiteral("voice-cloning"), m_colabVoiceCloneSession},
+        {QStringLiteral("voice-design"), m_colabVoiceDesignSession},
+        {QStringLiteral("forced-alignment"), m_colabAlignmentSession},
+        {QStringLiteral("voice-isolation"), m_colabSeparationSession},
+        {QStringLiteral("translation"), m_colabTranslationSession},
+        {QStringLiteral("chat"), m_colabChatSession},
+    }, this);
     m_voiceClonePresets = new VoiceClonePresetService(this);
     m_voiceDesignPresets = new VoiceDesignPresetService(this);
     m_sttSession = new SttSessionController(this);
     m_subtitleVoice = new SubtitleVoiceController(m_tts, m_player, m_history, this);
     m_dubbing = new DubbingController(m_sttSession, m_tts, m_translationEngine, m_models, m_runtimes, this);
+    m_dubbing->setRemoteServices(m_settings, m_colabTranslationSession, m_colabTtsSession,
+                                 m_colabVoiceCloneSession, m_colabSeparationSession,
+                                 m_colabAlignmentSession);
     m_updates = new AppUpdateService(m_downloads, this);
     m_examples = new ExampleManager(this);
     m_workflows = new WorkflowActivityManager(m_sessionRegistry, m_tts, m_sttSession, m_alignment, m_dubbing, this);
@@ -94,6 +125,12 @@ AppController::AppController(QObject *parent)
     connect(m_preview, &AudioPreviewService::errorOccurred, this, &AppController::onError);
     connect(m_player, &AudioPlayer::errorOccurred, this, &AppController::onError);
     connect(m_history, &HistoryService::errorOccurred, this, &AppController::onError);
+    connect(m_gatewayTts, &GatewayTtsController::errorOccurred, this, &AppController::onError);
+    connect(m_colabTts, &ColabTtsController::errorOccurred, this, &AppController::onError);
+    connect(m_colabVoiceClone, &ColabVoiceCloneController::errorOccurred, this, &AppController::onError);
+    connect(m_colabVoiceDesign, &ColabVoiceDesignController::errorOccurred, this, &AppController::onError);
+    connect(m_colabAlignment, &ColabAlignmentController::failed, this, &AppController::onError);
+    connect(m_colabVoiceIsolator, &ColabVoiceIsolatorController::errorOccurred, this, &AppController::onError);
     connect(m_downloadInstall, &DownloadInstallService::errorOccurred, this, &AppController::onError);
     connect(m_alignment, &AlignmentExecutionService::failed, this,
             [this](const QString &, const QString &message) { onError(message); });
@@ -134,14 +171,14 @@ AppController::AppController(QObject *parent)
 
     connect(m_settings, &Settings::modelsPathChanged, this, [this]() {
         m_models->setModelsRoot(m_settings->modelsPath());
-        m_models->scanLocalModels();
+        m_models->scanLocalModelsAsync();
     });
 
     // Constructing AppController happens before the first QML frame.  A
     // recursive models-tree scan can be slow on network or removable storage,
     // so defer it until the application has had an opportunity to paint.
     QTimer::singleShot(250, this, [this]() {
-        if (m_models) m_models->scanLocalModels();
+        if (m_models) m_models->scanLocalModelsAsync();
     });
 
     QTimer::singleShot(2000, this, [this]() {
@@ -302,6 +339,39 @@ QString AppController::licensesDir() const
     // the UI never claims that legal documents have been installed when they
     // have not.
     return QDir::cleanPath(appDir.absoluteFilePath(QStringLiteral("licenses")));
+}
+
+QString AppController::colabNotebooksDir() const
+{
+    const QDir appDir(QCoreApplication::applicationDirPath());
+    const QStringList candidates = {
+        appDir.absoluteFilePath(QStringLiteral("docs/colab-notebooks")),
+        appDir.absoluteFilePath(QStringLiteral("../docs/colab-notebooks")),
+        appDir.absoluteFilePath(QStringLiteral("../../../notebooks")),
+        QDir::current().absoluteFilePath(QStringLiteral("notebooks")),
+    };
+
+    for (const QString &candidate : candidates) {
+        const QString cleaned = QDir::cleanPath(candidate);
+        if (QDir(cleaned).exists()) {
+            return cleaned;
+        }
+    }
+    return {};
+}
+
+bool AppController::openColabNotebooksDirectory()
+{
+    const QString directory = colabNotebooksDir();
+    if (directory.isEmpty()) {
+        onError(tr("The packaged Colab notebooks folder could not be found."));
+        return false;
+    }
+    if (!QDesktopServices::openUrl(QUrl::fromLocalFile(directory))) {
+        onError(tr("Could not open the packaged Colab notebooks folder."));
+        return false;
+    }
+    return true;
 }
 
 } // namespace LAStudio

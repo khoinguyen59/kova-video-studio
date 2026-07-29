@@ -32,7 +32,7 @@ class AppUpdateService : public QObject {
 public:
     explicit AppUpdateService(DownloadManager *downloads, QObject *parent = nullptr);
 
-    // Compares strict SemVer release labels, including prerelease precedence.
+    // Compares four-part release labels, including prerelease precedence.
     // Kept public for deterministic unit tests without network access.
     static bool isUpdateVersionNewer(const QString &candidate, const QString &installed);
 
