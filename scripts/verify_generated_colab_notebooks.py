@@ -101,6 +101,11 @@ def main() -> int:
                         mismatches.append(
                             f"STT worker cannot reject a stale Colab server revision: {generated.name}"
                         )
+                    if "Check Colab action is the" not in worker_source \
+                            or "Cloudflare tunnel URL created. Verify it with Check Colab in LA Studio." not in worker_source:
+                        mismatches.append(
+                            f"STT worker does not delegate public tunnel verification to the desktop check: {generated.name}"
+                        )
                     if '"wget", "-q", "-O"' in worker_source:
                         mismatches.append(
                             f"STT worker still overwrites cloudflared on every rerun: {generated.name}"

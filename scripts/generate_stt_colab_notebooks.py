@@ -666,21 +666,26 @@ else:
     worker_url = ""
     deadline = time.time() + 90
     while time.time() < deadline and not worker_url:
+        if process.poll() is not None:
+            raise RuntimeError("cloudflared exited before creating a public tunnel")
         try:
             line = lines.get(timeout=1)
         except queue.Empty:
-            if process.poll() is not None:
-                raise RuntimeError("cloudflared exited before creating a public tunnel")
             continue
         match = re.search(r"https://[a-z0-9-]+\.trycloudflare\.com", line)
         if match:
-            candidate = match.group(0)
-            if is_exact_worker(read_health(candidate, timeout=6.0)):
-                worker_url = candidate
+            # Colab's self-request to its own public quick tunnel is not a
+            # reliable readiness test. The desktop Check Colab action is the
+            # authoritative public endpoint + token + exact-model verification.
+            worker_url = match.group(0)
+            print("Cloudflare tunnel URL created. Verify it with Check Colab in LA Studio.")
 
     if not worker_url:
         process.terminate()
-        raise RuntimeError("Timed out while creating a verified public Cloudflare tunnel")
+        raise RuntimeError(
+            "cloudflared did not publish a trycloudflare URL within 90 seconds. "
+            "Run the launch cell once more; if it repeats, reset the Colab runtime and check that internet access is available."
+        )
 
 os.environ["LA_STUDIO_COLAB_STT_URL"] = worker_url
 os.environ["LA_STUDIO_COLAB_STT_TOKEN"] = TOKEN
