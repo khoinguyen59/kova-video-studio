@@ -458,6 +458,15 @@ void TestSttSession::testSpeechNotebookMatchesDirectColabSttContract()
     QVERIFY(gallerySource.contains("Select for Colab"));
     QVERIFY(gallerySource.contains("Select + open notebook"));
     QVERIFY(gallerySource.contains("localRuntimeOptions"));
+    QVERIFY(gallerySource.contains("readonly property bool hasFamily: root.hasFamilyValue(f)"));
+    QVERIFY(gallerySource.contains("property var family: detailPanel.hasFamily"));
+
+    QFile remoteInferenceTab(QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
+                                  .filePath(QStringLiteral("qml/pages/settings/RemoteInferenceTab.qml")));
+    QVERIFY(remoteInferenceTab.open(QIODevice::ReadOnly | QIODevice::Text));
+    const QString remoteInferenceSource = QString::fromUtf8(remoteInferenceTab.readAll());
+    QVERIFY(remoteInferenceSource.contains("readonly property var safeEntry: entry"));
+    QVERIFY(remoteInferenceSource.contains("typeof modelData === \"undefined\""));
 
     QFile settings(QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
                        .filePath(QStringLiteral("qml/components/stt/SttSettingsPanel.qml")));

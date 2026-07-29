@@ -1013,10 +1013,14 @@ Rectangle {
             // Never coerce f itself to bool. It is a large QVariantMap and Qt
             // recursively converts the whole catalog entry when a bool binding
             // reads it, which can pin the GUI thread in QV4 conversion/GC.
-            readonly property bool hasFamily: root.activeModel !== null
+            property var f: root.activeModel !== null
                 && root.selectedFamilyId !== ""
-            property var f: hasFamily && root.activeModel.revision >= 0
+                && root.activeModel.revision >= 0
                 ? root.selectedFamilyItem() : null
+            // The selected id can outlive a catalog refresh. Only expose a
+            // detail entry once the actual QVariantMap is present; bindings
+            // behind a hidden item are still evaluated by QML.
+            readonly property bool hasFamily: root.hasFamilyValue(f)
             readonly property int requiredFileComboWidth: root.modalMode
                 ? Math.max(220, Math.min(360, Math.round(width * 0.38)))
                 : 240
@@ -1435,7 +1439,8 @@ Rectangle {
                             border.width: 1
 
                             property int modelRevision: root.activeModel ? root.activeModel.revision : 0
-                            property var family: modelRevision >= 0 ? detailPanel.f : null
+                            property var family: detailPanel.hasFamily && modelRevision >= 0
+                                ? detailPanel.f : null
                             property var familyMetadata: family !== null ? family.rawMetadata : null
                             property string selectedFile: modelData.selectedFile || ""
                             property int installState: {

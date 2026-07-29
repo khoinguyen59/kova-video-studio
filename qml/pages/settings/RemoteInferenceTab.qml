@@ -30,6 +30,7 @@ ScrollView {
 
     component CatalogRow: Rectangle {
         required property var entry
+        readonly property var safeEntry: entry && typeof entry === "object" ? entry : ({})
         Layout.fillWidth: true
         implicitHeight: row.implicitHeight + Theme.paddingMedium * 2
         radius: Theme.radiusSmall
@@ -50,7 +51,7 @@ ScrollView {
 
                 Text {
                     Layout.fillWidth: true
-                    text: entry.displayName || entry.modelId || qsTr("Unnamed model")
+                    text: safeEntry.displayName || safeEntry.modelId || qsTr("Unnamed model")
                     color: Theme.textPrimary
                     font.pixelSize: Theme.fontSmall
                     font.bold: true
@@ -60,14 +61,14 @@ ScrollView {
                     Layout.fillWidth: true
                     text: {
                         var details = []
-                        if (entry.capability) details.push(entry.capability)
-                        if (entry.workerCapability && entry.workerCapability !== entry.capability)
-                            details.push(qsTr("worker %1").arg(entry.workerCapability))
-                        if (entry.revision) details.push(qsTr("rev %1").arg(entry.revision))
-                        if (entry.license) details.push(entry.license)
-                        if (entry.device) details.push(entry.device)
-                        if (entry.requiredVramGb > 0) details.push(qsTr("needs %1 GB VRAM").arg(entry.requiredVramGb))
-                        return details.length > 0 ? details.join(" · ") : entry.modelId
+                        if (safeEntry.capability) details.push(safeEntry.capability)
+                        if (safeEntry.workerCapability && safeEntry.workerCapability !== safeEntry.capability)
+                            details.push(qsTr("worker %1").arg(safeEntry.workerCapability))
+                        if (safeEntry.revision) details.push(qsTr("rev %1").arg(safeEntry.revision))
+                        if (safeEntry.license) details.push(safeEntry.license)
+                        if (safeEntry.device) details.push(safeEntry.device)
+                        if (safeEntry.requiredVramGb > 0) details.push(qsTr("needs %1 GB VRAM").arg(safeEntry.requiredVramGb))
+                        return details.length > 0 ? details.join(" · ") : safeEntry.modelId
                     }
                     color: Theme.textSecondary
                     font.pixelSize: 10
@@ -76,8 +77,8 @@ ScrollView {
             }
 
             Text {
-                text: entry.selectable === false ? qsTr("Unavailable") : qsTr("Available")
-                color: entry.selectable === false ? Theme.warning : Theme.success
+                text: safeEntry.selectable === false ? qsTr("Unavailable") : qsTr("Available")
+                color: safeEntry.selectable === false ? Theme.warning : Theme.success
                 font.pixelSize: 10
                 font.bold: true
             }
@@ -162,7 +163,9 @@ ScrollView {
                 }
                 Repeater {
                     model: root.remoteModels.gatewayModels
-                    delegate: CatalogRow { entry: modelData }
+                    delegate: CatalogRow {
+                        entry: typeof modelData === "undefined" || modelData === null ? ({}) : modelData
+                    }
                 }
             }
 
@@ -242,7 +245,9 @@ ScrollView {
                 }
                 Repeater {
                     model: root.remoteModels.colabModels
-                    delegate: CatalogRow { entry: modelData }
+                    delegate: CatalogRow {
+                        entry: typeof modelData === "undefined" || modelData === null ? ({}) : modelData
+                    }
                 }
             }
         }

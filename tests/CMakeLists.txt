@@ -426,3 +426,22 @@ set_tests_properties(QmlRouteSmoke PROPERTIES
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${QT_BIN_DIR}"
     TIMEOUT 75
 )
+
+if(WIN32)
+    # main.cpp intentionally removes PATH from the DLL search order. Deploy
+    # the Qt runtime beside the smoke executable so this test verifies the
+    # same trusted-layout rule used by the portable package, rather than
+    # weakening the production DLL-search policy just for tests.
+    find_program(WINDEPLOYQT_EXECUTABLE NAMES windeployqt.exe windeployqt
+        HINTS "${QT_BIN_DIR}" REQUIRED)
+    add_test(NAME PrepareQmlRouteSmokeRuntime
+        COMMAND "${WINDEPLOYQT_EXECUTABLE}" --verbose 0
+            --qmldir "${CMAKE_SOURCE_DIR}/qml" --no-translations
+            --compiler-runtime "$<TARGET_FILE:LAStudio>")
+    set_tests_properties(PrepareQmlRouteSmokeRuntime PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+        FIXTURES_SETUP QmlRouteSmokeRuntime
+        TIMEOUT 60)
+    set_tests_properties(QmlRouteSmoke PROPERTIES
+        FIXTURES_REQUIRED QmlRouteSmokeRuntime)
+endif()

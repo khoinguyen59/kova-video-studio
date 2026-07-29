@@ -296,9 +296,18 @@ void TestModelsAndRuntimes::testStudioSelectionRepositoryRemembersFilesPerFamily
         QVERIFY(database.open());
 
         QSqlQuery query(database);
+        QVERIFY(query.exec(QStringLiteral("PRAGMA foreign_keys = ON")));
+        QVERIFY(query.exec(QStringLiteral(
+            "CREATE TABLE model_families (id TEXT PRIMARY KEY)")));
+        QVERIFY(query.exec(QStringLiteral(
+            "CREATE TABLE runtime_engines (id TEXT PRIMARY KEY)")));
+        QVERIFY(query.exec(QStringLiteral(
+            "INSERT INTO model_families (id) VALUES ('m2m100-418m'), ('hy-mt2-1.8b')")));
         QVERIFY(query.exec(QStringLiteral(
             "CREATE TABLE active_capability_selections ("
-            "capability_id TEXT PRIMARY KEY, family_id TEXT NOT NULL, runtime_id TEXT, "
+            "capability_id TEXT PRIMARY KEY, "
+            "family_id TEXT NOT NULL REFERENCES model_families(id), "
+            "runtime_id TEXT REFERENCES runtime_engines(id), "
             "runtime_version TEXT, selected_files_json TEXT NOT NULL DEFAULT '{}', "
             "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")));
         QVERIFY(query.exec(QStringLiteral(

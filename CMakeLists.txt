@@ -6,7 +6,7 @@ include(cmake/RuntimeAbi.cmake)
 # automation may override it with -DLASTUDIO_VERSION=<major.minor.release.build>.
 # Internal builds use four numeric fields so each artifact has an unambiguous,
 # monotonically ordered label: 0.0.0.1 ... 0.0.0.9, then 0.0.1.0.
-set(LASTUDIO_VERSION "0.0.1.1" CACHE STRING "LA Studio application version")
+set(LASTUDIO_VERSION "0.0.1.2" CACHE STRING "LA Studio application version")
 if(NOT LASTUDIO_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$")
     message(FATAL_ERROR "LASTUDIO_VERSION must use MAJOR.MINOR.RELEASE.BUILD format; got '${LASTUDIO_VERSION}'")
 endif()
@@ -704,7 +704,9 @@ target_compile_definitions(LAStudioRuntimeHost PRIVATE
 )
 
 if(BUILD_TESTING)
-    add_dependencies(LAStudioUnitTests LAStudioRuntimeHost)
+    # QML route smoke must exercise the application compiled from the current
+    # source, not a possibly stale executable left by a previous package run.
+    add_dependencies(LAStudioUnitTests LAStudio LAStudioRuntimeHost)
 endif()
 
 if(WIN32)
