@@ -60,6 +60,16 @@ selected model.  The regression test checks that every generated Voice Clone
 notebook preserves this diagnostic contract.  A fresh live VieNeu Colab run is
 still required to establish the remaining runtime-specific cause, if any.
 
+Live Colab logs then identified a shared failure before either VieNeu model
+could load: Transformers could not import `PreTrainedModel` for v3 or
+`Qwen3ForCausalLM` for v2.  These are framework-import errors, not an out of
+memory condition or a rejected model repository.  The VieNeu setup cell now
+replaces any retained Colab torchvision build with the CUDA 12.8-compatible
+`torchvision==0.23.0` paired with `torch==2.8.0`, then imports both classes
+before it starts the worker.  This makes the PyTorch/Transformers environment
+deterministic and stops at the installation cell with a full traceback if a
+future Colab image changes a dependency again.
+
 ## Feature route matrix
 
 | Feature | Direct Colab notebook and advertised CUDA model(s) | API Gateway route | Current UI route surface | Acceptance state |

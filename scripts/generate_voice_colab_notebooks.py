@@ -518,7 +518,30 @@ def clone_with_exact_model(profile, request):
             "install": r'''
 !nvidia-smi
 %pip install -q "torch==2.8.0" "torchaudio==2.8.0" --index-url https://download.pytorch.org/whl/cu128
+%pip install -q --upgrade --force-reinstall --no-deps "torchvision==0.23.0" --index-url https://download.pytorch.org/whl/cu128
 %pip install -q "transformers==4.57.6" "git+https://github.com/pnnbao97/VieNeu-TTS.git@f56ce97ffb37" "soundfile==0.13.1" "python-multipart==0.0.20" "fastapi==0.115.12" "uvicorn==0.34.3"
+
+# Colab can retain an older torchvision after torch is upgraded. Transformers
+# then masks the binary mismatch as a missing PreTrainedModel/Qwen3 class.
+import importlib.metadata as package_metadata
+import traceback
+
+import torch
+import torchvision
+
+print("PyTorch stack:", torch.__version__, torchvision.__version__)
+assert torch.cuda.is_available(), "CUDA is unavailable. In Colab choose Runtime > Change runtime type > GPU."
+assert package_metadata.version("torchvision").split("+")[0] == "0.23.0", "VieNeu requires torchvision 0.23.0 with torch 2.8.0."
+try:
+    from transformers import PreTrainedModel
+    from transformers.models.qwen3.modeling_qwen3 import Qwen3ForCausalLM
+except Exception as error:
+    traceback.print_exc()
+    raise RuntimeError(
+        "The Colab PyTorch/Transformers stack is not importable for VieNeu. "
+        "Restart the runtime, rerun this install cell, then run all cells again."
+    ) from error
+print("Transformers imports verified for VieNeu:", PreTrainedModel.__name__, Qwen3ForCausalLM.__name__)
 ''',
             "adapter": r'''
 from vieneu import Vieneu
@@ -544,7 +567,30 @@ def clone_with_exact_model(profile, request):
             "install": r'''
 !nvidia-smi
 %pip install -q "torch==2.8.0" "torchaudio==2.8.0" --index-url https://download.pytorch.org/whl/cu128
+%pip install -q --upgrade --force-reinstall --no-deps "torchvision==0.23.0" --index-url https://download.pytorch.org/whl/cu128
 %pip install -q "transformers==4.57.6" "git+https://github.com/pnnbao97/VieNeu-TTS.git@f56ce97ffb37" "soundfile==0.13.1" "python-multipart==0.0.20" "fastapi==0.115.12" "uvicorn==0.34.3"
+
+# Colab can retain an older torchvision after torch is upgraded. Transformers
+# then masks the binary mismatch as a missing PreTrainedModel/Qwen3 class.
+import importlib.metadata as package_metadata
+import traceback
+
+import torch
+import torchvision
+
+print("PyTorch stack:", torch.__version__, torchvision.__version__)
+assert torch.cuda.is_available(), "CUDA is unavailable. In Colab choose Runtime > Change runtime type > GPU."
+assert package_metadata.version("torchvision").split("+")[0] == "0.23.0", "VieNeu requires torchvision 0.23.0 with torch 2.8.0."
+try:
+    from transformers import PreTrainedModel
+    from transformers.models.qwen3.modeling_qwen3 import Qwen3ForCausalLM
+except Exception as error:
+    traceback.print_exc()
+    raise RuntimeError(
+        "The Colab PyTorch/Transformers stack is not importable for VieNeu. "
+        "Restart the runtime, rerun this install cell, then run all cells again."
+    ) from error
+print("Transformers imports verified for VieNeu:", PreTrainedModel.__name__, Qwen3ForCausalLM.__name__)
 ''',
             "adapter": r'''
 from vieneu import Vieneu

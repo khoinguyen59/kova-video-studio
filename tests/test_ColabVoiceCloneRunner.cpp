@@ -314,6 +314,14 @@ void TestColabVoiceCloneRunner::exactModelMappingMatchesCatalogAndNotebooks()
                  "Exact-model notebook must return the root worker error instead of a generic timeout.");
         QVERIFY2(source.contains(QStringLiteral("health.get(\"model\") == MODEL_ID")),
                  "Exact-model notebook must validate that the ready worker is the selected model.");
+        if (model.startsWith(QStringLiteral("vieneu-tts-"))) {
+            QVERIFY2(source.contains(QStringLiteral("torchvision==0.23.0")),
+                     "VieNeu must replace Colab's potentially incompatible torchvision build.");
+            QVERIFY2(source.contains(QStringLiteral("Qwen3ForCausalLM")),
+                     "VieNeu must validate the Qwen3 Transformers import before starting its worker.");
+            QVERIFY2(source.contains(QStringLiteral("PreTrainedModel")),
+                     "VieNeu must validate the v3 Transformers import before starting its worker.");
+        }
         QVERIFY(!source.contains(QStringLiteral("API_GATEWAY")));
         QVERIFY(!source.contains(QStringLiteral("GATEWAY_BASE_URL")));
     }
