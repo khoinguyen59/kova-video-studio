@@ -897,39 +897,70 @@ void TestRemoteExecution::remoteModelCatalogRetainsHealthyWorkerWhenAnotherFails
 void TestRemoteExecution::colabNotebooksAdvertiseCapabilityContractVersion()
 {
     const QDir sourceRoot(QStringLiteral(LASTUDIO_SOURCE_DIR));
-    const QStringList notebooks{
-        QStringLiteral("LA_STUDIO_SPEECH_GPU.ipynb"),
-        QStringLiteral("LA_STUDIO_VOICE_GPU.ipynb"),
-        QStringLiteral("LA_STUDIO_VOICE_CLONE_OMNIVOICE_GPU.ipynb"),
-        QStringLiteral("LA_STUDIO_VOICE_CLONE_QWEN3_BASE_0_6B_GPU.ipynb"),
-        QStringLiteral("LA_STUDIO_VOICE_CLONE_QWEN3_BASE_1_7B_GPU.ipynb"),
-        QStringLiteral("LA_STUDIO_VOICE_CLONE_VIENEU_V2_TURBO_GPU.ipynb"),
-        QStringLiteral("LA_STUDIO_VOICE_CLONE_VIENEU_V3_TURBO_GPU.ipynb"),
-        QStringLiteral("LA_STUDIO_VOICE_CLONE_VOXCPM2_GPU.ipynb"),
-        QStringLiteral("LA_STUDIO_VOICE_DESIGN_OMNIVOICE_GPU.ipynb"),
-        QStringLiteral("LA_STUDIO_VOICE_DESIGN_QWEN3_1_7B_GPU.ipynb"),
-        QStringLiteral("LA_STUDIO_VOICE_DESIGN_VOXCPM2_GPU.ipynb"),
-        QStringLiteral("LA_STUDIO_ALIGNMENT_WAV2VEC2_ZH_GPU.ipynb"),
-        QStringLiteral("LA_STUDIO_ALIGNMENT_CANARY_CTC_GPU.ipynb"),
-        QStringLiteral("LA_STUDIO_ALIGNMENT_MMS_ONNX_GPU.ipynb"),
-        QStringLiteral("LA_STUDIO_ALIGNMENT_QWEN3_0_6B_GPU.ipynb"),
-        QStringLiteral("LA_STUDIO_SEPARATION_SPLEETER_2STEMS_GPU.ipynb"),
-        QStringLiteral("LA_STUDIO_SEPARATION_UVR_VOCALS_GPU.ipynb"),
-        QStringLiteral("LA_STUDIO_TRANSLATION_M2M100_418M_GPU.ipynb"),
-        QStringLiteral("LA_STUDIO_TRANSLATION_MADLAD400_3B_GPU.ipynb"),
-        QStringLiteral("LA_STUDIO_TRANSLATION_HY_MT2_1_8B_GPU.ipynb"),
-        QStringLiteral("LA_STUDIO_LLM_QWEN3_5_2B_GPU.ipynb"),
+    struct NotebookContract {
+        QString file;
+        QString capability;
+        QString model;
+        QString endpoint;
     };
-    for (const QString &notebook : notebooks) {
-        QFile file(sourceRoot.filePath(QStringLiteral("notebooks/") + notebook));
-        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(file.fileName()));
+    const QList<NotebookContract> notebooks{
+        {QStringLiteral("LA_STUDIO_STT_NEMOTRON_3_5_0_6B_GPU.ipynb"), QStringLiteral("stt"), QStringLiteral("nemotron-3.5-asr-streaming-0.6b"), QStringLiteral("/v1/audio/transcriptions")},
+        {QStringLiteral("LA_STUDIO_STT_WHISPER_GPU.ipynb"), QStringLiteral("stt"), QStringLiteral("whisper.cpp"), QStringLiteral("/v1/audio/transcriptions")},
+        {QStringLiteral("LA_STUDIO_STT_QWEN3_ASR_0_6B_GPU.ipynb"), QStringLiteral("stt"), QStringLiteral("qwen3-asr-0.6b"), QStringLiteral("/v1/audio/transcriptions")},
+        {QStringLiteral("LA_STUDIO_STT_QWEN3_ASR_1_7B_GPU.ipynb"), QStringLiteral("stt"), QStringLiteral("qwen3-asr-1.7b"), QStringLiteral("/v1/audio/transcriptions")},
+        {QStringLiteral("LA_STUDIO_TTS_KOKORO_GPU.ipynb"), QStringLiteral("tts"), QStringLiteral("kokoro"), QStringLiteral("/v1/audio/speech")},
+        {QStringLiteral("LA_STUDIO_TTS_KOKORO_VIETNAMESE_GPU.ipynb"), QStringLiteral("tts"), QStringLiteral("kokoro-vietnamese"), QStringLiteral("/v1/audio/speech")},
+        {QStringLiteral("LA_STUDIO_TTS_OMNIVOICE_GPU.ipynb"), QStringLiteral("tts"), QStringLiteral("omnivoice"), QStringLiteral("/v1/audio/speech")},
+        {QStringLiteral("LA_STUDIO_TTS_QWEN3_CUSTOMVOICE_1_7B_GPU.ipynb"), QStringLiteral("tts"), QStringLiteral("qwen3-tts-1.7b-customvoice"), QStringLiteral("/v1/audio/speech")},
+        {QStringLiteral("LA_STUDIO_TTS_VIBEVOICE_0_5B_GPU.ipynb"), QStringLiteral("tts"), QStringLiteral("vibevoice"), QStringLiteral("/v1/audio/speech")},
+        {QStringLiteral("LA_STUDIO_TTS_VIENEU_V2_TURBO_GPU.ipynb"), QStringLiteral("tts"), QStringLiteral("vieneu-tts-v2-turbo"), QStringLiteral("/v1/audio/speech")},
+        {QStringLiteral("LA_STUDIO_TTS_VIENEU_V3_TURBO_GPU.ipynb"), QStringLiteral("tts"), QStringLiteral("vieneu-tts-v3-turbo"), QStringLiteral("/v1/audio/speech")},
+        {QStringLiteral("LA_STUDIO_TTS_VOXCPM2_GPU.ipynb"), QStringLiteral("tts"), QStringLiteral("voxcpm2"), QStringLiteral("/v1/audio/speech")},
+        {QStringLiteral("LA_STUDIO_VOICE_CLONE_OMNIVOICE_GPU.ipynb"), QStringLiteral("voice-cloning"), QStringLiteral("omnivoice"), QStringLiteral("/v2/jobs/profile")},
+        {QStringLiteral("LA_STUDIO_VOICE_CLONE_QWEN3_BASE_0_6B_GPU.ipynb"), QStringLiteral("voice-cloning"), QStringLiteral("qwen3-tts-0.6b-base"), QStringLiteral("/v2/jobs/profile")},
+        {QStringLiteral("LA_STUDIO_VOICE_CLONE_QWEN3_BASE_1_7B_GPU.ipynb"), QStringLiteral("voice-cloning"), QStringLiteral("qwen3-tts-1.7b-base"), QStringLiteral("/v2/jobs/profile")},
+        {QStringLiteral("LA_STUDIO_VOICE_CLONE_VIENEU_V2_TURBO_GPU.ipynb"), QStringLiteral("voice-cloning"), QStringLiteral("vieneu-tts-v2-turbo"), QStringLiteral("/v2/jobs/profile")},
+        {QStringLiteral("LA_STUDIO_VOICE_CLONE_VIENEU_V3_TURBO_GPU.ipynb"), QStringLiteral("voice-cloning"), QStringLiteral("vieneu-tts-v3-turbo"), QStringLiteral("/v2/jobs/profile")},
+        {QStringLiteral("LA_STUDIO_VOICE_CLONE_VOXCPM2_GPU.ipynb"), QStringLiteral("voice-cloning"), QStringLiteral("voxcpm2"), QStringLiteral("/v2/jobs/profile")},
+        {QStringLiteral("LA_STUDIO_VOICE_DESIGN_OMNIVOICE_GPU.ipynb"), QStringLiteral("voice-design"), QStringLiteral("omnivoice"), QStringLiteral("/v1/audio/voice_designs")},
+        {QStringLiteral("LA_STUDIO_VOICE_DESIGN_QWEN3_1_7B_GPU.ipynb"), QStringLiteral("voice-design"), QStringLiteral("qwen3-tts-1.7b-voicedesign"), QStringLiteral("/v1/audio/voice_designs")},
+        {QStringLiteral("LA_STUDIO_VOICE_DESIGN_VOXCPM2_GPU.ipynb"), QStringLiteral("voice-design"), QStringLiteral("voxcpm2"), QStringLiteral("/v1/audio/voice_designs")},
+        {QStringLiteral("LA_STUDIO_ALIGNMENT_WAV2VEC2_ZH_GPU.ipynb"), QStringLiteral("forced-alignment"), QStringLiteral("wav2vec2-aligner-zh"), QStringLiteral("/v1/audio/alignments")},
+        {QStringLiteral("LA_STUDIO_ALIGNMENT_CANARY_CTC_GPU.ipynb"), QStringLiteral("forced-alignment"), QStringLiteral("canary-ctc-aligner"), QStringLiteral("/v1/audio/alignments")},
+        {QStringLiteral("LA_STUDIO_ALIGNMENT_MMS_ONNX_GPU.ipynb"), QStringLiteral("forced-alignment"), QStringLiteral("mms-forced-aligner-onnx"), QStringLiteral("/v1/audio/alignments")},
+        {QStringLiteral("LA_STUDIO_ALIGNMENT_QWEN3_0_6B_GPU.ipynb"), QStringLiteral("forced-alignment"), QStringLiteral("qwen3-forced-aligner-0.6b"), QStringLiteral("/v1/audio/alignments")},
+        {QStringLiteral("LA_STUDIO_SEPARATION_SPLEETER_2STEMS_GPU.ipynb"), QStringLiteral("voice-isolation"), QStringLiteral("sherpa-onnx-spleeter-2stems-fp16"), QStringLiteral("/v1/audio/separations")},
+        {QStringLiteral("LA_STUDIO_SEPARATION_UVR_VOCALS_GPU.ipynb"), QStringLiteral("voice-isolation"), QStringLiteral("sherpa-onnx-uvr-vocals-ft"), QStringLiteral("/v1/audio/separations")},
+        {QStringLiteral("LA_STUDIO_TRANSLATION_M2M100_418M_GPU.ipynb"), QStringLiteral("translation"), QStringLiteral("m2m100-418m"), QStringLiteral("/v1/translations")},
+        {QStringLiteral("LA_STUDIO_TRANSLATION_MADLAD400_3B_GPU.ipynb"), QStringLiteral("translation"), QStringLiteral("madlad400-3b-mt"), QStringLiteral("/v1/translations")},
+        {QStringLiteral("LA_STUDIO_TRANSLATION_HY_MT2_1_8B_GPU.ipynb"), QStringLiteral("translation"), QStringLiteral("hy-mt2-1.8b"), QStringLiteral("/v1/translations")},
+        {QStringLiteral("LA_STUDIO_LLM_QWEN3_5_2B_GPU.ipynb"), QStringLiteral("llm-chat"), QStringLiteral("qwen3.5-2b"), QStringLiteral("/v1/chat/completions")},
+    };
+    for (const NotebookContract &notebook : notebooks) {
+        QFile file(sourceRoot.filePath(QStringLiteral("notebooks/") + notebook.file));
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(notebook.file));
         const QByteArray source = file.readAll();
+        const bool hasHealth = source.contains("@app.get('/health')")
+            || source.contains("@app.get(\\\"/health\\\")");
         const bool hasCapabilities = source.contains("@app.get('/v1/capabilities')")
             || source.contains("@app.get(\\\"/v1/capabilities\\\")");
         const bool hasContractVersion = source.contains("'contract_version': 1")
             || source.contains("\\\"contract_version\\\": 1");
-        QVERIFY2(hasCapabilities, qPrintable(notebook));
-        QVERIFY2(hasContractVersion, qPrintable(notebook));
+        const bool hasReady = source.contains("'ready': True")
+            || source.contains("\\\"ready\\\": True");
+        const bool hasCuda = source.contains("'device': 'cuda'")
+            || source.contains("\\\"device\\\": \\\"cuda\\\"");
+        const bool hasNoCpuFallback = source.contains("'cpu_fallback': False")
+            || source.contains("\\\"cpu_fallback\\\": False");
+        QVERIFY2(hasHealth, qPrintable(notebook.file));
+        QVERIFY2(hasCapabilities, qPrintable(notebook.file));
+        QVERIFY2(hasContractVersion, qPrintable(notebook.file));
+        QVERIFY2(hasReady, qPrintable(notebook.file));
+        QVERIFY2(hasCuda, qPrintable(notebook.file));
+        QVERIFY2(hasNoCpuFallback, qPrintable(notebook.file));
+        QVERIFY2(source.contains(notebook.capability.toUtf8()), qPrintable(notebook.file));
+        QVERIFY2(source.contains(notebook.model.toUtf8()), qPrintable(notebook.file));
+        QVERIFY2(source.contains(notebook.endpoint.toUtf8()), qPrintable(notebook.file));
     }
 }
 

@@ -50,7 +50,15 @@ def require_token(authorization: str | None) -> None:
 
 @app.get("/health")
 def health():
-    return {{"ok": True, "device": "cuda", "model": MODEL_ID, "upstream_model": UPSTREAM_MODEL}}
+    return {{
+        "ok": True,
+        "ready": True,
+        "device": "cuda",
+        "gpu": torch.cuda.get_device_name(0),
+        "model": MODEL_ID,
+        "upstream_model": UPSTREAM_MODEL,
+        "cpu_fallback": False,
+    }}
 
 
 @app.get("/v1/capabilities")
