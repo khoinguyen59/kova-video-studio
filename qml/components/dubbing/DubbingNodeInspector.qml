@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import "../base"
+import "../shared"
 import "../shared/settings"
 import LAStudio
 
@@ -29,9 +30,9 @@ Rectangle {
     // deliberately remains separate from the API Gateway route and its model.
     readonly property bool isDirectColabSynthesis: nodeId === "synthesize"
                                                   && String(dynamicSettings.executionProvider || "local-dev").toLowerCase() === "colab-direct"
+    // Keep the project voice selector visible before a model/runtime is
+    // loaded as well; model setup must not hide a required run configuration.
     readonly property bool voiceCloningAvailable: nodeId === "synthesize"
-                                                && node
-                                                && (node.supportsVoiceCloning === true || isDirectColabSynthesis)
     readonly property bool isRemoteTranscription: nodeId === "transcribe"
                                                   && String(dynamicSettings.executionProvider || "local-dev").toLowerCase() !== "local-dev"
     readonly property string voiceCloneModelId:
@@ -199,23 +200,94 @@ Rectangle {
                     iconName: "spark"
                     visible: root.voiceCloningAvailable
 
-                    ToggleRow {
-                        text: qsTr("Auto-select a clean voice reference")
-                        checked: root.dynamicSettings.autoSelectVoiceReference !== undefined
-                                 ? root.dynamicSettings.autoSelectVoiceReference === true
-                                 : root.isOmniVoice
-                        enabled: !root.dubbing.processing
-                        onToggled: {
-                            root.updateParameter("autoSelectVoiceReference", checked)
-                            if (checked && root.isDirectColabSynthesis)
-                                root.dubbing.selectWorkflowColabModel(
-                                    "voice-clone", root.voiceCloneModelId)
+                    Text {
+                        Layout.fillWidth: true
+                        text: qsTr("One saved clone voice is used for every segment and speaker in this dubbing run.")
+                        color: Theme.textSecondary
+                        font.pixelSize: 10
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Text {
+                        text: qsTr("Saved clone voice")
+                        color: Theme.textSecondary
+                        font.pixelSize: 10
+                    }
+
+                    ComboBox {
+                        id: cloneVoicePresetSelector
+                        Layout.fillWidth: true
+                        textRole: "name"
+                        model: root.dubbing.cloneVoicePresets
+                        currentIndex: {
+                            for (var i = 0; i < model.length; ++i)
+                                if (model[i].id === root.dubbing.selectedCloneVoicePresetId)
+                                    return i
+                            return -1
                         }
+                        enabled: !root.dubbing.processing && model.length > 0
+                        onActivated: function(index) {
+                            root.dubbing.selectCloneVoicePreset(model[index].id)
+                        }
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        visible: cloneVoicePresetSelector.model.length === 0
+                        text: qsTr("No saved clone voice is available for this model. Create or import a reference voice to continue.")
+                        color: Theme.warning
+                        font.pixelSize: 10
+                        wrapMode: Text.WordWrap
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        PrimaryButton {
+                            text: qsTr("Create or import clone voice")
+                            iconName: "users"
+                            quiet: true
+                            enabled: !root.dubbing.processing
+                            onClicked: {
+                                cloneVoiceLibraryDialog.initialReferenceAudioPath = ""
+                                cloneVoiceLibraryDialog.initialReferenceText = ""
+                                cloneVoiceLibraryDialog.open()
+                            }
+                        }
+                        PrimaryButton {
+                            visible: root.dubbing.vocalsPath !== ""
+                            text: qsTr("Use clean vocals")
+                            iconName: "volume"
+                            quiet: true
+                            enabled: !root.dubbing.processing
+                            onClicked: {
+                                cloneVoiceLibraryDialog.initialReferenceAudioPath = root.dubbing.vocalsPath
+                                cloneVoiceLibraryDialog.initialReferenceText = ""
+                                cloneVoiceLibraryDialog.open()
+                            }
+                        }
+                        Item { Layout.fillWidth: true }
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        visible: root.dubbing.vocalsPath !== ""
+                        text: qsTr("Preview the separated vocals in the Source separation step, then save this clean reference to the shared library.")
+                        color: Theme.textSecondary
+                        font.pixelSize: 10
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        visible: root.dubbing.cloneVoiceSelectionError !== ""
+                        text: root.dubbing.cloneVoiceSelectionError
+                        color: Theme.danger
+                        font.pixelSize: 10
+                        wrapMode: Text.WordWrap
                     }
 
                     ToggleRow {
                         visible: root.isDirectColabSynthesis
-                                 && root.dynamicSettings.autoSelectVoiceReference === true
                         text: qsTr("I have permission to clone this voice")
                         checked: root.dynamicSettings.voiceCloneConsentConfirmed === true
                         enabled: !root.dubbing.processing
@@ -226,7 +298,7 @@ Rectangle {
                         Layout.fillWidth: true
                         text: root.isDirectColabSynthesis
                               ? qsTr("Direct Colab only: a 3-15 second reference is sent to the paired temporary worker. Its voice profile stays in that worker session and is never sent to or stored by API Gateway.")
-                              : qsTr("Scores 3-15 second source speech windows, saves the best window as a reference, and uses its transcript to clone the source voice.")
+                              : qsTr("Select a saved voice reference. LA Studio never replaces it with source audio, a random voice, or a per-segment fallback.")
                         color: Theme.textSecondary
                         font.pixelSize: 10
                         wrapMode: Text.WordWrap
@@ -236,7 +308,6 @@ Rectangle {
                         Layout.fillWidth: true
                         spacing: Theme.paddingSmall
                         visible: root.isDirectColabSynthesis
-                                 && root.dynamicSettings.autoSelectVoiceReference === true
 
                         Text {
                             text: qsTr("Voice-cloning model")
@@ -616,6 +687,13 @@ Rectangle {
                 wrapMode: Text.WordWrap
             }
         }
+    }
+
+    VoiceLibraryDialog {
+        id: cloneVoiceLibraryDialog
+        parent: Overlay.overlay
+        familyId: root.dubbing.cloneVoicePresetFamily
+        initialMode: "reference"
     }
 
     Connections {

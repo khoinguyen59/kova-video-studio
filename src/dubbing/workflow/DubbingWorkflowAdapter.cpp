@@ -44,9 +44,6 @@ void DubbingWorkflowAdapter::start(const QString &nodeType, const QVariantMap &i
                                    inputs.value(QStringLiteral("transcript")).toList(), parameters);
     } else if (nodeType == QStringLiteral("dubbing.synthesize-segments")) {
         QVariantMap synthesisSettings = parameters.value(QStringLiteral("synthesisSettings")).toMap();
-        const QString referenceAudio = inputs.value(QStringLiteral("referenceAudio")).toString();
-        if (!referenceAudio.isEmpty())
-            synthesisSettings.insert(QStringLiteral("autoReferenceSourcePath"), referenceAudio);
         m_runner->startAudioGeneration(inputs.value(QStringLiteral("transcript")).toList(),
                                        parameters.value(QStringLiteral("projectPath")).toString(),
                                        synthesisSettings);

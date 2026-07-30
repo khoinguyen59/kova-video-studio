@@ -72,12 +72,18 @@ SttSessionController::SttSessionController(QObject *parent)
     }
 
     if (m_engine) {
-        connect(m_engine, &SttEngine::progressChanged, this, &SttSessionController::progressChanged);
+        connect(m_engine, &SttEngine::progressChanged, this, [this]() {
+            emit progressChanged();
+            emit progressAvailableChanged();
+        });
         connect(m_engine, &SttEngine::transcriptChanged, this, [this]() {
             m_transcript = m_engine->transcript();
             emit transcriptChanged();
         });
-        connect(m_engine, &SttEngine::processingChanged, this, &SttSessionController::processingChanged);
+        connect(m_engine, &SttEngine::processingChanged, this, [this]() {
+            emit processingChanged();
+            emit progressAvailableChanged();
+        });
         connect(m_engine, &SttEngine::transcriptionFinished, this, &SttSessionController::onEngineTranscriptionFinished);
         connect(m_engine, &SttEngine::errorOccurred, this, [this](const QString &message) {
             if (!m_activeJob.isValid) return;
@@ -139,6 +145,15 @@ int SttSessionController::progress() const
     if (m_colabProcessing) return m_colabProgress;
     if (m_gatewayProcessing) return m_gatewayProgress;
     return m_engine ? m_engine->progress() : 0;
+}
+
+bool SttSessionController::progressAvailable() const
+{
+    if (m_colabProcessing) return m_colabProgressAvailable;
+    if (m_gatewayProcessing) return m_gatewayProgressAvailable;
+    if (!m_engine || !m_engine->isProcessing()) return false;
+    const int localProgress = m_engine->progress();
+    return localProgress > 0 && localProgress < 100;
 }
 
 bool SttSessionController::recording() const
@@ -400,8 +415,10 @@ void SttSessionController::transcribeInputForProvider(ExecutionProvider provider
         m_gatewayCancellation = std::make_shared<std::atomic_bool>(false);
         m_gatewayProcessing = true;
         m_gatewayProgress = 0;
+        m_gatewayProgressAvailable = false;
         emit processingChanged();
         emit progressChanged();
+        emit progressAvailableChanged();
         GatewaySttRequest request;
         request.gatewayUrl = m_settings->gatewayUrl();
         request.apiKey = m_settings->gatewayApiKey();
@@ -417,8 +434,10 @@ void SttSessionController::transcribeInputForProvider(ExecutionProvider provider
         m_colabCancellation = std::make_shared<std::atomic_bool>(false);
         m_colabProcessing = true;
         m_colabProgress = 0;
+        m_colabProgressAvailable = false;
         emit processingChanged();
         emit progressChanged();
+        emit progressAvailableChanged();
         ColabSttRequest request;
         request.workerUrl = m_colabSession->endpoint();
         request.bearerToken = m_colabSession->bearerTokenForRequest();
@@ -722,8 +741,10 @@ void SttSessionController::selectProvider(ExecutionProvider provider)
 void SttSessionController::onColabProgress(int percent)
 {
     if (!m_colabProcessing) return;
-    m_colabProgress = percent;
+    m_colabProgress = qBound(0, percent, 100);
+    m_colabProgressAvailable = m_colabProgress > 0 && m_colabProgress < 100;
     emit progressChanged();
+    emit progressAvailableChanged();
 }
 
 void SttSessionController::onColabFinished(const QString &text, const QVariantList &segments)
@@ -731,11 +752,13 @@ void SttSessionController::onColabFinished(const QString &text, const QVariantLi
     if (!m_colabProcessing) return;
     m_colabProcessing = false;
     m_colabProgress = 100;
+    m_colabProgressAvailable = false;
     m_colabCancellation.reset();
     m_transcript = text;
     emit transcriptChanged();
     emit processingChanged();
     emit progressChanged();
+    emit progressAvailableChanged();
     onEngineTranscriptionFinished(text, segments);
 }
 
@@ -745,18 +768,22 @@ void SttSessionController::onColabFailed(const QString &error)
     const bool cancelled = !m_colabCancellation || m_colabCancellation->load(std::memory_order_relaxed);
     m_colabProcessing = false;
     m_colabProgress = 0;
+    m_colabProgressAvailable = false;
     m_colabCancellation.reset();
     m_activeJob.isValid = false;
     emit processingChanged();
     emit progressChanged();
+    emit progressAvailableChanged();
     if (!cancelled) emit transcriptionFailed(error);
 }
 
 void SttSessionController::onGatewayProgress(int percent)
 {
     if (!m_gatewayProcessing) return;
-    m_gatewayProgress = percent;
+    m_gatewayProgress = qBound(0, percent, 100);
+    m_gatewayProgressAvailable = m_gatewayProgress > 0 && m_gatewayProgress < 100;
     emit progressChanged();
+    emit progressAvailableChanged();
 }
 
 void SttSessionController::onGatewayFinished(const QString &text, const QVariantList &segments)
@@ -764,11 +791,13 @@ void SttSessionController::onGatewayFinished(const QString &text, const QVariant
     if (!m_gatewayProcessing) return;
     m_gatewayProcessing = false;
     m_gatewayProgress = 100;
+    m_gatewayProgressAvailable = false;
     m_gatewayCancellation.reset();
     m_transcript = text;
     emit transcriptChanged();
     emit processingChanged();
     emit progressChanged();
+    emit progressAvailableChanged();
     onEngineTranscriptionFinished(text, segments);
 }
 
@@ -778,10 +807,12 @@ void SttSessionController::onGatewayFailed(const QString &error)
     const bool cancelled = !m_gatewayCancellation || m_gatewayCancellation->load(std::memory_order_relaxed);
     m_gatewayProcessing = false;
     m_gatewayProgress = 0;
+    m_gatewayProgressAvailable = false;
     m_gatewayCancellation.reset();
     m_activeJob.isValid = false;
     emit processingChanged();
     emit progressChanged();
+    emit progressAvailableChanged();
     if (!cancelled) emit transcriptionFailed(error);
 }
 

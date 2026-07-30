@@ -1,6 +1,7 @@
 #include "test_DubbingProject.h"
 
 #include "dubbing/DubbingProject.h"
+#include "dubbing/CapCutDraftExporter.h"
 #include "controllers/dubbing/DubbingController.h"
 #include "controllers/dubbing/DubbingColabModelRoutes.h"
 #include "controllers/dubbing/DubbingJobRunner.h"
@@ -8,6 +9,7 @@
 #include "controllers/dubbing/DubbingSynthesisJob.h"
 #include "controllers/dubbing/DubbingTranslationJob.h"
 #include "controllers/dubbing/DubbingTranslationFixService.h"
+#include "controllers/shared/VoiceClonePresetService.h"
 #include "dubbing/AlignmentRefinementService.h"
 #include "dubbing/DubbingSegmentNormalizer.h"
 #include "dubbing/DubbingDuration.h"
@@ -17,6 +19,7 @@
 #include "controllers/app/AppController.h"
 #include "audio/WavIO.h"
 #include "core/Settings.h"
+#include "core/PathUtils.h"
 #include "controllers/stt/SttSessionController.h"
 #include "remote/ColabSession.h"
 #include "stt/SttEngine.h"
@@ -24,16 +27,46 @@
 
 #include <QFile>
 #include <QFileInfo>
+#include <QDir>
+#include <QDateTime>
 #include <QHash>
+#include <QJsonArray>
 #include <QJsonObject>
+#include <QJsonDocument>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTemporaryDir>
+#include <QUuid>
 #include <QtTest>
 
 namespace LAStudio {
 
 namespace {
+
+class ScopedEnvironmentValue final
+{
+public:
+    ScopedEnvironmentValue(const char *name, const QByteArray &value)
+        : m_name(name)
+        , m_wasSet(qEnvironmentVariableIsSet(name))
+        , m_previous(qgetenv(name))
+    {
+        qputenv(name, value);
+    }
+
+    ~ScopedEnvironmentValue()
+    {
+        if (m_wasSet)
+            qputenv(m_name.constData(), m_previous);
+        else
+            qunsetenv(m_name.constData());
+    }
+
+private:
+    QByteArray m_name;
+    bool m_wasSet = false;
+    QByteArray m_previous;
+};
 
 class DubbingSttWorkerMock final : public QObject
 {
@@ -313,7 +346,11 @@ void TestDubbingProject::colabDubbingVoiceCloningIsDirectAndRequiresConsent()
     // or attempts local voice generation.
     QVERIFY(!job.start(segments, projectPath,
                         QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("api-gateway")},
-                                    {QStringLiteral("autoSelectVoiceReference"), true}},
+                                    {QStringLiteral("voiceCloningEnabled"), true},
+                                    {QStringLiteral("cloneVoicePreset"),
+                                     QVariantMap{{QStringLiteral("id"), QStringLiteral("preset-source")},
+                                                 {QStringLiteral("name"), QStringLiteral("Source")},
+                                                 {QStringLiteral("audioPath"), sourcePath}}}},
                         QStringLiteral("gateway-clone")));
     QCOMPARE(failures.count(), 1);
     QCOMPARE(failures.takeFirst().at(0).toString(),
@@ -325,8 +362,11 @@ void TestDubbingProject::colabDubbingVoiceCloningIsDirectAndRequiresConsent()
                         QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
                                     {QStringLiteral("modelId"), QStringLiteral("kokoro")},
                                     {QStringLiteral("voiceCloneModelId"), QStringLiteral("omnivoice")},
-                                    {QStringLiteral("autoSelectVoiceReference"), true},
-                                    {QStringLiteral("autoReferenceSourcePath"), sourcePath}},
+                                    {QStringLiteral("voiceCloningEnabled"), true},
+                                    {QStringLiteral("cloneVoicePreset"),
+                                     QVariantMap{{QStringLiteral("id"), QStringLiteral("preset-source")},
+                                                 {QStringLiteral("name"), QStringLiteral("Source")},
+                                                 {QStringLiteral("audioPath"), sourcePath}}}},
                         QStringLiteral("colab-without-consent")));
     QCOMPARE(failures.count(), 1);
     QCOMPARE(failures.takeFirst().at(0).toString(),
@@ -338,9 +378,12 @@ void TestDubbingProject::colabDubbingVoiceCloningIsDirectAndRequiresConsent()
                         QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
                                     {QStringLiteral("modelId"), QStringLiteral("kokoro")},
                                     {QStringLiteral("voiceCloneModelId"), QStringLiteral("omnivoice")},
-                                    {QStringLiteral("autoSelectVoiceReference"), true},
+                                    {QStringLiteral("voiceCloningEnabled"), true},
                                     {QStringLiteral("voiceCloneConsentConfirmed"), true},
-                                    {QStringLiteral("autoReferenceSourcePath"), sourcePath}},
+                                    {QStringLiteral("cloneVoicePreset"),
+                                     QVariantMap{{QStringLiteral("id"), QStringLiteral("preset-source")},
+                                                 {QStringLiteral("name"), QStringLiteral("Source")},
+                                                 {QStringLiteral("audioPath"), sourcePath}}}},
                         QStringLiteral("colab-direct-only")));
     QCOMPARE(failures.count(), 1);
     QCOMPARE(failures.takeFirst().at(0).toString(),
@@ -552,6 +595,7 @@ void TestDubbingProject::roundTripsVersionedJson()
     original.sourceLanguage = QStringLiteral("en");
     original.targetLanguage = QStringLiteral("vi");
     original.dubbingQuality = QStringLiteral("custom");
+    original.cloneVoicePresetId = QStringLiteral("saved-clone-voice");
     original.durationControl.insert(QStringLiteral("autoRewrite"), false);
     original.workflowNodeConfigurations.insert(
         QStringLiteral("translate"),
@@ -577,6 +621,7 @@ void TestDubbingProject::roundTripsVersionedJson()
     QCOMPARE(loaded.sourceMediaPath, original.sourceMediaPath);
     QCOMPARE(loaded.targetLanguage, original.targetLanguage);
     QCOMPARE(loaded.dubbingQuality, QStringLiteral("custom"));
+    QCOMPARE(loaded.cloneVoicePresetId, QStringLiteral("saved-clone-voice"));
     QVERIFY(!loaded.durationControl.value(QStringLiteral("autoRewrite")).toBool());
     QCOMPARE(loaded.workflowNodeConfigurations.value(QStringLiteral("translate")).toMap()
                  .value(QStringLiteral("familyId")).toString(),
@@ -822,6 +867,92 @@ void TestDubbingProject::colabSourceSeparationDoesNotFallbackToLocal()
              QStringLiteral("Connect a Colab GPU worker before running this Voice Isolation node."));
 }
 
+void TestDubbingProject::unavailableLocalSourceSeparationDoesNotUseOriginalAudio()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString audioPath = dir.filePath(QStringLiteral("source.wav"));
+    QFile file(audioPath);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QVERIFY(file.write("audio-placeholder") > 0);
+    file.close();
+
+    DubbingJobRunner runner(nullptr, nullptr);
+    QSignalSpy completed(&runner, &DubbingJobRunner::stageCompleted);
+    QSignalSpy separationFinished(&runner, &DubbingJobRunner::sourceSeparationFinished);
+    runner.startSourceSeparation(audioPath,
+        QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("local-dev")}});
+
+    QVERIFY(!runner.processing());
+    QCOMPARE(completed.count(), 0);
+    QCOMPARE(separationFinished.count(), 0);
+    QVERIFY(runner.lastError().contains(QStringLiteral("will not be used as a substitute")));
+}
+
+void TestDubbingProject::failedSeparationBackendDoesNotUseOriginalAudio()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString audioPath = dir.filePath(QStringLiteral("source.wav"));
+    const QVector<float> samples(1600, 0.1F);
+    QVERIFY(WavIO::saveFloat(audioPath, samples.constData(), samples.size(), 16000));
+    const QString fakeRuntime = dir.filePath(QStringLiteral("fake-sherpa.dll"));
+    const QString fakeModel = dir.filePath(QStringLiteral("fake-model.onnx"));
+    for (const QString &path : {fakeRuntime, fakeModel}) {
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QVERIFY(file.write("not-a-runtime") > 0);
+    }
+    const ScopedEnvironmentValue runtimeOverride("SHERPA_ONNX_RUNTIME", fakeRuntime.toUtf8());
+    const ScopedEnvironmentValue modelOverride("SHERPA_ONNX_UVR_MODEL", fakeModel.toUtf8());
+
+    DubbingJobRunner runner(nullptr, nullptr);
+    QSignalSpy completed(&runner, &DubbingJobRunner::stageCompleted);
+    QSignalSpy separationFinished(&runner, &DubbingJobRunner::sourceSeparationFinished);
+    runner.startSourceSeparation(audioPath,
+        QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("local-dev")}});
+    QTRY_VERIFY_WITH_TIMEOUT(!runner.processing(), 5000);
+    QCOMPARE(completed.count(), 0);
+    QCOMPARE(separationFinished.count(), 0);
+    QVERIFY(!runner.lastError().isEmpty());
+}
+
+void TestDubbingProject::incompleteSeparationStemsDoNotCompleteTheNode()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString audioPath = dir.filePath(QStringLiteral("source.wav"));
+    const QVector<float> samples(1600, 0.1F);
+    QVERIFY(WavIO::saveFloat(audioPath, samples.constData(), samples.size(), 16000));
+    const QString fakeRuntime = dir.filePath(QStringLiteral("fake-sherpa.dll"));
+    const QString fakeModel = dir.filePath(QStringLiteral("fake-model.onnx"));
+    const QString vocalsPath = dir.filePath(QStringLiteral("vocals.wav"));
+    for (const QString &path : {fakeRuntime, fakeModel, vocalsPath}) {
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QVERIFY(file.write("not-a-runtime") > 0);
+    }
+    const ScopedEnvironmentValue runtimeOverride("SHERPA_ONNX_RUNTIME", fakeRuntime.toUtf8());
+    const ScopedEnvironmentValue modelOverride("SHERPA_ONNX_UVR_MODEL", fakeModel.toUtf8());
+
+    DubbingJobRunner runner(nullptr, nullptr);
+    QSignalSpy completed(&runner, &DubbingJobRunner::stageCompleted);
+    QSignalSpy separationFinished(&runner, &DubbingJobRunner::sourceSeparationFinished);
+    runner.startSourceSeparation(audioPath,
+        QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("local-dev")}});
+    QVERIFY(runner.processing());
+
+    SeparationResult incomplete;
+    incomplete.success = true;
+    incomplete.stems.append({QStringLiteral("vocals"), vocalsPath, 16000, 1});
+    QVERIFY(QMetaObject::invokeMethod(&runner, "onSourceSeparationFinished", Qt::DirectConnection,
+                                      Q_ARG(LAStudio::SeparationResult, incomplete)));
+    QVERIFY(!runner.processing());
+    QCOMPARE(completed.count(), 0);
+    QCOMPARE(separationFinished.count(), 0);
+    QVERIFY(runner.lastError().contains(QStringLiteral("both required vocals and background stems")));
+}
+
 void TestDubbingProject::dubbingRejectsAConnectedColabWorkerForTheWrongModel()
 {
     ExactRouteWorkerMock worker(QStringLiteral("tts"), QStringLiteral("kokoro"));
@@ -973,9 +1104,48 @@ void TestDubbingProject::dubbingUiUsesExactModelWorkers()
     QVERIFY(inspectorSource.contains(
         QStringLiteral("AppController.colabVoiceCloneSession.connectTemporaryWorker")));
     QVERIFY(inspectorSource.contains(
+        QStringLiteral("dubbing.cloneVoicePresets")));
+    QVERIFY(inspectorSource.contains(
+        QStringLiteral("dubbing.selectCloneVoicePreset")));
+    QVERIFY(inspectorSource.contains(QStringLiteral("VoiceLibraryDialog")));
+    QVERIFY(!inspectorSource.contains(
+        QStringLiteral("Auto-select a clean voice reference")));
+    QVERIFY(inspectorSource.contains(
         QStringLiteral("\"alignment\", root.alignmentModelId")));
     QVERIFY(inspectorSource.contains(
         QStringLiteral("AppController.colabAlignmentSession.connectTemporaryWorker")));
+
+    QFile colabSetup(
+        QStringLiteral(LASTUDIO_SOURCE_DIR)
+        + QStringLiteral("/qml/components/dubbing/DubbingColabSetupDialog.qml"));
+    QVERIFY(colabSetup.open(QIODevice::ReadOnly));
+    const QString colabSetupSource = QString::fromUtf8(colabSetup.readAll());
+    QVERIFY(colabSetupSource.contains(
+        QStringLiteral("dubbing.connectWorkflowColabStage")));
+    QVERIFY(colabSetupSource.contains(
+        QStringLiteral("dubbing.checkWorkflowColabStage")));
+    QVERIFY(colabSetupSource.contains(
+        QStringLiteral("dubbing.validateAllWorkflowColabStages")));
+    QVERIFY(colabSetupSource.contains(
+        QStringLiteral("ColabSessionStatus")));
+
+    QFile dubbingController(
+        QStringLiteral(LASTUDIO_SOURCE_DIR)
+        + QStringLiteral("/src/controllers/dubbing/DubbingController.cpp"));
+    QVERIFY(dubbingController.open(QIODevice::ReadOnly));
+    const QString controllerSource = QString::fromUtf8(dubbingController.readAll());
+    QVERIFY(controllerSource.contains(
+        QStringLiteral("snapshotSelectedColabStagesForWorkflow")));
+    QVERIFY(controllerSource.contains(
+        QStringLiteral("hasVerifiedRoute(capability, model")));
+
+    QFile voiceLibrary(
+        QStringLiteral(LASTUDIO_SOURCE_DIR)
+        + QStringLiteral("/qml/components/shared/VoiceLibraryDialog.qml"));
+    QVERIFY(voiceLibrary.open(QIODevice::ReadOnly));
+    const QString voiceLibrarySource = QString::fromUtf8(voiceLibrary.readAll());
+    QVERIFY(voiceLibrarySource.contains(QStringLiteral("validationError")));
+    QVERIFY(voiceLibrarySource.contains(QStringLiteral("modelData.valid !== false")));
 
     QFile synthesisJob(
         QStringLiteral(LASTUDIO_SOURCE_DIR)
@@ -1225,7 +1395,7 @@ void TestDubbingProject::selectsBestAutomaticVoiceReference()
     QVERIFY(QFileInfo::exists(selected.audioPath));
 }
 
-void TestDubbingProject::audioGenerationUsesAutomaticVoiceReference()
+void TestDubbingProject::audioGenerationUsesSavedCloneVoiceForEverySegment()
 {
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
@@ -1246,23 +1416,301 @@ void TestDubbingProject::audioGenerationUsesAutomaticVoiceReference()
     const QVariantList segments{
         QVariantMap{{QStringLiteral("id"), QStringLiteral("s1")},
                     {QStringLiteral("startMs"), 0},
-                    {QStringLiteral("endMs"), 4000},
+                    {QStringLiteral("endMs"), 2000},
+                    {QStringLiteral("speakerId"), QStringLiteral("speaker-a")},
                     {QStringLiteral("sourceText"), QStringLiteral("Original reference words")},
-                    {QStringLiteral("targetText"), QStringLiteral("Translated speech")}}
+                    {QStringLiteral("targetText"), QStringLiteral("Translated speech")}},
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("s2")},
+                    {QStringLiteral("startMs"), 2000},
+                    {QStringLiteral("endMs"), 4000},
+                    {QStringLiteral("speakerId"), QStringLiteral("speaker-b")},
+                    {QStringLiteral("sourceText"), QStringLiteral("Other source speaker")},
+                    {QStringLiteral("targetText"), QStringLiteral("Second translated speech")}}
     };
     runner.startAudioGeneration(
         segments, dir.filePath(QStringLiteral("project.ladub.json")),
-        QVariantMap{{QStringLiteral("autoSelectVoiceReference"), true},
-                    {QStringLiteral("autoReferenceSourcePath"), sourcePath}});
+        QVariantMap{{QStringLiteral("voiceCloningEnabled"), true},
+                    {QStringLiteral("cloneVoicePreset"),
+                     QVariantMap{{QStringLiteral("id"), QStringLiteral("preset-source")},
+                                 {QStringLiteral("name"), QStringLiteral("Saved source")},
+                                 {QStringLiteral("familyId"), QStringLiteral("omnivoice")},
+                                 {QStringLiteral("audioPath"), sourcePath},
+                                 {QStringLiteral("referenceText"), QStringLiteral("Original reference words")}}}});
 
     QTRY_COMPARE_WITH_TIMEOUT(completedSpy.size(), 1, 3000);
     QCOMPARE(errorSpy.size(), 0);
-    const QVariantMap generated = completedSpy.constFirst().at(1).toMap()
-                                      .value(QStringLiteral("timeline")).toList().first().toMap();
-    QCOMPARE(generated.value(QStringLiteral("voiceReferenceText")).toString(),
-             QStringLiteral("Original reference words"));
-    QVERIFY(QFileInfo::exists(generated.value(QStringLiteral("voiceReferencePath")).toString()));
+    const QVariantList timeline = completedSpy.constFirst().at(1).toMap()
+                                      .value(QStringLiteral("timeline")).toList();
+    QCOMPARE(timeline.size(), 2);
+    for (const QVariant &entry : timeline) {
+        const QVariantMap generated = entry.toMap();
+        QCOMPARE(generated.value(QStringLiteral("cloneVoicePresetId")).toString(),
+                 QStringLiteral("preset-source"));
+        QCOMPARE(generated.value(QStringLiteral("voiceReferenceText")).toString(),
+                 QStringLiteral("Original reference words"));
+        QCOMPARE(generated.value(QStringLiteral("voiceReferencePath")).toString(),
+                 QFileInfo(sourcePath).absoluteFilePath());
+    }
     QCOMPARE(tts.lastGenerationMode(), QStringLiteral("voice-cloning"));
+}
+
+void TestDubbingProject::zeroCloneVoicePresetBlocksSynthesisWithoutFallback()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    TtsEngine tts;
+    tts.loadModel(QStringLiteral("mock-model.onnx"));
+    DubbingJobRunner runner(nullptr, &tts);
+    QSignalSpy errorSpy(&runner, &DubbingJobRunner::errorOccurred);
+    const QVariantList segments{
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("s1")},
+                    {QStringLiteral("startMs"), 0},
+                    {QStringLiteral("endMs"), 1000},
+                    {QStringLiteral("targetText"), QStringLiteral("No fallback")}}
+    };
+
+    runner.startAudioGeneration(
+        segments, dir.filePath(QStringLiteral("project.ladub.json")),
+        QVariantMap{{QStringLiteral("voiceCloningEnabled"), true}});
+
+    QCOMPARE(errorSpy.size(), 1);
+    QVERIFY(errorSpy.constFirst().at(0).toString().contains(
+        QStringLiteral("Select a saved clone voice")));
+    QVERIFY(!runner.processing());
+    QVERIFY(tts.lastGenerationMode() != QStringLiteral("voice-cloning"));
+}
+
+void TestDubbingProject::cloneVoicePresetSelectionPersistsAndMissingPresetBlocks()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    constexpr int sampleRate = 24000;
+    QVector<float> samples(sampleRate, 0.05F);
+    const QString sourcePath = dir.filePath(QStringLiteral("reference.wav"));
+    QVERIFY(WavIO::saveFloat(sourcePath, samples.constData(), samples.size(), sampleRate));
+
+    TtsEngine tts;
+    tts.loadModel(QStringLiteral("mock-model.onnx"));
+    VoiceClonePresetService presets;
+    DubbingController controller(nullptr, &tts);
+    controller.setVoiceClonePresetService(&presets);
+    const QString familyId = controller.cloneVoicePresetFamily();
+    const QString presetName = QStringLiteral("Dubbing regression %1")
+        .arg(QDateTime::currentMSecsSinceEpoch());
+    QVERIFY(presets.addPreset(familyId, presetName, sourcePath,
+                              QStringLiteral("Stable reference")));
+
+    QString presetId;
+    for (const QVariant &entry : presets.presetsForFamily(familyId)) {
+        const QVariantMap preset = entry.toMap();
+        if (preset.value(QStringLiteral("name")).toString() == presetName) {
+            presetId = preset.value(QStringLiteral("id")).toString();
+            break;
+        }
+    }
+    QVERIFY(!presetId.isEmpty());
+    QVERIFY(controller.newProject(dir.filePath(QStringLiteral("project.ladub.json"))));
+    bool listed = false;
+    for (const QVariant &entry : controller.cloneVoicePresets()) {
+        if (entry.toMap().value(QStringLiteral("id")).toString() == presetId) {
+            listed = true;
+            break;
+        }
+    }
+    QVERIFY(listed);
+    QVERIFY(controller.selectCloneVoicePreset(presetId));
+    QVERIFY(controller.cloneVoiceSelectionValid());
+    QVERIFY(controller.saveProject());
+
+    DubbingController reloaded(nullptr, &tts);
+    reloaded.setVoiceClonePresetService(&presets);
+    QVERIFY(reloaded.openProject(dir.filePath(QStringLiteral("project.ladub.json"))));
+    QCOMPARE(reloaded.selectedCloneVoicePresetId(), presetId);
+    QVERIFY(reloaded.cloneVoiceSelectionValid());
+
+    QVERIFY(presets.deletePreset(presetId));
+    QVERIFY(!reloaded.cloneVoiceSelectionValid());
+    QCOMPARE(reloaded.selectedCloneVoicePresetId(), presetId);
+    QVERIFY(reloaded.cloneVoiceSelectionError().contains(
+        QStringLiteral("no longer available")));
+}
+
+void TestDubbingProject::changingCloneVoicePresetAppliesToEntireNextRun()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    constexpr int sampleRate = 24000;
+    QVector<float> firstReference(sampleRate * 2, 0.04F);
+    QVector<float> secondReference(sampleRate * 2, 0.08F);
+    const QString firstPath = dir.filePath(QStringLiteral("first.wav"));
+    const QString secondPath = dir.filePath(QStringLiteral("second.wav"));
+    QVERIFY(WavIO::saveFloat(firstPath, firstReference.constData(), firstReference.size(), sampleRate));
+    QVERIFY(WavIO::saveFloat(secondPath, secondReference.constData(), secondReference.size(), sampleRate));
+
+    TtsEngine tts;
+    tts.loadModel(QStringLiteral("mock-model.onnx"));
+    DubbingJobRunner runner(nullptr, &tts);
+    QSignalSpy completedSpy(&runner, &DubbingJobRunner::stageCompleted);
+    QSignalSpy errorSpy(&runner, &DubbingJobRunner::errorOccurred);
+    const QVariantList segments{
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("s1")},
+                    {QStringLiteral("speakerId"), QStringLiteral("speaker-a")},
+                    {QStringLiteral("startMs"), 0},
+                    {QStringLiteral("endMs"), 1000},
+                    {QStringLiteral("targetText"), QStringLiteral("First")}},
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("s2")},
+                    {QStringLiteral("speakerId"), QStringLiteral("speaker-b")},
+                    {QStringLiteral("startMs"), 1000},
+                    {QStringLiteral("endMs"), 2000},
+                    {QStringLiteral("targetText"), QStringLiteral("Second")}}
+    };
+    const auto cloneSettings = [](const QString &id, const QString &path) {
+        return QVariantMap{{QStringLiteral("voiceCloningEnabled"), true},
+                           {QStringLiteral("cloneVoicePreset"),
+                            QVariantMap{{QStringLiteral("id"), id},
+                                        {QStringLiteral("name"), id},
+                                        {QStringLiteral("familyId"), QStringLiteral("omnivoice")},
+                                        {QStringLiteral("audioPath"), path},
+                                        {QStringLiteral("referenceText"), id}}}};
+    };
+
+    runner.startAudioGeneration(segments, dir.filePath(QStringLiteral("project.ladub.json")),
+                                cloneSettings(QStringLiteral("preset-a"), firstPath));
+    QTRY_COMPARE_WITH_TIMEOUT(completedSpy.size(), 1, 3000);
+    runner.startAudioGeneration(segments, dir.filePath(QStringLiteral("project.ladub.json")),
+                                cloneSettings(QStringLiteral("preset-b"), secondPath));
+    QTRY_COMPARE_WITH_TIMEOUT(completedSpy.size(), 2, 3000);
+    QCOMPARE(errorSpy.size(), 0);
+
+    const QVariantList secondTimeline = completedSpy.at(1).at(1).toMap()
+        .value(QStringLiteral("timeline")).toList();
+    QCOMPARE(secondTimeline.size(), 2);
+    for (const QVariant &entry : secondTimeline) {
+        const QVariantMap generated = entry.toMap();
+        QCOMPARE(generated.value(QStringLiteral("cloneVoicePresetId")).toString(),
+                 QStringLiteral("preset-b"));
+        QCOMPARE(generated.value(QStringLiteral("voiceReferencePath")).toString(),
+                 QFileInfo(secondPath).absoluteFilePath());
+    }
+}
+
+void TestDubbingProject::voiceClonePresetLibraryPersistsAtomicallyAndProtectsSource()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    constexpr int sampleRate = 24000;
+    QVector<float> samples(sampleRate, 0.03F);
+    const QString sourcePath = dir.filePath(QStringLiteral("externally-imported.wav"));
+    QVERIFY(WavIO::saveFloat(sourcePath, samples.constData(), samples.size(), sampleRate));
+
+    VoiceClonePresetService service;
+    const QString familyId = QStringLiteral("library-regression-%1")
+        .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+    QVERIFY(service.addPreset(familyId, QStringLiteral("Durable voice"), sourcePath,
+                              QStringLiteral("Reference transcript")));
+
+    const QVariantList initial = service.presetsForFamily(familyId);
+    QCOMPARE(initial.size(), 1);
+    QVariantMap preset = initial.constFirst().toMap();
+    const QString presetId = preset.value(QStringLiteral("id")).toString();
+    const QString storedPath = preset.value(QStringLiteral("audioPath")).toString();
+    QVERIFY(!presetId.isEmpty());
+    QVERIFY(QFileInfo(storedPath).isFile());
+    QVERIFY(preset.value(QStringLiteral("valid")).toBool());
+    QCOMPARE(preset.value(QStringLiteral("referenceSha256")).toString().size(), 64);
+    QVERIFY(preset.value(QStringLiteral("referenceBytes")).toLongLong() > 0);
+
+    const QString metadataPath = PathUtils::dataDir()
+        + QStringLiteral("/presets/voice_clone_presets.json");
+    QFile metadata(metadataPath);
+    QVERIFY(metadata.open(QIODevice::ReadOnly));
+    QVERIFY(QJsonDocument::fromJson(metadata.readAll()).isArray());
+    metadata.close();
+
+    // A fresh service simulates an application restart. It must read the
+    // committed metadata and the app-owned reference, not the source path.
+    VoiceClonePresetService restarted;
+    const QVariantList reloaded = restarted.presetsForFamily(familyId);
+    QCOMPARE(reloaded.size(), 1);
+    QCOMPARE(reloaded.constFirst().toMap().value(QStringLiteral("id")).toString(), presetId);
+    QVERIFY(restarted.updatePreset(presetId, QStringLiteral("Renamed durable voice"),
+                                   storedPath, QStringLiteral("Updated transcript")));
+    QCOMPARE(restarted.presetsForFamily(familyId).constFirst().toMap()
+                 .value(QStringLiteral("name")).toString(),
+             QStringLiteral("Renamed durable voice"));
+
+    QFile corrupt(storedPath);
+    QVERIFY(corrupt.open(QIODevice::Append));
+    QVERIFY(corrupt.write("corruption") > 0);
+    corrupt.close();
+    const QVariantMap invalid = restarted.presetsForFamily(familyId).constFirst().toMap();
+    QVERIFY(!invalid.value(QStringLiteral("valid")).toBool());
+    QVERIFY(invalid.value(QStringLiteral("validationError")).toString().contains(
+        QStringLiteral("checksum mismatch")));
+
+    QVERIFY(restarted.deletePreset(presetId));
+    QVERIFY(QFileInfo(sourcePath).isFile());
+    QVERIFY(!QFileInfo(storedPath).exists());
+}
+
+void TestDubbingProject::exportsSelfContainedCapCutDraftWithUnverifiedImportStatus()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    constexpr int sampleRate = 24000;
+    QVector<float> samples(sampleRate, 0.02F);
+    const QString sourcePath = dir.filePath(QStringLiteral("nguon-goc.wav"));
+    const QString mixPath = dir.filePath(QStringLiteral("dubbed-mix.wav"));
+    const QString clipPath = dir.filePath(QStringLiteral("clip-01.wav"));
+    QVERIFY(WavIO::saveFloat(sourcePath, samples.constData(), samples.size(), sampleRate));
+    QVERIFY(WavIO::saveFloat(mixPath, samples.constData(), samples.size(), sampleRate));
+    QVERIFY(WavIO::saveFloat(clipPath, samples.constData(), samples.size(), sampleRate));
+
+    const QVariantList segments{
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("segment-01")},
+                    {QStringLiteral("startMs"), 0},
+                    {QStringLiteral("endMs"), 1000},
+                    {QStringLiteral("speakerId"), QStringLiteral("speaker-1")},
+                    {QStringLiteral("sourceText"), QStringLiteral("Original text")},
+                    {QStringLiteral("targetText"), QString::fromUtf8("Bản dịch tiếng Việt")},
+                    {QStringLiteral("clipPath"), clipPath}}
+    };
+    QString draftPath;
+    QString warning;
+    QString error;
+    QVERIFY2(CapCutDraftExporter::exportDraft(
+                 dir.path(), QString::fromUtf8("Dự án kiểm thử"), sourcePath, sourcePath,
+                 QString(), mixPath, false, 1000, segments, &draftPath, &warning, &error),
+             qPrintable(error));
+    QVERIFY(QFileInfo(draftPath).isDir());
+    QVERIFY(QFileInfo(QDir(draftPath).filePath(QStringLiteral("draft_content.json"))).isFile());
+    QVERIFY(QFileInfo(QDir(draftPath).filePath(QStringLiteral("draft_meta_info.json"))).isFile());
+    QVERIFY(QFileInfo(QDir(draftPath).filePath(QStringLiteral("assets/clips/0001.wav"))).isFile());
+    QVERIFY(QFileInfo(QDir(draftPath).filePath(QStringLiteral("subtitles/dubbed.srt"))).isFile());
+    QVERIFY(warning.contains(QStringLiteral("not yet verified")));
+
+    QFile contentFile(QDir(draftPath).filePath(QStringLiteral("draft_content.json")));
+    QVERIFY(contentFile.open(QIODevice::ReadOnly));
+    const QJsonDocument content = QJsonDocument::fromJson(contentFile.readAll());
+    QVERIFY(content.isObject());
+    const QJsonObject materials = content.object().value(QStringLiteral("materials")).toObject();
+    QCOMPARE(materials.value(QStringLiteral("videos")).toArray().size(), 0);
+    QVERIFY(materials.value(QStringLiteral("audios")).toArray().size() >= 3);
+    QVERIFY(content.object().value(QStringLiteral("tracks")).toArray().size() >= 3);
+    for (const QJsonValue &audio : materials.value(QStringLiteral("audios")).toArray()) {
+        const QString asset = audio.toObject().value(QStringLiteral("path")).toString();
+        QVERIFY(QFileInfo(asset).isFile());
+        QVERIFY(QDir::cleanPath(asset).startsWith(QDir::cleanPath(draftPath) + QLatin1Char('/')));
+    }
+
+    QString secondDraft;
+    QVERIFY2(CapCutDraftExporter::exportDraft(
+                 dir.path(), QStringLiteral("collision-safe"), sourcePath, sourcePath,
+                 QString(), mixPath, false, 1000, segments, &secondDraft, nullptr, &error),
+             qPrintable(error));
+    QVERIFY(secondDraft != draftPath);
+    QVERIFY(QFileInfo(secondDraft).isDir());
 }
 
 void TestDubbingProject::audioMixRunsAsynchronously()

@@ -10,6 +10,11 @@ Dialog {
 
     property string familyId: ""
     property string initialMode: "reference"
+    // A caller may offer a locally produced clean stem. It is only prefilled
+    // for this dialog session; persistence still goes through the owned-copy
+    // service when the user explicitly saves the preset.
+    property string initialReferenceAudioPath: ""
+    property string initialReferenceText: ""
     property string currentReferenceAudioPath: ""
     property string currentReferenceText: ""
     property string currentDesignName: ""
@@ -66,8 +71,10 @@ Dialog {
         editingId = ""
         editingKind = activeMode
         voiceNameField.text = ""
-        refAudioPathField.text = ""
-        refTextField.text = ""
+        refAudioPathField.text = activeMode === "reference" ? initialReferenceAudioPath : ""
+        refTextField.text = activeMode === "reference" ? initialReferenceText : ""
+        if (activeMode === "reference" && initialReferenceAudioPath !== "")
+            voiceNameField.text = VoiceCloningUtils.fileNameFromPath(initialReferenceAudioPath)
         designDescriptionField.text = ""
     }
 
@@ -476,7 +483,8 @@ Dialog {
                                 id: itemMouse
                                 anchors.fill: parent
                                 hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
+                                enabled: modelData.valid !== false
+                                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                                 onClicked: listRoot.useRequested(modelData)
                             }
 
@@ -506,12 +514,24 @@ Dialog {
                                         maximumLineCount: 2
                                         wrapMode: Text.WordWrap
                                     }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        visible: modelData.valid === false
+                                        text: modelData.validationError
+                                              || qsTr("Reference audio is unavailable. Replace or delete this voice.")
+                                        color: Theme.danger
+                                        font.pixelSize: Theme.fontSmall
+                                        maximumLineCount: 2
+                                        elide: Text.ElideRight
+                                        wrapMode: Text.WordWrap
+                                    }
                                 }
 
                                 RowLayout {
                                     spacing: Theme.paddingSmall
                                     PrimaryButton {
                                         text: qsTr("Use")
+                                        enabled: modelData.valid !== false
                                         implicitWidth: 70
                                         implicitHeight: 32
                                         onClicked: listRoot.useRequested(modelData)
@@ -520,6 +540,7 @@ Dialog {
                                         text: qsTr("Play")
                                         quiet: true
                                         visible: root.activeMode === "reference"
+                                        enabled: modelData.valid !== false
                                         implicitWidth: 70
                                         implicitHeight: 32
                                         onClicked: listRoot.playRequested(modelData)

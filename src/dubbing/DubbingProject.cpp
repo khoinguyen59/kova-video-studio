@@ -48,6 +48,7 @@ QJsonObject DubbingProject::toJson() const
     json.insert(QStringLiteral("sourceLanguage"), sourceLanguage);
     json.insert(QStringLiteral("targetLanguage"), targetLanguage);
     json.insert(QStringLiteral("dubbingQuality"), dubbingQuality);
+    json.insert(QStringLiteral("cloneVoicePresetId"), cloneVoicePresetId);
     json.insert(QStringLiteral("durationControl"), QJsonObject::fromVariantMap(durationControl));
     json.insert(QStringLiteral("workflowNodeConfigurations"),
                 QJsonObject::fromVariantMap(workflowNodeConfigurations));
@@ -81,6 +82,8 @@ bool DubbingProject::fromJson(const QJsonObject &json, DubbingProject &project, 
     if (project.dubbingQuality != QStringLiteral("adaptive")
         && project.dubbingQuality != QStringLiteral("custom"))
         project.dubbingQuality = QStringLiteral("fast");
+    if (version >= 8)
+        project.cloneVoicePresetId = json.value(QStringLiteral("cloneVoicePresetId")).toString().trimmed();
     project.durationControl = json.value(QStringLiteral("durationControl")).toObject().toVariantMap();
     if (project.durationControl.isEmpty()) {
         project.durationControl = QVariantMap{{QStringLiteral("enabled"), version >= 3},

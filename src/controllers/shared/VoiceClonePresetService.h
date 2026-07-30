@@ -36,7 +36,9 @@ private:
     QString audioStorageDir() const;
     QVariantList loadAllPresets() const;
     bool saveAllPresets(const QVariantList &presets);
-    QString persistReferenceAudio(const QString &id, const QString &audioPath);
+    QVariantMap persistReferenceAudio(const QString &id, const QString &audioPath);
+    QVariantMap validatePreset(const QVariantMap &preset) const;
+    bool isStoredReferenceAudio(const QString &audioPath) const;
     void removeStoredReferenceAudio(const QString &audioPath);
 };
 

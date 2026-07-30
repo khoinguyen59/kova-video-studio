@@ -209,7 +209,31 @@ bool DubbingSynthesisJob::start(const QVariantList &segments, const QString &pro
     m_projectPath = projectPath;
     m_settings = settings;
     m_cacheSettings = settings;
-    m_useVoiceCloning = settings.value(QStringLiteral("autoSelectVoiceReference")).toBool();
+    // A clone reference is a deliberate, project-level choice.  Keep the
+    // legacy flag only long enough to reject old auto-reference projects with
+    // an actionable error; never re-select a source window per run/segment.
+    m_useVoiceCloning = settings.value(QStringLiteral("voiceCloningEnabled")).toBool()
+        || settings.value(QStringLiteral("autoSelectVoiceReference")).toBool();
+    m_voiceReference = {};
+    m_cloneVoicePresetId.clear();
+    m_cloneVoicePresetName.clear();
+    if (m_useVoiceCloning) {
+        const QVariantMap preset = settings.value(QStringLiteral("cloneVoicePreset")).toMap();
+        m_cloneVoicePresetId = preset.value(QStringLiteral("id")).toString().trimmed();
+        m_cloneVoicePresetName = preset.value(QStringLiteral("name")).toString().trimmed();
+        const QString referencePath = preset.value(QStringLiteral("audioPath")).toString().trimmed();
+        if (m_cloneVoicePresetId.isEmpty() || referencePath.isEmpty()
+            || !QFileInfo(referencePath).isFile()) {
+            fail(QStringLiteral("Select a saved clone voice with available reference audio before generating dubbing audio. LA Studio will not substitute a source or random voice."));
+            return false;
+        }
+        m_voiceReference.audioPath = QFileInfo(referencePath).absoluteFilePath();
+        m_voiceReference.referenceText = preset.value(QStringLiteral("referenceText")).toString().trimmed();
+        m_settings.insert(QStringLiteral("ref_text"), m_voiceReference.referenceText);
+        m_cacheSettings.insert(QStringLiteral("cloneVoicePresetId"), m_cloneVoicePresetId);
+        m_cacheSettings.insert(QStringLiteral("selectedReferencePath"), m_voiceReference.audioPath);
+        m_cacheSettings.insert(QStringLiteral("selectedReferenceText"), m_voiceReference.referenceText);
+    }
     m_forceSegmentDuration = !remote && settings.value(QStringLiteral("forceSegmentDuration")).toBool()
         && settings.value(QStringLiteral("familyId")).toString()
                .contains(QStringLiteral("omnivoice"), Qt::CaseInsensitive);
@@ -278,19 +302,11 @@ bool DubbingSynthesisJob::start(const QVariantList &segments, const QString &pro
         m_synthesisSignature = m_tts ? m_tts->activeSignature() : QString();
         m_remoteCancellation.reset();
     }
-    m_voiceReference = {};
     if (m_useVoiceCloning) {
-        m_voiceReference = DubbingVoiceReferenceSelector::select(
-            settings.value(QStringLiteral("autoReferenceSourcePath")).toString(),
-            segments, projectPath);
-        if (!m_voiceReference.isValid()) {
-            fail(m_voiceReference.error);
-            return false;
-        }
-        m_settings.insert(QStringLiteral("ref_text"), m_voiceReference.referenceText);
-        m_cacheSettings.insert(QStringLiteral("selectedReferencePath"), m_voiceReference.audioPath);
-        m_cacheSettings.insert(QStringLiteral("selectedReferenceText"), m_voiceReference.referenceText);
-        m_cacheSettings.insert(QStringLiteral("selectedReferenceQuality"), m_voiceReference.qualityScore);
+        // The durable preset ID is part of the cache key.  A different voice
+        // therefore creates a new run even if text and TTS model are unchanged.
+        m_synthesisSignature.append(
+            QStringLiteral("|clone-preset|%1").arg(m_cloneVoicePresetId));
         if (m_executionProvider == ExecutionProvider::ColabDirect) {
             const QFileInfo referenceInfo(m_voiceReference.audioPath);
             const QString profileSignature = QStringLiteral("%1|%2|%3|%4|%5")
@@ -307,6 +323,8 @@ bool DubbingSynthesisJob::start(const QVariantList &segments, const QString &pro
     }
     m_settings.remove(QStringLiteral("autoSelectVoiceReference"));
     m_settings.remove(QStringLiteral("autoReferenceSourcePath"));
+    m_settings.remove(QStringLiteral("voiceCloningEnabled"));
+    m_settings.remove(QStringLiteral("cloneVoicePreset"));
     m_settings.remove(QStringLiteral("forceSegmentDuration"));
     m_settings.remove(QStringLiteral("familyId"));
     m_runId = runId;
@@ -576,7 +594,8 @@ void DubbingSynthesisJob::startColabVoiceClone(const QString &text,
     request.bearerToken = m_colabVoiceCloneSession->bearerTokenForRequest();
     request.model = model;
     request.referencePath = m_voiceReference.audioPath;
-    request.referenceName = QStringLiteral("LA Studio Dubbing Voice");
+    request.referenceName = m_cloneVoicePresetName.isEmpty()
+        ? QStringLiteral("LA Studio Dubbing Voice") : m_cloneVoicePresetName;
     request.referenceText = m_voiceReference.referenceText;
     request.text = text;
     request.language = language;
@@ -647,6 +666,8 @@ void DubbingSynthesisJob::commitSynthesizedAudio(const QVector<float> &inputSamp
     updated.insert(QStringLiteral("clipArtifact"), artifact.toJson().toVariantMap());
     updated.insert(QStringLiteral("cacheFingerprint"), fingerprint(segment, m_synthesisSignature, m_cacheSettings));
     if (m_useVoiceCloning) {
+        updated.insert(QStringLiteral("cloneVoicePresetId"), m_cloneVoicePresetId);
+        updated.insert(QStringLiteral("cloneVoicePresetName"), m_cloneVoicePresetName);
         updated.insert(QStringLiteral("voiceReferencePath"), m_voiceReference.audioPath);
         updated.insert(QStringLiteral("voiceReferenceText"), m_voiceReference.referenceText);
         updated.insert(QStringLiteral("voiceReferenceStartMs"), m_voiceReference.startMs);

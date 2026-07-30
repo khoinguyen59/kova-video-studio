@@ -44,6 +44,7 @@ class SttSessionController : public QObject {
     Q_PROPERTY(QString transcript READ transcript NOTIFY transcriptChanged)
     Q_PROPERTY(bool processing READ processing NOTIFY processingChanged)
     Q_PROPERTY(int progress READ progress NOTIFY progressChanged)
+    Q_PROPERTY(bool progressAvailable READ progressAvailable NOTIFY progressAvailableChanged)
     Q_PROPERTY(bool recording READ recording NOTIFY recordingChanged)
     Q_PROPERTY(double recordingLevel READ recordingLevel NOTIFY recordingLevelChanged)
     Q_PROPERTY(QVariantList history READ history NOTIFY historyChanged)
@@ -74,6 +75,7 @@ public:
     QString transcript() const;
     bool processing() const;
     int progress() const;
+    bool progressAvailable() const;
     bool canTranscribe() const;
     bool canTranscribeForProvider(ExecutionProvider provider, const QString &model,
                                   QString *error = nullptr) const;
@@ -137,6 +139,7 @@ signals:
     void transcriptChanged();
     void processingChanged();
     void progressChanged();
+    void progressAvailableChanged();
     void recordingChanged();
     void recordingLevelChanged();
     void historyChanged();
@@ -203,9 +206,11 @@ private:
     std::shared_ptr<std::atomic_bool> m_colabCancellation;
     bool m_colabProcessing = false;
     int m_colabProgress = 0;
+    bool m_colabProgressAvailable = false;
     std::shared_ptr<std::atomic_bool> m_gatewayCancellation;
     bool m_gatewayProcessing = false;
     int m_gatewayProgress = 0;
+    bool m_gatewayProgressAvailable = false;
     bool m_activateColabWhenVerified = false;
     ExecutionProvider m_selectedProvider = ExecutionProvider::LocalDev;
     ExecutionProvider m_activeProvider = ExecutionProvider::LocalDev;

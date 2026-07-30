@@ -78,7 +78,7 @@ WorkflowGraph DubbingWorkflowDefinition::create()
         node(QStringLiteral("review-translation"), QStringLiteral("core.review-gate"), QStringLiteral("Review Translation"),
              {{QStringLiteral("mode"), QStringLiteral("always")}, {QStringLiteral("editor"), QStringLiteral("dubbing.translation")}}),
         node(QStringLiteral("assign-voices"), QStringLiteral("dubbing.assign-voices"), QStringLiteral("Assign Voices"),
-             {{QStringLiteral("fallbackVoicePolicy"), QStringLiteral("project-default")}}),
+             {{QStringLiteral("voicePolicy"), QStringLiteral("project-selected-clone")}}),
         node(QStringLiteral("synthesize"), QStringLiteral("dubbing.synthesize-segments"), QStringLiteral("Synthesize Segments"),
              {{QStringLiteral("cache"), QStringLiteral("auto")},
               {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},

@@ -6,6 +6,7 @@
 #include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
+#include <QHash>
 #include <QSet>
 #include <QtQml/qqml.h>
 #include <memory>
@@ -26,6 +27,8 @@ class DubbingTranslationFixService;
 class CapabilityFamilyModel;
 class Settings;
 class ColabSession;
+class VoiceClonePresetService;
+class RemoteMediaImportService;
 
 class DubbingController : public QObject
 {
@@ -53,6 +56,12 @@ class DubbingController : public QObject
     Q_PROPERTY(QString previewPath READ previewPath NOTIFY previewChanged)
     Q_PROPERTY(QString dubbedVocalPath READ dubbedVocalPath NOTIFY previewChanged)
     Q_PROPERTY(QString exportPath READ exportPath NOTIFY exportChanged)
+    Q_PROPERTY(QString capCutDraftPath READ capCutDraftPath NOTIFY exportChanged)
+    Q_PROPERTY(QString capCutDraftWarning READ capCutDraftWarning NOTIFY exportChanged)
+    Q_PROPERTY(bool linkImporting READ linkImporting NOTIFY linkImportChanged)
+    Q_PROPERTY(QString linkImportStatus READ linkImportStatus NOTIFY linkImportChanged)
+    Q_PROPERTY(qint64 linkImportReceivedBytes READ linkImportReceivedBytes NOTIFY linkImportChanged)
+    Q_PROPERTY(qint64 linkImportTotalBytes READ linkImportTotalBytes NOTIFY linkImportChanged)
     Q_PROPERTY(QVariantList workflowNodes READ workflowNodes NOTIFY workflowChanged)
     Q_PROPERTY(QVariantMap workflowNodeConfigurations READ workflowNodeConfigurations NOTIFY workflowChanged)
     Q_PROPERTY(bool workflowReady READ workflowReady NOTIFY workflowChanged)
@@ -86,6 +95,15 @@ class DubbingController : public QObject
     Q_PROPERTY(bool automaticSetupActive READ automaticSetupActive NOTIFY workflowChanged)
     Q_PROPERTY(QString automaticStatusText READ automaticStatusText NOTIFY workflowChanged)
     Q_PROPERTY(QVariantList automaticEvents READ automaticEvents NOTIFY workflowChanged)
+    Q_PROPERTY(QVariantList cloneVoicePresets READ cloneVoicePresets NOTIFY cloneVoiceSelectionChanged)
+    Q_PROPERTY(QString selectedCloneVoicePresetId READ selectedCloneVoicePresetId NOTIFY cloneVoiceSelectionChanged)
+    Q_PROPERTY(QString cloneVoicePresetFamily READ cloneVoicePresetFamily NOTIFY cloneVoiceSelectionChanged)
+    Q_PROPERTY(bool cloneVoiceSelectionRequired READ cloneVoiceSelectionRequired NOTIFY cloneVoiceSelectionChanged)
+    Q_PROPERTY(bool cloneVoiceSelectionValid READ cloneVoiceSelectionValid NOTIFY cloneVoiceSelectionChanged)
+    Q_PROPERTY(QString cloneVoiceSelectionError READ cloneVoiceSelectionError NOTIFY cloneVoiceSelectionChanged)
+    Q_PROPERTY(QVariantList colabSetupStages READ colabSetupStages NOTIFY colabSetupChanged)
+    Q_PROPERTY(bool colabSetupChecking READ colabSetupChecking NOTIFY colabSetupChanged)
+    Q_PROPERTY(QString colabSetupSummary READ colabSetupSummary NOTIFY colabSetupChanged)
 
 public:
     explicit DubbingController(SttSessionController *sttSession, TtsEngine *tts,
@@ -100,6 +118,7 @@ public:
                            ColabSession *ttsSession, ColabSession *voiceCloneSession,
                            ColabSession *separationSession,
                            ColabSession *alignmentSession);
+    void setVoiceClonePresetService(VoiceClonePresetService *service);
 
     bool hasProject() const { return !m_project.projectPath.isEmpty(); }
     QString projectPath() const { return m_project.projectPath; }
@@ -125,6 +144,12 @@ public:
     QString previewPath() const;
     QString dubbedVocalPath() const;
     QString exportPath() const;
+    QString capCutDraftPath() const { return m_capCutDraftPath; }
+    QString capCutDraftWarning() const { return m_capCutDraftWarning; }
+    bool linkImporting() const;
+    QString linkImportStatus() const { return m_linkImportStatus; }
+    qint64 linkImportReceivedBytes() const { return m_linkImportReceivedBytes; }
+    qint64 linkImportTotalBytes() const { return m_linkImportTotalBytes; }
     QVariantList workflowNodes() const;
     QVariantMap workflowNodeConfigurations() const { return m_workflowNodeConfigurations; }
     bool workflowReady() const;
@@ -158,6 +183,15 @@ public:
     bool automaticSetupActive() const { return m_automaticSetupActive; }
     QString automaticStatusText() const { return m_automaticStatusText; }
     QVariantList automaticEvents() const { return m_automaticEvents; }
+    QVariantList cloneVoicePresets() const { return m_cloneVoicePresets; }
+    QString selectedCloneVoicePresetId() const { return m_project.cloneVoicePresetId; }
+    QString cloneVoicePresetFamily() const;
+    bool cloneVoiceSelectionRequired() const { return m_voiceClonePresetsService != nullptr; }
+    bool cloneVoiceSelectionValid() const;
+    QString cloneVoiceSelectionError() const;
+    QVariantList colabSetupStages() const;
+    bool colabSetupChecking() const { return !m_colabSetupPendingChecks.isEmpty(); }
+    QString colabSetupSummary() const { return m_colabSetupSummary; }
 
     void setSourceLanguage(const QString &value);
     void setTargetLanguage(const QString &value);
@@ -171,6 +205,8 @@ public:
     Q_INVOKABLE void clearHistory();
     Q_INVOKABLE void closeProject();
     Q_INVOKABLE bool importMedia(const QString &pathOrUrl);
+    Q_INVOKABLE bool importMediaFromLink(const QString &url);
+    Q_INVOKABLE void cancelMediaLinkImport();
     Q_INVOKABLE void transcribeSource();
     Q_INVOKABLE void translateSource();
     Q_INVOKABLE void generateAudio();
@@ -180,6 +216,7 @@ public:
     Q_INVOKABLE bool exportAudioStem(const QString &stem, const QString &path);
     Q_INVOKABLE bool exportSubtitles(const QString &path, bool useTargetText = true);
     Q_INVOKABLE bool exportPackage(const QString &directoryPath);
+    Q_INVOKABLE bool exportCapCutDraft(const QString &directoryPath);
     Q_INVOKABLE void addSegment(qint64 startMs, qint64 endMs, const QString &sourceText = QString());
     Q_INVOKABLE void updateSegment(int index, const QVariantMap &patch);
     Q_INVOKABLE void removeSegment(int index);
@@ -225,6 +262,17 @@ public:
         const QString &cliAgent) const;
     Q_INVOKABLE void cancelTranslationFix();
     Q_INVOKABLE void setAdaptiveConfiguration(const QVariantMap &configuration);
+    Q_INVOKABLE bool selectCloneVoicePreset(const QString &presetId);
+    Q_INVOKABLE void refreshCloneVoicePresets();
+    // Direct-Colab credentials remain only in the corresponding ColabSession.
+    // The controller stores a model-only, in-memory verification snapshot.
+    Q_INVOKABLE bool connectWorkflowColabStage(const QString &stageId,
+                                               const QString &modelId,
+                                               const QString &workerUrl,
+                                               const QString &bearerToken);
+    Q_INVOKABLE bool checkWorkflowColabStage(const QString &stageId);
+    Q_INVOKABLE void disconnectWorkflowColabStage(const QString &stageId);
+    Q_INVOKABLE bool validateAllWorkflowColabStages();
 
 signals:
     void projectChanged();
@@ -235,13 +283,17 @@ signals:
     void exportChanged();
     void workflowChanged();
     void historyChanged();
+    void linkImportChanged();
     void translationFixChanged();
     void translationFixConnectionTested(bool success, const QString &message);
+    void cloneVoiceSelectionChanged();
+    void colabSetupChanged();
     void workflowSetupRequired(const QString &nodeId, const QString &setupKind,
                                const QString &message);
 
 private slots:
     void onIngestFinished(bool success, const QVariantMap &manifest);
+    void onRemoteMediaDownloadFinished(bool success, const QString &localPath, const QString &error);
 
 private:
     bool ensureProject(const QString &path);
@@ -275,6 +327,15 @@ private:
     void recordHistoryEntry();
     QString historyPath() const;
     void configureRemoteRewriteFromGateway();
+    QVariantMap selectedCloneVoicePreset() const;
+    bool applySelectedCloneVoiceToSynthesis(QVariantMap *settings);
+    ColabSession *colabSessionForStage(const QString &stageId) const;
+    static QString colabCapabilityForStage(const QString &stageId);
+    QString selectedColabModelForStage(const QString &stageId) const;
+    bool stageUsesDirectColab(const QString &stageId) const;
+    bool snapshotSelectedColabStagesForWorkflow();
+    void observeColabSession(const QString &stageId, ColabSession *session);
+    void refreshColabSetupSnapshot(const QString &stageId, bool verified);
 
     DubbingProject m_project;
     Settings *m_settings = nullptr;
@@ -291,6 +352,13 @@ private:
     QVariantMap m_stepOutputs;
     QString m_lastCompletedStepId;
     QString m_pendingExportPath;
+    QString m_capCutDraftPath;
+    QString m_capCutDraftWarning;
+    RemoteMediaImportService *m_remoteMediaImport = nullptr;
+    QString m_pendingLinkedMediaPath;
+    QString m_linkImportStatus;
+    qint64 m_linkImportReceivedBytes = 0;
+    qint64 m_linkImportTotalBytes = -1;
     QVariantList m_history;
     QVariantMap m_workflowNodeConfigurations;
     SttSessionController *m_sttSession = nullptr;
@@ -311,6 +379,13 @@ private:
     QVariantList m_automaticEvents;
     QSet<QString> m_automaticDownloadsQueued;
     QSet<QString> m_automaticConfiguredNodes;
+    VoiceClonePresetService *m_voiceClonePresetsService = nullptr;
+    QMetaObject::Connection m_cloneVoicePresetsConnection;
+    QVariantList m_cloneVoicePresets;
+    QHash<QString, QMetaObject::Connection> m_colabSetupConnections;
+    QHash<QString, QString> m_colabSetupSnapshots;
+    QSet<QString> m_colabSetupPendingChecks;
+    QString m_colabSetupSummary;
 };
 
 } // namespace LAStudio

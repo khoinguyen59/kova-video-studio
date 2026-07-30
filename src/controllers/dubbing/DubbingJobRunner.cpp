@@ -87,6 +87,11 @@ DubbingJobRunner::DubbingJobRunner(SttSessionController *sttSession, TtsEngine *
         if (!m_run.processing() || m_run.stageId() != DubbingStage::SourceSeparation) return;
         m_colabSeparationCancellation.reset();
         m_pendingSourceAudioPath.clear();
+        if (result.vocalsPath.trimmed().isEmpty() || result.backgroundPath.trimmed().isEmpty()
+            || !QFileInfo(result.vocalsPath).isFile() || !QFileInfo(result.backgroundPath).isFile()) {
+            setError(QStringLiteral("Colab voice separation returned an incomplete stem set. The original audio was not used as a substitute."));
+            return;
+        }
         setProcessing(false, QStringLiteral("separated"), 100);
         const QVariantMap outputs{{QStringLiteral("vocals"), result.vocalsPath},
                                   {QStringLiteral("background"), result.backgroundPath},
@@ -386,13 +391,7 @@ void DubbingJobRunner::startSourceSeparation(const QString &audioPath,
         return;
     }
     if (!resolved.available) {
-        const QVariantMap outputs{{QStringLiteral("vocals"), audioPath},
-                                  {QStringLiteral("background"), audioPath},
-                                  {QStringLiteral("warning"), resolved.warning}};
-        Logger::warning(QStringLiteral("DubbingPipeline"),
-                        QStringLiteral("[source-separate] runtime/model unavailable; using normalized audio"));
-        emit sourceSeparationFinished(outputs);
-        emit stageCompleted(QStringLiteral("source-separate"), outputs);
+        setError(QStringLiteral("Voice isolation runtime or model is unavailable. Install/configure it or connect an exact Colab GPU worker; normalized source audio will not be used as a substitute."));
         return;
     }
     const SeparationConfiguration config = resolved.configuration;
@@ -659,27 +658,29 @@ void DubbingJobRunner::onSourceSeparationFinished(const SeparationResult &result
                      .arg(result.stems.size())
                       .arg(m_run.elapsedMs())
                      .arg(result.error));
-    QVariantMap outputs;
-    const QString fallbackAudio = m_pendingSourceAudioPath;
     m_pendingSourceAudioPath.clear();
-    if (result.success) {
-        QString vocalsPath;
-        QString bgPath;
-        for (const auto &stem : result.stems) {
-            if (stem.id == QStringLiteral("vocals")) {
-                vocalsPath = stem.path;
-            } else if (stem.id == QStringLiteral("background")) {
-                bgPath = stem.path;
-            }
-        }
-        outputs.insert(QStringLiteral("vocals"), vocalsPath.isEmpty() ? fallbackAudio : vocalsPath);
-        outputs.insert(QStringLiteral("background"), bgPath.isEmpty() ? fallbackAudio : bgPath);
-        outputs.insert(QStringLiteral("sourceSeparation"), QStringLiteral("uvr"));
-    } else {
-        outputs.insert(QStringLiteral("vocals"), fallbackAudio);
-        outputs.insert(QStringLiteral("background"), fallbackAudio);
-        outputs.insert(QStringLiteral("warning"), result.error.isEmpty() ? QStringLiteral("Source separation failed; using normalized audio.") : result.error);
+    if (!result.success) {
+        setError(result.error.isEmpty()
+                     ? QStringLiteral("Source separation failed before producing clean speech and background stems.")
+                     : result.error);
+        return;
     }
+    QString vocalsPath;
+    QString bgPath;
+    for (const auto &stem : result.stems) {
+        if (stem.id == QStringLiteral("vocals")) {
+            vocalsPath = stem.path;
+        } else if (stem.id == QStringLiteral("background")) {
+            bgPath = stem.path;
+        }
+    }
+    if (!QFileInfo(vocalsPath).isFile() || !QFileInfo(bgPath).isFile()) {
+        setError(QStringLiteral("Source separation completed without both required vocals and background stems. The original audio was not used as a substitute."));
+        return;
+    }
+    const QVariantMap outputs{{QStringLiteral("vocals"), vocalsPath},
+                              {QStringLiteral("background"), bgPath},
+                              {QStringLiteral("sourceSeparation"), QStringLiteral("uvr")}};
     setProcessing(false, QStringLiteral("separated"), 100);
     emit sourceSeparationFinished(outputs);
     emit stageCompleted(QStringLiteral("source-separate"), outputs);

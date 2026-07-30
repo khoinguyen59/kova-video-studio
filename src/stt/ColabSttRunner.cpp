@@ -69,27 +69,14 @@ void ColabSttRunner::transcribe(const ColabSttRequest &request)
         emit failed(error);
         return;
     }
-    // These are real pipeline boundaries, not elapsed-time estimates: WAV
-    // encoding must finish before a byte can be sent to the temporary worker.
-    emit progress(4);
     const QByteArray wavData = makeMono16kWav(request.samples);
-    emit progress(5);
     QJsonObject job;
     if (!d->client.createTranscriptionJob(
-            wavData, request.model, request.language, &job, &error,
-            [this](qint64 sent, qint64 total) {
-                if (total <= 0 || sent <= 0) return;
-                // 5-20 is reserved for confirmed bytes transferred. The
-                // worker job reports its own state only after commit.
-                const int uploadProgress = 5 + static_cast<int>(
-                    (15LL * qMin(sent, total)) / total);
-                emit progress(qBound(5, uploadProgress, 20));
-            })) {
+            wavData, request.model, request.language, &job, &error)) {
         emit failed(request.cancellation.isCancelled() ? QStringLiteral("Transcription cancelled")
                                                        : error);
         return;
     }
-    emit progress(20);
     d->activeJobId = job.value(QStringLiteral("job_id")).toString().trimmed();
     if (d->activeJobId.isEmpty()) {
         emit failed(QStringLiteral("Colab worker returned a transcription job without an ID"));
@@ -121,10 +108,13 @@ void ColabSttRunner::pollActiveJob()
         return;
     }
     const QString state = status.value(QStringLiteral("status")).toString().trimmed().toLower();
-    const int workerProgress = qBound(0, status.value(QStringLiteral("progress")).toInt(0), 100);
-    // The worker owns this value. Map it after the already-completed upload
-    // range without inventing timer-based increments in the desktop app.
-    emit progress(qBound(20, 20 + (75 * workerProgress) / 100, 95));
+    const QJsonValue workerProgressValue = status.value(QStringLiteral("progress"));
+    const int workerProgress = qBound(0, workerProgressValue.toInt(0), 100);
+    // Only the worker can measure inference progress.  Encoding and upload
+    // are separate operations, so converting them into an invented share of
+    // one overall percentage would mislead the desktop UI.
+    if (workerProgressValue.isDouble() && workerProgress > 0 && workerProgress < 100)
+        emit progress(workerProgress);
     if (state != QStringLiteral("succeeded") && state != QStringLiteral("completed")) {
         if (state == QStringLiteral("failed") || state == QStringLiteral("cancelled")) {
             const QString detail = status.value(QStringLiteral("detail")).toString().trimmed();

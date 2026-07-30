@@ -22,11 +22,14 @@ Dialog {
     property string sourceLanguageName: ""
     property string targetLanguageCode: ""
     property string targetLanguageName: ""
+    property string capCutDraftPath: ""
+    property string capCutDraftWarning: ""
 
     signal videoExportRequested()
     signal audioExportRequested(string stem)
     signal subtitleExportRequested(string format, bool useTargetText, string languageCode)
     signal packageExportRequested()
+    signal capCutDraftExportRequested()
 
     function compactProjectName(path) {
         if (path === "") return qsTr("Dubbing project")
@@ -536,8 +539,10 @@ Dialog {
                     detail: qsTr("Folder package · manifest included · local files only")
                     iconName: "folder"
                     actionText: qsTr("Export package")
+                    secondaryActionText: qsTr("CapCut draft")
                     actionEnabled: root.segmentCount > 0 && !root.busy
                     onActionRequested: root.packageExportRequested()
+                    onSecondaryActionRequested: root.capCutDraftExportRequested()
                 }
             }
         }
@@ -558,10 +563,13 @@ Dialog {
                 Layout.preferredHeight: 14
             }
             Text {
-                text: qsTr("Exports stay on this device.")
-                color: Theme.textSecondary
+                text: root.capCutDraftPath !== ""
+                      ? qsTr("CapCut draft (import unverified): %1").arg(root.capCutDraftPath)
+                      : qsTr("Exports stay on this device.")
+                color: root.capCutDraftPath !== "" ? Theme.warning : Theme.textSecondary
                 font.pixelSize: Theme.fontSmall
                 Layout.fillWidth: true
+                elide: Text.ElideMiddle
             }
             PrimaryButton {
                 text: qsTr("Close")

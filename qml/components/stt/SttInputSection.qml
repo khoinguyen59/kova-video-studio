@@ -123,7 +123,11 @@ Rectangle {
                 text: {
                     if (!root.sttSession) return qsTr("No file selected")
                     if (root.sttSession.recording) return qsTr("Recording audio...")
-                    if (root.sttSession.processing) return qsTr("Processing... %1%").arg(root.sttSession.progress)
+                    if (root.sttSession.processing) {
+                        return root.sttSession.progressAvailable
+                               ? qsTr("Processing... %1%").arg(root.sttSession.progress)
+                               : qsTr("Processing...")
+                    }
                     if (root.sttSession.inputLoading) return qsTr("Decoding file...")
                     if (root.sttSession.inputError !== "") return root.sttSession.inputError
                     return root.sttSession.inputPath !== "" ? qsTr("Ready to transcribe") : qsTr("Choose a file or capture audio")

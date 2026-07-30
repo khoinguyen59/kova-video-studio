@@ -23,6 +23,8 @@ Rectangle {
     property int sourceSwitchAttempts: 0
 
     signal browseRequested()
+    signal linkImportRequested(string url)
+    signal cancelLinkImportRequested()
     signal segmentSelected(int index)
 
     Layout.fillWidth: true
@@ -42,6 +44,14 @@ Rectangle {
         var minStr = min < 10 ? "0" + min : min.toString()
         var secStr = sec < 10 ? "0" + sec : sec.toString()
         return hr > 0 ? (hr < 10 ? "0" + hr : hr.toString()) + ":" + minStr + ":" + secStr : minStr + ":" + secStr
+    }
+
+    function formatBytes(bytes) {
+        if (bytes < 0) return ""
+        if (bytes < 1024) return bytes + " B"
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KiB"
+        if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + " MiB"
+        return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GiB"
     }
 
     function localMediaUrl(path) {
@@ -270,7 +280,7 @@ Rectangle {
                     Text { anchors.horizontalCenter: parent.horizontalCenter; text: qsTr("Audio track playing"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 }
             }
-            MouseArea { anchors.fill: parent; enabled: root.dubbing.sourceMediaPath.length === 0; cursorShape: Qt.PointingHandCursor; onClicked: root.browseRequested() }
+            MouseArea { anchors.fill: parent; enabled: root.dubbing.sourceMediaPath.length === 0 && !root.dubbing.linkImporting; cursorShape: Qt.PointingHandCursor; onClicked: root.browseRequested() }
 
             MouseArea {
                 id: hoverArea
@@ -383,7 +393,55 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true
             FieldProxy { Layout.fillWidth: true; text: root.dubbing.sourceMediaPath; placeholderText: qsTr("Media file path") }
-            PrimaryButton { text: qsTr("Browse"); iconName: "folder"; quiet: true; enabled: !root.dubbing.processing; onClicked: root.browseRequested() }
+            PrimaryButton { text: qsTr("Browse"); iconName: "folder"; quiet: true; enabled: !root.dubbing.processing && !root.dubbing.linkImporting; onClicked: root.browseRequested() }
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Theme.paddingSmall
+            TextField {
+                id: directMediaLink
+                Layout.fillWidth: true
+                enabled: !root.dubbing.processing && !root.dubbing.linkImporting
+                placeholderText: qsTr("Import direct HTTPS video or audio link")
+                color: Theme.textPrimary
+                placeholderTextColor: Theme.textSecondary
+                font.pixelSize: Theme.fontSmall
+                selectByMouse: true
+                leftPadding: Theme.paddingMedium
+                rightPadding: Theme.paddingMedium
+                background: Rectangle { radius: Theme.radiusSmall; color: Qt.rgba(1, 1, 1, 0.035); border.color: parent.activeFocus ? Theme.accent : Qt.rgba(1, 1, 1, 0.09); border.width: parent.activeFocus ? 2 : 1 }
+                onAccepted: {
+                    if (text.trim().length > 0)
+                        root.linkImportRequested(text.trim())
+                }
+            }
+            PrimaryButton {
+                text: qsTr("Import link")
+                iconName: "download"
+                quiet: true
+                enabled: directMediaLink.text.trim().length > 0 && !root.dubbing.processing && !root.dubbing.linkImporting
+                onClicked: root.linkImportRequested(directMediaLink.text.trim())
+            }
+            PrimaryButton {
+                visible: root.dubbing.linkImporting
+                text: qsTr("Cancel")
+                iconName: "close"
+                quiet: true
+                onClicked: root.cancelLinkImportRequested()
+            }
+        }
+        Text {
+            Layout.fillWidth: true
+            visible: root.dubbing.linkImporting
+            color: Theme.textSecondary
+            font.pixelSize: Theme.fontSmall
+            text: {
+                var status = root.dubbing.linkImportStatus || qsTr("Downloading media")
+                var received = root.dubbing.linkImportReceivedBytes
+                var total = root.dubbing.linkImportTotalBytes
+                return total > 0 ? status + " — " + root.formatBytes(received) + " / " + root.formatBytes(total)
+                                 : status + (received > 0 ? " — " + root.formatBytes(received) : "")
+            }
         }
     }
 

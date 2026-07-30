@@ -213,6 +213,7 @@ set(LASTUDIO_SOURCES
     src/controllers/tts/SubtitleVoiceController.cpp
     src/controllers/stt/SttAudioDecoder.cpp
     src/dubbing/DubbingProject.cpp
+    src/dubbing/CapCutDraftExporter.cpp
     src/dubbing/EspeakNgPhonemizer.cpp
     src/dubbing/DubbingDuration.cpp
     src/dubbing/DubbingVoiceReferenceSelector.cpp
@@ -244,6 +245,7 @@ set(LASTUDIO_SOURCES
     src/dubbing/media/MediaToolService.cpp
     src/dubbing/media/AtomicMediaCommit.cpp
     src/dubbing/media/MediaIngestService.cpp
+    src/dubbing/media/RemoteMediaImportService.cpp
     src/controllers/app/WorkflowActivityManager.cpp
     src/workflows/WorkflowTypes.cpp
     src/workflows/WorkflowSession.cpp
@@ -404,6 +406,7 @@ set(LASTUDIO_HEADERS
     src/controllers/tts/SubtitleVoiceController.h
     src/controllers/stt/SttAudioDecoder.h
     src/dubbing/DubbingProject.h
+    src/dubbing/CapCutDraftExporter.h
     src/dubbing/EspeakNgPhonemizer.h
     src/dubbing/DubbingTimingService.h
     src/controllers/dubbing/DubbingController.h
@@ -434,6 +437,7 @@ set(LASTUDIO_HEADERS
     src/dubbing/media/MediaToolService.h
     src/dubbing/media/AtomicMediaCommit.h
     src/dubbing/media/MediaIngestService.h
+    src/dubbing/media/RemoteMediaImportService.h
     src/controllers/app/WorkflowActivityManager.h
     src/workflows/WorkflowTypes.h
     src/workflows/IWorkflowResolver.h
@@ -527,6 +531,7 @@ qt_add_qml_module(LAStudio
         qml/components/alignment/AlignmentPlayerButton.qml
         qml/components/alignment/AlignmentResultMetric.qml
         qml/components/dubbing/DubbingExportDialog.qml
+        qml/components/dubbing/DubbingColabSetupDialog.qml
         qml/components/dubbing/DubbingTranslationFixDialog.qml
         qml/components/dubbing/DubbingQualityDialog.qml
         qml/components/dubbing/DubbingHistoryPanel.qml

@@ -13,7 +13,7 @@ namespace LAStudio {
 class DubbingProject
 {
 public:
-    static constexpr int CurrentSchemaVersion = 7;
+    static constexpr int CurrentSchemaVersion = 8;
 
     QString projectPath;
     QString sourceMediaPath;
@@ -28,6 +28,10 @@ public:
     QString sourceLanguage = QStringLiteral("en");
     QString targetLanguage = QStringLiteral("vi");
     QString dubbingQuality = QStringLiteral("adaptive");
+    // The selected clone-voice preset is project configuration.  Only its
+    // durable library ID is persisted; reference media remains owned by the
+    // local preset library and temporary Colab profile IDs are never saved.
+    QString cloneVoicePresetId;
     QVariantMap durationControl = QVariantMap{{QStringLiteral("enabled"), true},
                                                {QStringLiteral("unit"), QStringLiteral("phoneme-v1")},
                                                {QStringLiteral("lowerToleranceRatio"), 0.20},

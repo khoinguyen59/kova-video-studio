@@ -113,6 +113,10 @@ AppController::AppController(QObject *parent)
     m_sttSession = new SttSessionController(this);
     m_subtitleVoice = new SubtitleVoiceController(m_tts, m_player, m_history, this);
     m_dubbing = new DubbingController(m_sttSession, m_tts, m_translationEngine, m_models, m_runtimes, this);
+    // Dubbing owns a project-level selection, while the preset service owns
+    // the durable reference media.  Inject the service instead of reading the
+    // library indirectly from QML so every run is validated by the controller.
+    m_dubbing->setVoiceClonePresetService(m_voiceClonePresets);
     m_dubbing->setRemoteServices(m_settings, m_colabTranslationSession, m_colabTtsSession,
                                  m_colabVoiceCloneSession, m_colabSeparationSession,
                                  m_colabAlignmentSession);

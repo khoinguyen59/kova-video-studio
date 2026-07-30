@@ -10,6 +10,12 @@ class TestMediaIngestService final : public QObject {
 private slots:
     void rejectsMissingInputExactlyOnce();
     void prefersBundledMediaToolsOverExternalConfiguration();
+    void downloadsDirectLoopbackMediaIntoOwnedStaging();
+    void reportsByteProgressForDirectMediaDownload();
+    void cancelRemovesPartialStagedMedia();
+    void rejectsOversizedMediaBeforeStaging();
+    void rejectsUnsafeRemoteMediaUrl();
+    void controllerCommitsDirectLinkOnlyAfterRealProbeAndNormalization();
 };
 
 } // namespace LAStudio

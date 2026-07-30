@@ -24,6 +24,7 @@ Rectangle {
     signal pauseRequested()
     signal stopRequested()
     signal workflowRequested()
+    signal colabSetupRequested()
     signal saveRequested()
     signal exportRequested()
 
@@ -86,6 +87,14 @@ Rectangle {
             enabled: !root.dubbing.settingsLocked && root.dubbing.sourceMediaPath.length > 0
             onClicked: root.generateRequested()
             AppToolTip { text: qsTr("Run every stage automatically and create the final dubbed output"); visible: parent.hovered }
+        }
+        PrimaryButton {
+            text: qsTr("Colab setup")
+            iconName: "cloud"
+            quiet: true
+            enabled: !root.dubbing.settingsLocked
+            onClicked: root.colabSetupRequested()
+            AppToolTip { text: qsTr("Configure and check all Direct Colab GPU stages in one place"); visible: parent.hovered }
         }
         PrimaryButton {
             visible: root.dubbing.settingsLocked

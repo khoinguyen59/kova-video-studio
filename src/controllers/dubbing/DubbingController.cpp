@@ -5,7 +5,10 @@
 #include "controllers/dubbing/DubbingJobRunner.h"
 #include "controllers/dubbing/DubbingColabModelRoutes.h"
 #include "controllers/dubbing/DubbingTranslationFixService.h"
+#include "controllers/shared/VoiceClonePresetService.h"
+#include "dubbing/CapCutDraftExporter.h"
 #include "dubbing/EspeakNgPhonemizer.h"
+#include "dubbing/media/RemoteMediaImportService.h"
 #include "dubbing/workflow/DubbingWorkflowDefinition.h"
 #include "dubbing/workflow/DubbingWorkflowNodes.h"
 #include "workflows/WorkflowGraphRunner.h"
@@ -191,6 +194,15 @@ DubbingController::DubbingController(SttSessionController *sttSession, TtsEngine
 {
     m_translation = translation;
     m_runner = new DubbingJobRunner(sttSession, tts, translation, models, runtimes, this);
+    m_remoteMediaImport = new RemoteMediaImportService(QString(), this);
+    connect(m_remoteMediaImport, &RemoteMediaImportService::transferProgress, this,
+            [this](qint64 receivedBytes, qint64 totalBytes) {
+        m_linkImportReceivedBytes = receivedBytes;
+        m_linkImportTotalBytes = totalBytes;
+        emit linkImportChanged();
+    });
+    connect(m_remoteMediaImport, &RemoteMediaImportService::finished, this,
+            &DubbingController::onRemoteMediaDownloadFinished);
     m_translationFix = new DubbingTranslationFixService(this);
     connect(m_translationFix, &DubbingTranslationFixService::stateChanged,
             this, [this]() {
@@ -383,6 +395,13 @@ DubbingController::DubbingController(SttSessionController *sttSession, TtsEngine
 
     connect(m_runner, &DubbingJobRunner::errorOccurred, this, [this](const QString &) {
         m_pendingExportPath.clear();
+        if (!m_pendingLinkedMediaPath.isEmpty()) {
+            m_pendingLinkedMediaPath.clear();
+            m_linkImportStatus.clear();
+            m_linkImportReceivedBytes = 0;
+            m_linkImportTotalBytes = -1;
+            emit linkImportChanged();
+        }
     });
 
     connect(m_runner, &DubbingJobRunner::segmentsUpdated, this, [this](const QVariantList &segments) {
@@ -441,6 +460,12 @@ bool DubbingController::processing() const
         || (m_translationFix && m_translationFix->busy())
         || m_runner->processing()
         || (m_workflowRunner && m_workflowRunner->running());
+}
+
+bool DubbingController::linkImporting() const
+{
+    return (m_remoteMediaImport && m_remoteMediaImport->active())
+        || !m_pendingLinkedMediaPath.isEmpty();
 }
 
 QString DubbingController::stage() const
@@ -632,18 +657,6 @@ QVariantMap DubbingController::firstCustomSetupIssue() const
                              QStringLiteral("The selected model has no exact Colab notebook for the %1 node.")
                                  .arg(visibleStepForNode(required.first))}};
                 }
-                if (required.first == QStringLiteral("synthesize")
-                    && parameters.value(QStringLiteral("autoSelectVoiceReference")).toBool()) {
-                    const QString cloneModel = parameters.value(
-                        QStringLiteral("voiceCloneModelId")).toString().trimmed();
-                    if (!DubbingColabModelRoutes::supports(
-                            QStringLiteral("voice-clone"), cloneModel)) {
-                        return {{QStringLiteral("nodeId"), required.first},
-                                {QStringLiteral("setupKind"), QStringLiteral("node-model")},
-                                {QStringLiteral("message"),
-                                 QStringLiteral("Choose an exact Colab voice-cloning model before enabling automatic voice cloning.")}};
-                    }
-                }
                 continue;
             }
         }
@@ -725,6 +738,422 @@ void DubbingController::setRemoteServices(Settings *settings, ColabSession *tran
                                     voiceCloneSession, separationSession,
                                     alignmentSession);
     }
+    // The sessions remain the sole holders of transient URLs/tokens.  Dubbing
+    // observes verification results only to remember which exact model was
+    // checked in this process; the snapshot deliberately contains no secret.
+    observeColabSession(QStringLiteral("source-separate"), separationSession);
+    observeColabSession(QStringLiteral("transcribe"),
+                        AppController::instance() ? AppController::instance()->colabSttSession() : nullptr);
+    observeColabSession(QStringLiteral("translate"), translationSession);
+    observeColabSession(QStringLiteral("synthesize"), ttsSession);
+    observeColabSession(QStringLiteral("voice-clone"), voiceCloneSession);
+    observeColabSession(QStringLiteral("alignment"), alignmentSession);
+    emit colabSetupChanged();
+}
+
+QString DubbingController::colabCapabilityForStage(const QString &stageId)
+{
+    if (stageId == QStringLiteral("source-separate")) return QStringLiteral("voice-isolation");
+    if (stageId == QStringLiteral("transcribe")) return QStringLiteral("stt");
+    if (stageId == QStringLiteral("translate")) return QStringLiteral("translation");
+    if (stageId == QStringLiteral("synthesize")) return QStringLiteral("tts");
+    if (stageId == QStringLiteral("voice-clone")) return QStringLiteral("voice-cloning");
+    if (stageId == QStringLiteral("alignment")) return QStringLiteral("forced-alignment");
+    return {};
+}
+
+ColabSession *DubbingController::colabSessionForStage(const QString &stageId) const
+{
+    AppController *app = AppController::instance();
+    if (!app) return nullptr;
+    if (stageId == QStringLiteral("source-separate")) return app->colabSeparationSession();
+    if (stageId == QStringLiteral("transcribe")) return app->colabSttSession();
+    if (stageId == QStringLiteral("translate")) return app->colabTranslationSession();
+    if (stageId == QStringLiteral("synthesize")) return app->colabTtsSession();
+    if (stageId == QStringLiteral("voice-clone")) return app->colabVoiceCloneSession();
+    if (stageId == QStringLiteral("alignment")) return app->colabAlignmentSession();
+    return nullptr;
+}
+
+QString DubbingController::selectedColabModelForStage(const QString &stageId) const
+{
+    const QString nodeId = stageId == QStringLiteral("voice-clone")
+        ? QStringLiteral("voice-clone")
+        : stageId == QStringLiteral("alignment") ? QStringLiteral("alignment") : stageId;
+    const QVariantMap configuration = m_workflowNodeConfigurations.value(
+        stageId == QStringLiteral("voice-clone") ? QStringLiteral("synthesize")
+        : stageId == QStringLiteral("alignment") ? QStringLiteral("transcribe") : nodeId).toMap();
+    const QVariantMap parameters = configuration.value(QStringLiteral("parameters")).toMap();
+    QString model;
+    if (stageId == QStringLiteral("voice-clone"))
+        model = parameters.value(QStringLiteral("voiceCloneModelId")).toString();
+    else if (stageId == QStringLiteral("alignment"))
+        model = parameters.value(QStringLiteral("alignmentModelId")).toString();
+    else
+        model = parameters.value(QStringLiteral("modelId")).toString();
+    if (model.trimmed().isEmpty()) model = DubbingColabModelRoutes::defaultModelForNode(nodeId);
+    return model.trimmed().toLower();
+}
+
+bool DubbingController::stageUsesDirectColab(const QString &stageId) const
+{
+    const QString configurationNode = stageId == QStringLiteral("voice-clone")
+        ? QStringLiteral("synthesize")
+        : stageId == QStringLiteral("alignment") ? QStringLiteral("transcribe") : stageId;
+    const QVariantMap configuration = m_workflowNodeConfigurations.value(configurationNode).toMap();
+    const QVariantMap parameters = configuration.value(QStringLiteral("parameters")).toMap();
+    const QString provider = configuration.value(QStringLiteral("executionProvider"),
+        parameters.value(QStringLiteral("executionProvider"))).toString().trimmed().toLower();
+    if (stageId == QStringLiteral("voice-clone")) {
+        return provider == QStringLiteral("colab-direct")
+            && !m_project.cloneVoicePresetId.trimmed().isEmpty();
+    }
+    if (stageId == QStringLiteral("alignment"))
+        return parameters.value(QStringLiteral("refineAlignmentWithColab")).toBool();
+    return provider == QStringLiteral("colab-direct");
+}
+
+bool DubbingController::snapshotSelectedColabStagesForWorkflow()
+{
+    // A Direct Colab route may be configured from either the global Dubbing panel
+    // or its feature-specific panel. In both cases, capture only the verified
+    // model identifier immediately before a workflow begins. URLs and tokens stay
+    // exclusively in ColabSession's process-memory state.
+    for (const QVariant &entry : colabSetupStages()) {
+        const QVariantMap stage = entry.toMap();
+        if (!stage.value(QStringLiteral("selectedForDirectColab")).toBool()) continue;
+
+        const QString stageId = stage.value(QStringLiteral("id")).toString();
+        const QString capability = stage.value(QStringLiteral("capability")).toString();
+        const QString model = stage.value(QStringLiteral("modelId")).toString();
+        ColabSession *session = colabSessionForStage(stageId);
+        QString routeError;
+        if (!session || !session->hasVerifiedRoute(capability, model, &routeError)) {
+            m_colabSetupSnapshots.remove(stageId);
+            const QString detail = routeError.trimmed().isEmpty()
+                ? QStringLiteral("Connect and check its exact model in Colab setup.")
+                : routeError;
+            setError(QStringLiteral("Direct Colab is not ready for %1: %2")
+                         .arg(stage.value(QStringLiteral("title")).toString(), detail));
+            emit colabSetupChanged();
+            return false;
+        }
+        m_colabSetupSnapshots.insert(stageId, model);
+    }
+    emit colabSetupChanged();
+    return true;
+}
+
+void DubbingController::observeColabSession(const QString &stageId, ColabSession *session)
+{
+    if (m_colabSetupConnections.contains(stageId)) {
+        QObject::disconnect(m_colabSetupConnections.take(stageId));
+    }
+    if (!session) return;
+    m_colabSetupConnections.insert(stageId, connect(
+        session, &ColabSession::verificationFinished, this,
+        [this, stageId](bool success, const QString &) {
+            refreshColabSetupSnapshot(stageId, success);
+        }));
+}
+
+void DubbingController::refreshColabSetupSnapshot(const QString &stageId, bool verified)
+{
+    ColabSession *session = colabSessionForStage(stageId);
+    const QString capability = colabCapabilityForStage(stageId);
+    const QString model = selectedColabModelForStage(stageId);
+    QString routeError;
+    const bool valid = verified && session
+        && session->hasVerifiedRoute(capability, model, &routeError);
+    if (valid) {
+        m_colabSetupSnapshots.insert(stageId, model);
+    } else {
+        m_colabSetupSnapshots.remove(stageId);
+    }
+    m_colabSetupPendingChecks.remove(stageId);
+    if (m_colabSetupPendingChecks.isEmpty()) {
+        int selected = 0;
+        int verifiedCount = 0;
+        for (const QVariant &entry : colabSetupStages()) {
+            const QVariantMap stage = entry.toMap();
+            if (!stage.value(QStringLiteral("selectedForDirectColab")).toBool()) continue;
+            ++selected;
+            verifiedCount += stage.value(QStringLiteral("verified")).toBool() ? 1 : 0;
+        }
+        m_colabSetupSummary = selected == 0
+            ? QStringLiteral("No workflow stage is currently set to Direct Colab.")
+            : QStringLiteral("%1 of %2 selected Direct Colab stage(s) verified.")
+                  .arg(verifiedCount).arg(selected);
+    }
+    emit colabSetupChanged();
+    emit workflowChanged();
+}
+
+QVariantList DubbingController::colabSetupStages() const
+{
+    const QList<QPair<QString, QString>> definitions{
+        {QStringLiteral("source-separate"), QStringLiteral("Source separation / voice isolation")},
+        {QStringLiteral("transcribe"), QStringLiteral("Speech to text")},
+        {QStringLiteral("translate"), QStringLiteral("Translation")},
+        {QStringLiteral("synthesize"), QStringLiteral("Voice generation")},
+        {QStringLiteral("voice-clone"), QStringLiteral("Clone voice profile")},
+        {QStringLiteral("alignment"), QStringLiteral("Forced alignment")},
+    };
+    QVariantList result;
+    for (const auto &definition : definitions) {
+        const QString stageId = definition.first;
+        const QString capability = colabCapabilityForStage(stageId);
+        const QString model = selectedColabModelForStage(stageId);
+        ColabSession *session = colabSessionForStage(stageId);
+        QString diagnostic;
+        const bool verified = session && session->hasVerifiedRoute(capability, model, &diagnostic);
+        if (diagnostic.isEmpty() && session)
+            diagnostic = session->verificationMessage().isEmpty()
+                ? session->lastError() : session->verificationMessage();
+        if (diagnostic.isEmpty())
+            diagnostic = QStringLiteral("Not connected for this exact model.");
+        result.append(QVariantMap{
+            {QStringLiteral("id"), stageId},
+            {QStringLiteral("title"), definition.second},
+            {QStringLiteral("capability"), capability},
+            {QStringLiteral("modelId"), model},
+            {QStringLiteral("notebookFile"), DubbingColabModelRoutes::notebookForModel(stageId, model)},
+            {QStringLiteral("selectedForDirectColab"), stageUsesDirectColab(stageId)},
+            {QStringLiteral("active"), session && session->isActive()},
+            {QStringLiteral("checking"), session && session->isChecking()},
+            {QStringLiteral("verified"), verified},
+            {QStringLiteral("snapshotValid"), m_colabSetupSnapshots.value(stageId) == model && verified},
+            {QStringLiteral("diagnostic"), diagnostic}
+        });
+    }
+    return result;
+}
+
+bool DubbingController::connectWorkflowColabStage(const QString &stageId, const QString &modelId,
+                                                   const QString &workerUrl, const QString &bearerToken)
+{
+    const QString normalizedStage = stageId.trimmed().toLower();
+    const QString normalizedModel = modelId.trimmed().toLower();
+    const QString capability = colabCapabilityForStage(normalizedStage);
+    ColabSession *session = colabSessionForStage(normalizedStage);
+    if (capability.isEmpty() || !session || normalizedModel.isEmpty()) {
+        setError(QStringLiteral("This Dubbing Colab stage is unavailable."));
+        return false;
+    }
+    if (!selectWorkflowColabModel(normalizedStage, normalizedModel)) return false;
+    m_colabSetupSnapshots.remove(normalizedStage);
+    if (!session->connectTemporaryWorker(workerUrl, bearerToken, capability, normalizedModel)) {
+        setError(session->lastError().isEmpty()
+                     ? QStringLiteral("Could not start the Direct Colab verification.")
+                     : session->lastError());
+        emit colabSetupChanged();
+        return false;
+    }
+    m_colabSetupPendingChecks.insert(normalizedStage);
+    m_colabSetupSummary = QStringLiteral("Checking %1 / %2 on Direct Colab.")
+        .arg(capability, normalizedModel);
+    emit colabSetupChanged();
+    return true;
+}
+
+bool DubbingController::checkWorkflowColabStage(const QString &stageId)
+{
+    const QString normalizedStage = stageId.trimmed().toLower();
+    ColabSession *session = colabSessionForStage(normalizedStage);
+    if (!session || !session->isActive()) {
+        setError(QStringLiteral("Connect the %1 Direct Colab worker before checking it.")
+                     .arg(colabCapabilityForStage(normalizedStage)));
+        return false;
+    }
+    m_colabSetupSnapshots.remove(normalizedStage);
+    if (!session->checkConnection()) {
+        setError(session->lastError().isEmpty()
+                     ? QStringLiteral("Could not start the Direct Colab connection check.")
+                     : session->lastError());
+        return false;
+    }
+    m_colabSetupPendingChecks.insert(normalizedStage);
+    m_colabSetupSummary = QStringLiteral("Rechecking %1.").arg(colabCapabilityForStage(normalizedStage));
+    emit colabSetupChanged();
+    return true;
+}
+
+void DubbingController::disconnectWorkflowColabStage(const QString &stageId)
+{
+    const QString normalizedStage = stageId.trimmed().toLower();
+    if (ColabSession *session = colabSessionForStage(normalizedStage))
+        session->disconnectTemporaryWorker();
+    m_colabSetupSnapshots.remove(normalizedStage);
+    m_colabSetupPendingChecks.remove(normalizedStage);
+    m_colabSetupSummary = QStringLiteral("Disconnected %1 Direct Colab setup.")
+        .arg(colabCapabilityForStage(normalizedStage));
+    emit colabSetupChanged();
+    emit workflowChanged();
+}
+
+bool DubbingController::validateAllWorkflowColabStages()
+{
+    m_colabSetupPendingChecks.clear();
+    QStringList unavailable;
+    int requested = 0;
+    for (const QVariant &entry : colabSetupStages()) {
+        const QVariantMap stage = entry.toMap();
+        if (!stage.value(QStringLiteral("selectedForDirectColab")).toBool()) continue;
+        const QString stageId = stage.value(QStringLiteral("id")).toString();
+        ColabSession *session = colabSessionForStage(stageId);
+        ++requested;
+        m_colabSetupSnapshots.remove(stageId);
+        if (!session || !session->isActive() || !session->checkConnection()) {
+            unavailable.append(stage.value(QStringLiteral("title")).toString());
+            continue;
+        }
+        m_colabSetupPendingChecks.insert(stageId);
+    }
+    if (requested == 0) {
+        m_colabSetupSummary = QStringLiteral("No workflow stage is currently set to Direct Colab.");
+        emit colabSetupChanged();
+        return true;
+    }
+    if (!unavailable.isEmpty()) {
+        m_colabSetupSummary = QStringLiteral("Could not check: %1.").arg(unavailable.join(QStringLiteral(", ")));
+        emit colabSetupChanged();
+        return false;
+    }
+    m_colabSetupSummary = QStringLiteral("Checking %1 Direct Colab stage(s).").arg(requested);
+    emit colabSetupChanged();
+    return true;
+}
+
+void DubbingController::setVoiceClonePresetService(VoiceClonePresetService *service)
+{
+    if (m_voiceClonePresetsService == service) return;
+    QObject::disconnect(m_cloneVoicePresetsConnection);
+    m_voiceClonePresetsService = service;
+    if (m_voiceClonePresetsService) {
+        m_cloneVoicePresetsConnection = connect(
+            m_voiceClonePresetsService, &VoiceClonePresetService::presetsChanged,
+            this, [this](const QString &) { refreshCloneVoicePresets(); });
+    }
+    refreshCloneVoicePresets();
+    emit cloneVoiceSelectionChanged();
+    emit workflowChanged();
+}
+
+QString DubbingController::cloneVoicePresetFamily() const
+{
+    const QVariantMap synthesis = m_workflowNodeConfigurations
+        .value(QStringLiteral("synthesize")).toMap();
+    const QString configured = synthesis.value(QStringLiteral("parameters")).toMap()
+        .value(QStringLiteral("voiceCloneModelId")).toString().trimmed().toLower();
+    return configured.isEmpty()
+        ? DubbingColabModelRoutes::defaultModelForNode(QStringLiteral("voice-clone"))
+        : configured;
+}
+
+QVariantMap DubbingController::selectedCloneVoicePreset() const
+{
+    const QString selectedId = m_project.cloneVoicePresetId.trimmed();
+    if (selectedId.isEmpty()) return {};
+    for (const QVariant &entry : m_cloneVoicePresets) {
+        const QVariantMap preset = entry.toMap();
+        if (preset.value(QStringLiteral("id")).toString() == selectedId)
+            return preset;
+    }
+    return {};
+}
+
+bool DubbingController::cloneVoiceSelectionValid() const
+{
+    if (!cloneVoiceSelectionRequired()) return true;
+    const QVariantMap preset = selectedCloneVoicePreset();
+    const QString audioPath = PathUtils::urlToLocalPath(
+        preset.value(QStringLiteral("audioPath")).toString());
+    return !preset.value(QStringLiteral("id")).toString().trimmed().isEmpty()
+        && !audioPath.isEmpty() && QFileInfo(audioPath).isFile()
+        && preset.value(QStringLiteral("valid"), true).toBool();
+}
+
+QString DubbingController::cloneVoiceSelectionError() const
+{
+    if (!cloneVoiceSelectionRequired()) return {};
+    if (m_project.cloneVoicePresetId.trimmed().isEmpty()) {
+        return m_cloneVoicePresets.isEmpty()
+            ? QStringLiteral("No saved clone voices are available. Create or import one before generating dubbing audio.")
+            : QStringLiteral("Select one saved clone voice before generating dubbing audio.");
+    }
+    const QVariantMap preset = selectedCloneVoicePreset();
+    if (preset.isEmpty())
+        return QStringLiteral("The selected clone voice is no longer available. Select another saved voice; LA Studio will not substitute one automatically.");
+    const QString validationError = preset.value(QStringLiteral("validationError")).toString().trimmed();
+    if (!validationError.isEmpty())
+        return QStringLiteral("The selected clone voice cannot be used: %1").arg(validationError);
+    if (!QFileInfo(PathUtils::urlToLocalPath(
+            preset.value(QStringLiteral("audioPath")).toString())).isFile()) {
+        return QStringLiteral("The reference audio for the selected clone voice is missing. Repair or replace that preset before generating dubbing audio.");
+    }
+    return {};
+}
+
+void DubbingController::refreshCloneVoicePresets()
+{
+    QVariantList refreshed;
+    if (m_voiceClonePresetsService) {
+        for (const QVariant &entry : m_voiceClonePresetsService->presetsForFamily(
+                 cloneVoicePresetFamily())) {
+            QVariantMap preset = entry.toMap();
+            const QString id = preset.value(QStringLiteral("id")).toString().trimmed();
+            const QString audioPath = PathUtils::urlToLocalPath(
+                preset.value(QStringLiteral("audioPath")).toString());
+            if (id.isEmpty()) continue;
+            preset.insert(QStringLiteral("audioPath"), audioPath);
+            refreshed.append(preset);
+        }
+    }
+    if (m_cloneVoicePresets == refreshed) return;
+    m_cloneVoicePresets = refreshed;
+    emit cloneVoiceSelectionChanged();
+    emit workflowChanged();
+}
+
+bool DubbingController::selectCloneVoicePreset(const QString &presetId)
+{
+    refreshCloneVoicePresets();
+    const QString normalized = presetId.trimmed();
+    if (normalized.isEmpty()) {
+        setError(QStringLiteral("Select a saved clone voice before generating dubbing audio."));
+        return false;
+    }
+    bool found = false;
+    for (const QVariant &entry : m_cloneVoicePresets) {
+        if (entry.toMap().value(QStringLiteral("id")).toString() == normalized) {
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        setError(QStringLiteral("The selected clone voice is unavailable or its reference audio is missing."));
+        return false;
+    }
+    if (m_project.cloneVoicePresetId == normalized) return true;
+    m_project.cloneVoicePresetId = normalized;
+    emit cloneVoiceSelectionChanged();
+    emit projectChanged();
+    emit workflowChanged();
+    persistAfterEdit();
+    return true;
+}
+
+bool DubbingController::applySelectedCloneVoiceToSynthesis(QVariantMap *settings)
+{
+    if (!settings || !cloneVoiceSelectionRequired()) return true;
+    refreshCloneVoicePresets();
+    if (!cloneVoiceSelectionValid()) {
+        setError(cloneVoiceSelectionError());
+        return false;
+    }
+    settings->insert(QStringLiteral("voiceCloningEnabled"), true);
+    settings->insert(QStringLiteral("cloneVoicePreset"), selectedCloneVoicePreset());
+    return true;
 }
 
 QVariantList DubbingController::workflowNodes() const
@@ -800,13 +1229,19 @@ QVariantList DubbingController::workflowNodes() const
             state = voicesReady ? QStringLiteral("ready") : QStringLiteral("blocked");
             detail = voicesReady ? QStringLiteral("Speaker assignments are ready") : QStringLiteral("Translated transcript and a speaker are required");
         } else if (definition.id == QStringLiteral("synthesize")) {
-            state = !ttsReady ? QStringLiteral("missing") : (hasClips ? QStringLiteral("completed") : (allTargets ? QStringLiteral("ready") : QStringLiteral("blocked")));
+            const bool cloneVoiceReady = !cloneVoiceSelectionRequired()
+                || cloneVoiceSelectionValid();
+            state = !cloneVoiceReady ? QStringLiteral("blocked")
+                : (!ttsReady ? QStringLiteral("missing")
+                   : (hasClips ? QStringLiteral("completed")
+                      : (allTargets ? QStringLiteral("ready") : QStringLiteral("blocked"))));
             const QString defaultVoice = automaticDefaultFamilyId(
                 QStringLiteral("tts"), m_project.dubbingQuality);
-            detail = ttsReady ? QStringLiteral("TTS model loaded")
+            detail = !cloneVoiceReady ? cloneVoiceSelectionError()
+                : (ttsReady ? QStringLiteral("TTS model loaded")
                               : (m_project.dubbingQuality == QStringLiteral("custom")
                                      ? QStringLiteral("Choose a TTS model")
-                                     : QStringLiteral("Default: %1").arg(defaultVoice));
+                                     : QStringLiteral("Default: %1").arg(defaultVoice)));
             provider = m_project.dubbingQuality == QStringLiteral("custom")
                 ? QStringLiteral("No model configured")
                 : (defaultVoice == QStringLiteral("vieneu-tts-v2-turbo")
@@ -1002,6 +1437,7 @@ bool DubbingController::workflowReady() const
     return workflowGraphValid()
         && !m_project.sourceMediaPath.isEmpty()
         && !m_project.targetLanguage.trimmed().isEmpty()
+        && (!cloneVoiceSelectionRequired() || cloneVoiceSelectionValid())
         && ttsReady
         && sttReady
         && translationReady;
@@ -1088,13 +1524,13 @@ bool DubbingController::configureWorkflowNodeModel(const QString &nodeId,
         || family.value(QStringLiteral("capabilities")).toStringList().contains(QStringLiteral("voice-cloning"));
     QVariantMap parameters = m_workflowNodeConfigurations.value(nodeId).toMap()
                                  .value(QStringLiteral("parameters")).toMap();
-    if (!supportsVoiceCloning)
-        parameters.remove(QStringLiteral("autoSelectVoiceReference"));
+    // Source-window auto selection was intentionally removed.  Clone voice
+    // now always comes from the project-level preset selected by the user.
+    parameters.remove(QStringLiteral("autoSelectVoiceReference"));
+    parameters.remove(QStringLiteral("autoReferenceSourcePath"));
 
     const bool isOmniVoice = familyId.contains(QStringLiteral("omnivoice"), Qt::CaseInsensitive);
     if (nodeId == QStringLiteral("synthesize") && isOmniVoice && supportsVoiceCloning) {
-        if (!parameters.contains(QStringLiteral("autoSelectVoiceReference")))
-            parameters.insert(QStringLiteral("autoSelectVoiceReference"), true);
         if (!parameters.contains(QStringLiteral("forceSegmentDuration")))
             parameters.insert(QStringLiteral("forceSegmentDuration"), true);
     }
@@ -1131,6 +1567,10 @@ bool DubbingController::configureWorkflowNodeModel(const QString &nodeId,
                  QStringLiteral("Workflow node model changed node=%1 family=%2 runtime=%3")
                      .arg(nodeId, familyId, config.runtimeId));
     persistAfterEdit();
+    if (nodeId == QStringLiteral("synthesize")) {
+        refreshCloneVoicePresets();
+        emit cloneVoiceSelectionChanged();
+    }
     emit workflowChanged();
     return true;
 }
@@ -1232,6 +1672,10 @@ bool DubbingController::setWorkflowNodeParameters(const QString &nodeId, const Q
     else
         m_project.workflowNodeConfigurations.clear();
     persistAfterEdit();
+    if (nodeId == QStringLiteral("synthesize")) {
+        refreshCloneVoicePresets();
+        emit cloneVoiceSelectionChanged();
+    }
     emit workflowChanged();
     return true;
 }
@@ -1802,6 +2246,11 @@ bool DubbingController::runWorkflow(const QString &outputPath)
         setError(QStringLiteral("Import source media before running the dubbing workflow."));
         return false;
     }
+    if (cloneVoiceSelectionRequired() && !cloneVoiceSelectionValid()) {
+        setError(cloneVoiceSelectionError());
+        return false;
+    }
+    if (!snapshotSelectedColabStagesForWorkflow()) return false;
     WorkflowGraph graph = DubbingWorkflowDefinition::create();
     QVariantMap effectiveDurationControl = m_project.durationControl;
     effectiveDurationControl.insert(
@@ -1841,11 +2290,9 @@ bool DubbingController::runWorkflow(const QString &outputPath)
             QVariantMap synthesisSettings = modelConfig.value(QStringLiteral("parameters")).toMap();
             synthesisSettings.insert(QStringLiteral("familyId"),
                                      modelConfig.value(QStringLiteral("familyId")));
-            synthesisSettings.insert(QStringLiteral("autoReferenceSourcePath"),
-                                     !m_project.analysisAudioPath.isEmpty()
-                                         ? m_project.analysisAudioPath : m_project.masterAudioPath);
             if (!synthesisSettings.contains(QStringLiteral("lang")))
                 synthesisSettings.insert(QStringLiteral("lang"), m_project.targetLanguage);
+            if (!applySelectedCloneVoiceToSynthesis(&synthesisSettings)) return false;
             node.parameters.insert(QStringLiteral("projectPath"), m_project.projectPath);
             node.parameters.insert(QStringLiteral("synthesisSettings"), synthesisSettings);
             node.properties = node.parameters;
@@ -1876,6 +2323,10 @@ bool DubbingController::startAutomaticWorkflow(const QString &outputPath)
     }
     if (!workflowGraphValid() || m_project.sourceMediaPath.trimmed().isEmpty()) {
         setError(QStringLiteral("Import source media before generating the final dub."));
+        return false;
+    }
+    if (cloneVoiceSelectionRequired() && !cloneVoiceSelectionValid()) {
+        setError(cloneVoiceSelectionError());
         return false;
     }
     if (m_project.dubbingQuality == QStringLiteral("custom")) {
@@ -2120,6 +2571,11 @@ bool DubbingController::selectWorkflowColabModel(const QString &nodeId,
                      .arg(visibleStepForNode(nodeId)));
         return false;
     }
+    // A verification is bound to an exact model. Selecting a different model
+    // invalidates only that stage's memory-only setup snapshot; it never
+    // repurposes a verified worker or silently changes route.
+    m_colabSetupSnapshots.remove(nodeId);
+    emit colabSetupChanged();
     if (nodeId == QStringLiteral("voice-clone")) {
         return setWorkflowNodeParameters(
             QStringLiteral("synthesize"),
@@ -2245,6 +2701,8 @@ bool DubbingController::newProject(const QString &path)
                                           {QStringLiteral("voice"), QVariantMap()} });
     emit projectChanged();
     emit segmentsChanged();
+    refreshCloneVoicePresets();
+    emit cloneVoiceSelectionChanged();
     emit workflowChanged();
     return saveProject();
 }
@@ -2291,6 +2749,8 @@ bool DubbingController::openProject(const QString &path)
     
     emit projectChanged();
     emit segmentsChanged();
+    refreshCloneVoicePresets();
+    emit cloneVoiceSelectionChanged();
     emit workflowChanged();
     return true;
 }
@@ -2423,11 +2883,20 @@ void DubbingController::closeProject()
     m_workflowJournal.reset();
     emit projectChanged();
     emit segmentsChanged();
+    refreshCloneVoicePresets();
+    emit cloneVoiceSelectionChanged();
+    emit workflowChanged();
 }
 
 bool DubbingController::importMedia(const QString &pathOrUrl)
 {
     const QString input = pathOrUrl.trimmed();
+    const QUrl suppliedUrl = QUrl::fromUserInput(input);
+    if (suppliedUrl.isValid()
+        && (suppliedUrl.scheme().compare(QStringLiteral("http"), Qt::CaseInsensitive) == 0
+            || suppliedUrl.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) == 0)) {
+        return importMediaFromLink(input);
+    }
     const QString localPath = PathUtils::urlToLocalPath(input).trimmed();
     const QFileInfo fileInfo(localPath);
     const QString path = fileInfo.absoluteFilePath();
@@ -2473,9 +2942,76 @@ bool DubbingController::importMedia(const QString &pathOrUrl)
     return true;
 }
 
+bool DubbingController::importMediaFromLink(const QString &url)
+{
+    const QUrl sourceUrl = QUrl::fromUserInput(url.trimmed());
+    if (!m_remoteMediaImport) {
+        setError(QStringLiteral("Media link import is unavailable in this build."));
+        return false;
+    }
+    if (linkImporting() || processing()) {
+        setError(QStringLiteral("Finish or cancel the active media import before starting another one."));
+        return false;
+    }
+    if (m_project.projectPath.isEmpty() && !newProject()) return false;
+
+    clearError();
+    m_linkImportStatus = QStringLiteral("Downloading direct media link");
+    m_linkImportReceivedBytes = 0;
+    m_linkImportTotalBytes = -1;
+    emit linkImportChanged();
+    // The remote service deliberately receives no cookie, API key, or browser
+    // profile. Its result is a private app-owned file; the URL is never put in
+    // project JSON, settings, metadata, or logs.
+    return m_remoteMediaImport->download(sourceUrl);
+}
+
+void DubbingController::cancelMediaLinkImport()
+{
+    if (m_remoteMediaImport && m_remoteMediaImport->active()) m_remoteMediaImport->cancel();
+    if (!m_pendingLinkedMediaPath.isEmpty() && m_runner) m_runner->cancel();
+    m_pendingLinkedMediaPath.clear();
+    m_linkImportStatus.clear();
+    m_linkImportReceivedBytes = 0;
+    m_linkImportTotalBytes = -1;
+    emit linkImportChanged();
+}
+
 void DubbingController::onIngestFinished(bool success, const QVariantMap &manifest)
 {
-    if (!success) return; // Error is already handled and set on runner
+    const bool importedFromLink = !m_pendingLinkedMediaPath.isEmpty();
+    if (!success) {
+        if (importedFromLink) {
+            m_pendingLinkedMediaPath.clear();
+            m_linkImportStatus.clear();
+            m_linkImportReceivedBytes = 0;
+            m_linkImportTotalBytes = -1;
+            emit linkImportChanged();
+        }
+        return; // Error is already handled and set on runner
+    }
+
+    if (importedFromLink) {
+        // The candidate does not become project state until FFprobe and audio
+        // normalization succeed; a failed link leaves the previous project as-is.
+        m_project.sourceMediaPath.clear();
+        m_project.sourceHash.clear();
+        m_project.masterAudioPath.clear();
+        m_project.analysisAudioPath.clear();
+        m_project.backgroundAudioPath.clear();
+        m_project.sourceDurationMs = 0;
+        m_project.sourceSampleRate = 0;
+        m_project.sourceChannels = 0;
+        m_project.sourceIsVideo = false;
+        m_project.segments.clear();
+        m_stepOutputs.clear();
+        m_lastCompletedStepId.clear();
+        m_runner->setBackgroundAudioPath(QString());
+        m_runner->setPreviewPath(QString());
+        m_runner->setExportPath(QString());
+        setWorkflowMode(QStringLiteral("idle"));
+        setCurrentStep(QStringLiteral("source-separate"));
+    }
     
     m_project.sourceMediaPath = manifest.value(QStringLiteral("sourcePath")).toString();
     m_project.sourceHash = manifest.value(QStringLiteral("sourceHash")).toString();
@@ -2491,9 +3027,42 @@ void DubbingController::onIngestFinished(bool success, const QVariantMap &manife
                  QStringLiteral("Media normalized successfully: source=%1, hash=%2, master=%3, analysis=%4")
                      .arg(m_project.sourceMediaPath, m_project.sourceHash,
                           m_project.masterAudioPath, m_project.analysisAudioPath));
+    if (importedFromLink) {
+        m_pendingLinkedMediaPath.clear();
+        m_linkImportStatus.clear();
+        m_linkImportReceivedBytes = 0;
+        m_linkImportTotalBytes = -1;
+        emit linkImportChanged();
+        emit segmentsChanged();
+    }
     emit projectChanged();
     emit workflowChanged();
     persistAfterEdit();
+}
+
+void DubbingController::onRemoteMediaDownloadFinished(bool success, const QString &localPath,
+                                                       const QString &error)
+{
+    if (!success) {
+        m_linkImportStatus.clear();
+        m_linkImportReceivedBytes = 0;
+        m_linkImportTotalBytes = -1;
+        emit linkImportChanged();
+        if (!error.trimmed().isEmpty()) setError(error);
+        return;
+    }
+    if (!m_runner || !QFileInfo(localPath).isFile()) {
+        m_linkImportStatus.clear();
+        emit linkImportChanged();
+        setError(QStringLiteral("Downloaded media staging file is unavailable."));
+        return;
+    }
+    m_pendingLinkedMediaPath = localPath;
+    m_linkImportStatus = QStringLiteral("Validating and normalizing downloaded media");
+    m_linkImportReceivedBytes = QFileInfo(localPath).size();
+    m_linkImportTotalBytes = m_linkImportReceivedBytes;
+    emit linkImportChanged();
+    m_runner->startIngest(localPath);
 }
 
 void DubbingController::transcribeSource()
@@ -2578,11 +3147,9 @@ void DubbingController::generateAudio()
         .value(QStringLiteral("parameters")).toMap();
     synthesisSettings.insert(QStringLiteral("familyId"),
                              synthesisConfiguration.value(QStringLiteral("familyId")));
-    synthesisSettings.insert(QStringLiteral("autoReferenceSourcePath"),
-                             !m_project.analysisAudioPath.isEmpty()
-                                 ? m_project.analysisAudioPath : m_project.masterAudioPath);
     if (!synthesisSettings.contains(QStringLiteral("lang")))
         synthesisSettings.insert(QStringLiteral("lang"), m_project.targetLanguage);
+    if (!applySelectedCloneVoiceToSynthesis(&synthesisSettings)) return;
     m_runner->startAudioGeneration(m_project.segments, m_project.projectPath, synthesisSettings);
 }
 
@@ -2804,6 +3371,39 @@ bool DubbingController::exportPackage(const QString &directoryPath)
         return false;
     }
     clearError();
+    return true;
+}
+
+bool DubbingController::exportCapCutDraft(const QString &directoryPath)
+{
+    const QString outputDirectory = QFileInfo(PathUtils::urlToLocalPath(directoryPath)).absoluteFilePath();
+    if (directoryPath.isEmpty() || outputDirectory.isEmpty()) {
+        setError(QStringLiteral("Choose a parent folder for the CapCut draft."));
+        return false;
+    }
+    if (!hasProject()) {
+        setError(QStringLiteral("Save the dubbing project before exporting a CapCut draft."));
+        return false;
+    }
+    QString error;
+    if (!m_project.save(&error)) {
+        setError(error);
+        return false;
+    }
+    QString draftPath;
+    QString warning;
+    if (!CapCutDraftExporter::exportDraft(
+            outputDirectory, QFileInfo(m_project.projectPath).completeBaseName(),
+            m_project.sourceMediaPath, m_project.masterAudioPath, m_project.backgroundAudioPath,
+            previewPath(), m_project.sourceIsVideo, m_project.sourceDurationMs,
+            m_project.segments, &draftPath, &warning, &error)) {
+        setError(error);
+        return false;
+    }
+    m_capCutDraftPath = draftPath;
+    m_capCutDraftWarning = warning;
+    clearError();
+    emit exportChanged();
     return true;
 }
 

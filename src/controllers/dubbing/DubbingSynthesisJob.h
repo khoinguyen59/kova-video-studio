@@ -80,6 +80,8 @@ private:
     QString m_synthesisSignature;
     ExecutionProvider m_executionProvider;
     DubbingVoiceReference m_voiceReference;
+    QString m_cloneVoicePresetId;
+    QString m_cloneVoicePresetName;
     QString m_colabVoiceProfileId;
     QString m_colabVoiceProfileSignature;
     bool m_useVoiceCloning = false;

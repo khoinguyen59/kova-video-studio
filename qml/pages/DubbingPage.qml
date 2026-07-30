@@ -152,6 +152,8 @@ Item {
     function stepRunReady(stepId) {
         var node = root.workflowNode(stepId)
         if (!node || node.state === "missing" || node.state === "blocked") return false
+        if (stepId === "synthesize" && dubbing.cloneVoiceSelectionRequired
+                && !dubbing.cloneVoiceSelectionValid) return false
         if (node.configurable === true && node.selectedFamilyId
                 && node.providerState !== "ready") return false
         return true
@@ -360,6 +362,7 @@ Item {
             onPauseRequested: root.dubbing.pauseAutomaticWorkflow()
             onStopRequested: root.dubbing.cancelProcessing()
             onWorkflowRequested: root.openWorkflowCanvas()
+            onColabSetupRequested: dubbingColabSetupDialog.open()
             onSaveRequested: root.dubbing.saveProject()
             onExportRequested: exportOptionsDialog.open()
         }
@@ -461,6 +464,8 @@ Item {
                     dubbing: root.dubbing
                     selectedSegment: root.selectedSegment
                     onBrowseRequested: mediaFileDialog.open()
+                    onLinkImportRequested: function(url) { root.dubbing.importMediaFromLink(url) }
+                    onCancelLinkImportRequested: root.dubbing.cancelMediaLinkImport()
                     onSegmentSelected: root.selectedSegment = index
                     onSelectedSegmentChanged: root.selectedSegment = selectedSegment
                 }
@@ -762,6 +767,8 @@ Item {
         sourceLanguageName: root.languageDisplayName(dubbing.sourceLanguage)
         targetLanguageCode: dubbing.targetLanguage
         targetLanguageName: root.languageDisplayName(dubbing.targetLanguage)
+        capCutDraftPath: dubbing.capCutDraftPath
+        capCutDraftWarning: dubbing.capCutDraftWarning
         onVideoExportRequested: videoExportFileDialog.open()
         onAudioExportRequested: function(stem) {
             root.pendingAudioExportStem = stem
@@ -774,6 +781,12 @@ Item {
             subtitleExportFileDialog.open()
         }
         onPackageExportRequested: packageExportFolderDialog.open()
+        onCapCutDraftExportRequested: capCutDraftFolderDialog.open()
+    }
+
+    DubbingColabSetupDialog {
+        id: dubbingColabSetupDialog
+        dubbing: root.dubbing
     }
 
     DubbingTranslationFixDialog {
@@ -837,6 +850,12 @@ Item {
         id: packageExportFolderDialog
         title: qsTr("Choose review package folder")
         onAccepted: dubbing.exportPackage(AppController.files.urlToLocalPath(selectedFolder.toString()))
+    }
+
+    FolderDialog {
+        id: capCutDraftFolderDialog
+        title: qsTr("Choose parent folder for CapCut draft")
+        onAccepted: dubbing.exportCapCutDraft(AppController.files.urlToLocalPath(selectedFolder.toString()))
     }
 
     ConfirmationDialog {

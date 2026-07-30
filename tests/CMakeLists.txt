@@ -116,6 +116,7 @@ set(TEST_SOURCES
     ../src/audio/AudioTimelineRenderer.cpp
     ../src/controllers/stt/SttAudioDecoder.cpp
     ../src/dubbing/DubbingProject.cpp
+    ../src/dubbing/CapCutDraftExporter.cpp
     ../src/dubbing/EspeakNgPhonemizer.cpp
     ../src/dubbing/DubbingDuration.cpp
     ../src/dubbing/DubbingVoiceReferenceSelector.cpp
@@ -136,6 +137,7 @@ set(TEST_SOURCES
     ../src/dubbing/media/MediaToolService.cpp
     ../src/dubbing/media/AtomicMediaCommit.cpp
     ../src/dubbing/media/MediaIngestService.cpp
+    ../src/dubbing/media/RemoteMediaImportService.cpp
     ../src/separation/SeparationAudioIO.cpp
     ../src/separation/SourceSeparationService.cpp
     ../src/separation/SeparationWorker.cpp

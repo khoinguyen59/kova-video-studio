@@ -364,6 +364,7 @@ void TestSttSession::testColabSttRunnerUsesAsynchronousJobContract()
     workerThread.start();
     QSignalSpy finished(runner, &ColabSttRunner::finished);
     QSignalSpy failures(runner, &ColabSttRunner::failed);
+    QSignalSpy progress(runner, &ColabSttRunner::progress);
 
     ColabSttRequest request;
     request.workerUrl = QUrl(server.baseUrl());
@@ -385,6 +386,12 @@ void TestSttSession::testColabSttRunnerUsesAsynchronousJobContract()
                                    .arg(QString::fromLatin1(server.requests()))));
     QCOMPARE(failures.count(), 0);
     QCOMPARE(finished.takeFirst().at(0).toString(), QStringLiteral("Hello world"));
+    // The desktop must not manufacture phase percentages.  The mock worker
+    // reports a measured 50% while running and completion is the only local
+    // terminal value the runner may add.
+    QCOMPARE(progress.count(), 2);
+    QCOMPARE(progress.at(0).at(0).toInt(), 50);
+    QCOMPARE(progress.at(1).at(0).toInt(), 100);
     const QByteArray requests = server.requests();
     QVERIFY(requests.contains("POST /v2/uploads/stt HTTP/1.1\r\n"));
     QVERIFY(requests.contains("PUT /v2/uploads/stt/stt-upload-1/chunks/0 HTTP/1.1\r\n"));

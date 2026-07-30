@@ -26,7 +26,11 @@ private slots:
     void audioGenerationWaitsForCompletedSynthesis();
     void audioGenerationUsesSelectedVoiceForEverySegment();
     void selectsBestAutomaticVoiceReference();
-    void audioGenerationUsesAutomaticVoiceReference();
+    void audioGenerationUsesSavedCloneVoiceForEverySegment();
+    void zeroCloneVoicePresetBlocksSynthesisWithoutFallback();
+    void cloneVoicePresetSelectionPersistsAndMissingPresetBlocks();
+    void changingCloneVoicePresetAppliesToEntireNextRun();
+    void voiceClonePresetLibraryPersistsAtomicallyAndProtectsSource();
     void audioMixRunsAsynchronously();
     void audioMixCreatesIndependentVocalStem();
     void commitsMediaExportAtomically();
@@ -34,6 +38,7 @@ private slots:
     void unchangedTextEditPreservesTranslationMetadata();
     void targetTextEditRefreshesDurationMetadata();
     void exportsSubtitlesAndReviewPackage();
+    void exportsSelfContainedCapCutDraftWithUnverifiedImportStatus();
     void segmentNormalizerSplitsLongAsrTranscript();
     void segmentNormalizerUsesAlignedWordBoundaries();
     void segmentNormalizerRebuildsAcrossAsrBoundaries();
@@ -55,6 +60,9 @@ private slots:
     void remoteTtsRoutesDoNotFallbackBetweenGatewayAndColab();
     void colabDubbingVoiceCloningIsDirectAndRequiresConsent();
     void colabSourceSeparationDoesNotFallbackToLocal();
+    void unavailableLocalSourceSeparationDoesNotUseOriginalAudio();
+    void failedSeparationBackendDoesNotUseOriginalAudio();
+    void incompleteSeparationStemsDoNotCompleteTheNode();
     void dubbingRejectsAConnectedColabWorkerForTheWrongModel();
     void remoteDubbingWorkflowIsReadyWithoutLocalModels();
     void dubbingColabModelsMapToExactNotebooks();
