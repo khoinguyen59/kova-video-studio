@@ -112,7 +112,6 @@ void ColabVoiceDesignRunner::generate(const ColabVoiceDesignRequest &request)
         emit failed(error);
         return;
     }
-    emit progress(8);
     QByteArray wav;
     if (!d->client.designVoice(request.text, request.model, request.voiceDescription, request.style,
                                request.language, request.temperature, request.seed,
@@ -124,7 +123,6 @@ void ColabVoiceDesignRunner::generate(const ColabVoiceDesignRequest &request)
         emit failed(QStringLiteral("VoiceDesign cancelled"));
         return;
     }
-    emit progress(90);
     QByteArray pcm16;
     QVector<float> samples;
     int sampleRate = 0;

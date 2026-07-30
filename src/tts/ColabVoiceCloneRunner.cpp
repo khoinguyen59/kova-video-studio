@@ -120,7 +120,9 @@ void ColabVoiceCloneRunner::clone(const ColabVoiceCloneRequest &request)
         return;
     }
 
-    const auto waitForJob = [this, &request, &error](const QString &jobId, int base, int span, QJsonObject *completed) {
+    const auto waitForJob = [this, &request, &error](const QString &jobId,
+                                                       const QString &jobKind,
+                                                       QJsonObject *completed) {
         for (int attempt = 0; attempt < 7200; ++attempt) {
             if (request.cancellation.isCancelled()) {
                 d->client.cancelVoiceJob(jobId, nullptr);
@@ -131,7 +133,10 @@ void ColabVoiceCloneRunner::clone(const ColabVoiceCloneRequest &request)
             if (!d->client.voiceJobStatus(jobId, &job, &error)) return false;
             const QString status = job.value(QStringLiteral("status")).toString().trimmed().toLower();
             const int percent = qBound(0, job.value(QStringLiteral("percent")).toInt(), 100);
-            emit progress(base + (percent * span / 100), job.value(QStringLiteral("stage")).toString());
+            const QString stage = job.value(QStringLiteral("stage")).toString().trimmed();
+            // This is the exact worker job percentage, not a fabricated
+            // weighted percentage across profile and generation phases.
+            emit progress(percent, stage.isEmpty() ? jobKind : jobKind + QStringLiteral(": ") + stage);
             if (status == QStringLiteral("succeeded")) { if (completed) *completed = job; return true; }
             if (status == QStringLiteral("failed") || status == QStringLiteral("cancelled")) {
                 error = workerJobError(job);
@@ -167,13 +172,16 @@ void ColabVoiceCloneRunner::clone(const ColabVoiceCloneRequest &request)
             emit failed(QStringLiteral("Reference audio must be a decodable 3–30 second clip"));
             return;
         }
-        emit progress(1, QStringLiteral("upload_reference"));
+        emit progress(0, QStringLiteral("upload_reference"));
         QJsonObject profileJob;
         if (!d->client.createVoiceProfileJob(request.model, request.referencePath, request.referenceName,
                                              request.referenceText, request.language, true,
                                              &profileJob, &error)) { emit failed(error); return; }
         const QString jobId = profileJob.value(QStringLiteral("id")).toString();
-        if (jobId.isEmpty() || !waitForJob(jobId, 2, 48, &profileJob)) { emit failed(error); return; }
+        if (jobId.isEmpty() || !waitForJob(jobId, QStringLiteral("profile"), &profileJob)) {
+            emit failed(error);
+            return;
+        }
         profileId = profileJob.value(QStringLiteral("result")).toObject().value(QStringLiteral("id")).toString();
         if (profileId.isEmpty()) profileId = profileJob.value(QStringLiteral("result")).toObject()
             .value(QStringLiteral("profile")).toObject().value(QStringLiteral("id")).toString();
@@ -181,15 +189,18 @@ void ColabVoiceCloneRunner::clone(const ColabVoiceCloneRequest &request)
         emit profileReady(profileId);
     }
 
-    emit progress(52, QStringLiteral("queue_generation"));
+    emit progress(0, QStringLiteral("queue_generation"));
     QJsonObject generationJob;
     if (!d->client.createVoiceGenerationJob(request.model, profileId, request.text, request.language,
                                             request.speed, request.steps, &generationJob, &error)) {
         emit failed(error); return;
     }
     const QString generationId = generationJob.value(QStringLiteral("id")).toString();
-    if (generationId.isEmpty() || !waitForJob(generationId, 53, 42, &generationJob)) { emit failed(error); return; }
-    emit progress(96, QStringLiteral("download_audio"));
+    if (generationId.isEmpty()
+        || !waitForJob(generationId, QStringLiteral("generation"), &generationJob)) {
+        emit failed(error);
+        return;
+    }
     QByteArray wav;
     if (!d->client.downloadVoiceJobAudio(generationId, &wav, &error)) { emit failed(error); return; }
     QByteArray pcm16;

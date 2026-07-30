@@ -546,7 +546,7 @@ StudioShell {
                                      ? Math.round((root.colabActive ? root.activeDesign.lastSampleCount : AppController.tts.lastSampleCount) * 1000 / (root.colabActive ? root.activeDesign.sampleRate : AppController.tts.sampleRate)) : 0
                     processing: root.colabActive ? root.activeDesign.processing : AppController.tts.processing
                     generationProgress: root.colabActive ? root.activeDesign.progress : AppController.tts.generationProgress
-                    progressEstimated: root.colabActive ? false : AppController.tts.generationProgressEstimated
+                    progressEstimated: root.colabActive ? true : AppController.tts.generationProgressEstimated
                     progressLabel: root.colabActive ? qsTr("Generating on Colab GPU") : AppController.tts.generationProgressLabel
                     onPlayClicked: {
                         root.playingType = "voice-design"

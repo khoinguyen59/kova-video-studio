@@ -175,6 +175,7 @@ void TestColabVoiceCloneRunner::testRunsVoiceProfileAndGenerationDirectlyOnColab
     QSignalSpy deleted(runner, &ColabVoiceCloneRunner::profileDeleted);
     QSignalSpy finished(runner, &ColabVoiceCloneRunner::finished);
     QSignalSpy failures(runner, &ColabVoiceCloneRunner::failed);
+    QSignalSpy progress(runner, &ColabVoiceCloneRunner::progress);
 
     ColabVoiceCloneRequest request;
     request.workerUrl = QUrl(server.baseUrl());
@@ -200,6 +201,14 @@ void TestColabVoiceCloneRunner::testRunsVoiceProfileAndGenerationDirectlyOnColab
     QCOMPARE(result.at(0).toByteArray().size(), 4);
     QCOMPARE(result.at(1).value<QVector<float>>().size(), 2);
     QCOMPARE(result.at(2).toInt(), 24000);
+    QVERIFY(progress.count() >= 4);
+    for (const QList<QVariant> &event : progress) {
+        const int workerPercent = event.at(0).toInt();
+        QVERIFY(workerPercent == 0 || workerPercent == 100);
+    }
+    QVERIFY(!progress.contains(QList<QVariant>{1, QStringLiteral("upload_reference")}));
+    QVERIFY(!progress.contains(QList<QVariant>{52, QStringLiteral("queue_generation")}));
+    QVERIFY(!progress.contains(QList<QVariant>{96, QStringLiteral("download_audio")}));
 
     const QList<QByteArray> calls = server.requests();
     QCOMPARE(calls.size(), 5);
@@ -334,6 +343,11 @@ void TestColabVoiceCloneRunner::exactModelMappingMatchesCatalogAndNotebooks()
     ColabVoiceCloneController sessionController(&session, nullptr, nullptr, nullptr, nullptr);
     QVERIFY(sessionController.selectColabModel(QStringLiteral("voxcpm2")));
     QVERIFY2(!session.isActive(), "Changing the clone model must discard the previous model worker.");
+
+    QFile output(QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
+                     .filePath(QStringLiteral("qml/components/voicecloning/VoiceCloningStudioView.qml")));
+    QVERIFY(output.open(QIODevice::ReadOnly));
+    QVERIFY(output.readAll().contains("progressEstimated: root.colabActive ? true"));
 }
 
 } // namespace LAStudio

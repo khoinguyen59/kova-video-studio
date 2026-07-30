@@ -107,6 +107,7 @@ void TestColabVoiceDesignRunner::testPostsIndependentVoiceDesignContract()
     workerThread.start();
     QSignalSpy finished(runner, &ColabVoiceDesignRunner::finished);
     QSignalSpy failures(runner, &ColabVoiceDesignRunner::failed);
+    QSignalSpy progress(runner, &ColabVoiceDesignRunner::progress);
 
     ColabVoiceDesignRequest request;
     request.workerUrl = QUrl(server.baseUrl());
@@ -128,6 +129,8 @@ void TestColabVoiceDesignRunner::testPostsIndependentVoiceDesignContract()
     QCOMPARE(result.at(0).toByteArray().size(), 4);
     QCOMPARE(result.at(1).value<QVector<float>>().size(), 2);
     QCOMPARE(result.at(2).toInt(), 24000);
+    QCOMPARE(progress.count(), 1);
+    QCOMPARE(progress.constFirst().at(0).toInt(), 100);
     const QByteArray body = server.request();
     QVERIFY(body.startsWith("POST /v1/audio/voice_designs HTTP/1.1\r\n"));
     QVERIFY(body.toLower().contains("authorization: bearer colab-design-token"));
@@ -199,6 +202,11 @@ void TestColabVoiceDesignRunner::exactModelMappingMatchesCatalogAndNotebooks()
     ColabVoiceDesignController sessionController(&session, nullptr, nullptr, nullptr, nullptr);
     QVERIFY(sessionController.selectColabModel(QStringLiteral("omnivoice")));
     QVERIFY2(!session.isActive(), "Changing the design model must discard the previous model worker.");
+
+    QFile output(QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
+                     .filePath(QStringLiteral("qml/components/voicedesign/VoiceDesignStudioView.qml")));
+    QVERIFY(output.open(QIODevice::ReadOnly));
+    QVERIFY(output.readAll().contains("progressEstimated: root.colabActive ? true"));
 }
 
 } // namespace LAStudio

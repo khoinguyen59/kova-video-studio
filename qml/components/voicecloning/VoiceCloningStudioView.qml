@@ -526,7 +526,7 @@ StudioShell {
                                                              ? Math.round((root.colabActive ? root.activeClone.lastSampleCount : AppController.tts.lastSampleCount) * 1000 / (root.colabActive ? root.activeClone.sampleRate : AppController.tts.sampleRate)) : 0
                                             processing: root.colabActive ? root.activeClone.processing : AppController.tts.processing
                                             generationProgress: root.colabActive ? root.activeClone.progress : AppController.tts.generationProgress
-                                            progressEstimated: root.colabActive ? false : AppController.tts.generationProgressEstimated
+                                            progressEstimated: root.colabActive ? true : AppController.tts.generationProgressEstimated
                                             progressLabel: root.colabActive ? root.activeClone.progressStage : AppController.tts.generationProgressLabel
                                             onPlayClicked: {
                                                 root.playingType = "tts"
