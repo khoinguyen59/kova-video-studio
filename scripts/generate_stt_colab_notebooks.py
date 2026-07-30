@@ -85,6 +85,7 @@ def capabilities(authorization: str | None = Header(default=None)):
     require_token(authorization)
     return {{
         "contract_version": 1,
+        "worker_revision": WORKER_REVISION,
         "device": "cuda",
         "cuda": True,
         "cpu_fallback": False,

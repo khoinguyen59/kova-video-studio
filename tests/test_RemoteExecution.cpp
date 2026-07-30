@@ -290,6 +290,45 @@ void TestRemoteExecution::staleTranslationPatchContractIsRejected()
     QVERIFY(currentSession.isActive());
 }
 
+void TestRemoteExecution::staleSttWorkerRevisionIsRejected()
+{
+    CatalogMock stale({
+        QByteArrayLiteral(
+            R"({"status":"ready","ready":true,"device":"cuda","model":"whisper.cpp","cpu_fallback":false})"),
+        QByteArrayLiteral(
+            R"({"contract_version":1,"device":"cuda","capabilities":[{"id":"stt","models":[{"id":"whisper.cpp","device":"cuda","loaded":true}]}]})"),
+    });
+    QVERIFY(stale.start());
+    ColabSession staleSession;
+    QSignalSpy staleFinished(&staleSession, &ColabSession::verificationFinished);
+    QString error;
+    QVERIFY2(staleSession.beginVerifiedSession(
+                 stale.baseUrl(), QStringLiteral("stale-stt-token"),
+                 QStringLiteral("stt"), QStringLiteral("whisper.cpp"),
+                 &error, true), qPrintable(error));
+    QTRY_COMPARE(staleFinished.count(), 1);
+    QVERIFY(!staleFinished.constFirst().at(0).toBool());
+    QVERIFY(staleSession.lastError().contains(QStringLiteral("Speech-to-Text notebook is outdated")));
+
+    const QByteArray currentHealth = QByteArrayLiteral(
+        R"({"status":"ready","ready":true,"device":"cuda","model":"whisper.cpp","worker_revision":"stt-2026-07-30.2","cpu_fallback":false})");
+    CatalogMock current({
+        currentHealth,
+        QByteArrayLiteral(
+            R"({"contract_version":1,"worker_revision":"stt-2026-07-30.2","device":"cuda","capabilities":[{"id":"stt","models":[{"id":"whisper.cpp","device":"cuda","loaded":true}]}]})"),
+    });
+    QVERIFY(current.start());
+    ColabSession currentSession;
+    QSignalSpy currentFinished(&currentSession, &ColabSession::verificationFinished);
+    QVERIFY2(currentSession.beginVerifiedSession(
+                 current.baseUrl(), QStringLiteral("current-stt-token"),
+                 QStringLiteral("stt"), QStringLiteral("whisper.cpp"),
+                 &error, true), qPrintable(error));
+    QTRY_COMPARE(currentFinished.count(), 1);
+    QVERIFY(currentFinished.constFirst().at(0).toBool());
+    QVERIFY(currentSession.isActive());
+}
+
 void TestRemoteExecution::temporaryColabWorkerRejectsCpuWrongModelAndWrongCapability()
 {
     {

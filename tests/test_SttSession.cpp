@@ -459,6 +459,7 @@ void TestSttSession::testSpeechNotebookMatchesDirectColabSttContract()
         QVERIFY(source.contains(QStringLiteral("\"chunked_transcription_uploads\": \"/v2/uploads/stt\"")));
         QVERIFY(source.contains(QStringLiteral("@app.get(\"/v1/capabilities\")")));
         QVERIFY(source.contains(QStringLiteral("\"contract_version\": 1")));
+        QVERIFY(source.contains(QStringLiteral("\"worker_revision\": WORKER_REVISION")));
         QVERIFY(source.contains(QStringLiteral("if model.strip().lower() != MODEL_ID")));
         QVERIFY(source.contains(QStringLiteral("status_code=409")));
         QVERIFY(source.contains(QStringLiteral("MAX_UPLOAD_BYTES = 512 * 1024 * 1024")));

@@ -29,7 +29,30 @@ QString requiredWorkerRevision(const QString &capability)
     // the patch contract but will reproduce the old HTTP 503 failure.
     if (capability == QStringLiteral("translation"))
         return QStringLiteral("translation-2026-07-30.2");
+    // STT v2 uploads media in chunks and reports an asynchronous job state.
+    // Older notebooks may accept a connection but then use the legacy
+    // endpoint, which makes the app wait on a response that never reaches
+    // the selected exact-model worker.
+    if (capability == QStringLiteral("stt"))
+        return QStringLiteral("stt-2026-07-30.2");
     return {};
+}
+
+QString capabilityDisplayName(const QString &capability)
+{
+    if (capability == QStringLiteral("translation"))
+        return QStringLiteral("Translation");
+    if (capability == QStringLiteral("stt"))
+        return QStringLiteral("Speech-to-Text");
+    return capability.isEmpty() ? QStringLiteral("selected") : capability;
+}
+
+QString outdatedNotebookMessage(const QString &capability)
+{
+    return QStringLiteral(
+        "The selected %1 notebook is outdated. Open the current exact-model notebook, "
+        "run all cells again, then use Check Colab.")
+        .arg(capabilityDisplayName(capability));
 }
 
 } // namespace
@@ -358,9 +381,7 @@ void ColabSession::handleVerificationReply(QNetworkReply *reply,
         const QString reportedRevision = root.value(QStringLiteral("worker_revision"))
                                              .toString().trimmed();
         if (!expectedRevision.isEmpty() && reportedRevision != expectedRevision) {
-            failVerification(QStringLiteral(
-                "The selected Translation notebook is outdated. Open the current exact-model notebook, "
-                "run all cells again, then use Check Colab."), generation);
+            failVerification(outdatedNotebookMessage(m_expectedCapability), generation);
             return;
         }
         const QString reportedModel = root.value(QStringLiteral("model")).toString()
@@ -400,9 +421,7 @@ void ColabSession::handleVerificationReply(QNetworkReply *reply,
     const QString reportedRevision = root.value(QStringLiteral("worker_revision"))
                                          .toString().trimmed();
     if (!expectedRevision.isEmpty() && reportedRevision != expectedRevision) {
-        failVerification(QStringLiteral(
-            "The selected Translation notebook is outdated. Open the current exact-model notebook, "
-            "run all cells again, then use Check Colab."), generation);
+        failVerification(outdatedNotebookMessage(m_expectedCapability), generation);
         return;
     }
 
