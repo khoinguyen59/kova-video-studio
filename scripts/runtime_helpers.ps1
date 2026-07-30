@@ -197,17 +197,37 @@ function Ensure-FfmpegRuntime {
         throw "FFmpeg runtime SHA-256 mismatch. Expected $expectedSha256 but got $actualSha256."
     }
 
-    $extractRoot = Join-Path $DeployRoot (".ffmpeg-extract-" + [Guid]::NewGuid().ToString("N"))
     $normalizedDeployRoot = [IO.Path]::GetFullPath($DeployRoot).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
-    $normalizedExtractRoot = [IO.Path]::GetFullPath($extractRoot)
-    if (-not $normalizedExtractRoot.StartsWith($normalizedDeployRoot, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to extract FFmpeg outside the deployment root: $extractRoot"
+    $normalizedRuntimeRoot = [IO.Path]::GetFullPath($runtimeRoot)
+    if (-not $normalizedRuntimeRoot.StartsWith($normalizedDeployRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to extract FFmpeg outside the deployment root: $runtimeRoot"
     }
 
+    $payloadRoot = $null
     try {
         Write-Host ">> Extracting pinned FFmpeg runtime" -ForegroundColor Cyan
-        Expand-Archive -LiteralPath $archivePath -DestinationPath $extractRoot -Force
-        $ffmpegSource = Get-ChildItem -LiteralPath $extractRoot -Filter "ffmpeg.exe" -Recurse -File | Select-Object -First 1
+        # Expand-Archive can fail after successfully expanding this archive:
+        # its cleanup pass treats a concurrently removed duplicate LICENSE.txt
+        # entry as a terminating error. Use the pinned 7-Zip binary that the
+        # package already stages; unlike our minimal bsdtar build, it supports
+        # selecting only the needed archive entries. Extract directly into the
+        # runtime directory, then move its payload into place on the same
+        # volume. This avoids a second full copy of the large FFmpeg binaries.
+        # Extract only the runtime binaries and license, not the archive's
+        # development headers and import libraries;
+        # those are not shipped and can consume several additional GiB of
+        # temporary disk space. Validate the exact executables below before
+        # accepting the extraction.
+        $sevenZipPath = Join-Path $DeployRoot "7z.exe"
+        if (-not (Test-Path -LiteralPath $sevenZipPath -PathType Leaf)) {
+            throw "Pinned 7-Zip extractor was not staged: $sevenZipPath"
+        }
+        New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
+        & $sevenZipPath x $archivePath "-o$runtimeRoot" -y "*/bin/*" "*/LICENSE.txt"
+        if ($LASTEXITCODE -ne 0) {
+            throw "Pinned 7-Zip could not extract the verified FFmpeg runtime entries (exit code $LASTEXITCODE)."
+        }
+        $ffmpegSource = Get-ChildItem -LiteralPath $runtimeRoot -Filter "ffmpeg.exe" -Recurse -File | Select-Object -First 1
         if ($null -eq $ffmpegSource) {
             throw "Pinned FFmpeg archive did not contain ffmpeg.exe."
         }
@@ -217,12 +237,17 @@ function Ensure-FfmpegRuntime {
             throw "Pinned FFmpeg archive did not contain ffprobe.exe beside ffmpeg.exe."
         }
 
-        New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
+        $payloadRoot = Split-Path -Parent $sourceBin
+        $normalizedPayloadRoot = [IO.Path]::GetFullPath($payloadRoot)
+        if (-not $normalizedPayloadRoot.StartsWith($normalizedDeployRoot, [StringComparison]::OrdinalIgnoreCase) -or
+            [string]::Equals($normalizedPayloadRoot, $normalizedRuntimeRoot, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Pinned FFmpeg archive payload resolved outside the isolated runtime payload: $payloadRoot"
+        }
         Get-ChildItem -LiteralPath $sourceBin -File | ForEach-Object {
-            Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $runtimeRoot $_.Name) -Force
+            Move-Item -LiteralPath $_.FullName -Destination (Join-Path $runtimeRoot $_.Name) -Force
         }
 
-        $licenseSource = Get-ChildItem -LiteralPath $extractRoot -Filter "LICENSE.txt" -Recurse -File | Select-Object -First 1
+        $licenseSource = Get-ChildItem -LiteralPath $payloadRoot -Filter "LICENSE.txt" -Recurse -File | Select-Object -First 1
         if ($null -eq $licenseSource) {
             throw "Pinned FFmpeg archive did not contain LICENSE.txt."
         }
@@ -235,8 +260,8 @@ function Ensure-FfmpegRuntime {
         }
         Copy-Item -LiteralPath $noticeSource -Destination (Join-Path $licenseRoot "NOTICE.txt") -Force
     } finally {
-        if (Test-Path -LiteralPath $extractRoot) {
-            Remove-Item -LiteralPath $extractRoot -Recurse -Force
+        if ($null -ne $payloadRoot -and (Test-Path -LiteralPath $payloadRoot)) {
+            Remove-Item -LiteralPath $payloadRoot -Recurse -Force
         }
     }
 
