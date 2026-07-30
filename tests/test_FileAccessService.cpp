@@ -3,6 +3,7 @@
 #include <QFile>
 #include <QTextStream>
 #include "controllers/shared/FileAccessService.h"
+#include "core/PathUtils.h"
 
 namespace LAStudio {
 
@@ -32,6 +33,30 @@ void TestFileAccessService::testFileAccessService()
     QVERIFY(service.localFileExists(tempFilePath));
     QString content = service.readTextFile(tempFilePath);
     QCOMPARE(content, QStringLiteral("Hello World"));
+}
+
+void TestFileAccessService::dataDirectoryOverrideAlsoIsolatesCache()
+{
+    QTemporaryDir profile;
+    QVERIFY(profile.isValid());
+
+    constexpr auto variableName = "LASTUDIO_DATA_DIR";
+    const bool hadPreviousValue = qEnvironmentVariableIsSet(variableName);
+    const QByteArray previousValue = qgetenv(variableName);
+
+    qputenv(variableName, profile.path().toUtf8());
+    const QString actualDataDir = PathUtils::dataDir();
+    const QString actualCacheDir = PathUtils::cacheDir();
+
+    if (hadPreviousValue) {
+        qputenv(variableName, previousValue);
+    } else {
+        qunsetenv(variableName);
+    }
+
+    QCOMPARE(actualDataDir, QDir::cleanPath(profile.path()));
+    QCOMPARE(actualCacheDir,
+             QDir::cleanPath(QDir(profile.path()).filePath(QStringLiteral("cache"))));
 }
 
 } // namespace LAStudio

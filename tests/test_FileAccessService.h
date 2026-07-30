@@ -10,6 +10,7 @@ class TestFileAccessService : public QObject {
 private slots:
     void initTestCase();
     void testFileAccessService();
+    void dataDirectoryOverrideAlsoIsolatesCache();
 
 private:
     QTemporaryDir m_tempDir;

@@ -26,6 +26,14 @@ QString PathUtils::hubModelsDir()
 
 QString PathUtils::cacheDir()
 {
+    // A data-directory override is used by the QML smoke test and by
+    // disposable package acceptance profiles.  Keep every mutable artifact
+    // inside that profile; otherwise media staging can unexpectedly write to
+    // the real per-user cache while the rest of the application is isolated.
+    const QString overrideDir = qEnvironmentVariable("LASTUDIO_DATA_DIR").trimmed();
+    if (!overrideDir.isEmpty()) {
+        return QDir::cleanPath(QDir(overrideDir).filePath(QStringLiteral("cache")));
+    }
     return QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
 }
 
