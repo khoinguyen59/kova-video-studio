@@ -172,7 +172,9 @@ Rectangle {
 
                     Text {
                         Layout.fillWidth: true
-                        text: root.progressEstimated ? qsTr("%1 (estimated)").arg(root.progressLabel) : root.progressLabel
+                        text: root.progressEstimated
+                              ? qsTr("%1 (progress unavailable from this provider)").arg(root.progressLabel)
+                              : root.progressLabel
                         color: Theme.textPrimary
                         font.pixelSize: Theme.fontSmall
                         font.bold: true
@@ -180,7 +182,7 @@ Rectangle {
                     }
 
                     Text {
-                        text: root.generationProgress + "%"
+                        text: root.progressEstimated ? qsTr("Working") : root.generationProgress + "%"
                         color: root.outputAccent
                         font.pixelSize: Theme.fontSmall
                         font.bold: true
@@ -190,6 +192,7 @@ Rectangle {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 6
+                    visible: !root.progressEstimated
                     radius: 3
                     color: Theme.surface
 

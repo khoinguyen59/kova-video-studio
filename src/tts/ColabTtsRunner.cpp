@@ -120,7 +120,6 @@ void ColabTtsRunner::synthesize(const ColabTtsRequest &request)
         emit failed(error);
         return;
     }
-    emit progress(5);
     QByteArray wav;
     if (!d->client.synthesizeSpeech(request.text, request.model, request.voice, request.language,
                                     request.speed, request.settings, request.cancellation.sharedFlag(),

@@ -101,6 +101,7 @@ void TestGatewayTtsRunner::testPostsOpenAiCompatibleSpeechRequest()
     workerThread.start();
     QSignalSpy finished(runner, &GatewayTtsRunner::finished);
     QSignalSpy failures(runner, &GatewayTtsRunner::failed);
+    QSignalSpy progress(runner, &GatewayTtsRunner::progress);
 
     GatewayTtsRequest request;
     request.gatewayUrl = server.baseUrl() + QStringLiteral("/v1");
@@ -119,6 +120,8 @@ void TestGatewayTtsRunner::testPostsOpenAiCompatibleSpeechRequest()
     QCOMPARE(result.at(0).toByteArray().size(), 6);
     QCOMPARE(result.at(1).value<QVector<float>>().size(), 3);
     QCOMPARE(result.at(2).toInt(), 16000);
+    QCOMPARE(progress.count(), 1);
+    QCOMPARE(progress.constFirst().at(0).toInt(), 100);
     const QByteArray body = server.request();
     QVERIFY(body.startsWith("POST /v1/audio/speech HTTP/1.1\r\n"));
     QVERIFY(body.toLower().contains("authorization: bearer gateway-tts-test-key"));

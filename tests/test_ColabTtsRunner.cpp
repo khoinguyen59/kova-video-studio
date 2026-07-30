@@ -107,6 +107,7 @@ void TestColabTtsRunner::testPostsDirectWorkerSpeechRequest()
     workerThread.start();
     QSignalSpy finished(runner, &ColabTtsRunner::finished);
     QSignalSpy failures(runner, &ColabTtsRunner::failed);
+    QSignalSpy progress(runner, &ColabTtsRunner::progress);
 
     ColabTtsRequest request;
     request.workerUrl = QUrl(server.baseUrl());
@@ -127,6 +128,8 @@ void TestColabTtsRunner::testPostsDirectWorkerSpeechRequest()
     QCOMPARE(result.at(0).toByteArray().size(), 4);
     QCOMPARE(result.at(1).value<QVector<float>>().size(), 2);
     QCOMPARE(result.at(2).toInt(), 24000);
+    QCOMPARE(progress.count(), 1);
+    QCOMPARE(progress.constFirst().at(0).toInt(), 100);
     const QByteArray body = server.request();
     QVERIFY(body.startsWith("POST /v1/audio/speech HTTP/1.1\r\n"));
     QVERIFY(body.toLower().contains("authorization: bearer colab-tts-token"));
@@ -264,6 +267,13 @@ void TestColabTtsRunner::ttsNotebookMatchesDirectColabContract()
     const QByteArray settingsSource = settings.readAll();
     QVERIFY(settingsSource.contains("AppController.colabTts.colabNotebookFile"));
     QVERIFY(settingsSource.contains("Selected Colab model"));
+
+    QFile output(QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
+                     .filePath(QStringLiteral("qml/components/shared/GeneratedAudioOutput.qml")));
+    QVERIFY(output.open(QIODevice::ReadOnly));
+    const QByteArray outputSource = output.readAll();
+    QVERIFY(outputSource.contains("progress unavailable from this provider"));
+    QVERIFY(outputSource.contains("root.progressEstimated ? qsTr(\"Working\")"));
 }
 
 } // namespace LAStudio

@@ -120,7 +120,6 @@ void GatewayTtsRunner::synthesize(const GatewayTtsRequest &request)
         emit failed(error);
         return;
     }
-    emit progress(5);
     QByteArray wav;
     if (!d->client.synthesizeSpeech(request.text, request.voice, request.speed,
                                     request.cancellation.sharedFlag(), &wav, &error)) {
