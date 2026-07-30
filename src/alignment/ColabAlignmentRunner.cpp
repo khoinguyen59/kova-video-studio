@@ -132,7 +132,6 @@ void ColabAlignmentRunner::align(const ColabAlignmentRequest &request)
         emit failed(error);
         return;
     }
-    emit progress(8);
     QJsonObject response;
     if (!d->client.alignAudioFile(request.audioPath, request.transcript, request.language, request.model,
                                   request.cancellation.sharedFlag(), &response, &error)) {
@@ -143,7 +142,6 @@ void ColabAlignmentRunner::align(const ColabAlignmentRequest &request)
         emit failed(QStringLiteral("Colab alignment cancelled"));
         return;
     }
-    emit progress(90);
     ColabAlignmentResult result;
     if (!parseResponse(response, request.outputFormat, &result, &error)) {
         emit failed(error);

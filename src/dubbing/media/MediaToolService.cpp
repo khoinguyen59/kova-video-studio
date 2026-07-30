@@ -16,7 +16,6 @@ MediaToolService::MediaToolService(QObject *parent)
             this, &MediaToolService::onFinished);
     connect(&m_process, &QProcess::errorOccurred,
             this, &MediaToolService::onProcessError);
-    connect(&m_process, &QProcess::started, this, [this]() { emit progress(5); });
 }
 
 QString MediaToolService::executablePath() const
@@ -95,9 +94,6 @@ void MediaToolService::onReadyReadStandardError()
 {
     m_stderr += m_process.readAllStandardError();
     if (m_stderr.size() > 1024 * 1024) m_stderr = m_stderr.right(1024 * 1024);
-    // FFmpeg's machine-readable progress is intentionally not required for
-    // correctness; expose a monotonic indeterminate-progress marker instead.
-    emit progress(50);
 }
 
 void MediaToolService::onFinished(int exitCode, QProcess::ExitStatus status)

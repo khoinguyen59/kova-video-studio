@@ -148,12 +148,14 @@ def main() -> int:
                             f"Exact worker still uses the unsafe legacy cloudflared installer: {generated.name}"
                         )
                 if capability == "translation":
-                    if 'RESPONSE_CONTRACT = "translation-patches-v2"' not in worker_source \
+                    if 'RESPONSE_CONTRACT = "translation-patches-v3"' not in worker_source \
                             or '"response_contract": RESPONSE_CONTRACT' not in worker_source \
                             or "make_translation_patches" not in worker_source \
+                            or "retry_empty_translations" not in worker_source \
+                            or "later segments continued" not in worker_source \
                             or "NONLEXICAL_UTTERANCES" not in worker_source:
                         mismatches.append(
-                            f"Translation worker lacks the guarded non-empty patch contract: {generated.name}"
+                            f"Translation worker lacks the retry-and-continue patch contract: {generated.name}"
                         )
                 if model == "vibevoice" and 'SUPPORTED_LANGUAGES = ["en"]' not in worker_source:
                     mismatches.append(

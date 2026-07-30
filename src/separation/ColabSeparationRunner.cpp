@@ -33,7 +33,6 @@ void ColabSeparationRunner::separate(const ColabSeparationRequest &request)
         return;
     }
     QJsonObject job;
-    emit progress(5);
     if (!d->client.createSeparationJob(request.audioPath, request.model, &job, &error)) {
         emit failed(error);
         return;
@@ -43,7 +42,7 @@ void ColabSeparationRunner::separate(const ColabSeparationRequest &request)
         emit failed(QStringLiteral("Colab worker returned a separation job without an ID"));
         return;
     }
-    int lastProgress = 5;
+    int lastProgress = -1;
     while (!request.cancellation.isCancelled()) {
         QJsonObject status;
         if (!d->client.separationJobStatus(d->activeJobId, &status, &error)) {
@@ -58,8 +57,13 @@ void ColabSeparationRunner::separate(const ColabSeparationRequest &request)
             return;
         }
         const QString state = status.value(QStringLiteral("status")).toString().toLower();
-        const int reportedProgress = qBound(5, status.value(QStringLiteral("progress")).toInt(20), 88);
-        if (reportedProgress != lastProgress) {
+        // Preserve only the direct worker's phase progress. The desktop must
+        // not invent a weighted percentage around a remote separation job.
+        // 100 is emitted only after both artifacts are downloaded and safely
+        // committed in the local temporary output directory.
+        const int reportedProgress = qBound(0, status.value(QStringLiteral("progress")).toInt(), 99);
+        if (state != QStringLiteral("ready") && state != QStringLiteral("completed")
+            && reportedProgress != lastProgress) {
             lastProgress = reportedProgress;
             emit progress(lastProgress);
         }
@@ -78,7 +82,6 @@ void ColabSeparationRunner::separate(const ColabSeparationRequest &request)
         emit failed(QStringLiteral("Colab separation cancelled"));
         return;
     }
-    emit progress(90);
     QByteArray vocals, background;
     if (!d->client.downloadSeparationArtifact(d->activeJobId, QStringLiteral("vocals"),
                                              request.cancellation.sharedFlag(), &vocals, &error)

@@ -92,7 +92,6 @@ void MediaIngestService::startProbe()
                             QStringLiteral("-show_format"), QStringLiteral("-show_streams"), m_inputPath});
     m_process.setProcessChannelMode(QProcess::SeparateChannels);
     m_process.start();
-    emit progress(5);
 }
 
 void MediaIngestService::startMaster()
@@ -105,7 +104,6 @@ void MediaIngestService::startMaster()
                             QStringLiteral("-vn"), QStringLiteral("-ac"), QStringLiteral("2"), QStringLiteral("-ar"), QStringLiteral("48000"),
                             QStringLiteral("-c:a"), QStringLiteral("pcm_f32le"), m_masterPath});
     m_process.start();
-    emit progress(35);
 }
 
 void MediaIngestService::startAnalysis()
@@ -118,7 +116,6 @@ void MediaIngestService::startAnalysis()
                             QStringLiteral("-vn"), QStringLiteral("-ac"), QStringLiteral("1"), QStringLiteral("-ar"), QStringLiteral("16000"),
                             QStringLiteral("-c:a"), QStringLiteral("pcm_s16le"), m_analysisPath});
     m_process.start();
-    emit progress(65);
 }
 
 void MediaIngestService::onProcessFinished(int exitCode, QProcess::ExitStatus status)

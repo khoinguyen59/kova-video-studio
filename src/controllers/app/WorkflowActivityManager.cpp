@@ -338,9 +338,10 @@ QVariantMap WorkflowActivityManager::dubbingWorkflow() const
                         QStringLiteral("studio-dubbing"),
                         QStringLiteral("waves"),
                         m_dubbing->progress(),
-                        false,
+                        !m_dubbing->progressAvailable(),
                         m_dubbing->stage().isEmpty() ? QStringLiteral("Dubbing") : m_dubbing->stage(),
                         true);
+    workflow.insert(QStringLiteral("progressAvailable"), m_dubbing->progressAvailable());
     workflow.insert(QStringLiteral("workflowId"), m_dubbing->workflowId());
     workflow.insert(QStringLiteral("workflowVersion"), m_dubbing->workflowVersion());
     workflow.insert(QStringLiteral("runId"), m_dubbing->workflowRunId());

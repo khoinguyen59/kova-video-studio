@@ -10,6 +10,7 @@ class TestWorkflowGraph : public QObject
 private slots:
     void rejectsCyclesAndTypeMismatch();
     void runsRegisteredNodesInTopologicalOrder();
+    void exposesOnlyActiveNodeMeasuredProgress();
     void serializesAndRestoresVersionedLinks();
     void rejectsMissingPortsAndMultipleSingleInputs();
     void buildsCanonicalDubbingWorkflowDefinition();

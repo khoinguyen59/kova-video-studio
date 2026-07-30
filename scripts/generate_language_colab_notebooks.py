@@ -32,16 +32,16 @@ if not torch.cuda.is_available():
 # __ADAPTER__
 
 TOKEN = os.environ["LA_STUDIO_COLAB_TRANSLATION_TOKEN"]
-WORKER_REVISION = "translation-2026-07-30.2"
-RESPONSE_CONTRACT = "translation-patches-v2"
+WORKER_REVISION = "translation-2026-07-30.3"
+RESPONSE_CONTRACT = "translation-patches-v3"
 MAX_TRANSLATION_SEGMENTS = 128
 MAX_TRANSLATION_CHARS = 50000
 INFERENCE_SLOTS = threading.BoundedSemaphore(1)
 
-# Translation models legitimately emit no lexical text for some short vocal
-# reactions. Preserving only these narrowly-defined utterances is preferable
-# to sending an invalid empty patch to the desktop client. Everything else is
-# a worker error: never silently turn a failed translation into a success.
+# A translation result must never make the rest of a dubbing job disappear.
+# The worker retries blank model output once, then preserves the source in a
+# visible needs-review patch. This is deliberately not reported as a completed
+# translation: the editor can show it for review while later segments continue.
 NONLEXICAL_UTTERANCES = {
     "ah", "aha", "eh", "er", "ha", "haha", "heh", "hmm", "hm", "ho", "oh",
     "uh", "um", "wow", "嗯", "嗯哼", "啊", "啊哈", "哎", "哎呀", "诶", "欸",
@@ -53,17 +53,35 @@ def is_nonlexical_utterance(text: str) -> bool:
     normalized = re.sub(r"[^\w]", "", text, flags=re.UNICODE).casefold()
     return normalized in NONLEXICAL_UTTERANCES
 
+def retry_empty_translations(texts: list[str], translated: list[str], source: str, target: str) -> list[str]:
+    if not isinstance(translated, list) or len(translated) != len(texts):
+        return translated
+    empty_indices = [
+        index for index, value in enumerate(translated)
+        if not isinstance(value, str) or not value.strip()
+    ]
+    if not empty_indices:
+        return translated
+    # Retry only the affected source strings with the same selected, pinned
+    # model. If the retry itself fails, the patch builder below keeps the source
+    # and flags it for review instead of terminating unrelated segments.
+    try:
+        retry_values = translate_exact([texts[index] for index in empty_indices], source, target)
+    except Exception:
+        return translated
+    if not isinstance(retry_values, list) or len(retry_values) != len(empty_indices):
+        return translated
+    for index, retry_value in zip(empty_indices, retry_values):
+        if isinstance(retry_value, str) and retry_value.strip():
+            translated[index] = retry_value
+    return translated
+
 def make_translation_patches(segments: list["TranslationSegment"], translated: list[str]) -> list[dict]:
     if len(translated) != len(segments):
         raise RuntimeError("model returned a different number of translations")
     patches = []
     for index, (item, value) in enumerate(zip(segments, translated), start=1):
-        if not isinstance(value, str):
-            raise RuntimeError(
-                f"model returned a non-text translation for segment {index}/{len(segments)} "
-                f"(id {item.id})"
-            )
-        target = value.strip()
+        target = value.strip() if isinstance(value, str) else ""
         if target:
             patches.append({"id": item.id, "targetText": target, "state": "translated"})
             continue
@@ -79,10 +97,15 @@ def make_translation_patches(segments: list["TranslationSegment"], translated: l
                 ),
             })
             continue
-        raise RuntimeError(
-            f"model returned an empty translation for lexical segment {index}/{len(segments)} "
-            f"(id {item.id})"
-        )
+        patches.append({
+            "id": item.id,
+            "targetText": source,
+            "state": "needs-review",
+            "translationDiagnostic": (
+                "The exact translation model returned no text after retry; the source was preserved "
+                "and later segments continued. Review this segment before export."
+            ),
+        })
     return patches
 
 def authorize(authorization: str = Header(default="")):
@@ -159,6 +182,12 @@ def translate(request: TranslationRequest, _: None = Depends(authorize)):
     try:
         translated = translate_exact(
             texts,
+            request.source_language.strip(),
+            request.target_language.strip(),
+        )
+        translated = retry_empty_translations(
+            texts,
+            translated,
             request.source_language.strip(),
             request.target_language.strip(),
         )

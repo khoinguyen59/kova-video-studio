@@ -114,6 +114,7 @@ void TestColabAlignmentRunner::testPostsDirectAlignmentContractAndValidatesSpans
     workerThread.start();
     QSignalSpy finished(runner, &ColabAlignmentRunner::finished);
     QSignalSpy failures(runner, &ColabAlignmentRunner::failed);
+    QSignalSpy progress(runner, &ColabAlignmentRunner::progress);
 
     QVERIFY(QMetaObject::invokeMethod(runner, "align", Qt::QueuedConnection,
                                       Q_ARG(ColabAlignmentRequest, makeRequest(server.baseUrl(), audioPath))));
@@ -124,6 +125,8 @@ void TestColabAlignmentRunner::testPostsDirectAlignmentContractAndValidatesSpans
     QCOMPARE(result.unalignedTokens, QVariantList{QStringLiteral("Colab")});
     QCOMPARE(result.duration, 2.0);
     QVERIFY(result.output.contains(QStringLiteral("00:00:00,000 --> 00:00:00,600")));
+    QCOMPARE(progress.count(), 1);
+    QCOMPARE(progress.constFirst().at(0).toInt(), 100);
 
     const QByteArray body = server.request();
     QVERIFY(body.startsWith("POST /v1/audio/alignments HTTP/1.1\r\n"));

@@ -12,6 +12,7 @@ private slots:
     void postsBatchToDirectWorkerOnly();
     void progressReflectsCompletedSegments();
     void invalidPatchReportsItsBrokenField();
+    void needsReviewPatchContinuesTranslation();
     void cancellationAbortsDirectWorkerRequest();
     void languageNotebookMatchesDirectTranslationContract();
 };

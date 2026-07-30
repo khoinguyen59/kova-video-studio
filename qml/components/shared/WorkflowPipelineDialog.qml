@@ -13,6 +13,7 @@ Dialog {
     property string statusText: qsTr("Not prepared")
     property bool busy: false
     property real progress: 0
+    property bool progressAvailable: false
     property string dialogTitle: qsTr("Workflow")
     property string description: qsTr("Execution stages and data flow")
     property string modelName: ""
@@ -319,7 +320,7 @@ Dialog {
             }
         }
 
-        ProgressBar { Layout.fillWidth: true; visible: root.busy; from: 0; to: 1; value: root.progress }
+        ProgressBar { Layout.fillWidth: true; visible: root.busy && root.progressAvailable; from: 0; to: 1; value: root.progress }
         Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1, 1, 1, 0.08) }
 
         RowLayout {

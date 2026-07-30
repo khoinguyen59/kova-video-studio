@@ -341,7 +341,11 @@ Item {
                 { stepId: "synthesize", title: qsTr("Voice"), iconName: "volume", complete: root.stepComplete("synthesize"), active: root.dubbing.currentStepId === "synthesize" },
                 { stepId: "export", title: qsTr("Output"), iconName: "download", complete: root.stepComplete("export"), active: ["mix", "export", "completed"].indexOf(root.dubbing.currentStepId) >= 0 }
             ]
-            statusText: root.dubbing.processing ? qsTr("%1 · %2%").arg(root.stepTitle(root.dubbing.currentStepId)).arg(root.dubbing.progress) : (root.dubbing.workflowMode === "step" ? qsTr("Ready for node run") : qsTr("Ready"))
+            statusText: root.dubbing.processing
+                        ? (root.dubbing.progressAvailable
+                           ? qsTr("%1 · %2%").arg(root.stepTitle(root.dubbing.currentStepId)).arg(root.dubbing.progress)
+                           : qsTr("%1 · Working").arg(root.stepTitle(root.dubbing.currentStepId)))
+                        : (root.dubbing.workflowMode === "step" ? qsTr("Ready for node run") : qsTr("Ready"))
             defaultExportPath: root.defaultExportPath()
             historyOpen: root.isHistoryOpen
             settingsOpen: root.isNodeInspectorOpen
@@ -471,7 +475,9 @@ Item {
                         RowLayout { Layout.fillWidth: true
                             Text { text: qsTr("00:00"); color: Theme.textSecondary; font.pixelSize: 10 }
                             Item { Layout.fillWidth: true }
-                            Text { text: dubbing.processing ? qsTr("Processing %1%").arg(dubbing.progress) : qsTr("Edit transcript on the right"); color: Theme.textSecondary; font.pixelSize: 10 }
+                            Text { text: dubbing.processing
+                                         ? (dubbing.progressAvailable ? qsTr("Processing %1%").arg(dubbing.progress) : qsTr("Processing"))
+                                         : qsTr("Edit transcript on the right"); color: Theme.textSecondary; font.pixelSize: 10 }
                         }
                     }
                 }
@@ -919,7 +925,7 @@ Item {
         id: workflowDialog
         nodes: dubbing.workflowNodes; workflowReady: dubbing.workflowReady; statusText: dubbing.workflowStatusText
         allowIncompleteRun: dubbing.dubbingQuality === "custom"
-        busy: dubbing.processing; progress: dubbing.progress / 100.0; dialogTitle: qsTr("Dubbing workflow")
+        busy: dubbing.processing; progress: dubbing.progress / 100.0; progressAvailable: dubbing.progressAvailable; dialogTitle: qsTr("Dubbing workflow")
         reviewWaiting: dubbing.workflowWaitingForInput
         description: qsTr("Review the media, transcription, translation, voice, timing, and output stages.")
         onPrepareRequested: dubbing.prepareWorkflow()

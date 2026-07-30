@@ -20,6 +20,9 @@ public:
     virtual void resume(const QVariantMap &decision) = 0;
 
 signals:
+    // Percent is emitted only when the underlying stage supplies it. A zero
+    // marks a newly-started request whose provider has no measurable progress.
+    void progress(int percent, const QString &status);
     void stageCompleted(const QString &nodeId, const QVariantMap &outputs);
     void failed(const QString &message);
 };

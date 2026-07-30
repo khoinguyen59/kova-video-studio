@@ -13,6 +13,7 @@
 #include <QDir>
 #include <QTemporaryDir>
 #include <QSignalSpy>
+#include <QTimer>
 #include <QtTest>
 #include <algorithm>
 
@@ -27,6 +28,21 @@ public:
     {
         const QVariant value = parameters.value(QStringLiteral("value"), inputs.value(QStringLiteral("input")));
         emit completed(QVariantMap{{QStringLiteral("output"), value}});
+    }
+    void cancel() override {}
+};
+
+class MeasuredExecutor final : public WorkflowNodeExecutor
+{
+public:
+    explicit MeasuredExecutor(QObject *parent = nullptr) : WorkflowNodeExecutor(parent) {}
+
+    void start(const QVariantMap &, const QVariantMap &) override
+    {
+        // Zero is a lifecycle notification, not a numerical measurement.
+        emit progress(0, QStringLiteral("connecting"));
+        QTimer::singleShot(0, this, [this]() { emit progress(37, QStringLiteral("measured")); });
+        QTimer::singleShot(60, this, [this]() { emit completed({{QStringLiteral("output"), QStringLiteral("done")}}); });
     }
     void cancel() override {}
 };
@@ -82,6 +98,27 @@ void TestWorkflowGraph::runsRegisteredNodesInTopologicalOrder()
     QVERIFY(!runner.runId().isEmpty());
     QCOMPARE(nodeRunSpy.size(), 2);
     QVERIFY(!nodeRunSpy.at(0).at(1).toString().isEmpty());
+}
+
+void TestWorkflowGraph::exposesOnlyActiveNodeMeasuredProgress()
+{
+    NodeRegistry registry;
+    WorkflowNodeDefinition node = definition(QStringLiteral("measured"), WorkflowDataType::Any, WorkflowDataType::Text);
+    node.createExecutor = [](QObject *parent) { return new MeasuredExecutor(parent); };
+    QVERIFY(registry.registerNode(node));
+
+    WorkflowGraph graph;
+    graph.nodes = {{QStringLiteral("node"), QStringLiteral("measured"), QString(), {}}};
+    WorkflowGraphRunner runner(&registry);
+    QVERIFY(runner.run(graph));
+    QVERIFY(runner.running());
+    QVERIFY(!runner.progressAvailable());
+    QCOMPARE(runner.progress(), 0);
+
+    QTRY_COMPARE(runner.progress(), 37);
+    QVERIFY(runner.progressAvailable());
+    QTRY_VERIFY(!runner.running());
+    QCOMPARE(runner.progress(), 100);
 }
 
 void TestWorkflowGraph::serializesAndRestoresVersionedLinks()

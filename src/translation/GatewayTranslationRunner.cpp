@@ -70,7 +70,6 @@ void GatewayTranslationRunner::translate(const QString &gatewayUrl, const QStrin
     const QJsonObject payload{{QStringLiteral("source_language"), request.sourceLanguage},
                               {QStringLiteral("target_language"), request.targetLanguage},
                               {QStringLiteral("segments"), segments}};
-    emit progress(5);
     QString responseText;
     if (!d->client.streamChat(
             {QVariantMap{{QStringLiteral("role"), QStringLiteral("system")},

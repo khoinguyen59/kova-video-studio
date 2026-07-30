@@ -74,6 +74,7 @@ bool WorkflowGraphRunner::run(const WorkflowGraph &graph, const QVariantMap &ini
     m_error.clear();
     m_waitingForInput = false;
     m_progress = 0;
+    m_progressAvailable = false;
     m_activeNodeId.clear();
     m_runIdentity.nodeRunId.clear();
     m_running = true;
@@ -145,7 +146,8 @@ bool WorkflowGraphRunner::resumeInterrupted(const QString &runId)
     m_waitingForInput = false;
     m_activeNodeId.clear();
     m_error.clear();
-    m_progress = m_order.isEmpty() ? 0 : 100 * m_orderIndex / m_order.size();
+    m_progress = 0;
+    m_progressAvailable = false;
     journalEvent(QStringLiteral("run.resumed"), QJsonObject{{QStringLiteral("resumedAfter"), lastEvent},
                                                               {QStringLiteral("completedNodeCount"), completedCount}});
     emit stateChanged();
@@ -216,7 +218,9 @@ void WorkflowGraphRunner::startNextNode()
     if (!m_running) return;
     if (m_orderIndex >= m_order.size()) {
         journalEvent(QStringLiteral("run.completed"));
-        m_running = false; m_activeNodeId.clear(); m_runIdentity.nodeRunId.clear(); m_progress = 100; emit stateChanged(); emit completed(m_artifacts); return;
+        m_running = false; m_activeNodeId.clear(); m_runIdentity.nodeRunId.clear(); m_progress = 100;
+        m_progressAvailable = true;
+        emit stateChanged(); emit completed(m_artifacts); return;
     }
     const auto *node = m_graph.node(m_order.at(m_orderIndex));
     if (!node) { fail(QStringLiteral("Workflow node disappeared during execution.")); return; }
@@ -235,7 +239,10 @@ void WorkflowGraphRunner::startNextNode()
     m_runIdentity.nodeContractVersion = node->typeVersion;
     m_runIdentity.nodeRunId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     m_runIdentity.attempt = 1;
-    m_progress = m_order.isEmpty() ? 0 : (100 * m_orderIndex / m_order.size());
+    m_progress = 0;
+    // Node weights are scheduling metadata, not measured work. Do not expose
+    // them as a percentage until this specific executor reports real progress.
+    m_progressAvailable = false;
     emit stateChanged(); emit nodeStarted(node->id); emit nodeRunStarted(node->id, m_runIdentity.nodeRunId);
     journalEvent(QStringLiteral("node.started"), QJsonObject{{QStringLiteral("nodeId"), node->id},
                                                               {QStringLiteral("nodeType"), node->typeId},
@@ -246,9 +253,16 @@ void WorkflowGraphRunner::startNextNode()
 void WorkflowGraphRunner::onExecutorProgress(int percent, const QString &status)
 {
     Q_UNUSED(status);
-    const int base = m_order.isEmpty() ? 0 : (100 * m_orderIndex / m_order.size());
-    const int span = m_order.isEmpty() ? 100 : (100 / m_order.size());
-    m_progress = qBound(0, base + qBound(0, percent, 100) * span / 100, 100);
+    // The activity popup is labelled with the active node. Display that
+    // node's reported measurement directly instead of a graph-weighted value
+    // such as "Import 8%", which users reasonably read as import progress.
+    m_progress = qBound(0, percent, 100);
+    // 0 is an explicit "a new remote request started" marker. It means the
+    // executor cannot measure that request yet, so retaining a percentage
+    // from the preceding segment would be misleading (and looked stuck in
+    // the Activity popup). A 100-only executor likewise never supplies a
+    // measurable in-flight percentage.
+    m_progressAvailable = percent > 0 && percent < 100;
     emit stateChanged();
 }
 
@@ -285,7 +299,7 @@ void WorkflowGraphRunner::fail(const QString &message)
 {
     if (m_executor) { m_executor->deleteLater(); m_executor = nullptr; }
     journalEvent(QStringLiteral("run.failed"), QJsonObject{{QStringLiteral("error"), message}});
-    m_running = false; m_waitingForInput = false; m_error = message; m_activeNodeId.clear(); m_runIdentity.nodeRunId.clear(); emit stateChanged(); emit failed(message);
+    m_running = false; m_waitingForInput = false; m_progressAvailable = false; m_error = message; m_activeNodeId.clear(); m_runIdentity.nodeRunId.clear(); emit stateChanged(); emit failed(message);
 }
 
 void WorkflowGraphRunner::finishCancelled()
@@ -294,6 +308,7 @@ void WorkflowGraphRunner::finishCancelled()
     journalEvent(QStringLiteral("run.cancelled"));
     m_running = false;
     m_waitingForInput = false;
+    m_progressAvailable = false;
     m_error.clear();
     m_activeNodeId.clear();
     m_runIdentity.nodeRunId.clear();

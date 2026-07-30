@@ -48,6 +48,7 @@ class DubbingController : public QObject
     Q_PROPERTY(bool processing READ processing NOTIFY processingChanged)
     Q_PROPERTY(QString stage READ stage NOTIFY processingChanged)
     Q_PROPERTY(int progress READ progress NOTIFY processingChanged)
+    Q_PROPERTY(bool progressAvailable READ progressAvailable NOTIFY processingChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY errorChanged)
     Q_PROPERTY(QString previewPath READ previewPath NOTIFY previewChanged)
     Q_PROPERTY(QString dubbedVocalPath READ dubbedVocalPath NOTIFY previewChanged)
@@ -119,6 +120,7 @@ public:
     bool processing() const;
     QString stage() const;
     int progress() const;
+    bool progressAvailable() const;
     QString lastError() const;
     QString previewPath() const;
     QString dubbedVocalPath() const;

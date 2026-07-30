@@ -26,9 +26,9 @@ class TranslationWorkerMock final : public QObject
 {
 public:
     explicit TranslationWorkerMock(bool holdResponse = false, QByteArray responseBody = {},
-                                   bool mirrorRequestSegments = false)
+                                   bool mirrorRequestSegments = false, bool reviewFirstSegment = false)
         : m_holdResponse(holdResponse), m_responseBody(std::move(responseBody)),
-          m_mirrorRequestSegments(mirrorRequestSegments)
+          m_mirrorRequestSegments(mirrorRequestSegments), m_reviewFirstSegment(reviewFirstSegment)
     {
         connect(&m_server, &QTcpServer::newConnection, this, [this] {
             while (QTcpSocket *socket = m_server.nextPendingConnection()) {
@@ -72,10 +72,18 @@ private:
                                            .value(QStringLiteral("segments")).toArray();
             QJsonArray patches;
             for (const QJsonValue &value : segments) {
-                const QString id = value.toObject().value(QStringLiteral("id")).toString();
-                patches.append(QJsonObject{{QStringLiteral("id"), id},
-                                           {QStringLiteral("targetText"), QStringLiteral("Translated %1").arg(id)},
-                                           {QStringLiteral("state"), QStringLiteral("translated")}});
+                const QJsonObject segment = value.toObject();
+                const QString id = segment.value(QStringLiteral("id")).toString();
+                if (m_reviewFirstSegment && m_requests.size() == 1) {
+                    patches.append(QJsonObject{{QStringLiteral("id"), id},
+                                               {QStringLiteral("targetText"), segment.value(QStringLiteral("sourceText")).toString()},
+                                               {QStringLiteral("state"), QStringLiteral("needs-review")},
+                                               {QStringLiteral("translationDiagnostic"), QStringLiteral("model output was blank after retry")}});
+                } else {
+                    patches.append(QJsonObject{{QStringLiteral("id"), id},
+                                               {QStringLiteral("targetText"), QStringLiteral("Translated %1").arg(id)},
+                                               {QStringLiteral("state"), QStringLiteral("translated")}});
+                }
             }
             body = QJsonDocument(QJsonObject{{QStringLiteral("patches"), patches}})
                        .toJson(QJsonDocument::Compact);
@@ -93,6 +101,7 @@ private:
     bool m_holdResponse = false;
     QByteArray m_responseBody;
     bool m_mirrorRequestSegments = false;
+    bool m_reviewFirstSegment = false;
 };
 
 } // namespace
@@ -219,6 +228,48 @@ void TestColabTranslationRunner::invalidPatchReportsItsBrokenField()
     QVERIFY(thread.wait(5000));
 }
 
+void TestColabTranslationRunner::needsReviewPatchContinuesTranslation()
+{
+    TranslationWorkerMock worker(false, {}, true, true);
+    QVERIFY(worker.start());
+    qRegisterMetaType<TranslationInferenceRequest>("TranslationInferenceRequest");
+    QThread thread;
+    auto *runner = new ColabTranslationRunner;
+    runner->moveToThread(&thread);
+    connect(&thread, &QThread::finished, runner, &QObject::deleteLater);
+    thread.start();
+    QSignalSpy finished(runner, &ColabTranslationRunner::finished);
+    QSignalSpy failures(runner, &ColabTranslationRunner::failed);
+
+    TranslationInferenceRequest request;
+    request.segments = {
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("segment-1")},
+                    {QStringLiteral("sourceText"), QStringLiteral("Original source")}},
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("segment-2")},
+                    {QStringLiteral("sourceText"), QStringLiteral("Later source")}},
+    };
+    request.sourceLanguage = QStringLiteral("en");
+    request.targetLanguage = QStringLiteral("vi");
+    QVERIFY(QMetaObject::invokeMethod(runner, "translate", Qt::QueuedConnection,
+                                      Q_ARG(QUrl, QUrl(worker.baseUrl())),
+                                      Q_ARG(QString, QStringLiteral("translation-patch-token")),
+                                      Q_ARG(QString, QStringLiteral("m2m100-418m")),
+                                      Q_ARG(TranslationInferenceRequest, request), Q_ARG(bool, true)));
+
+    QVERIFY2(finished.wait(5000), "A review-required patch should not stop the translation job.");
+    QCOMPARE(failures.count(), 0);
+    const QVariantList patches = finished.takeFirst().at(0).toList();
+    QCOMPARE(patches.size(), 2);
+    const QVariantMap reviewPatch = patches.first().toMap();
+    QCOMPARE(reviewPatch.value(QStringLiteral("state")).toString(), QStringLiteral("needs-review"));
+    QCOMPARE(reviewPatch.value(QStringLiteral("targetText")).toString(), QStringLiteral("Original source"));
+    QVERIFY(!reviewPatch.value(QStringLiteral("translationDiagnostic")).toString().isEmpty());
+    QCOMPARE(patches.at(1).toMap().value(QStringLiteral("state")).toString(), QStringLiteral("translated"));
+    QCOMPARE(worker.requests().size(), 2);
+    thread.quit();
+    QVERIFY(thread.wait(5000));
+}
+
 void TestColabTranslationRunner::cancellationAbortsDirectWorkerRequest()
 {
     TranslationWorkerMock worker(true);
@@ -286,9 +337,11 @@ void TestColabTranslationRunner::languageNotebookMatchesDirectTranslationContrac
         QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_TRANSLATION_URL")));
         QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_TRANSLATION_TOKEN")));
         QVERIFY(source.contains(QStringLiteral("cloudflared")));
-        QVERIFY(source.contains(QStringLiteral("translation-patches-v2")));
-        QVERIFY(source.contains(QStringLiteral("translation-2026-07-30.2")));
+        QVERIFY(source.contains(QStringLiteral("translation-patches-v3")));
+        QVERIFY(source.contains(QStringLiteral("translation-2026-07-30.3")));
         QVERIFY(source.contains(QStringLiteral("make_translation_patches")));
+        QVERIFY(source.contains(QStringLiteral("retry_empty_translations")));
+        QVERIFY(source.contains(QStringLiteral("later segments continued")));
         QVERIFY(source.contains(QStringLiteral("NONLEXICAL_UTTERANCES")));
         if (model == QStringLiteral("m2m100-418m")) {
             QVERIFY(source.contains(QStringLiteral("num_beams=4")));

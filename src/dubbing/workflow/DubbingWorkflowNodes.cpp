@@ -55,6 +55,10 @@ public:
                 emit failed(message);
             }
         });
+        connect(m_adapter, &WorkflowExecutionAdapter::progress, this,
+                [this](int percent, const QString &status) {
+            if (!m_completed) emit progress(percent, status);
+        });
 
         m_adapter->start(m_typeId, inputs, parameters);
     }

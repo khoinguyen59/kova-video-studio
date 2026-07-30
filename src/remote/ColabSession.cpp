@@ -15,20 +15,20 @@ namespace {
 
 QString requiredResponseContract(const QString &capability)
 {
-    // A translation response must carry one non-empty targetText per source
-    // segment. Older notebooks predate that guarantee and can otherwise pass
-    // the generic CUDA handshake before failing during a real dubbing job.
+    // v3 retries blank exact-model output, then returns a non-empty source
+    // preserving needs-review patch so later dubbing segments can continue.
+    // Older notebooks turn that same condition into an HTTP 503.
     if (capability == QStringLiteral("translation"))
-        return QStringLiteral("translation-patches-v2");
+        return QStringLiteral("translation-patches-v3");
     return {};
 }
 
 QString requiredWorkerRevision(const QString &capability)
 {
-    // v2 adds deterministic retries for empty M2M output. A v1 worker passes
-    // the patch contract but will reproduce the old HTTP 503 failure.
+    // v3 continues after a remaining blank result instead of failing the
+    // whole translation request. Prior workers reproduce the old HTTP 503.
     if (capability == QStringLiteral("translation"))
-        return QStringLiteral("translation-2026-07-30.2");
+        return QStringLiteral("translation-2026-07-30.3");
     // STT v2 uploads media in chunks and reports an asynchronous job state.
     // Older notebooks may accept a connection but then use the legacy
     // endpoint, which makes the app wait on a response that never reaches

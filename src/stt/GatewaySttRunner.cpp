@@ -53,7 +53,6 @@ void GatewaySttRunner::transcribe(const GatewaySttRequest &request)
         emit failed(error);
         return;
     }
-    emit progress(5);
     QJsonObject response;
     if (!d->client.transcribeWav(makeMono16kWav(request.samples), request.language,
                                  request.cancellation.sharedFlag(), &response, &error)) {

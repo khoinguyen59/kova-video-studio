@@ -460,7 +460,7 @@ int DubbingController::progress() const
         const auto *app = AppController::instance();
         const QVariantList downloads = app && app->downloads()
             ? app->downloads()->activeDownloads() : QVariantList();
-        if (downloads.isEmpty()) return 5;
+        if (downloads.isEmpty()) return 0;
         qint64 received = 0;
         qint64 total = 0;
         for (const QVariant &entry : downloads) {
@@ -468,11 +468,32 @@ int DubbingController::progress() const
             received += download.value(QStringLiteral("bytesReceived")).toLongLong();
             total += download.value(QStringLiteral("bytesTotal")).toLongLong();
         }
-        return total > 0 ? qBound(5, 5 + int(received * 15 / total), 20) : 8;
+        // Download byte counts are the only measurable part of automatic
+        // setup. Loading/installing a model has no truthful percentage.
+        return total > 0 ? qBound(0, int(received * 100 / total), 100) : 0;
     }
     if (m_translationFix && m_translationFix->busy())
         return m_translationFix->progress();
     return m_workflowRunner && m_workflowRunner->running() ? m_workflowRunner->progress() : m_runner->progress();
+}
+
+bool DubbingController::progressAvailable() const
+{
+    if (m_automaticSetupActive) {
+        const auto *app = AppController::instance();
+        const QVariantList downloads = app && app->downloads()
+            ? app->downloads()->activeDownloads() : QVariantList();
+        qint64 total = 0;
+        for (const QVariant &entry : downloads)
+            total += entry.toMap().value(QStringLiteral("bytesTotal")).toLongLong();
+        return total > 0;
+    }
+    if (m_translationFix && m_translationFix->busy()) return true;
+    if (m_workflowRunner && m_workflowRunner->running())
+        return m_workflowRunner->progressAvailable();
+    // Individual manual nodes report heterogeneous data. Until their runner
+    // exposes a measured unit, show a working state rather than a made-up %.
+    return false;
 }
 
 bool DubbingController::settingsLocked() const
@@ -1219,7 +1240,11 @@ QString DubbingController::workflowStatusText() const
 {
     if (processing() && m_workflowMode == QStringLiteral("automatic")
         && !m_automaticStatusText.isEmpty()) return m_automaticStatusText;
-    if (processing()) return QStringLiteral("Running %1 (%2%)").arg(stage()).arg(progress());
+    if (processing()) {
+        return progressAvailable()
+            ? QStringLiteral("Running %1 (%2%)").arg(stage()).arg(progress())
+            : QStringLiteral("Running %1").arg(stage());
+    }
     if (workflowReady()) return QStringLiteral("Workflow configured and ready to run");
     if (m_project.dubbingQuality == QStringLiteral("custom"))
         return customStatusText();

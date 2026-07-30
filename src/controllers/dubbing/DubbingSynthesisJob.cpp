@@ -311,19 +311,23 @@ bool DubbingSynthesisJob::start(const QVariantList &segments, const QString &pro
     m_settings.remove(QStringLiteral("familyId"));
     m_runId = runId;
     m_generationIndex = -1;
+    m_synthesisTotal = 0;
+    m_synthesisCompleted = 0;
     bool hasTargetText = false;
     for (int i = 0; i < m_segments.size(); ++i) {
         const QVariantMap segment = m_segments.at(i).toMap();
         hasTargetText = hasTargetText || !segment.value(QStringLiteral("targetText")).toString().trimmed().isEmpty();
         if (needsSynthesis(segment, m_synthesisSignature, m_cacheSettings)) {
-            m_generationIndex = i;
-            break;
+            ++m_synthesisTotal;
+            if (m_generationIndex < 0) m_generationIndex = i;
         }
     }
     if (m_generationIndex < 0) {
         if (!hasTargetText) { fail(QStringLiteral("Add target text to at least one segment before generating.")); return false; }
         m_running = true;
-        emit progressChanged(100);
+        // Cached audio still needs the timing/finalization pass; do not claim
+        // completion before that real work has finished.
+        emit progressChanged(0);
         fitGeneratedSegments();
         return true;
     }
@@ -396,6 +400,10 @@ void DubbingSynthesisJob::startCurrentChunk()
             m_tts->synthesize(text, 0, 1.0f, requestSettings);
         return;
     }
+    // A direct provider may only reply when an individual clip is finished.
+    // Reset the numeric availability for this new request instead of holding
+    // the previous clip's percentage on screen.
+    emit progressChanged(0);
     startRemoteSynthesis(text, requestSettings);
 }
 
@@ -584,7 +592,13 @@ void DubbingSynthesisJob::startColabVoiceClone(const QString &text,
 void DubbingSynthesisJob::onRemoteProgress(int progress, quint64 requestId)
 {
     if (!m_running || requestId != m_remoteRequestId) return;
-    emit progressChanged(qBound(0, progress, 94));
+    // Only a worker-reported intermediate value is usable here. Map it over
+    // clips that have actually completed; do not turn a per-clip 100% event
+    // into a misleading 94% for the whole dubbing run.
+    if (progress <= 0 || progress >= 100 || m_synthesisTotal <= 0) return;
+    const int completedPercent = (m_synthesisCompleted * 100) / m_synthesisTotal;
+    const int activePercent = progress / m_synthesisTotal;
+    emit progressChanged(qBound(0, completedPercent + activePercent, 99));
 }
 
 void DubbingSynthesisJob::commitSynthesizedAudio(const QVector<float> &inputSamples, int sampleRate)
@@ -650,13 +664,15 @@ void DubbingSynthesisJob::commitSynthesizedAudio(const QVector<float> &inputSamp
     updated.insert(QStringLiteral("state"), conflict ? QStringLiteral("conflict") : QStringLiteral("natural"));
     m_segments[m_generationIndex] = updated;
     emit segmentUpdated(m_generationIndex, updated);
+    ++m_synthesisCompleted;
+    if (m_synthesisTotal > 0)
+        emit progressChanged(qMin(99, (m_synthesisCompleted * 100) / m_synthesisTotal));
 
     int next = m_generationIndex + 1;
     while (next < m_segments.size() && !needsSynthesis(m_segments.at(next).toMap(), m_synthesisSignature, m_cacheSettings)) ++next;
     if (next >= m_segments.size()) { m_generationIndex = -1; fitGeneratedSegments(); return; }
     m_generationIndex = next;
     m_nodeRunId = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    emit progressChanged(qRound((100.0 * next) / m_segments.size()));
     QMetaObject::invokeMethod(this, [this]() { startCurrentChunk(); }, Qt::QueuedConnection);
 }
 
@@ -667,8 +683,6 @@ void DubbingSynthesisJob::fitGeneratedSegments()
     const auto cancelled = std::make_shared<QAtomicInteger<bool>>(false);
     m_timingCancelled = cancelled;
     const QVariantList segments = m_segments;
-    emit progressChanged(95);
-
     auto *watcher = new QFutureWatcher<DubbingTimingResult>(this);
     connect(watcher, &QFutureWatcher<DubbingTimingResult>::finished, this,
             [this, watcher, requestId]() {

@@ -2,6 +2,8 @@
 
 #include "workflows/WorkflowExecutionAdapter.h"
 
+#include <QString>
+
 namespace LAStudio {
 
 class DubbingJobRunner;
@@ -21,7 +23,9 @@ public:
     void resume(const QVariantMap &decision) override;
 
 private:
+    bool activeNodeMatchesStage() const;
     DubbingJobRunner *m_runner = nullptr;
+    QString m_activeNodeType;
 };
 
 } // namespace LAStudio

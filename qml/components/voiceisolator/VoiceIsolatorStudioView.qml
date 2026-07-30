@@ -131,7 +131,10 @@ StudioShell {
                         LineIcon { visible: !root.isolator.processing; name: "activity"; color: root.isolator.lastError.length > 0 ? Theme.danger : Theme.warning; Layout.preferredWidth: 18; Layout.preferredHeight: 18 }
                         Text {
                             Layout.fillWidth: true
-                            text: root.isolator.processing ? qsTr("Separating source · %1%").arg(root.isolator.progress)
+                            text: root.isolator.processing
+                                  ? (root.colabSelected
+                                     ? qsTr("Separating source on Colab GPU · worker reports phases, not a measurable percentage")
+                                     : qsTr("Separating source · %1%").arg(root.isolator.progress))
                                   : root.isolator.lastError.length > 0 ? root.isolator.lastError
                                   : root.isolator.warning.length > 0 ? root.isolator.warning
                                   : (root.colabSelected ? qsTr("Direct Colab GPU separation is ready.") : (root.remoteFirstMode ? qsTr("Remote-first: pair a direct Colab separation worker.") : qsTr("Configure and load a sherpa-onnx runtime and separation model.")))
@@ -139,7 +142,7 @@ StudioShell {
                             font.pixelSize: Theme.fontSmall
                             wrapMode: Text.WordWrap
                         }
-                        ProgressBar { visible: root.isolator.processing; from: 0; to: 100; value: root.isolator.progress; Layout.preferredWidth: 180 }
+                        ProgressBar { visible: root.isolator.processing && !root.colabSelected; from: 0; to: 100; value: root.isolator.progress; Layout.preferredWidth: 180 }
                     }
                 }
 

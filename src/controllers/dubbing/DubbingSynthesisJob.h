@@ -87,6 +87,8 @@ private:
     QString m_runId;
     QString m_nodeRunId;
     int m_generationIndex = -1;
+    int m_synthesisTotal = 0;
+    int m_synthesisCompleted = 0;
     QVariantList m_chunks;
     int m_chunkIndex = -1;
     QVector<float> m_chunkSamples;

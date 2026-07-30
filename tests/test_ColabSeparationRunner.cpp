@@ -124,12 +124,18 @@ void TestColabSeparationRunner::testUsesDirectJobAndArtifactContract()
     QThread thread; auto *runner = new ColabSeparationRunner; runner->moveToThread(&thread);
     connect(&thread, &QThread::finished, runner, &QObject::deleteLater); thread.start();
     QSignalSpy finished(runner, &ColabSeparationRunner::finished); QSignalSpy failures(runner, &ColabSeparationRunner::failed);
+    QSignalSpy progress(runner, &ColabSeparationRunner::progress);
     QVERIFY(QMetaObject::invokeMethod(runner, "separate", Qt::QueuedConnection,
                                       Q_ARG(ColabSeparationRequest, makeRequest(server.baseUrl(), source, output))));
     QVERIFY2(finished.wait(5000), "Colab separation worker did not finish.");
     QCOMPARE(failures.count(), 0);
     const ColabSeparationResult result = finished.takeFirst().at(0).value<ColabSeparationResult>();
     QVERIFY(QFileInfo::exists(result.vocalsPath)); QVERIFY(QFileInfo::exists(result.backgroundPath));
+    // This mock completes the remote job on its first status poll. The
+    // runner must not manufacture an intermediate percentage; it reports
+    // 100 only after both artifacts are downloaded and committed locally.
+    QCOMPARE(progress.count(), 1);
+    QCOMPARE(progress.at(0).at(0).toInt(), 100);
     const QByteArray requests = server.requests();
     QVERIFY(requests.startsWith("POST /v1/audio/separations HTTP/1.1\r\n"));
     QVERIFY(requests.toLower().contains("authorization: bearer colab-separation-token"));
@@ -261,6 +267,8 @@ void TestColabSeparationRunner::separationNotebookMatchesDirectColabContract()
     const QByteArray settingsSource = settings.readAll();
     QVERIFY(settingsSource.contains("AppController.colabVoiceIsolator.colabNotebookFile"));
     QVERIFY(settingsSource.contains("Selected Colab model"));
+    QVERIFY(settingsSource.contains("worker reports phases, not a measurable percentage"));
+    QVERIFY(settingsSource.contains("root.isolator.processing && !root.colabSelected"));
 }
 
 } // namespace LAStudio

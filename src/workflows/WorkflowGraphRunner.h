@@ -15,6 +15,7 @@ class WorkflowGraphRunner final : public QObject
     Q_OBJECT
     Q_PROPERTY(bool running READ running NOTIFY stateChanged)
     Q_PROPERTY(int progress READ progress NOTIFY stateChanged)
+    Q_PROPERTY(bool progressAvailable READ progressAvailable NOTIFY stateChanged)
     Q_PROPERTY(QString activeNodeId READ activeNodeId NOTIFY stateChanged)
     Q_PROPERTY(QString error READ error NOTIFY stateChanged)
     Q_PROPERTY(QString runId READ runId NOTIFY stateChanged)
@@ -25,6 +26,7 @@ public:
     explicit WorkflowGraphRunner(NodeRegistry *registry, QObject *parent = nullptr);
     bool running() const { return m_running; }
     int progress() const { return m_progress; }
+    bool progressAvailable() const { return m_progressAvailable; }
     QString activeNodeId() const { return m_activeNodeId; }
     QString error() const { return m_error; }
     QString runId() const { return m_runIdentity.runId; }
@@ -72,6 +74,7 @@ private:
     QPointer<WorkflowNodeExecutor> m_executor;
     bool m_running = false;
     int m_progress = 0;
+    bool m_progressAvailable = false;
     QString m_activeNodeId;
     QString m_error;
     bool m_waitingForInput = false;

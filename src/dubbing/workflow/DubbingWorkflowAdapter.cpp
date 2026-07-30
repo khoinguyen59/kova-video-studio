@@ -13,6 +13,10 @@ DubbingWorkflowAdapter::DubbingWorkflowAdapter(DubbingJobRunner *runner, QObject
             this, &DubbingWorkflowAdapter::stageCompleted);
     connect(m_runner, &DubbingJobRunner::errorOccurred,
             this, &DubbingWorkflowAdapter::failed);
+    connect(m_runner, &DubbingJobRunner::stateChanged, this, [this]() {
+        if (!m_runner || !m_runner->processing() || !activeNodeMatchesStage()) return;
+        emit progress(m_runner->progress(), m_runner->stage());
+    });
 }
 
 void DubbingWorkflowAdapter::start(const QString &nodeType, const QVariantMap &inputs,
@@ -25,6 +29,7 @@ void DubbingWorkflowAdapter::start(const QString &nodeType, const QVariantMap &i
         emit failed(QStringLiteral("Dubbing workflow runtime is unavailable."));
         return;
     }
+    m_activeNodeType = nodeType;
     if (nodeType == QStringLiteral("media.ingest")) {
         m_runner->startIngest(inputs.value(QStringLiteral("media")).toString());
     } else if (nodeType == QStringLiteral("audio.source-separate")) {
@@ -60,6 +65,20 @@ void DubbingWorkflowAdapter::start(const QString &nodeType, const QVariantMap &i
     } else {
         emit failed(QStringLiteral("No execution capability exists for node type: %1").arg(nodeType));
     }
+}
+
+bool DubbingWorkflowAdapter::activeNodeMatchesStage() const
+{
+    if (!m_runner) return false;
+    const QString stage = m_runner->stage();
+    return (m_activeNodeType == QStringLiteral("media.ingest") && stage == QStringLiteral("import"))
+        || (m_activeNodeType == QStringLiteral("audio.source-separate") && stage == QStringLiteral("source-separation"))
+        || (m_activeNodeType == QStringLiteral("audio.transcribe") && stage == QStringLiteral("transcription"))
+        || (m_activeNodeType == QStringLiteral("text.translate-transcript") && stage == QStringLiteral("translation"))
+        || (m_activeNodeType == QStringLiteral("dubbing.synthesize-segments") && stage == QStringLiteral("tts"))
+        || (m_activeNodeType == QStringLiteral("dubbing.fit-timing") && stage == QStringLiteral("timing"))
+        || (m_activeNodeType == QStringLiteral("audio.mix-timeline") && stage == QStringLiteral("mix"))
+        || (m_activeNodeType == QStringLiteral("media.export") && stage == QStringLiteral("export"));
 }
 
 void DubbingWorkflowAdapter::cancel()

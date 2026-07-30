@@ -293,6 +293,7 @@ Popup {
                     delegate: Rectangle {
                         id: workflowRow
                         required property var modelData
+                        readonly property bool progressAvailable: workflowRow.modelData.progressAvailable !== false
 
                         Layout.fillWidth: true
                         height: 104
@@ -365,6 +366,7 @@ Popup {
                                     Rectangle {
                                         Layout.fillWidth: true
                                         Layout.preferredHeight: 5
+                                        visible: workflowRow.progressAvailable
                                         radius: 3
                                         color: Theme.background
 
@@ -377,7 +379,9 @@ Popup {
                                     }
 
                                     Text {
-                                        text: qsTr("%1%").arg(Math.max(0, Math.min(100, workflowRow.modelData.progress || 0)))
+                                        text: workflowRow.progressAvailable
+                                              ? qsTr("%1%").arg(Math.max(0, Math.min(100, workflowRow.modelData.progress || 0)))
+                                              : qsTr("Working")
                                         color: workflowRow.modelData.progressEstimated ? Theme.warning : Theme.textSecondary
                                         font.pixelSize: Theme.fontSmall
                                         Layout.preferredWidth: 38
