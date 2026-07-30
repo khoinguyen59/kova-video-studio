@@ -100,7 +100,7 @@ Portable internal package command:
 
 # Historical response — Dubbing clone voice selection complete
 
-**Completed:** 2026-07-30  
+**Completed:** 2026-07-30
 **Task source:** `docs/AI_AGENT_REQUEST.md` — select one clone voice and keep it for a full Dubbing run.
 
 ## Outcome
@@ -171,7 +171,7 @@ The active task is complete. Read the next instruction from `docs/AI_AGENT_REQUE
 
 # Historical response — STT progress reporting
 
-**Thời điểm:** 2026-07-30  
+**Thời điểm:** 2026-07-30
 **Phạm vi đã hoàn thành:** khắc phục một lỗi tái lập được của luồng Speech-to-Text (STT) qua Direct Colab/Gateway: phần trăm tiến độ không trung thực.
 
 ## Kết quả
