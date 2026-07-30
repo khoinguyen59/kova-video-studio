@@ -756,6 +756,7 @@ if ($AllowUnsignedEspeakForInternalBuild) {
 }
 
 Ensure-EspeakNgRuntime -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -AllowUnsignedEspeakForInternalBuild:$AllowUnsignedEspeakForInternalBuild
+Assert-StagedEspeakNgRuntime -DeployRoot $deployRoot
 Assert-StagedMsvcRuntime -DeployRoot $deployRoot
 Assert-StagedRuntimeManifest -DeployRoot $deployRoot -ApplicationExecutableName $applicationExecutableName
 Assert-StagedLicenseManifest -StageRoot $stageDir

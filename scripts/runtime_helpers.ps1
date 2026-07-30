@@ -165,6 +165,37 @@ function Ensure-EspeakNgRuntime {
     Write-Host ">> Staged eSpeak NG runtime: $runtimeRoot" -ForegroundColor Green
 }
 
+function Assert-StagedEspeakNgRuntime {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $DeployRoot
+    )
+
+    $runtimeRoot = Join-Path $DeployRoot "espeak-ng"
+    $executable = Join-Path $runtimeRoot "espeak-ng.exe"
+    $dataRoot = Join-Path $runtimeRoot "espeak-ng-data"
+    if (-not (Test-Path -LiteralPath $executable -PathType Leaf) -or
+        -not (Test-Path -LiteralPath (Join-Path $dataRoot "voices") -PathType Container)) {
+        throw "eSpeak NG runtime test requires its executable and data directory: $runtimeRoot"
+    }
+
+    # eSpeak NG 1.52.0 does not derive its data location from the executable
+    # directory when invoked as a standalone command. LA Studio passes this
+    # same location explicitly to the library, and the package gate proves
+    # that the staged binary can read it before release.
+    $previousDataPath = [Environment]::GetEnvironmentVariable("ESPEAK_DATA_PATH", "Process")
+    try {
+        [Environment]::SetEnvironmentVariable("ESPEAK_DATA_PATH", $dataRoot, "Process")
+        & $executable --version | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Staged eSpeak NG executable could not read its data directory (exit code $LASTEXITCODE)."
+        }
+    } finally {
+        [Environment]::SetEnvironmentVariable("ESPEAK_DATA_PATH", $previousDataPath, "Process")
+    }
+    Write-Host ">> Staged eSpeak NG runtime verified" -ForegroundColor Green
+}
+
 function Ensure-FfmpegRuntime {
     param(
         [Parameter(Mandatory = $true)]

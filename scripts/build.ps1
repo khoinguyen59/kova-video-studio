@@ -441,6 +441,7 @@ if (-not $SkipDeploy) {
             Write-Warning "INTERNAL BUILD ONLY: permitting the SHA-256-verified but unsigned eSpeak NG MSI. Do not distribute this deployed build or promote it to a release."
         }
         Ensure-EspeakNgRuntime -RepositoryRoot $RepoRoot -DeployRoot $buildDir -AllowUnsignedEspeakForInternalBuild:$AllowUnsignedEspeakForInternalBuild
+        Assert-StagedEspeakNgRuntime -DeployRoot $buildDir
     } else {
         Write-Warning "windeployqt not found at $windeployqt. Skipping deployment."
     }
