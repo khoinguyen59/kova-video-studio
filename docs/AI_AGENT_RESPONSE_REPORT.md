@@ -1,4 +1,50 @@
-# Current response — Dubbing, shared Colab setup, voice library, and CapCut export
+# CURRENT AUTHORITATIVE RESPONSE -- package acceptance continuation (2026-07-30)
+
+**Request executed:** the newest `AI_AGENT_REQUEST.md` instruction: finish package/user acceptance only; do not add features or rewrite architecture; repair only a reproducible concrete defect; record results here; then wait for a new MD instruction.
+
+**Source result:** committed directly to `main` as `c1033dbd3fbbbd4e1fc52ca82bfcd867c5560e37` (`fix: isolate cache when data directory is overridden`). No push was made.
+
+## Defect found and fixed
+
+The portable application honours `LASTUDIO_DATA_DIR` for its data/models/project folders, but `PathUtils::cacheDir()` previously ignored that override and returned the normal Windows per-user cache. A real package acceptance run proved the defect: importing and normalizing a loopback WAV wrote `master.wav` below `%LOCALAPPDATA%\\LA Studio\\cache\\dubbing` even though a disposable profile was supplied.
+
+`PathUtils::cacheDir()` now returns `<LASTUDIO_DATA_DIR>/cache` when the override is explicitly set, while preserving the existing `QStandardPaths::CacheLocation` location for ordinary user launches. `TestFileAccessService::dataDirectoryOverrideAlsoIsolatesCache` locks this contract down and restores its environment variable after the assertion.
+
+The pre-fix acceptance run did create one small 768,092-byte loopback fixture cache item at `%LOCALAPPDATA%\\LA Studio\\cache\\dubbing\\imports\\efaef678...\\master.wav` at `2026-07-30 23:12:43`. It has deliberately **not** been removed: it is existing user-profile data. The post-fix repeat at `2026-07-30 23:34:38` wrote the corresponding 768,092-byte `master.wav` only below the new disposable profile:
+
+`out\\acceptance-profile-0a813344b62e4baf84fe079461a4e9e0\\cache\\dubbing\\imports\\efaef678...\\master.wav`
+
+## Evidence from this acceptance run
+
+| Check | Result | Actual evidence / limit |
+| --- | --- | --- |
+| Regression for isolated cache | PASS | New `TestFileAccessService` test passed in the compiled test binary. |
+| Full automated regression | PASS | `ctest --test-dir out\\build\\windows-msvc-tests --output-on-failure`: **35/35** passed, including `QmlRouteSmoke`. |
+| Code graph | PASS | `graphify update .` completed after the source edit. Generated graph files remain untracked. |
+| Portable package | PASS | `package.ps1 -SkipInstaller -PortableInternalLayout -Version 0.0.2.0 ... -AllowUnsignedEspeakForInternalBuild` succeeded; staging and license manifests each verified 16 required artifacts. |
+| Clean-profile launch | PASS | The EXE launched as `LA Studio - 0.0.2.0` with a newly created `LASTUDIO_DATA_DIR` profile; onboarding was completed without enabling update checks. |
+| Direct media link UI | PASS | In the packaged Dubbing UI, `http://127.0.0.1:8765/loopback-fixture.wav` was accepted as permitted loopback HTTP, downloaded, normalized, displayed as a two-second original audio source, and advanced to Separate. The visible normalized output path was inside the disposable profile cache. |
+| Invalid remote URL / cancellation UI | Previously observed, not repeated after this cache-only change | This run tested the successful loopback path. No external remote URL or cancellation was invoked. |
+| Direct Colab and Gateway live work | BLOCKED | No user worker URL/token or Gateway credential was provided; no secrets were written, and no GPU job was started. Their independent configuration surfaces were not changed by this cache-only fix. |
+| Voice library live persistence | BLOCKED | The clean package has no installed voice-clone model/runtime, so an actual user-side voice-library save/reload could not be reached without installing a model. Existing regressions passed, but that is not claimed as live UI proof. |
+| CapCut live import/export | BLOCKED | No local live CapCut acceptance fixture/install was used in this continuation. |
+
+No LA Studio package process or runtime-host process remained after the test. The temporary loopback HTTP server was also stopped. A search of the latest disposable profile found no persisted `127.0.0.1:8765`, `example.invalid`, or test-token text in JSON/INI/TXT/LOG files.
+
+## Package delivered for internal use
+
+- EXE: `out\\LA-Studio-0.0.2.0\\LA-Studio-0.0.2.0.exe`
+- Size: `21,312,512` bytes
+- SHA-256: `EBE4C2E1D658BDA127E008181D5C073D3EB1B25B199D5AA506E4E75DCC140E03`
+- Status: **internal-only**. The packaging command intentionally allowed the SHA-256-verified but unsigned eSpeak NG MSI. It must not be promoted as a distributable signed release.
+
+## Handoff status
+
+This report section is authoritative for the current continuation and supersedes any contradictory historical wording below. No new product feature was added. The repository is now waiting for a new instruction in `docs/AI_AGENT_REQUEST.md`; do not package or change source again merely because this report exists.
+
+---
+
+# Historical response -- Dubbing, shared Colab setup, voice library, and CapCut export
 
 **Status:** source, regression and portable-package gates complete; source commit is on `main` (2026-07-30).
 
