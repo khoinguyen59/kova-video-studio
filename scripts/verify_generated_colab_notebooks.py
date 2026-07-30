@@ -147,6 +147,14 @@ def main() -> int:
                         mismatches.append(
                             f"Exact worker still uses the unsafe legacy cloudflared installer: {generated.name}"
                         )
+                if capability == "translation":
+                    if 'RESPONSE_CONTRACT = "translation-patches-v2"' not in worker_source \
+                            or '"response_contract": RESPONSE_CONTRACT' not in worker_source \
+                            or "make_translation_patches" not in worker_source \
+                            or "NONLEXICAL_UTTERANCES" not in worker_source:
+                        mismatches.append(
+                            f"Translation worker lacks the guarded non-empty patch contract: {generated.name}"
+                        )
                 if model == "vibevoice" and 'SUPPORTED_LANGUAGES = ["en"]' not in worker_source:
                     mismatches.append(
                         f"VibeVoice Realtime must advertise its upstream English-only capability: {generated.name}"

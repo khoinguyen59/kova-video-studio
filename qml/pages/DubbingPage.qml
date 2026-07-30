@@ -569,6 +569,14 @@ Item {
                                         font.pixelSize: 9
                                         elide: Text.ElideRight
                                     }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        visible: (modelData.translationDiagnostic || "") !== ""
+                                        text: modelData.translationDiagnostic || ""
+                                        color: Theme.warning
+                                        font.pixelSize: 9
+                                        wrapMode: Text.WordWrap
+                                    }
                                 }
                                 Text { text: modelData.state || qsTr("Ready"); color: modelData.state === "stale" ? Theme.warning : Theme.textSecondary; font.pixelSize: 10; Layout.preferredWidth: 64; horizontalAlignment: Text.AlignRight }
                                 RowLayout {

@@ -236,9 +236,9 @@ void TestColabTtsRunner::ttsNotebookMatchesDirectColabContract()
                  "Exact-model TTS notebook must allow a cold CUDA model download to finish.");
         QVERIFY2(source.contains(QStringLiteral("WORKER_LOG")),
                  "Exact-model TTS notebook must retain startup logs when a worker fails.");
-        QVERIFY2(source.contains(QStringLiteral("LA Studio TTS worker log")),
+        QVERIFY2(source.contains(QStringLiteral("LA Studio worker log")),
                  "Exact-model TTS notebook must return the root worker error instead of a generic timeout.");
-        QVERIFY2(source.contains(QStringLiteral("health.get(\"model\") == MODEL_ID")),
+        QVERIFY2(source.contains(QStringLiteral("str(health.get(\"model\", \"\")).strip().lower() == MODEL_ID")),
                  "Exact-model TTS notebook must validate that the ready worker is the selected model.");
         if (expected.familyId.startsWith(QStringLiteral("vieneu-tts-"))) {
             QVERIFY2(source.contains(QStringLiteral("torchvision==0.23.0")),

@@ -312,7 +312,7 @@ void TestColabVoiceCloneRunner::exactModelMappingMatchesCatalogAndNotebooks()
                  "Exact-model notebook must retain startup logs when a worker fails.");
         QVERIFY2(source.contains(QStringLiteral("LA Studio worker log")),
                  "Exact-model notebook must return the root worker error instead of a generic timeout.");
-        QVERIFY2(source.contains(QStringLiteral("health.get(\"model\") == MODEL_ID")),
+        QVERIFY2(source.contains(QStringLiteral("str(health.get(\"model\", \"\")).strip().lower() == MODEL_ID")),
                  "Exact-model notebook must validate that the ready worker is the selected model.");
         if (model.startsWith(QStringLiteral("vieneu-tts-"))) {
             QVERIFY2(source.contains(QStringLiteral("torchvision==0.23.0")),

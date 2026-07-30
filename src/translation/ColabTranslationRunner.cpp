@@ -3,6 +3,7 @@
 #include "remote/ColabWorkerClient.h"
 
 #include <QJsonArray>
+#include <QStringList>
 
 namespace LAStudio {
 
@@ -45,11 +46,22 @@ void ColabTranslationRunner::translate(const QUrl &workerUrl, const QString &bea
         return;
     }
     QVariantList output;
-    for (const QJsonValue &value : patches.toArray()) {
+    const QJsonArray patchArray = patches.toArray();
+    for (int index = 0; index < patchArray.size(); ++index) {
+        const QJsonValue &value = patchArray.at(index);
         const QVariantMap patch = value.toObject().toVariantMap();
-        if (patch.value(QStringLiteral("id")).toString().trimmed().isEmpty()
-            || patch.value(QStringLiteral("targetText")).toString().trimmed().isEmpty()) {
-            emit failed(QStringLiteral("Colab worker returned an invalid translation patch"));
+        const QString id = patch.value(QStringLiteral("id")).toString().trimmed();
+        const QString targetText = patch.value(QStringLiteral("targetText")).toString().trimmed();
+        if (id.isEmpty() || targetText.isEmpty()) {
+            QStringList invalidFields;
+            if (id.isEmpty()) invalidFields.append(QStringLiteral("id"));
+            if (targetText.isEmpty()) invalidFields.append(QStringLiteral("targetText"));
+            emit failed(QStringLiteral(
+                "Colab worker returned invalid translation patch %1/%2 (%3 missing). "
+                "Reconnect using the current exact-model Translation notebook and run Check Colab.")
+                            .arg(index + 1)
+                            .arg(patchArray.size())
+                            .arg(invalidFields.join(QStringLiteral(", "))));
             return;
         }
         output.append(patch);

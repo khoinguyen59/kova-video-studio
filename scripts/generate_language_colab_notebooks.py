@@ -18,6 +18,7 @@ NOTEBOOKS = ROOT / "notebooks"
 
 TRANSLATION_COMMON = r'''
 import os
+import re
 import secrets
 import threading
 
@@ -31,9 +32,58 @@ if not torch.cuda.is_available():
 # __ADAPTER__
 
 TOKEN = os.environ["LA_STUDIO_COLAB_TRANSLATION_TOKEN"]
+WORKER_REVISION = "translation-2026-07-30.1"
+RESPONSE_CONTRACT = "translation-patches-v2"
 MAX_TRANSLATION_SEGMENTS = 128
 MAX_TRANSLATION_CHARS = 50000
 INFERENCE_SLOTS = threading.BoundedSemaphore(1)
+
+# Translation models legitimately emit no lexical text for some short vocal
+# reactions. Preserving only these narrowly-defined utterances is preferable
+# to sending an invalid empty patch to the desktop client. Everything else is
+# a worker error: never silently turn a failed translation into a success.
+NONLEXICAL_UTTERANCES = {
+    "ah", "aha", "eh", "er", "ha", "haha", "heh", "hmm", "hm", "ho", "oh",
+    "uh", "um", "wow", "嗯", "嗯哼", "啊", "啊哈", "哎", "哎呀", "诶", "欸",
+    "哈", "哈哈", "呵", "呵呵", "嘿", "哼", "唉", "呀", "呃", "哦", "哦哦",
+    "喔", "噢", "哇", "唔",
+}
+
+def is_nonlexical_utterance(text: str) -> bool:
+    normalized = re.sub(r"[^\w]", "", text, flags=re.UNICODE).casefold()
+    return normalized in NONLEXICAL_UTTERANCES
+
+def make_translation_patches(segments: list["TranslationSegment"], translated: list[str]) -> list[dict]:
+    if len(translated) != len(segments):
+        raise RuntimeError("model returned a different number of translations")
+    patches = []
+    for index, (item, value) in enumerate(zip(segments, translated), start=1):
+        if not isinstance(value, str):
+            raise RuntimeError(
+                f"model returned a non-text translation for segment {index}/{len(segments)} "
+                f"(id {item.id})"
+            )
+        target = value.strip()
+        if target:
+            patches.append({"id": item.id, "targetText": target, "state": "translated"})
+            continue
+        source = item.sourceText.strip()
+        if is_nonlexical_utterance(source):
+            patches.append({
+                "id": item.id,
+                "targetText": source,
+                "state": "needs-review",
+                "translationDiagnostic": (
+                    "The exact translation model returned no lexical text for this short vocal reaction; "
+                    "the source was preserved for review."
+                ),
+            })
+            continue
+        raise RuntimeError(
+            f"model returned an empty translation for lexical segment {index}/{len(segments)} "
+            f"(id {item.id})"
+        )
+    return patches
 
 def authorize(authorization: str = Header(default="")):
     if not secrets.compare_digest(authorization, "Bearer " + TOKEN):
@@ -68,6 +118,8 @@ def health(_: None = Depends(authorize)):
         "gpu": torch.cuda.get_device_name(0),
         "model": MODEL_ID,
         "upstream_model": UPSTREAM_MODEL,
+        "worker_revision": WORKER_REVISION,
+        "response_contract": RESPONSE_CONTRACT,
         "cpu_fallback": False,
     }
 
@@ -75,6 +127,8 @@ def health(_: None = Depends(authorize)):
 def capabilities(_: None = Depends(authorize)):
     return {
         "contract_version": 1,
+        "response_contract": RESPONSE_CONTRACT,
+        "worker_revision": WORKER_REVISION,
         "device": "cuda",
         "capabilities": [{
             "id": "translation",
@@ -85,6 +139,7 @@ def capabilities(_: None = Depends(authorize)):
                 "languages": SUPPORTED_LANGUAGES,
                 "device": "cuda",
                 "loaded": True,
+                "response_contract": RESPONSE_CONTRACT,
             }],
         }],
     }
@@ -107,14 +162,7 @@ def translate(request: TranslationRequest, _: None = Depends(authorize)):
             request.source_language.strip(),
             request.target_language.strip(),
         )
-        if len(translated) != len(request.segments):
-            raise RuntimeError("model returned a different number of translations")
-        return {
-            "patches": [
-                {"id": item.id, "targetText": text.strip(), "state": "translated"}
-                for item, text in zip(request.segments, translated)
-            ]
-        }
+        return {"patches": make_translation_patches(request.segments, translated)}
     except HTTPException:
         raise
     except Exception as error:
@@ -245,11 +293,10 @@ def translate_exact(texts: list[str], source: str, target: str) -> list[str]:
             output = MODEL.generate(
                 **inputs,
                 max_new_tokens=512,
-                do_sample=True,
-                temperature=0.7,
-                top_p=0.6,
-                top_k=20,
-                repetition_penalty=1.05,
+                # Translation needs reproducible decoding. Sampling can end at
+                # EOS immediately and was the only adapter that could emit an
+                # empty response nondeterministically for the same segment.
+                do_sample=False,
             )
         generated = output[0][inputs["input_ids"].shape[-1]:]
         results.append(TOKENIZER.decode(generated, skip_special_tokens=True).strip())

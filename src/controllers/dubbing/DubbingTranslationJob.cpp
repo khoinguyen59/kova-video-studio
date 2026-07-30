@@ -392,6 +392,10 @@ void DubbingTranslationJob::startRemoteTranslation(const QString &providerId, co
             fail(routeError);
             return;
         }
+        Logger::info(QStringLiteral("DubbingTranslation"),
+                     QStringLiteral("Dispatching exact Colab translation model=%1 source=%2 target=%3 segments=%4")
+                         .arg(model, m_pendingRequest.sourceLanguage, m_pendingRequest.targetLanguage)
+                         .arg(m_pendingRequest.segments.size()));
         m_remoteProgressConnection = connect(m_colabRunner, &ColabTranslationRunner::progress, this,
                                              [this, generation](int progress) { onRemoteProgress(progress, generation); });
         m_remoteFinishedConnection = connect(m_colabRunner, &ColabTranslationRunner::finished, this,

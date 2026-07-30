@@ -17,14 +17,16 @@
 #include <QThread>
 #include <QtTest>
 
+#include <utility>
+
 namespace LAStudio {
 namespace {
 
 class TranslationWorkerMock final : public QObject
 {
 public:
-    explicit TranslationWorkerMock(bool holdResponse = false)
-        : m_holdResponse(holdResponse)
+    explicit TranslationWorkerMock(bool holdResponse = false, QByteArray responseBody = {})
+        : m_holdResponse(holdResponse), m_responseBody(std::move(responseBody))
     {
         connect(&m_server, &QTcpServer::newConnection, this, [this] {
             while (QTcpSocket *socket = m_server.nextPendingConnection()) {
@@ -56,7 +58,9 @@ private:
             m_socket->write(QByteArrayLiteral("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: keep-alive\r\n\r\n"));
             return;
         }
-        const QByteArray body = QByteArrayLiteral("{\"patches\":[{\"id\":\"segment-1\",\"targetText\":\"Xin chao\",\"state\":\"translated\"}]}");
+        const QByteArray body = m_responseBody.isEmpty()
+            ? QByteArrayLiteral("{\"patches\":[{\"id\":\"segment-1\",\"targetText\":\"Xin chao\",\"state\":\"translated\"}]}")
+            : m_responseBody;
         m_socket->write(QByteArrayLiteral("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ")
                         + QByteArray::number(body.size()) + QByteArrayLiteral("\r\nConnection: close\r\n\r\n") + body);
         m_socket->disconnectFromHost();
@@ -67,6 +71,7 @@ private:
     QByteArray m_pending;
     QByteArray m_request;
     bool m_holdResponse = false;
+    QByteArray m_responseBody;
 };
 
 } // namespace
@@ -108,6 +113,38 @@ void TestColabTranslationRunner::postsBatchToDirectWorkerOnly()
     QVERIFY(sent.contains("\"target_language\":\"vi\""));
     QVERIFY(sent.contains("\"sourceText\":\"Hello\""));
     QVERIFY(!sent.contains("gateway"));
+    thread.quit();
+    QVERIFY(thread.wait(5000));
+}
+
+void TestColabTranslationRunner::invalidPatchReportsItsBrokenField()
+{
+    TranslationWorkerMock worker(
+        false, QByteArrayLiteral("{\"patches\":[{\"id\":\"segment-1\",\"targetText\":\"\"}]}"));
+    QVERIFY(worker.start());
+    qRegisterMetaType<TranslationInferenceRequest>("TranslationInferenceRequest");
+    QThread thread;
+    auto *runner = new ColabTranslationRunner;
+    runner->moveToThread(&thread);
+    connect(&thread, &QThread::finished, runner, &QObject::deleteLater);
+    thread.start();
+    QSignalSpy failures(runner, &ColabTranslationRunner::failed);
+
+    TranslationInferenceRequest request;
+    request.segments = {QVariantMap{{QStringLiteral("id"), QStringLiteral("segment-1")},
+                                    {QStringLiteral("sourceText"), QStringLiteral("Hello")}}};
+    request.sourceLanguage = QStringLiteral("en");
+    request.targetLanguage = QStringLiteral("vi");
+    QVERIFY(QMetaObject::invokeMethod(runner, "translate", Qt::QueuedConnection,
+                                      Q_ARG(QUrl, QUrl(worker.baseUrl())),
+                                      Q_ARG(QString, QStringLiteral("translation-patch-token")),
+                                      Q_ARG(QString, QStringLiteral("m2m100-418m")),
+                                      Q_ARG(TranslationInferenceRequest, request), Q_ARG(bool, true)));
+
+    QVERIFY2(failures.wait(5000), "Invalid Colab translation patch was not rejected.");
+    const QString message = failures.takeFirst().at(0).toString();
+    QVERIFY(message.contains(QStringLiteral("patch 1/1")));
+    QVERIFY(message.contains(QStringLiteral("targetText missing")));
     thread.quit();
     QVERIFY(thread.wait(5000));
 }
@@ -179,6 +216,9 @@ void TestColabTranslationRunner::languageNotebookMatchesDirectTranslationContrac
         QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_TRANSLATION_URL")));
         QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_TRANSLATION_TOKEN")));
         QVERIFY(source.contains(QStringLiteral("cloudflared")));
+        QVERIFY(source.contains(QStringLiteral("translation-patches-v2")));
+        QVERIFY(source.contains(QStringLiteral("make_translation_patches")));
+        QVERIFY(source.contains(QStringLiteral("NONLEXICAL_UTTERANCES")));
         QVERIFY(!source.contains(QStringLiteral("API_GATEWAY")));
     }
     QVERIFY(controller.notebookForColabModel(QStringLiteral("unknown-translation")).isEmpty());

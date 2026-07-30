@@ -252,6 +252,44 @@ void TestRemoteExecution::temporaryColabWorkerVerifiesCudaCapabilityAndExactMode
         QVERIFY(request.toLower().contains("authorization: bearer verified-token"));
 }
 
+void TestRemoteExecution::staleTranslationPatchContractIsRejected()
+{
+    const QByteArray health = QByteArrayLiteral(
+        R"({"status":"ready","ready":true,"device":"cuda","model":"m2m100-418m","cpu_fallback":false})");
+    CatalogMock stale({
+        health,
+        QByteArrayLiteral(
+            R"({"contract_version":1,"device":"cuda","capabilities":[{"id":"translation","models":[{"id":"m2m100-418m","device":"cuda","loaded":true}]}]})"),
+    });
+    QVERIFY(stale.start());
+    ColabSession staleSession;
+    QSignalSpy staleFinished(&staleSession, &ColabSession::verificationFinished);
+    QString error;
+    QVERIFY2(staleSession.beginVerifiedSession(
+                 stale.baseUrl(), QStringLiteral("stale-translation-token"),
+                 QStringLiteral("translation"), QStringLiteral("m2m100-418m"),
+                 &error, true), qPrintable(error));
+    QTRY_COMPARE(staleFinished.count(), 1);
+    QVERIFY(!staleFinished.constFirst().at(0).toBool());
+    QVERIFY(staleSession.lastError().contains(QStringLiteral("outdated response contract")));
+
+    CatalogMock current({
+        health,
+        QByteArrayLiteral(
+            R"({"contract_version":1,"device":"cuda","capabilities":[{"id":"translation","models":[{"id":"m2m100-418m","device":"cuda","loaded":true,"response_contract":"translation-patches-v2"}]}]})"),
+    });
+    QVERIFY(current.start());
+    ColabSession currentSession;
+    QSignalSpy currentFinished(&currentSession, &ColabSession::verificationFinished);
+    QVERIFY2(currentSession.beginVerifiedSession(
+                 current.baseUrl(), QStringLiteral("current-translation-token"),
+                 QStringLiteral("translation"), QStringLiteral("m2m100-418m"),
+                 &error, true), qPrintable(error));
+    QTRY_COMPARE(currentFinished.count(), 1);
+    QVERIFY(currentFinished.constFirst().at(0).toBool());
+    QVERIFY(currentSession.isActive());
+}
+
 void TestRemoteExecution::temporaryColabWorkerRejectsCpuWrongModelAndWrongCapability()
 {
     {

@@ -14,6 +14,7 @@ private slots:
     void colabSessionIsMemoryOnlyAndCanBeCleared();
     void temporaryColabWorkerWrapperValidatesAndRemainsEphemeral();
     void temporaryColabWorkerVerifiesCudaCapabilityAndExactModel();
+    void staleTranslationPatchContractIsRejected();
     void temporaryColabWorkerRejectsCpuWrongModelAndWrongCapability();
     void newerColabVerificationSupersedesStaleRequest();
     void everyGpuFeatureSurfacesVerifiedColabSessionState();

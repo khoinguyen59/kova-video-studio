@@ -11,6 +11,20 @@
 
 namespace LAStudio {
 
+namespace {
+
+QString requiredResponseContract(const QString &capability)
+{
+    // A translation response must carry one non-empty targetText per source
+    // segment. Older notebooks predate that guarantee and can otherwise pass
+    // the generic CUDA handshake before failing during a real dubbing job.
+    if (capability == QStringLiteral("translation"))
+        return QStringLiteral("translation-patches-v2");
+    return {};
+}
+
+} // namespace
+
 ColabSession::ColabSession(QObject *parent)
     : QObject(parent)
     , m_network(new QNetworkAccessManager(this))
@@ -395,6 +409,17 @@ void ColabSession::handleVerificationReply(QNetworkReply *reply,
             exactRouteUsesCuda = device.startsWith(QStringLiteral("cuda"));
             exactModelLoaded = model.contains(QStringLiteral("loaded"))
                 && model.value(QStringLiteral("loaded")).toBool(false);
+            const QString expectedResponseContract = requiredResponseContract(m_expectedCapability);
+            const QString reportedResponseContract = model.value(
+                QStringLiteral("response_contract")).toString().trimmed();
+            if (!expectedResponseContract.isEmpty()
+                && reportedResponseContract != expectedResponseContract) {
+                failVerification(QStringLiteral(
+                    "The selected Translation notebook uses an outdated response contract. "
+                    "Open the current exact-model notebook, run it again, then use Check Colab."),
+                                 generation);
+                return;
+            }
             break;
         }
         if (modelFound && exactRouteUsesCuda && exactModelLoaded) break;
