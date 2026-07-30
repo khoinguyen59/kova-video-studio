@@ -10,6 +10,7 @@ class TestColabTranslationRunner final : public QObject
 
 private slots:
     void postsBatchToDirectWorkerOnly();
+    void progressReflectsCompletedSegments();
     void invalidPatchReportsItsBrokenField();
     void cancellationAbortsDirectWorkerRequest();
     void languageNotebookMatchesDirectTranslationContract();

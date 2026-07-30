@@ -32,7 +32,7 @@ if not torch.cuda.is_available():
 # __ADAPTER__
 
 TOKEN = os.environ["LA_STUDIO_COLAB_TRANSLATION_TOKEN"]
-WORKER_REVISION = "translation-2026-07-30.1"
+WORKER_REVISION = "translation-2026-07-30.2"
 RESPONSE_CONTRACT = "translation-patches-v2"
 MAX_TRANSLATION_SEGMENTS = 128
 MAX_TRANSLATION_CHARS = 50000
@@ -200,10 +200,34 @@ def translate_exact(texts: list[str], source: str, target: str) -> list[str]:
         target_id = TOKENIZER.get_lang_id(target)
     except KeyError as error:
         raise HTTPException(status_code=422, detail=f"unsupported M2M100 language pair: {source} -> {target}") from error
-    inputs = TOKENIZER(texts, return_tensors="pt", padding=True, truncation=True, max_length=512).to("cuda")
-    with torch.inference_mode():
-        output = MODEL.generate(**inputs, forced_bos_token_id=target_id, max_new_tokens=512)
-    return TOKENIZER.batch_decode(output, skip_special_tokens=True)
+    def generate(batch: list[str], **generation_options: object) -> list[str]:
+        inputs = TOKENIZER(batch, return_tensors="pt", padding=True, truncation=True, max_length=512).to("cuda")
+        with torch.inference_mode():
+            output = MODEL.generate(
+                **inputs,
+                forced_bos_token_id=target_id,
+                max_new_tokens=512,
+                **generation_options,
+            )
+        return TOKENIZER.batch_decode(output, skip_special_tokens=True)
+
+    translated = generate(texts)
+    # Greedy decoding can terminate at EOS immediately for a noisy but valid
+    # ASR segment. Retry only those blanks with the same pinned M2M checkpoint
+    # and a deterministic beam search; this is not a source-text fallback.
+    for index, value in enumerate(translated):
+        if isinstance(value, str) and value.strip():
+            continue
+        retry_text = " ".join(texts[index].split())
+        retry = generate(
+            [retry_text],
+            num_beams=4,
+            min_new_tokens=1,
+            early_stopping=True,
+            repetition_penalty=1.05,
+        )
+        translated[index] = retry[0] if retry else ""
+    return translated
 '''
 
 

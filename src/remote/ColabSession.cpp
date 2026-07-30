@@ -23,6 +23,15 @@ QString requiredResponseContract(const QString &capability)
     return {};
 }
 
+QString requiredWorkerRevision(const QString &capability)
+{
+    // v2 adds deterministic retries for empty M2M output. A v1 worker passes
+    // the patch contract but will reproduce the old HTTP 503 failure.
+    if (capability == QStringLiteral("translation"))
+        return QStringLiteral("translation-2026-07-30.2");
+    return {};
+}
+
 } // namespace
 
 ColabSession::ColabSession(QObject *parent)
@@ -345,6 +354,15 @@ void ColabSession::handleVerificationReply(QNetworkReply *reply,
                              generation);
             return;
         }
+        const QString expectedRevision = requiredWorkerRevision(m_expectedCapability);
+        const QString reportedRevision = root.value(QStringLiteral("worker_revision"))
+                                             .toString().trimmed();
+        if (!expectedRevision.isEmpty() && reportedRevision != expectedRevision) {
+            failVerification(QStringLiteral(
+                "The selected Translation notebook is outdated. Open the current exact-model notebook, "
+                "run all cells again, then use Check Colab."), generation);
+            return;
+        }
         const QString reportedModel = root.value(QStringLiteral("model")).toString()
                                           .trimmed().toLower();
         if (!m_expectedModel.isEmpty() && reportedModel != m_expectedModel) {
@@ -376,6 +394,15 @@ void ColabSession::handleVerificationReply(QNetworkReply *reply,
         failVerification(QStringLiteral(
             "Colab capability catalog did not confirm a CUDA device"),
                          generation);
+        return;
+    }
+    const QString expectedRevision = requiredWorkerRevision(m_expectedCapability);
+    const QString reportedRevision = root.value(QStringLiteral("worker_revision"))
+                                         .toString().trimmed();
+    if (!expectedRevision.isEmpty() && reportedRevision != expectedRevision) {
+        failVerification(QStringLiteral(
+            "The selected Translation notebook is outdated. Open the current exact-model notebook, "
+            "run all cells again, then use Check Colab."), generation);
         return;
     }
 

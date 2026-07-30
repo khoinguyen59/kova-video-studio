@@ -25,13 +25,15 @@ namespace {
 class TranslationWorkerMock final : public QObject
 {
 public:
-    explicit TranslationWorkerMock(bool holdResponse = false, QByteArray responseBody = {})
-        : m_holdResponse(holdResponse), m_responseBody(std::move(responseBody))
+    explicit TranslationWorkerMock(bool holdResponse = false, QByteArray responseBody = {},
+                                   bool mirrorRequestSegments = false)
+        : m_holdResponse(holdResponse), m_responseBody(std::move(responseBody)),
+          m_mirrorRequestSegments(mirrorRequestSegments)
     {
         connect(&m_server, &QTcpServer::newConnection, this, [this] {
             while (QTcpSocket *socket = m_server.nextPendingConnection()) {
                 m_socket = socket;
-                connect(socket, &QTcpSocket::readyRead, this, [this] { consume(); });
+                connect(socket, &QTcpSocket::readyRead, this, [this, socket] { consume(socket); });
             }
         });
     }
@@ -39,12 +41,13 @@ public:
     bool start() { return m_server.listen(QHostAddress::LocalHost); }
     QString baseUrl() const { return QStringLiteral("http://127.0.0.1:%1").arg(m_server.serverPort()); }
     QByteArray request() const { return m_request; }
+    QList<QByteArray> requests() const { return m_requests; }
 
 private:
-    void consume()
+    void consume(QTcpSocket *socket)
     {
-        if (!m_socket) return;
-        m_pending += m_socket->readAll();
+        if (!socket) return;
+        m_pending += socket->readAll();
         const int headerEnd = m_pending.indexOf("\r\n\r\n");
         if (headerEnd < 0) return;
         const auto match = QRegularExpression(QStringLiteral("Content-Length: (\\d+)"),
@@ -54,24 +57,42 @@ private:
         const int requestLength = headerEnd + 4 + match.captured(1).toInt();
         if (m_pending.size() < requestLength) return;
         m_request = m_pending.left(requestLength);
+        m_requests.append(m_request);
+        m_pending.remove(0, requestLength);
         if (m_holdResponse) {
-            m_socket->write(QByteArrayLiteral("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: keep-alive\r\n\r\n"));
+            socket->write(QByteArrayLiteral("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: keep-alive\r\n\r\n"));
             return;
         }
-        const QByteArray body = m_responseBody.isEmpty()
+        QByteArray body = m_responseBody.isEmpty()
             ? QByteArrayLiteral("{\"patches\":[{\"id\":\"segment-1\",\"targetText\":\"Xin chao\",\"state\":\"translated\"}]}")
             : m_responseBody;
-        m_socket->write(QByteArrayLiteral("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ")
+        if (m_mirrorRequestSegments) {
+            const QByteArray payload = m_request.mid(headerEnd + 4);
+            const QJsonArray segments = QJsonDocument::fromJson(payload).object()
+                                           .value(QStringLiteral("segments")).toArray();
+            QJsonArray patches;
+            for (const QJsonValue &value : segments) {
+                const QString id = value.toObject().value(QStringLiteral("id")).toString();
+                patches.append(QJsonObject{{QStringLiteral("id"), id},
+                                           {QStringLiteral("targetText"), QStringLiteral("Translated %1").arg(id)},
+                                           {QStringLiteral("state"), QStringLiteral("translated")}});
+            }
+            body = QJsonDocument(QJsonObject{{QStringLiteral("patches"), patches}})
+                       .toJson(QJsonDocument::Compact);
+        }
+        socket->write(QByteArrayLiteral("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ")
                         + QByteArray::number(body.size()) + QByteArrayLiteral("\r\nConnection: close\r\n\r\n") + body);
-        m_socket->disconnectFromHost();
+        socket->disconnectFromHost();
     }
 
     QTcpServer m_server;
     QPointer<QTcpSocket> m_socket;
     QByteArray m_pending;
     QByteArray m_request;
+    QList<QByteArray> m_requests;
     bool m_holdResponse = false;
     QByteArray m_responseBody;
+    bool m_mirrorRequestSegments = false;
 };
 
 } // namespace
@@ -113,6 +134,55 @@ void TestColabTranslationRunner::postsBatchToDirectWorkerOnly()
     QVERIFY(sent.contains("\"target_language\":\"vi\""));
     QVERIFY(sent.contains("\"sourceText\":\"Hello\""));
     QVERIFY(!sent.contains("gateway"));
+    thread.quit();
+    QVERIFY(thread.wait(5000));
+}
+
+void TestColabTranslationRunner::progressReflectsCompletedSegments()
+{
+    TranslationWorkerMock worker(false, {}, true);
+    QVERIFY(worker.start());
+    qRegisterMetaType<TranslationInferenceRequest>("TranslationInferenceRequest");
+    QThread thread;
+    auto *runner = new ColabTranslationRunner;
+    runner->moveToThread(&thread);
+    connect(&thread, &QThread::finished, runner, &QObject::deleteLater);
+    thread.start();
+    QSignalSpy finished(runner, &ColabTranslationRunner::finished);
+    QSignalSpy progress(runner, &ColabTranslationRunner::progress);
+    QSignalSpy failures(runner, &ColabTranslationRunner::failed);
+
+    TranslationInferenceRequest request;
+    request.segments = {
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("segment-1")}, {QStringLiteral("sourceText"), QStringLiteral("One")}},
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("segment-2")}, {QStringLiteral("sourceText"), QStringLiteral("Two")}},
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("segment-3")}, {QStringLiteral("sourceText"), QStringLiteral("Three")}},
+    };
+    request.sourceLanguage = QStringLiteral("en");
+    request.targetLanguage = QStringLiteral("vi");
+    QVERIFY(QMetaObject::invokeMethod(runner, "translate", Qt::QueuedConnection,
+                                      Q_ARG(QUrl, QUrl(worker.baseUrl())),
+                                      Q_ARG(QString, QStringLiteral("progress-token")),
+                                      Q_ARG(QString, QStringLiteral("m2m100-418m")),
+                                      Q_ARG(TranslationInferenceRequest, request), Q_ARG(bool, true)));
+
+    QVERIFY2(finished.wait(5000), "Segmented Colab translation did not finish.");
+    QCOMPARE(failures.count(), 0);
+    QCOMPARE(finished.takeFirst().at(0).toList().size(), 3);
+    const QList<int> expectedProgress{0, 33, 66, 100};
+    QList<int> reportedProgress;
+    for (const QList<QVariant> &signal : progress)
+        reportedProgress.append(signal.at(0).toInt());
+    QCOMPARE(reportedProgress, expectedProgress);
+    const QList<QByteArray> sent = worker.requests();
+    QCOMPARE(sent.size(), 3);
+    for (int index = 0; index < sent.size(); ++index) {
+        const QByteArray expectedId = QByteArrayLiteral("\"id\":\"segment-")
+            + QByteArray::number(index + 1) + QByteArrayLiteral("\"");
+        QVERIFY(sent.at(index).contains(expectedId));
+        QVERIFY(!sent.at(index).contains(QByteArrayLiteral("\"id\":\"segment-")
+                                         + QByteArray::number((index + 1) % 3 + 1) + QByteArrayLiteral("\"")));
+    }
     thread.quit();
     QVERIFY(thread.wait(5000));
 }
@@ -217,8 +287,13 @@ void TestColabTranslationRunner::languageNotebookMatchesDirectTranslationContrac
         QVERIFY(source.contains(QStringLiteral("LA_STUDIO_COLAB_TRANSLATION_TOKEN")));
         QVERIFY(source.contains(QStringLiteral("cloudflared")));
         QVERIFY(source.contains(QStringLiteral("translation-patches-v2")));
+        QVERIFY(source.contains(QStringLiteral("translation-2026-07-30.2")));
         QVERIFY(source.contains(QStringLiteral("make_translation_patches")));
         QVERIFY(source.contains(QStringLiteral("NONLEXICAL_UTTERANCES")));
+        if (model == QStringLiteral("m2m100-418m")) {
+            QVERIFY(source.contains(QStringLiteral("num_beams=4")));
+            QVERIFY(source.contains(QStringLiteral("min_new_tokens=1")));
+        }
         QVERIFY(!source.contains(QStringLiteral("API_GATEWAY")));
     }
     QVERIFY(controller.notebookForColabModel(QStringLiteral("unknown-translation")).isEmpty());

@@ -255,11 +255,11 @@ void TestRemoteExecution::temporaryColabWorkerVerifiesCudaCapabilityAndExactMode
 void TestRemoteExecution::staleTranslationPatchContractIsRejected()
 {
     const QByteArray health = QByteArrayLiteral(
-        R"({"status":"ready","ready":true,"device":"cuda","model":"m2m100-418m","cpu_fallback":false})");
+        R"({"status":"ready","ready":true,"device":"cuda","model":"m2m100-418m","worker_revision":"translation-2026-07-30.2","cpu_fallback":false})");
     CatalogMock stale({
         health,
         QByteArrayLiteral(
-            R"({"contract_version":1,"device":"cuda","capabilities":[{"id":"translation","models":[{"id":"m2m100-418m","device":"cuda","loaded":true}]}]})"),
+            R"({"contract_version":1,"device":"cuda","worker_revision":"translation-2026-07-30.2","capabilities":[{"id":"translation","models":[{"id":"m2m100-418m","device":"cuda","loaded":true}]}]})"),
     });
     QVERIFY(stale.start());
     ColabSession staleSession;
@@ -276,7 +276,7 @@ void TestRemoteExecution::staleTranslationPatchContractIsRejected()
     CatalogMock current({
         health,
         QByteArrayLiteral(
-            R"({"contract_version":1,"device":"cuda","capabilities":[{"id":"translation","models":[{"id":"m2m100-418m","device":"cuda","loaded":true,"response_contract":"translation-patches-v2"}]}]})"),
+            R"({"contract_version":1,"device":"cuda","worker_revision":"translation-2026-07-30.2","capabilities":[{"id":"translation","models":[{"id":"m2m100-418m","device":"cuda","loaded":true,"response_contract":"translation-patches-v2"}]}]})"),
     });
     QVERIFY(current.start());
     ColabSession currentSession;
