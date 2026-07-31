@@ -1,4 +1,53 @@
-# CURRENT AUTHORITATIVE RESPONSE -- Saved voice-clone reuse closure (2026-07-31)
+# CURRENT AUTHORITATIVE RESPONSE -- Direct Dubbing Colab voice-clone closure (2026-07-31)
+
+**Request executed:** the current `AI_AGENT_REQUEST.md` Direct-Colab Dubbing voice-clone regression, source fix, verification, commit/push to `main`, and portable internal packaging. Work stayed in LA-STUDIO. No GUI/EXE/browser control, no live Colab GPU worker, no model download, and no external credential was used.
+
+## Root cause and product fix
+
+The prior controller-level loopback coverage did not exercise `DubbingSynthesisJob` itself. Its direct-Colab clone request omitted the existing explicit **loopback-only test-session flag**. Consequently, the real job path rejected the test HTTP loopback URL before it could prove profile creation/reuse/cancellation. This was a testability gap, not permission to weaken production transport security.
+
+- `src/controllers/dubbing/DubbingSynthesisJob.cpp` now carries `ColabSession::allowsInsecureLocalhostForTests()` into `ColabVoiceCloneRequest`.
+- The flag can only be set by the existing non-production `ColabSession::setSession(..., true)` test seam. Normal user sessions still require a verified HTTPS worker endpoint; no production HTTP fallback was added.
+- `TestDubbingProject::dubbingDirectColabVoiceCloneReusesProfileAcrossSegments` drives the actual `DubbingSynthesisJob` against a local HTTP worker protocol loopback, including profile creation/polling, generation/polling/audio, an exact-model change, an in-flight session change, cancellation, and recovery.
+- Version source is `0.0.2.4`.
+
+## Direct loopback evidence
+
+| Scenario | Result | Evidence from the job's actual worker requests |
+| --- | --- | --- |
+| Two segments with the same selected reference voice | PASS | 1 profile creation and 2 generation requests. Both generations send `profile-1`, `model=omnivoice`, `language=vi`; the profile request carries the exact owned transcript. |
+| Segment snapshot integrity | PASS | Both completed segments retain selected preset ID, the app-owned absolute reference path, and exact reference transcript. |
+| Exact clone-model change | PASS | Switching `omnivoice` to `voxcpm2` creates profile 2 instead of reusing profile 1. |
+| Worker session changes while a generation is pending | PASS | The active job emits the explicit session-changed failure, cancels its remote work, and does not continue on the old profile. |
+| Recovery after reconnect | PASS | A subsequent job creates fresh profile 3; final counts are 3 profile creations, with no stale-profile reuse. |
+| API Gateway interaction | Independent | This test and the Dubbing clone path use verified Direct Colab only. Gateway is neither called nor used as fallback. |
+| Live Colab GPU result and subjective voice quality | BLOCKED | No temporary live worker/token/GPU acceptance was supplied or controlled. Loopback protocol success is not represented as live-GPU acceptance. |
+
+## Verification completed
+
+```powershell
+ctest --test-dir out\build\windows-msvc-tests -R '^(TestDubbingProject|TestColabVoiceCloneRunner)$' --output-on-failure
+ctest --test-dir out\build\windows-msvc-tests --output-on-failure
+& .\graphify\.venv\Scripts\graphify.exe update .
+.\scripts\package.ps1 -SkipInstaller -PortableInternalLayout -Version 0.0.2.4 -MaxParallelJobs 1 -QtRoot .tools\Qt\6.9.3 -VcpkgRoot .deps\vcpkg -LlamaCppSourceDir .deps\llama.cpp -AllowUnsignedEspeakForInternalBuild
+```
+
+- Direct Dubbing + clone-runner suites: **PASS (2/2)**.
+- Full CTest: **PASS (35/35)**.
+- Graphify incremental update completed after source changes (its generated files intentionally remain uncommitted).
+- Portable package static verification: `FileVersion=0.0.2.4`, `ProductVersion=0.0.2.4`, `ProductName=LA Studio`, runtime manifest **16/16**, license manifest **16/16**.
+
+## Source, push, and package
+
+- Product/test/version commit on `main`: `0a40fbe` — `fix: cover direct dubbing voice clone profile reuse`.
+- Push: **PASS** to `origin/main` (`ac3eaaa..0a40fbe`).
+- Portable internal executable: `out\LA-Studio-0.0.2.4\LA-Studio-0.0.2.4.exe`.
+- SHA-256: `237C2534D5B5540A4F4A4C218DE480B0378D4BA958403249C76ACA02A12A8666`.
+- Package remains internal-only because the verified eSpeak MSI used for this internal build is unsigned. The EXE was not launched or controlled.
+
+---
+
+# Previous authoritative response -- Saved voice-clone reuse closure (2026-07-31)
 
 **Request executed:** current `AI_AGENT_REQUEST.md` saved voice-clone reuse validation. Work stayed in LA-STUDIO. No GUI/EXE/browser control, no live Colab GPU worker, no model download, and no external credential was used.
 
