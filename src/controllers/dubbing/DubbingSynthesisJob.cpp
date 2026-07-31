@@ -606,6 +606,10 @@ void DubbingSynthesisJob::startColabVoiceClone(const QString &text,
     request.steps = qBound(1, requestSettings.value(QStringLiteral("voiceCloneSteps"), 32).toInt(), 100);
     request.consentConfirmed = true;
     request.existingProfileId = m_colabVoiceProfileId;
+    // Production sessions never allow HTTP. Carry the existing explicit
+    // loopback-only test-session flag so this Direct-Colab job path can be
+    // exercised end-to-end without relaxing production endpoint validation.
+    request.allowInsecureLocalhost = m_colabVoiceCloneSession->allowsInsecureLocalhostForTests();
     request.cancellation = InferenceCancellationToken(m_remoteCancellation);
     QMetaObject::invokeMethod(m_colabVoiceCloneRunner, "clone", Qt::QueuedConnection,
                               Q_ARG(ColabVoiceCloneRequest, request));

@@ -60,6 +60,7 @@ private slots:
     void remoteTranslationRoutesDoNotFallbackBetweenGatewayAndColab();
     void remoteTtsRoutesDoNotFallbackBetweenGatewayAndColab();
     void colabDubbingVoiceCloningIsDirectAndRequiresConsent();
+    void dubbingDirectColabVoiceCloneReusesProfileAcrossSegments();
     void colabSourceSeparationDoesNotFallbackToLocal();
     void unavailableLocalSourceSeparationDoesNotUseOriginalAudio();
     void failedSeparationBackendDoesNotUseOriginalAudio();

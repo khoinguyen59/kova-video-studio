@@ -33,6 +33,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonDocument>
+#include <QRegularExpression>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTemporaryDir>
@@ -40,6 +41,7 @@
 #include <QtTest>
 
 #include <algorithm>
+#include <cstring>
 
 namespace LAStudio {
 
@@ -187,6 +189,148 @@ private:
     QHash<QTcpSocket *, QByteArray> m_pending;
     QString m_capability;
     QString m_model;
+};
+
+QByteArray loopbackVoiceWav()
+{
+    constexpr quint32 frameCount = 24000;
+    constexpr quint32 dataSize = frameCount * sizeof(qint16);
+    QByteArray wav(static_cast<int>(44 + dataSize), '\0');
+    std::memcpy(wav.data(), "RIFF", 4);
+    const quint32 fileSize = 36 + dataSize;
+    std::memcpy(wav.data() + 4, &fileSize, sizeof(fileSize));
+    std::memcpy(wav.data() + 8, "WAVEfmt ", 8);
+    const quint32 fmtSize = 16;
+    const quint16 format = 1;
+    const quint16 channels = 1;
+    const quint32 sampleRate = 24000;
+    const quint32 byteRate = sampleRate * sizeof(qint16);
+    const quint16 blockAlign = sizeof(qint16);
+    const quint16 bits = 16;
+    std::memcpy(wav.data() + 16, &fmtSize, sizeof(fmtSize));
+    std::memcpy(wav.data() + 20, &format, sizeof(format));
+    std::memcpy(wav.data() + 22, &channels, sizeof(channels));
+    std::memcpy(wav.data() + 24, &sampleRate, sizeof(sampleRate));
+    std::memcpy(wav.data() + 28, &byteRate, sizeof(byteRate));
+    std::memcpy(wav.data() + 32, &blockAlign, sizeof(blockAlign));
+    std::memcpy(wav.data() + 34, &bits, sizeof(bits));
+    std::memcpy(wav.data() + 36, "data", 4);
+    std::memcpy(wav.data() + 40, &dataSize, sizeof(dataSize));
+    return wav;
+}
+
+class DubbingVoiceCloneWorkerMock final : public QObject
+{
+public:
+    DubbingVoiceCloneWorkerMock()
+    {
+        connect(&m_server, &QTcpServer::newConnection, this, [this] {
+            while (QTcpSocket *socket = m_server.nextPendingConnection()) {
+                connect(socket, &QTcpSocket::readyRead, this, [this, socket] { consume(socket); });
+                connect(socket, &QTcpSocket::disconnected, this, [this, socket] {
+                    m_pending.remove(socket);
+                    socket->deleteLater();
+                });
+            }
+        });
+    }
+
+    ~DubbingVoiceCloneWorkerMock() override
+    {
+        const auto sockets = m_pending.keys();
+        for (QTcpSocket *socket : sockets) {
+            QObject::disconnect(socket, nullptr, this, nullptr);
+            socket->abort();
+            delete socket;
+        }
+        m_pending.clear();
+        m_server.close();
+    }
+
+    bool start() { return m_server.listen(QHostAddress::LocalHost); }
+    QString workerUrl() const
+    {
+        return QStringLiteral("http://127.0.0.1:%1").arg(m_server.serverPort());
+    }
+    int profileCreations() const { return m_profileCreations; }
+    int generationCreations() const { return m_generationCreations; }
+    QList<QByteArray> profileRequests() const { return m_profileRequests; }
+    QList<QByteArray> generationRequests() const { return m_generationRequests; }
+    void setHoldGeneration(bool hold) { m_holdGeneration = hold; }
+
+private:
+    static QByteArray jsonResponse(int status, const QByteArray &body)
+    {
+        return QByteArrayLiteral("HTTP/1.1 ") + QByteArray::number(status)
+            + QByteArrayLiteral(" OK\r\nContent-Type: application/json\r\nContent-Length: ")
+            + QByteArray::number(body.size()) + QByteArrayLiteral("\r\nConnection: close\r\n\r\n") + body;
+    }
+
+    void respond(QTcpSocket *socket, const QByteArray &request)
+    {
+        const QByteArray firstLine = request.left(request.indexOf("\r\n"));
+        QByteArray response;
+        if (firstLine.startsWith("POST /v2/jobs/profile ")) {
+            ++m_profileCreations;
+            m_profileRequests.append(request);
+            response = jsonResponse(202, QByteArrayLiteral("{\"id\":\"profile-job-")
+                                             + QByteArray::number(m_profileCreations)
+                                             + QByteArrayLiteral("\",\"status\":\"queued\",\"percent\":0}"));
+        } else if (firstLine.startsWith("GET /v2/jobs/profile-job-")) {
+            const QByteArray id = firstLine.mid(QByteArrayLiteral("GET /v2/jobs/profile-job-").size())
+                                      .split(' ').constFirst();
+            response = jsonResponse(200, QByteArrayLiteral("{\"status\":\"succeeded\",\"percent\":100,\"result\":{\"id\":\"profile-")
+                                             + id + QByteArrayLiteral("\"}}"));
+        } else if (firstLine.startsWith("POST /v2/jobs/generation ")) {
+            ++m_generationCreations;
+            m_generationRequests.append(request);
+            response = jsonResponse(202, QByteArrayLiteral("{\"id\":\"generation-job-")
+                                             + QByteArray::number(m_generationCreations)
+                                             + QByteArrayLiteral("\",\"status\":\"queued\",\"percent\":0}"));
+        } else if (firstLine.startsWith("GET /v2/jobs/generation-job-")
+                   && firstLine.endsWith("/audio HTTP/1.1")) {
+            const QByteArray wav = loopbackVoiceWav();
+            response = QByteArrayLiteral("HTTP/1.1 200 OK\r\nContent-Type: audio/wav\r\nContent-Length: ")
+                + QByteArray::number(wav.size()) + QByteArrayLiteral("\r\nConnection: close\r\n\r\n") + wav;
+        } else if (firstLine.startsWith("GET /v2/jobs/generation-job-")) {
+            const QByteArray status = m_holdGeneration ? QByteArrayLiteral("queued")
+                                                        : QByteArrayLiteral("succeeded");
+            response = jsonResponse(200, QByteArrayLiteral("{\"status\":\"") + status
+                                             + QByteArrayLiteral("\",\"percent\":50}"));
+        } else if (firstLine.startsWith("DELETE /v2/jobs/") || firstLine.startsWith("DELETE /v1/profiles/")) {
+            response = jsonResponse(200, QByteArrayLiteral("{\"cancelled\":true}"));
+        } else {
+            response = jsonResponse(404, QByteArrayLiteral("{\"detail\":\"Unexpected request\"}"));
+        }
+        socket->write(response);
+        socket->disconnectFromHost();
+    }
+
+    void consume(QTcpSocket *socket)
+    {
+        QByteArray &pending = m_pending[socket];
+        pending += socket->readAll();
+        const int headerEnd = pending.indexOf("\r\n\r\n");
+        if (headerEnd < 0) return;
+        const QRegularExpression lengthPattern(QStringLiteral("Content-Length: (\\d+)"),
+                                               QRegularExpression::CaseInsensitiveOption);
+        const QRegularExpressionMatch match = lengthPattern.match(
+            QString::fromLatin1(pending.left(headerEnd)));
+        const int bodyLength = match.hasMatch() ? match.captured(1).toInt() : 0;
+        const int requestLength = headerEnd + 4 + bodyLength;
+        if (pending.size() < requestLength) return;
+        const QByteArray request = pending.left(requestLength);
+        pending.remove(0, requestLength);
+        respond(socket, request);
+    }
+
+    QTcpServer m_server;
+    QHash<QTcpSocket *, QByteArray> m_pending;
+    int m_profileCreations = 0;
+    int m_generationCreations = 0;
+    bool m_holdGeneration = false;
+    QList<QByteArray> m_profileRequests;
+    QList<QByteArray> m_generationRequests;
 };
 
 class ColabSessionReset final
@@ -867,6 +1011,114 @@ void TestDubbingProject::colabSourceSeparationDoesNotFallbackToLocal()
     QVERIFY(!runner.processing());
     QCOMPARE(runner.lastError(),
              QStringLiteral("Connect a Colab GPU worker before running this Voice Isolation node."));
+}
+
+void TestDubbingProject::dubbingDirectColabVoiceCloneReusesProfileAcrossSegments()
+{
+    DubbingVoiceCloneWorkerMock worker;
+    QVERIFY(worker.start());
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString referencePath = dir.filePath(QStringLiteral("owned-reference.wav"));
+    QVector<float> referenceSamples(24000 * 3, 0.05F);
+    QVERIFY(WavIO::saveFloat(referencePath, referenceSamples.constData(), referenceSamples.size(), 24000));
+
+    const QVariantList segments{
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("segment-1")},
+                    {QStringLiteral("speakerId"), QStringLiteral("speaker-a")},
+                    {QStringLiteral("startMs"), 0}, {QStringLiteral("endMs"), 1000},
+                    {QStringLiteral("targetText"), QStringLiteral("First dubbed segment")}},
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("segment-2")},
+                    {QStringLiteral("speakerId"), QStringLiteral("speaker-b")},
+                    {QStringLiteral("startMs"), 1000}, {QStringLiteral("endMs"), 2000},
+                    {QStringLiteral("targetText"), QStringLiteral("Second dubbed segment")}}
+    };
+    const auto settings = [&referencePath](const QString &presetId, const QString &cloneModel) {
+        return QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+                           {QStringLiteral("modelId"), QStringLiteral("kokoro")},
+                           {QStringLiteral("lang"), QStringLiteral("vi")},
+                           {QStringLiteral("voiceCloningEnabled"), true},
+                           {QStringLiteral("voiceCloneConsentConfirmed"), true},
+                           {QStringLiteral("voiceCloneModelId"), cloneModel},
+                           {QStringLiteral("cloneVoicePreset"),
+                            QVariantMap{{QStringLiteral("id"), presetId},
+                                        {QStringLiteral("name"), QStringLiteral("Owned saved voice")},
+                                        {QStringLiteral("familyId"), cloneModel},
+                                        {QStringLiteral("audioPath"), referencePath},
+                                        {QStringLiteral("referenceText"), QStringLiteral("Exact owned transcript")}}}};
+    };
+
+    ColabSession session;
+    QString error;
+    QVERIFY(session.setSession(worker.workerUrl(), QStringLiteral("loopback-token"), &error, true));
+    DubbingSynthesisJob job(nullptr);
+    job.setRemoteServices(nullptr, nullptr, &session);
+    QSignalSpy completed(&job, &DubbingSynthesisJob::completed);
+    QSignalSpy failures(&job, &DubbingSynthesisJob::failed);
+    const QString projectPath = dir.filePath(QStringLiteral("project.ladub.json"));
+
+    QVERIFY(job.start(segments, projectPath, settings(QStringLiteral("preset-a"), QStringLiteral("omnivoice")),
+                       QStringLiteral("first-run")));
+    QTRY_COMPARE_WITH_TIMEOUT(completed.count(), 1, 10000);
+    QCOMPARE(failures.count(), 0);
+    QCOMPARE(worker.profileCreations(), 1);
+    QCOMPARE(worker.generationCreations(), 2);
+    QCOMPARE(worker.profileRequests().size(), 1);
+    QVERIFY(worker.profileRequests().constFirst().contains("omnivoice"));
+    QVERIFY(worker.profileRequests().constFirst().contains("Exact owned transcript"));
+    QCOMPARE(worker.generationRequests().size(), 2);
+    for (const QByteArray &request : worker.generationRequests()) {
+        QVERIFY(request.contains("\"profile_id\":\"profile-1\""));
+        QVERIFY(request.contains("\"language\":\"vi\""));
+        QVERIFY(request.contains("\"model\":\"omnivoice\""));
+    }
+    const QVariantList firstResult = completed.constFirst().constFirst().toList();
+    QCOMPARE(firstResult.size(), 2);
+    for (const QVariant &entry : firstResult) {
+        const QVariantMap segment = entry.toMap();
+        QCOMPARE(segment.value(QStringLiteral("cloneVoicePresetId")).toString(), QStringLiteral("preset-a"));
+        QCOMPARE(segment.value(QStringLiteral("voiceReferencePath")).toString(),
+                 QFileInfo(referencePath).absoluteFilePath());
+        QCOMPARE(segment.value(QStringLiteral("voiceReferenceText")).toString(),
+                 QStringLiteral("Exact owned transcript"));
+    }
+
+    // Exact model changes are not compatible with an in-memory worker profile.
+    QVERIFY(job.start(segments, projectPath, settings(QStringLiteral("preset-a"), QStringLiteral("voxcpm2")),
+                       QStringLiteral("model-change")));
+    QTRY_COMPARE_WITH_TIMEOUT(completed.count(), 2, 10000);
+    QCOMPARE(worker.profileCreations(), 2);
+    QCOMPARE(worker.generationCreations(), 4);
+    QVERIFY(worker.profileRequests().constLast().contains("voxcpm2"));
+
+    // A changed worker session during a job must fail/cancel rather than use
+    // the old profile. Re-running after reconnect creates a fresh profile.
+    worker.setHoldGeneration(true);
+    QVERIFY(job.start(segments, projectPath, settings(QStringLiteral("preset-a"), QStringLiteral("voxcpm2")),
+                       QStringLiteral("session-change")));
+    QTRY_COMPARE_WITH_TIMEOUT(worker.generationCreations(), 5, 5000);
+    QVERIFY(session.setSession(worker.workerUrl(), QStringLiteral("loopback-token-reconnected"), &error, true));
+    QTRY_COMPARE_WITH_TIMEOUT(failures.count(), 1, 5000);
+    QVERIFY(failures.constFirst().at(0).toString().contains(
+        QStringLiteral("worker session changed while voice cloning")));
+    worker.setHoldGeneration(false);
+    // The runner is synchronous on its own thread. Let the cancelled remote
+    // request observe its token and drain before queueing the next run; this
+    // mirrors the UI's terminal-error boundary rather than racing an abort
+    // against a newly queued request on the same worker object.
+    QTest::qWait(600);
+    QVERIFY(job.start(segments, projectPath, settings(QStringLiteral("preset-a"), QStringLiteral("voxcpm2")),
+                       QStringLiteral("after-reconnect")));
+    QTRY_VERIFY_WITH_TIMEOUT(completed.count() == 3 || failures.count() > 1 || !job.running(), 10000);
+    QVERIFY2(completed.count() == 3,
+             qPrintable(QStringLiteral("recovery completed=%1 failures=%2 profiles=%3 generations=%4 running=%5 lastError=%6")
+                            .arg(completed.count()).arg(failures.count())
+                            .arg(worker.profileCreations()).arg(worker.generationCreations())
+                            .arg(job.running())
+                            .arg(failures.size() > 1 ? failures.constLast().at(0).toString()
+                                                     : QStringLiteral("<none>"))));
+    QCOMPARE(worker.profileCreations(), 3);
+    QCOMPARE(failures.count(), 1);
 }
 
 void TestDubbingProject::unavailableLocalSourceSeparationDoesNotUseOriginalAudio()
