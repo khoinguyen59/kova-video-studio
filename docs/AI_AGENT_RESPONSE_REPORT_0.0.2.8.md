@@ -12,9 +12,12 @@ A–G không bị bỏ qua. Chúng đã có baseline source 0.0.2.7 (`7bb6b0b`) 
 khác nhãn nhưng cùng hành vi; đã sửa và thêm regression trong `e56cc77`.
 
 H–M đã được tích hợp trực tiếp trên `main`; regression timing được bổ sung thêm
-trong `6c0603c`. Full CTest ở source version 0.0.2.8: **38/38 PASS, 0 FAIL,
-0 SKIP**. Package là **internal candidate**, không phải GUI/live-service/CapCut
-acceptance hoàn tất: các mục manual ở cuối báo cáo vẫn cần người dùng xác nhận.
+trong `6c0603c`. Sau khi đối chiếu lại yêu cầu, `b78cd7f` bổ sung regression
+thực thi đủ ba route transcript ở `DubbingJobRunner`, thay vì chỉ kiểm thuật
+toán fusion riêng lẻ. Full CTest ở source version 0.0.2.8: **38/38 PASS, 0
+FAIL, 0 SKIP**. Package là **internal candidate**, không phải
+GUI/live-service/CapCut acceptance hoàn tất: các mục manual ở cuối báo cáo vẫn
+cần người dùng xác nhận.
 
 ## Commit và package
 
@@ -28,6 +31,7 @@ acceptance hoàn tất: các mục manual ở cuối báo cáo vẫn cần ngư�
 | M — editable CapCut draft | `e26130e` |
 | A/E follow-up ROI fix | `e56cc77` |
 | L regression follow-up | `6c0603c` |
+| H/I runner regression follow-up | `b78cd7f` — all three transcript source modes, shared OCR, no-fallback error |
 | Source version commit | `03e7f79` (`LASTUDIO_VERSION=0.0.2.8`) |
 | Stage path | `out/LA-Studio-0.0.2.8/LA-Studio-0.0.2.8.exe` |
 | File/Product/Original version | `0.0.2.8` / `0.0.2.8` / `LA-Studio-0.0.2.8.exe` |
@@ -37,6 +41,36 @@ acceptance hoàn tất: các mục manual ở cuối báo cáo vẫn cần ngư�
 Source, test và version commits đã được push trực tiếp `origin/main`; không
 stage request/handoff, `VoiceLibraryDialog.qml`, Graphify, `.agents/`, `out/`
 hay temporary logs.
+
+## Bổ sung bằng chứng baseline A–G 0.0.2.7
+
+Đây là các thông tin còn thiếu từ report 0.0.2.7, không phải lý do để coi A–G
+là bị bỏ qua.
+
+| Bằng chứng | Giá trị xác minh |
+| --- | --- |
+| Source commit A–G | `7bb6b0b` |
+| Commit report A–G riêng | `6ed1e19badbfd4095e86b5559b2bde6fa7c992c1` (`docs/AI_AGENT_RESPONSE_REPORT.md`) |
+| Regression đối chiếu lại ở 0.0.2.8 | Full CTest 38/38 PASS, 0 FAIL, 0 SKIP, 42.01 s với FFmpeg/FFprobe staged |
+
+Danh sách đầy đủ file thuộc source commit `7bb6b0b`:
+
+```text
+CMakeLists.txt
+qml/Main.qml
+qml/Theme.qml
+qml/components/shared/StudioRouteRegistry.qml
+qml/pages/MediaDownloadPage.qml
+qml/pages/SubtitleOcrPage.qml
+qml/pages/WelcomePage.qml
+src/controllers/subtitles/SubtitleOcrController.cpp
+src/controllers/subtitles/SubtitleOcrController.h
+tests/main.cpp
+tests/test_SubtitleOcrController.cpp
+tests/test_SubtitleOcrController.h
+tests/test_SubtitleOcrRuntimeService.cpp
+tests/test_SubtitleOcrRuntimeService.h
+```
 
 ## Ma trận yêu cầu → source → kiểm chứng
 
@@ -48,8 +82,8 @@ hay temporary logs.
 | E ROI/preview | `SubtitleOcrPage.qml`, `SubtitleOcrController`, `SubtitleOcrPipeline` | `qmlRouteRoiAndManagedRuntimeControlsAreWired`, `keepsLowerRegionPresetSeparateFromFullFrameReset`, `QmlRouteSmoke` | PASS regression. Fix `e56cc77`: lower preset = vùng phụ đề mặc định; reset = full frame, không còn hai nút cùng hành vi. Mapping actual video/HiDPI cần manual. |
 | F Controller/media test + package A–G | `tests/test_SubtitleOcrController.cpp`, `tests/test_MediaIngestService.cpp`, `scripts/package.ps1` | Full CTest 38/38 với staged FFmpeg/FFprobe | PASS source/loopback. Ba media cases được chạy, không còn SKIP. |
 | G Home cards 09/10 | `StudioRouteRegistry.qml`, `WelcomePage.qml`, `Main.qml` | `qmlSmokeHomeCardsCheck`, `responsiveLayoutSharedMediaAndHomeCardsAreWired`, `QmlRouteSmoke` | PASS: 10 cards cùng registry/repeater, card 09 → `media-download`, 10 → `subtitle-ocr`. Visual/click thực tế manual. |
-| H Transcript source STT/OCR/STT+OCR | `DubbingTranscriptionJob`, `DubbingController`, `DubbingPage.qml` | `ocrOnlyTranscriptUsesTheSharedSubtitleOcrController`, `transcriptionRequiresReadyModel`, `TestDubbingProject` | PASS regression: OCR dùng shared controller, mode được persist/gate theo source. Live STT/OCR/Colab còn manual. |
-| I Deterministic transcript fusion | `DubbingTranscriptFusionService`, `DubbingProject` | `normalizesOcrOnlyTranscriptWithProvenance`, `fusesMatchingAndShiftedTranscriptWithoutDuplicates`, `exposesConflictEvidenceWithoutSilentChoice`, `preservesFusionAndTranscriptSettingsAcrossProjectReload`, `reviewerMustResolveFusionConflictExplicitly` | PASS fixture/unit: provenance, multilingual/conflict/review/persistence được kiểm. Không có LLM silent choice. |
+| H Transcript source STT/OCR/STT+OCR | `DubbingJobRunner.cpp`, `DubbingTranscriptionJob.cpp`, `DubbingController.cpp`, `DubbingPage.qml` | `sttOnlyTranscriptDoesNotRequireOcrRuntime`, `ocrOnlyTranscriptUsesTheSharedSubtitleOcrController`, `combinedTranscriptRunsSttAndSharedOcrWithoutFallback`, `combinedTranscriptReportsOcrFailureWithoutSttFallback`, `transcriptionRequiresReadyModel` | PASS runner regression: STT-only hoàn tất dù không inject OCR; OCR-only tái dùng shared controller; combined chạy cả remote-STT contract và OCR controller, fusion thành một segment có 2 provenance; OCR thiếu báo rõ lỗi và dừng, không fallback STT. Live STT/OCR/Colab còn manual. |
+| I Deterministic transcript fusion | `DubbingTranscriptFusionService.cpp`, `DubbingProject.cpp`, `DubbingController.cpp`, `DubbingPage.qml` | `normalizesOcrOnlyTranscriptWithProvenance`, `fusesMatchingAndShiftedTranscriptWithoutDuplicates`, `combinedTranscriptRunsSttAndSharedOcrWithoutFallback`, `exposesConflictEvidenceWithoutSilentChoice`, `preservesFusionAndTranscriptSettingsAcrossProjectReload`, `reviewerMustResolveFusionConflictExplicitly` | PASS fixture + runner: STT giữ trục timing, OCR có thể đóng góp text, không duplicate ở case match/shift; conflict hiện 2 evidence/confidence và bắt reviewer chọn; persistence được kiểm. Không có LLM silent choice. |
 | J Shared video controls | `MediaControlsAutoHide.qml`, `DubbingSourceMediaPanel.qml`, `SubtitleOcrPage.qml` | `qmlSmokeMediaControlsCheck`, `TestSubtitleOcrRuntimeService`, `QmlRouteSmoke` | PASS offscreen: shared 2000 ms behavior, pause/focus/drag guard. Cảm nhận thao tác chuột/keyboard thật manual. |
 | K Dubbing subtitles | `DubbingSubtitleService`, `DubbingProject`, `DubbingSubtitleEditor.qml`, `DubbingSourceMediaPanel.qml` | `importsDubbingSubtitleFormatsWithoutInventingTiming`, `persistsDubbingSubtitleStyleAndExportsUnicodeAss`, `dubbingSubtitleUiWiresImportPreviewAndBurnIn`, `QmlRouteSmoke` | PASS: SRT/VTT/ASS/SSA preserve timing; TXT/MD không bịa timing; Unicode/style/project persistence. Burn-in MP4 thực tế manual. |
 | L Global timing/ripple/undo | `DubbingTimingService`, `DubbingController`, `DubbingVoiceClipReview.qml` | `resolvesGlobalTimingConflictsWithRippleAndUndo`, `dubbingTimingUiWiresPreviewApplyAndUndo`, `QmlRouteSmoke` | PASS: multi-speaker chain, exact boundary + gap, subtitle/word shift, final no blocking conflict, undo, preview/export cache invalidation. Actual generated audio durations still require live workflow manual. |
@@ -61,13 +95,17 @@ hay temporary logs.
 $env:LASTUDIO_FFMPEG = (Resolve-Path out\LA-Studio-0.0.2.7\media-tools\ffmpeg.exe).Path
 $env:LASTUDIO_FFPROBE = (Resolve-Path out\LA-Studio-0.0.2.7\media-tools\ffprobe.exe).Path
 ctest --test-dir out\build\windows-msvc-tests --output-on-failure
-# 38/38 passed, 0 failed, 39.69 s
+# 38/38 passed, 0 failed, 42.01 s
 ```
 
 Test tree được reconfigure với `-DLASTUDIO_VERSION=0.0.2.8` trước full CTest.
 `QmlRouteSmoke` chạy ứng dụng ở `QT_QPA_PLATFORM=offscreen`, thực sự load route
 và resize các trang Dubbing/Subtitle OCR; nó không được dùng để tuyên bố visual
 hoặc packaged-desktop PASS.
+
+`b78cd7f` chỉ thay đổi test harness/regression; không thay đổi executable
+source. Vì vậy package 0.0.2.8 giữ nguyên SHA ở trên và không bị build/ghi đè
+lại chỉ để lấy một EXE khác tên nhưng cùng code runtime.
 
 Package được tạo bằng:
 
