@@ -31,6 +31,7 @@ private slots:
     void cloneVoicePresetSelectionPersistsAndMissingPresetBlocks();
     void changingCloneVoicePresetAppliesToEntireNextRun();
     void voiceClonePresetLibraryPersistsAtomicallyAndProtectsSource();
+    void voiceClonePresetLibraryMigratesLegacyArrayOnEdit();
     void audioMixRunsAsynchronously();
     void audioMixCreatesIndependentVocalStem();
     void commitsMediaExportAtomically();

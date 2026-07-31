@@ -1,4 +1,72 @@
-# CURRENT AUTHORITATIVE RESPONSE -- Direct Colab Dubbing audit and voice-library hardening (2026-07-31)
+# CURRENT AUTHORITATIVE RESPONSE -- Coverage closure regressions (2026-07-31)
+
+**Request executed:** the current `AI_AGENT_REQUEST.md` A–F coverage instruction. Work stayed inside LA-STUDIO: no GUI/browser/CapCut automation, no real account/profile access, no model/runtime download, and no reference repository was modified.
+
+## A. Verification of the preceding evidence
+
+Commit `5a4c84a` was inspected against its implementation and tests. `VoiceClonePresetService` has schema version 1, atomic `QSaveFile` envelope writes, and backward reads for the former top-level array. The earlier selector regression has no local clone/TTS model load and rejects a preset from the wrong exact family. The portable `0.0.2.1` evidence remains valid from the preceding report; this continuation did not rebuild or overwrite it.
+
+## B. Coverage matrix
+
+| Requirement | Source boundary | Concrete regression/evidence | Status |
+| --- | --- | --- | --- |
+| Reference audit: OpenCut/Kova/Voice Studio/pyCapCut reuse decision | This report’s preceding audit; `src/dubbing/CapCutDraftExporter.cpp`, `src/dubbing/media/RemoteMediaImportService.cpp` | Direct read-only audit recorded below; OpenCut rejected as placeholder shell, Kova patterns adapted only, pyCapCut structural-only | PASS |
+| One Dubbing Direct-Colab setup, exact notebook/model, Check all, snapshots, route isolation | `DubbingController.cpp`, `DubbingColabModelRoutes.h`, `DubbingColabSetupDialog.qml` | `TestDubbingProject::dubbingColabModelsMapToExactNotebooks`, `dubbingUiUsesExactModelWorkers`; `TestRemoteExecution` exact CUDA/model/stale/session-isolation cases; `verify_colab_model_bindings.py` 31/31 | PASS at source/loopback level |
+| App-owned voice library: schema, checksum, atomic write, CRUD/reload, no local inference dependency | `VoiceClonePresetService.cpp`, `DubbingController.cpp` | `voiceClonePresetLibraryPersistsAtomicallyAndProtectsSource`, `cloneVoicePresetSelectionPersistsAndMissingPresetBlocks` | PASS |
+| Legacy-array migration to current metadata envelope | `VoiceClonePresetService::loadAllPresets/saveAllPresets` | **New:** `voiceClonePresetLibraryMigratesLegacyArrayOnEdit` writes legacy array, reads valid owned reference, then proves next edit produces schema envelope atomically | PASS |
+| Zero/missing/corrupt/incompatible preset blocks; project keeps ID; run uses a snapshot for every speaker | `DubbingController.cpp`, `DubbingSynthesisJob.cpp`, `DubbingProject.cpp` | `zeroCloneVoicePresetBlocksSynthesisWithoutFallback`, `cloneVoicePresetSelectionPersistsAndMissingPresetBlocks`, `changingCloneVoicePresetAppliesToEntireNextRun`, `audioGenerationUsesSavedCloneVoiceForEverySegment` | PASS |
+| Local/direct-link import, owned staging, Unicode-safe normalization, actual bytes, cancel/size/scheme/error and retain old project | `RemoteMediaImportService.cpp`, `MediaIngestService.cpp`, `DubbingController.cpp` | `TestMediaIngestService` loopback download/progress/cancel/oversize/unsafe URL/controller commit-after-probe cases | PASS |
+| Separation requires vocals **and** accompaniment; no original-audio fallback | `DubbingJobRunner.cpp`, source-separation controller routes | `colabSourceSeparationDoesNotFallbackToLocal`, `unavailableLocalSourceSeparationDoesNotUseOriginalAudio`, `failedSeparationBackendDoesNotUseOriginalAudio`, `incompleteSeparationStemsDoNotCompleteTheNode` | PASS at failure-contract level |
+| Clean vocal can become durable shared preset and reappear after service recreation | `DubbingController.cpp`, `VoiceClonePresetService.cpp`, `DubbingNodeInspector.qml` | `voiceClonePresetLibraryPersistsAtomicallyAndProtectsSource` proves owned reference + recreation; `dubbingUiUsesExactModelWorkers` verifies the shared library surface | PASS at controller/QML-source level |
+| CapCut structural draft: assets, timeline/timebase, video/original/background/mix/voice clips/subtitles, atomic/collision/Unicode/missing/no-secret | `CapCutDraftExporter.cpp` | **Expanded:** `exportsSelfContainedCapCutDraftWithUnverifiedImportStatus` now parses a two-speaker/two-clip video draft, exact 850–1800 ms timing, original/background/mix tracks, Unicode SRT, collision publication, missing-clip rejection, and excludes injected Colab/Gateway secret fields | PASS structurally |
+| Progress/cancel/retry, migration/save/reopen, cache isolation, Gateway/Colab credential isolation | `WorkflowGraphRunner.cpp`, `DubbingController.cpp`, `ColabSession.cpp`, `PathUtils.cpp` | `TestWorkflowGraph::exposesOnlyActiveNodeMeasuredProgress`, media cancellation tests, Dubbing project migrations/save-reopen, `TestFileAccessService`, `TestRemoteExecution` memory-only/stale/wrong-model/independent-route tests | PASS at regression level |
+| Real desktop click-through, real Colab GPU results, real CapCut import and subjective voice quality | External desktop/Colab/CapCut only | Explicitly prohibited for this run; no temporary worker credentials or live CapCut acceptance supplied | BLOCKED (external/manual) |
+
+There are no remaining **MISSING** rows that can be fixed without the prohibited GUI/GPU/external acceptance work.
+
+## C. Coverage gaps corrected
+
+The implementation was not changed: the remaining gaps were missing regression proof, not a product defect.
+
+- `tests/test_DubbingProject.{h,cpp}` adds `voiceClonePresetLibraryMigratesLegacyArrayOnEdit`. It proves compatibility data does not become unreadable at upgrade and that normal editing migrates it to the versioned envelope.
+- The CapCut structural regression now covers the previously untested two-segment timing, original/background/mix/video asset layout, Unicode subtitle timing, missing asset failure, collision-safe output, and export whitelist behavior for injected transient credential fields.
+
+No silent fallback, progress behavior, route, model mapping, package dependency, or external-reference source was altered.
+
+## D. Commands and results
+
+```powershell
+cmake --build out\build\windows-msvc-tests --target LAStudioUnitTests -j 1
+ctest --test-dir out\build\windows-msvc-tests -R '^TestDubbingProject$' --output-on-failure
+ctest --test-dir out\build\windows-msvc-tests -R '^(TestMediaIngestService|TestDubbingProject|TestRemoteExecution|QmlRouteSmoke)$' --output-on-failure
+ctest --test-dir out\build\windows-msvc-tests --output-on-failure
+python scripts\verify_generated_colab_notebooks.py
+python scripts\verify_colab_model_bindings.py
+& .\graphify\.venv\Scripts\graphify.exe update .
+git diff --check
+```
+
+- Targeted Dubbing: PASS.
+- Media/Dubbing/Remote/QML route set: PASS (5/5).
+- Full CTest: PASS (35/35, 24.32 seconds).
+- Generated exact-model notebooks: PASS (31/31).
+- Controller/UI/notebook exact bindings: PASS (31/31).
+- Graphify update completed: 11,120 nodes, 21,352 edges, 534 communities. Generated Graphify files remain untracked/excluded.
+- `git diff --check`: PASS.
+
+## E. Packaging decision
+
+`0.0.2.2` was **not** built. The active MD permits it only for a source fix after `5a4c84a`; this continuation adds regression coverage only and therefore preserves the verified `0.0.2.1` portable package. No binary or `out/` artifact is staged.
+
+## F. Remaining external acceptance blockers
+
+- A user-provided temporary Direct-Colab URL/token plus a real GPU runtime is required to establish live inference, tunnel stability, exact-model output and quality.
+- A manual CapCut installation/import is required to move the structural label beyond **“CapCut structure generated — import not yet verified.”**
+- Desktop click-through remains intentionally unclaimed because no GUI or machine control was used.
+
+---
+
+# Previous authoritative response -- Direct Colab Dubbing audit and voice-library hardening (2026-07-31)
 
 **Request executed:** the current A → H instruction in `AI_AGENT_REQUEST.md`, without GUI automation, desktop-app control, user-profile access, model/runtime download, or changes to any reference repository.
 

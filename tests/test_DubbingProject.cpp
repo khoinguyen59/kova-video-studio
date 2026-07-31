@@ -39,6 +39,8 @@
 #include <QUuid>
 #include <QtTest>
 
+#include <algorithm>
+
 namespace LAStudio {
 
 namespace {
@@ -1668,39 +1670,111 @@ void TestDubbingProject::voiceClonePresetLibraryPersistsAtomicallyAndProtectsSou
     QVERIFY(!QFileInfo(storedPath).exists());
 }
 
+void TestDubbingProject::voiceClonePresetLibraryMigratesLegacyArrayOnEdit()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    const QString familyId = QStringLiteral("legacy-library-%1")
+        .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+    const QString storageDir = PathUtils::dataDir()
+        + QStringLiteral("/presets/voice_clone_refs");
+    QVERIFY(QDir().mkpath(storageDir));
+    const QString legacyAudio = QDir(storageDir).filePath(QStringLiteral("legacy-owned.wav"));
+    QVector<float> samples(24000, 0.02F);
+    QVERIFY(WavIO::saveFloat(legacyAudio, samples.constData(), samples.size(), 24000));
+
+    // Libraries from before schemaVersion=1 were an array.  Keep a real
+    // app-owned reference in that legacy data, then prove a normal edit
+    // upgrades the file atomically to the current envelope.
+    const QString metadataPath = PathUtils::dataDir()
+        + QStringLiteral("/presets/voice_clone_presets.json");
+    QVERIFY(QDir().mkpath(QFileInfo(metadataPath).absolutePath()));
+    const QJsonArray legacyArray{QJsonObject{{QStringLiteral("id"), QStringLiteral("legacy-preset")},
+                                              {QStringLiteral("familyId"), familyId},
+                                              {QStringLiteral("name"), QStringLiteral("Legacy voice")},
+                                              {QStringLiteral("audioPath"), legacyAudio},
+                                              {QStringLiteral("referenceText"), QStringLiteral("Legacy reference")}}};
+    QSaveFile legacyFile(metadataPath);
+    QVERIFY(legacyFile.open(QIODevice::WriteOnly));
+    const QByteArray legacyJson = QJsonDocument(legacyArray).toJson(QJsonDocument::Compact);
+    QCOMPARE(legacyFile.write(legacyJson), legacyJson.size());
+    QVERIFY(legacyFile.commit());
+
+    VoiceClonePresetService service;
+    const QVariantList legacyPresets = service.presetsForFamily(familyId);
+    QCOMPARE(legacyPresets.size(), 1);
+    QCOMPARE(legacyPresets.constFirst().toMap().value(QStringLiteral("id")).toString(),
+             QStringLiteral("legacy-preset"));
+    QVERIFY(legacyPresets.constFirst().toMap().value(QStringLiteral("valid")).toBool());
+
+    const QString importedAudio = dir.filePath(QStringLiteral("new-external.wav"));
+    QVERIFY(WavIO::saveFloat(importedAudio, samples.constData(), samples.size(), 24000));
+    QVERIFY(service.addPreset(familyId, QStringLiteral("Current voice"), importedAudio,
+                              QStringLiteral("Current reference")));
+
+    QFile metadata(metadataPath);
+    QVERIFY(metadata.open(QIODevice::ReadOnly));
+    const QJsonDocument migrated = QJsonDocument::fromJson(metadata.readAll());
+    QVERIFY(migrated.isObject());
+    QCOMPARE(migrated.object().value(QStringLiteral("schemaVersion")).toInt(), 1);
+    const QJsonArray migratedPresets = migrated.object().value(QStringLiteral("presets")).toArray();
+    QCOMPARE(migratedPresets.size(), 2);
+    QVERIFY(std::any_of(migratedPresets.cbegin(), migratedPresets.cend(), [](const QJsonValue &entry) {
+        return entry.toObject().value(QStringLiteral("id")).toString()
+            == QStringLiteral("legacy-preset");
+    }));
+}
+
 void TestDubbingProject::exportsSelfContainedCapCutDraftWithUnverifiedImportStatus()
 {
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
     constexpr int sampleRate = 24000;
     QVector<float> samples(sampleRate, 0.02F);
-    const QString sourcePath = dir.filePath(QStringLiteral("nguon-goc.wav"));
+    const QString sourcePath = dir.filePath(QStringLiteral("nguon-goc-private.mp4"));
+    const QString masterPath = dir.filePath(QStringLiteral("original.wav"));
+    const QString backgroundPath = dir.filePath(QStringLiteral("background.wav"));
     const QString mixPath = dir.filePath(QStringLiteral("dubbed-mix.wav"));
     const QString clipPath = dir.filePath(QStringLiteral("clip-01.wav"));
+    const QString secondClipPath = dir.filePath(QStringLiteral("clip-02.wav"));
     QVERIFY(WavIO::saveFloat(sourcePath, samples.constData(), samples.size(), sampleRate));
+    QVERIFY(WavIO::saveFloat(masterPath, samples.constData(), samples.size(), sampleRate));
+    QVERIFY(WavIO::saveFloat(backgroundPath, samples.constData(), samples.size(), sampleRate));
     QVERIFY(WavIO::saveFloat(mixPath, samples.constData(), samples.size(), sampleRate));
     QVERIFY(WavIO::saveFloat(clipPath, samples.constData(), samples.size(), sampleRate));
+    QVERIFY(WavIO::saveFloat(secondClipPath, samples.constData(), samples.size(), sampleRate));
 
     const QVariantList segments{
         QVariantMap{{QStringLiteral("id"), QStringLiteral("segment-01")},
                     {QStringLiteral("startMs"), 0},
-                    {QStringLiteral("endMs"), 1000},
+                    {QStringLiteral("endMs"), 850},
                     {QStringLiteral("speakerId"), QStringLiteral("speaker-1")},
                     {QStringLiteral("sourceText"), QStringLiteral("Original text")},
                     {QStringLiteral("targetText"), QString::fromUtf8("Bản dịch tiếng Việt")},
-                    {QStringLiteral("clipPath"), clipPath}}
+                    {QStringLiteral("clipPath"), clipPath},
+                    {QStringLiteral("colabToken"), QStringLiteral("temporary-colab-secret")},
+                    {QStringLiteral("gatewayApiKey"), QStringLiteral("gateway-secret")}},
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("segment-02")},
+                    {QStringLiteral("startMs"), 850},
+                    {QStringLiteral("endMs"), 1800},
+                    {QStringLiteral("speakerId"), QStringLiteral("speaker-2")},
+                    {QStringLiteral("sourceText"), QString::fromUtf8("Câu gốc thứ hai")},
+                    {QStringLiteral("targetText"), QString::fromUtf8("Câu dịch thứ hai")},
+                    {QStringLiteral("clipPath"), secondClipPath}}
     };
     QString draftPath;
     QString warning;
     QString error;
     QVERIFY2(CapCutDraftExporter::exportDraft(
-                 dir.path(), QString::fromUtf8("Dự án kiểm thử"), sourcePath, sourcePath,
-                 QString(), mixPath, false, 1000, segments, &draftPath, &warning, &error),
+                 dir.path(), QString::fromUtf8("Dự án kiểm thử"), sourcePath, masterPath,
+                 backgroundPath, mixPath, true, 1800, segments, &draftPath, &warning, &error),
              qPrintable(error));
     QVERIFY(QFileInfo(draftPath).isDir());
     QVERIFY(QFileInfo(QDir(draftPath).filePath(QStringLiteral("draft_content.json"))).isFile());
     QVERIFY(QFileInfo(QDir(draftPath).filePath(QStringLiteral("draft_meta_info.json"))).isFile());
     QVERIFY(QFileInfo(QDir(draftPath).filePath(QStringLiteral("assets/clips/0001.wav"))).isFile());
+    QVERIFY(QFileInfo(QDir(draftPath).filePath(QStringLiteral("assets/clips/0002.wav"))).isFile());
     QVERIFY(QFileInfo(QDir(draftPath).filePath(QStringLiteral("subtitles/dubbed.srt"))).isFile());
     QVERIFY(warning.contains(QStringLiteral("not yet verified")));
 
@@ -1709,22 +1783,50 @@ void TestDubbingProject::exportsSelfContainedCapCutDraftWithUnverifiedImportStat
     const QJsonDocument content = QJsonDocument::fromJson(contentFile.readAll());
     QVERIFY(content.isObject());
     const QJsonObject materials = content.object().value(QStringLiteral("materials")).toObject();
-    QCOMPARE(materials.value(QStringLiteral("videos")).toArray().size(), 0);
-    QVERIFY(materials.value(QStringLiteral("audios")).toArray().size() >= 3);
-    QVERIFY(content.object().value(QStringLiteral("tracks")).toArray().size() >= 3);
+    QCOMPARE(materials.value(QStringLiteral("videos")).toArray().size(), 1);
+    QVERIFY(materials.value(QStringLiteral("audios")).toArray().size() >= 5);
+    QVERIFY(content.object().value(QStringLiteral("tracks")).toArray().size() >= 5);
     for (const QJsonValue &audio : materials.value(QStringLiteral("audios")).toArray()) {
         const QString asset = audio.toObject().value(QStringLiteral("path")).toString();
         QVERIFY(QFileInfo(asset).isFile());
         QVERIFY(QDir::cleanPath(asset).startsWith(QDir::cleanPath(draftPath) + QLatin1Char('/')));
     }
+    contentFile.close();
+
+    QFile segmentFile(QDir(draftPath).filePath(QStringLiteral("segments.json")));
+    QVERIFY(segmentFile.open(QIODevice::ReadOnly));
+    const QByteArray segmentBytes = segmentFile.readAll();
+    const QJsonArray exportedSegments = QJsonDocument::fromJson(segmentBytes).object()
+        .value(QStringLiteral("segments")).toArray();
+    QCOMPARE(exportedSegments.size(), 2);
+    QCOMPARE(exportedSegments.at(1).toObject().value(QStringLiteral("startMs")).toInt(), 850);
+    QCOMPARE(exportedSegments.at(1).toObject().value(QStringLiteral("endMs")).toInt(), 1800);
+    QVERIFY(!segmentBytes.contains("temporary-colab-secret"));
+    QVERIFY(!segmentBytes.contains("gateway-secret"));
+    QFile subtitlesFile(QDir(draftPath).filePath(QStringLiteral("subtitles/dubbed.srt")));
+    QVERIFY(subtitlesFile.open(QIODevice::ReadOnly));
+    const QByteArray subtitlesBytes = subtitlesFile.readAll();
+    QVERIFY(subtitlesBytes.contains("00:00:00,850 --> 00:00:01,800"));
+    QVERIFY(subtitlesBytes.contains(QString::fromUtf8("Câu dịch thứ hai").toUtf8()));
 
     QString secondDraft;
     QVERIFY2(CapCutDraftExporter::exportDraft(
-                 dir.path(), QStringLiteral("collision-safe"), sourcePath, sourcePath,
-                 QString(), mixPath, false, 1000, segments, &secondDraft, nullptr, &error),
+                 dir.path(), QStringLiteral("collision-safe"), sourcePath, masterPath,
+                 backgroundPath, mixPath, true, 1800, segments, &secondDraft, nullptr, &error),
              qPrintable(error));
     QVERIFY(secondDraft != draftPath);
     QVERIFY(QFileInfo(secondDraft).isDir());
+
+    QVariantList missingAssetSegments = segments;
+    QVariantMap missingAsset = missingAssetSegments.first().toMap();
+    missingAsset.insert(QStringLiteral("clipPath"), dir.filePath(QStringLiteral("missing.wav")));
+    missingAssetSegments[0] = missingAsset;
+    QString rejectedDraft;
+    QVERIFY(!CapCutDraftExporter::exportDraft(
+        dir.path(), QStringLiteral("missing-asset"), sourcePath, masterPath, backgroundPath,
+        mixPath, true, 1800, missingAssetSegments, &rejectedDraft, nullptr, &error));
+    QVERIFY(rejectedDraft.isEmpty());
+    QVERIFY(error.contains(QStringLiteral("valid generated audio clip")));
 }
 
 void TestDubbingProject::audioMixRunsAsynchronously()
