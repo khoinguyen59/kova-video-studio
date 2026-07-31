@@ -1,4 +1,63 @@
-# CURRENT AUTHORITATIVE RESPONSE -- Download media vertical slice (2026-07-31)
+# CURRENT AUTHORITATIVE RESPONSE -- Saved voice-clone reuse closure (2026-07-31)
+
+**Request executed:** current `AI_AGENT_REQUEST.md` saved voice-clone reuse validation. Work stayed in LA-STUDIO. No GUI/EXE/browser control, no live Colab GPU worker, no model download, and no external credential was used.
+
+## Root cause and product fix
+
+`DubbingSynthesisJob` kept a temporary Direct-Colab profile cache signature containing reference path/size/mtime, transcript and language, but **not the exact voice-clone model**. A same-session model change could therefore reuse an incompatible remote profile.
+
+- `src/controllers/dubbing/DubbingSynthesisJob.cpp` now includes `effectiveVoiceCloneModel` in the temporary profile signature and clears the cached profile when any signature input changes.
+- `src/controllers/tts/ColabVoiceCloneController.cpp` now propagates the existing loopback-only session flag to its runner. Production sessions still require HTTPS: the flag comes solely from the non-production `ColabSession::setSession` test seam and cannot weaken production endpoint validation.
+- `qml/components/voicecloning/ReferenceInputBox.qml` now calls the durable item a **reference voice** / **saved reference voices** / **save reference**. Saving it copies reference audio plus transcript and exact model family; it does not claim to persist a Colab profile. The existing **Save Audio File** action exports generated WAV only.
+- `CMakeLists.txt` source version is now `0.0.2.3`.
+
+No `profile_id`, worker URL, bearer token, or gateway credential is persisted in `VoiceClonePresetService`, `DubbingProject`, settings, source fixtures, or this report. `profile_id` is process-memory state belonging only to the active direct Colab worker session.
+
+## Reuse conclusion and evidence
+
+| Scope | Result | Evidence |
+| --- | --- | --- |
+| Edit generated text in an unchanged worker session | PASS | New loopback controller regression performs two generation requests and proves only one profile creation; second request carries the temporary profile ID. |
+| Multiple dubbing speakers/segments in one run | PASS | Existing `audioGenerationUsesSavedCloneVoiceForEverySegment` proves one selected preset snapshot (ID, owned reference path, transcript) is used by two speakers/segments. |
+| Close/reopen Dubbing project | PASS | Existing `cloneVoicePresetSelectionPersistsAndMissingPresetBlocks` persists only the selected durable preset ID and reloads it through `VoiceClonePresetService`. |
+| Close/reopen application | PASS | Existing `voiceClonePresetLibraryPersistsAtomicallyAndProtectsSource` recreates the service and verifies its atomic metadata plus app-owned reference copy. A fresh worker profile is intentionally recreated later; it is not persisted. |
+| Worker reconnect/restart | PASS at loopback/source level | New regression clears the session, verifies the controller profile is empty, reconnects, then proves the next request creates a profile again from the durable reference. Active Dubbing synthesis already cancels/fails on session change instead of continuing with a stale profile. |
+| Change reference file, transcript, language, or exact model | PASS | New regression proves each reference/transcript/language change creates a new profile. Model change clears the session/profile; Dubbing's model-inclusive signature is source-regressed in `dubbingUiUsesExactModelWorkers`. |
+| Missing/corrupt/wrong-family preset | PASS | Existing Dubbing and preset-library regressions block selection/synthesis with no random/source/local fallback. |
+| Live Colab GPU result and subjective voice quality | BLOCKED | No live temporary worker/token/GPU acceptance was supplied or controlled in this run. This is intentionally not represented by mock/loopback success. |
+
+The direct Colab and API Gateway paths remain independent. Voice cloning uses the verified direct Colab route; a Gateway route cannot supply or reuse its temporary profile.
+
+## Tests and checks
+
+New regression: `TestColabVoiceCloneRunner::controllerReusesProfileOnlyForMatchingDurableReference` covers text reuse, changed transcript, changed language, changed reference file, worker-session invalidation/rebuild, and model-session clearing. `TestDubbingProject::dubbingUiUsesExactModelWorkers` also guards the Dubbing model-inclusive profile signature and absence of a persisted clone profile field.
+
+```powershell
+cmake --build out\build\windows-msvc-tests --target LAStudioUnitTests -j 1
+ctest --test-dir out\build\windows-msvc-tests -R '^(TestDubbingProject|TestColabVoiceCloneRunner)$' --output-on-failure
+ctest --test-dir out\build\windows-msvc-tests --output-on-failure
+& .\graphify\.venv\Scripts\graphify.exe update .
+git diff --check
+```
+
+- Targeted Dubbing + voice-clone suites: PASS (2/2).
+- Full CTest: PASS (35/35).
+- Graphify incremental update completed after source changes.
+
+## Source and package evidence
+
+Source/test/version commit on `main`: `07a215848cdbe69b8213ee3f877b798607502daf` (`fix: make saved voice clone reuse model-safe`). No push was made.
+
+- Portable internal EXE: `out\LA-Studio-0.0.2.3\LA-Studio-0.0.2.3.exe`
+- File/Product version: `0.0.2.3`; product: `LA Studio`
+- Size: `21,429,248` bytes
+- SHA-256: `B81FCF04029EB1681434F44C413114B8BE456ED5646D7FB29D912E7D796E15F7`
+- Package script result: runtime manifest **16/16** and license manifest **16/16**. It remains internal-only because the SHA-256-verified eSpeak MSI is unsigned.
+- The EXE was not launched or controlled.
+
+---
+
+# Previous authoritative response -- Download media vertical slice (2026-07-31)
 
 **Request executed:** the newest `AI_AGENT_REQUEST.md`, with Download media completed before any unrelated work. Work remained inside LA-STUDIO. No GUI/browser/desktop control, real profile access, model/runtime download, live Colab worker, or reference repository modification was performed.
 
