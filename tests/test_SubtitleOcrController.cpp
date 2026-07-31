@@ -7,8 +7,12 @@
 
 #include <QDir>
 #include <QFile>
+#include <QHostAddress>
 #include <QScopeGuard>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QTemporaryDir>
+#include <QTimer>
 #include <QtTest>
 
 namespace LAStudio {
@@ -61,6 +65,46 @@ struct OcrFixtures {
     QString ffmpeg;
     QString slowFfmpeg;
     QString tesseract;
+};
+
+class SharedMediaServer final : public QObject
+{
+public:
+    explicit SharedMediaServer(int bodyDelayMs = 0)
+        : m_bodyDelayMs(bodyDelayMs)
+    {
+        connect(&m_server, &QTcpServer::newConnection, this, [this] {
+            while (QTcpSocket *socket = m_server.nextPendingConnection()) {
+                connect(socket, &QTcpSocket::readyRead, this, [this, socket] {
+                    if (socket->property("handled").toBool() || socket->bytesAvailable() == 0) return;
+                    socket->setProperty("handled", true);
+                    ++m_requestCount;
+                    const QByteArray body("subtitle-ocr-shared-media");
+                    socket->write("HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nContent-Length: "
+                                  + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n");
+                    const auto sendBody = [socket, body] {
+                        if (socket->state() == QAbstractSocket::ConnectedState) {
+                            socket->write(body);
+                            socket->disconnectFromHost();
+                        }
+                    };
+                    if (m_bodyDelayMs > 0) QTimer::singleShot(m_bodyDelayMs, socket, sendBody);
+                    else sendBody();
+                });
+                connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+            }
+        });
+    }
+
+    bool start() { return m_server.listen(QHostAddress::LocalHost); }
+    QUrl url() const { return QUrl(QStringLiteral("http://127.0.0.1:%1/subtitle-source.mp4?temporary=query")
+                                       .arg(m_server.serverPort())); }
+    int requestCount() const { return m_requestCount; }
+
+private:
+    QTcpServer m_server;
+    int m_bodyDelayMs = 0;
+    int m_requestCount = 0;
 };
 
 void configure(const OcrFixtures &fixtures, bool includeTesseract = true)
@@ -240,6 +284,60 @@ void TestSubtitleOcrController::cancelsAndRetriesWithoutLeavingOcrStaging()
     QTRY_VERIFY_WITH_TIMEOUT(!controller.processing(), 10000);
     QCOMPARE(controller.phase(), QStringLiteral("completed"));
     QCOMPARE(controller.segments().size(), 1);
+}
+
+void TestSubtitleOcrController::importsSharedStagedMediaWithoutRedownloadAndPreservesSourceOnProbeFailure()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    OcrRuntimeEnvironment environment;
+    OcrFixtures fixtures(directory);
+    QVERIFY(fixtures.create());
+    configure(fixtures);
+
+    DubbingController dubbing(nullptr, nullptr, static_cast<ModelManager *>(nullptr),
+                              static_cast<RuntimeManager *>(nullptr));
+    SubtitleOcrController controller(nullptr, &dubbing);
+    loadFixture(controller, fixtures.source);
+    const QString originalSource = controller.sourcePath();
+
+    SharedMediaServer server;
+    QVERIFY(server.start());
+    QVERIFY(controller.importSourceLink(server.url().toString()));
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.processing() && !controller.sourceImporting(), 10000);
+    QVERIFY2(controller.error().isEmpty(), qPrintable(controller.error()));
+    QVERIFY(controller.sourcePath() != originalSource);
+    QVERIFY(QFileInfo(controller.sourcePath()).isFile());
+    QCOMPARE(server.requestCount(), 1);
+
+    const QString stagedSource = controller.sourcePath();
+    QVERIFY(writeFile(fixtures.ffprobe, QByteArrayLiteral("@echo off\r\necho not-json\r\n")));
+    QVERIFY(controller.importSourceLink(server.url().toString()));
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.processing() && !controller.sourceImporting(), 10000);
+    QCOMPARE(controller.sourcePath(), stagedSource);
+    QVERIFY(controller.error().contains(QStringLiteral("readable video stream"), Qt::CaseInsensitive));
+    QCOMPARE(server.requestCount(), 2);
+
+    QVERIFY(writeFile(fixtures.ffprobe, QByteArrayLiteral("@echo off\r\necho {\"streams\":[{\"width\":1920,\"height\":1080}],\"format\":{\"duration\":\"4.0\"}}\r\n")));
+    SharedMediaServer delayedServer(250);
+    QVERIFY(delayedServer.start());
+    QVERIFY(controller.importSourceLink(delayedServer.url().toString()));
+    QTRY_VERIFY_WITH_TIMEOUT(controller.sourceImporting(), 2000);
+    // Wait for the transfer to have actually reached the shared backend.
+    // sourceImporting becomes true synchronously while the request is still
+    // being scheduled, so canceling before this point would not exercise the
+    // active-transfer cancellation and retry contract.
+    QTRY_COMPARE_WITH_TIMEOUT(delayedServer.requestCount(), 1, 2000);
+    controller.cancelSourceImport();
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.sourceImporting(), 5000);
+    QCOMPARE(controller.sourcePath(), stagedSource);
+    QVERIFY(controller.sourceImportError().contains(QStringLiteral("canceled"), Qt::CaseInsensitive));
+
+    QVERIFY(controller.retrySourceImport());
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.processing() && !controller.sourceImporting(), 10000);
+    QVERIFY2(controller.error().isEmpty(), qPrintable(controller.error()));
+    QVERIFY(controller.sourcePath() != stagedSource);
+    QCOMPARE(delayedServer.requestCount(), 2);
 }
 
 } // namespace LAStudio

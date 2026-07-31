@@ -10,8 +10,10 @@ Rectangle {
 
     color: Theme.background
     signal openDubbingRequested()
+    signal openSubtitleOcrRequested()
 
     readonly property var dubbing: AppController.dubbing
+    readonly property var subtitleOcr: AppController.subtitleOcr
 
     function formatBytes(bytes) {
         if (bytes < 0) return ""
@@ -162,7 +164,7 @@ Rectangle {
                     Text { text: qsTr("Download complete"); color: Theme.success; font.pixelSize: Theme.fontLarge; font.bold: true }
                     Text { Layout.fillWidth: true; text: root.dubbing.downloadedMediaFileName; color: Theme.textPrimary; font.pixelSize: Theme.fontMedium; elide: Text.ElideMiddle }
                     Text { Layout.fillWidth: true; text: root.dubbing.downloadedMediaPath; color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WrapAnywhere }
-                    Text { Layout.fillWidth: true; text: qsTr("The staged file is not project media yet. Dubbing will probe and normalize it before replacing the current project source."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                    Text { Layout.fillWidth: true; text: qsTr("The staged file is not project media yet. Use it in Dubbing to normalize it, or send the same staged file to Subtitle OCR without downloading it again."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
                     RowLayout {
                         Layout.fillWidth: true
                         PrimaryButton {
@@ -172,6 +174,16 @@ Rectangle {
                             onClicked: {
                                 if (root.dubbing.handoffDownloadedMediaToDubbing())
                                     root.openDubbingRequested()
+                            }
+                        }
+                        PrimaryButton {
+                            text: qsTr("Use in Subtitle OCR")
+                            iconName: "scan"
+                            quiet: true
+                            enabled: !root.dubbing.linkImporting && !root.dubbing.processing
+                            onClicked: {
+                                if (root.subtitleOcr.useDownloadedMedia(root.dubbing.downloadedMediaPath))
+                                    root.openSubtitleOcrRequested()
                             }
                         }
                         Item { Layout.fillWidth: true }

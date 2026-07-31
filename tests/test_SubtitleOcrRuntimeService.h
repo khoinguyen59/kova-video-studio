@@ -14,6 +14,7 @@ private slots:
     void runtimeActivationIsAtomicAndRestartDiscoveryUsesAppOwnedPath();
     void cancelAndRetryKeepExistingRuntimeUntouched();
     void qmlRouteRoiAndManagedRuntimeControlsAreWired();
+    void responsiveLayoutSharedMediaAndHomeCardsAreWired();
 };
 
 } // namespace LAStudio

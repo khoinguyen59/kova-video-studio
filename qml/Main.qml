@@ -21,6 +21,8 @@ ApplicationWindow {
     readonly property string appVersion: Qt.application.version
     property string dismissedUpdateVersion: ""
     property bool restoringWindowPlacement: true
+    property int qmlSmokeSubtitleLayoutSizeIndex: 0
+    property bool qmlSmokeSubtitleLayoutResizePending: false
     title: appName + " - " + appVersion
     color: Theme.background
 
@@ -176,6 +178,8 @@ ApplicationWindow {
     function startQmlRouteSmoke() {
         qmlSmokeTimer.routeIndex = 0
         qmlSmokeTimer.waitTicks = 0
+        qmlSmokeSubtitleLayoutSizeIndex = 0
+        qmlSmokeSubtitleLayoutResizePending = false
         qmlSmokeTimer.start()
     }
 
@@ -202,9 +206,32 @@ ApplicationWindow {
     }
 
     function qmlSmokeExerciseRoute(routeIndex) {
+        if (routeIndex === 0 && welcomePage.qmlSmokeHomeCardsCheck) {
+            return welcomePage.qmlSmokeHomeCardsCheck() ? 1 : -1
+        }
         if (routeIndex === 1 && sttLoader.item
                 && sttLoader.item.qmlSmokePendingSelectionIsolated) {
             return sttLoader.item.qmlSmokePendingSelectionIsolated()
+        }
+        if (routeIndex === 15 && subtitleOcrLoader.item
+                && subtitleOcrLoader.item.qmlSmokeLayoutCheck) {
+            var subtitleOcrSizes = [
+                { width: 1024, height: 720 },
+                { width: 1280, height: 800 },
+                { width: 1600, height: 900 }
+            ]
+            if (qmlSmokeSubtitleLayoutResizePending) {
+                qmlSmokeSubtitleLayoutResizePending = false
+                return subtitleOcrLoader.item.qmlSmokeLayoutCheck() ? 0 : -1
+            }
+            if (qmlSmokeSubtitleLayoutSizeIndex < subtitleOcrSizes.length) {
+                var size = subtitleOcrSizes[qmlSmokeSubtitleLayoutSizeIndex++]
+                root.width = size.width
+                root.height = size.height
+                qmlSmokeSubtitleLayoutResizePending = true
+                return 0
+            }
+            return 1
         }
         return 1
     }
@@ -227,6 +254,7 @@ ApplicationWindow {
             if (!route || StudioRouteRegistry.getIndex(route.id) !== routeIndex) {
                 console.warn("Route registry is inconsistent for index " + routeIndex)
                 running = false
+                Qt.quit()
                 return
             }
             if (waitTicks === 0) {
@@ -242,6 +270,7 @@ ApplicationWindow {
                         console.warn("Timed out while exercising model selection for route "
                                      + route.id)
                         running = false
+                        Qt.quit()
                     }
                     return
                 }
@@ -249,6 +278,7 @@ ApplicationWindow {
                     console.warn("Pending model selection escaped the configuration dialog for route "
                                  + route.id)
                     running = false
+                    Qt.quit()
                     return
                 }
                 ++routeIndex
@@ -259,6 +289,7 @@ ApplicationWindow {
             if (waitTicks > 100) {
                 console.warn("Route did not finish loading: " + route.id)
                 running = false
+                Qt.quit()
             }
         }
     }
@@ -437,6 +468,7 @@ ApplicationWindow {
                     Layout.fillHeight: true
 
                 WelcomePage {
+                    id: welcomePage
                     onPageRequested: function(routeId) {
                         stack.currentIndex = StudioRouteRegistry.getIndex(routeId)
                     }
@@ -670,6 +702,9 @@ ApplicationWindow {
                     sourceComponent: MediaDownloadPage {
                         onOpenDubbingRequested: {
                             stack.currentIndex = StudioRouteRegistry.getIndex("studio-dubbing")
+                        }
+                        onOpenSubtitleOcrRequested: {
+                            stack.currentIndex = StudioRouteRegistry.getIndex("subtitle-ocr")
                         }
                     }
                 }

@@ -231,11 +231,77 @@ void TestSubtitleOcrRuntimeService::qmlRouteRoiAndManagedRuntimeControlsAreWired
     QVERIFY(pageSource.contains(QStringLiteral("displayedWidth")));
     QVERIFY(pageSource.contains(QStringLiteral("displayedHeight")));
     QVERIFY(pageSource.contains(QStringLiteral("ocr.setRoi")));
-    QVERIFY(pageSource.contains(QStringLiteral("Preview cropped frame")));
-    QVERIFY(pageSource.contains(QStringLiteral("Reset subtitle region")));
-    QCOMPARE(pageSource.count(QStringLiteral("RoiHandle { mode:")), 8);
+    QVERIFY(pageSource.contains(QStringLiteral("Preview crop")));
+    QVERIFY(pageSource.contains(QStringLiteral("Reset region")));
+    QCOMPARE(pageSource.count(QStringLiteral("RoiHandle { objectName:")), 8);
     QVERIFY(controllerSource.contains(QStringLiteral("setRuntimeService")));
     QVERIFY(controllerSource.contains(QStringLiteral("Install runtime in Subtitle OCR")));
+}
+
+void TestSubtitleOcrRuntimeService::responsiveLayoutSharedMediaAndHomeCardsAreWired()
+{
+    const QDir sourceRoot(QStringLiteral(LASTUDIO_SOURCE_DIR));
+    QFile page(sourceRoot.filePath(QStringLiteral("qml/pages/SubtitleOcrPage.qml")));
+    QFile mediaDownload(sourceRoot.filePath(QStringLiteral("qml/pages/MediaDownloadPage.qml")));
+    QFile welcome(sourceRoot.filePath(QStringLiteral("qml/pages/WelcomePage.qml")));
+    QFile routes(sourceRoot.filePath(QStringLiteral("qml/components/shared/StudioRouteRegistry.qml")));
+    QFile main(sourceRoot.filePath(QStringLiteral("qml/Main.qml")));
+    QFile controller(sourceRoot.filePath(
+        QStringLiteral("src/controllers/subtitles/SubtitleOcrController.cpp")));
+    QVERIFY(page.open(QIODevice::ReadOnly));
+    QVERIFY(mediaDownload.open(QIODevice::ReadOnly));
+    QVERIFY(welcome.open(QIODevice::ReadOnly));
+    QVERIFY(routes.open(QIODevice::ReadOnly));
+    QVERIFY(main.open(QIODevice::ReadOnly));
+    QVERIFY(controller.open(QIODevice::ReadOnly));
+
+    const QString pageSource = QString::fromUtf8(page.readAll());
+    const QString mediaDownloadSource = QString::fromUtf8(mediaDownload.readAll());
+    const QString welcomeSource = QString::fromUtf8(welcome.readAll());
+    const QString routeSource = QString::fromUtf8(routes.readAll());
+    const QString mainSource = QString::fromUtf8(main.readAll());
+    const QString controllerSource = QString::fromUtf8(controller.readAll());
+
+    QVERIFY(pageSource.contains(QStringLiteral("id: subtitleOcrScroll")));
+    QVERIFY(pageSource.contains(QStringLiteral("id: cardGrid")));
+    QVERIFY(pageSource.contains(QStringLiteral("columns: root.wideLayout ? 2 : 1")));
+    QVERIFY(pageSource.contains(QStringLiteral("id: sourceMediaCard")));
+    QVERIFY(pageSource.contains(QStringLiteral("id: sourceDropZone")));
+    QVERIFY(pageSource.contains(QStringLiteral("id: chooseVideoButton")));
+    QVERIFY(pageSource.contains(QStringLiteral("id: importLinkButton")));
+    QVERIFY(pageSource.contains(QStringLiteral("id: languagePackScroll")));
+    QVERIFY(pageSource.contains(QStringLiteral("ocr.importSourceLink")));
+    QVERIFY(pageSource.contains(QStringLiteral("ocr.cancelSourceImport")));
+    QVERIFY(pageSource.contains(QStringLiteral("ocr.retrySourceImport")));
+    QVERIFY(pageSource.contains(QStringLiteral("ocr.runtimeAvailable && root.selectedLanguageReady")));
+    QCOMPARE(pageSource.count(QStringLiteral("subtitleOcrRoiHandle")), 8);
+    QVERIFY(pageSource.contains(QStringLiteral("qmlSmokeLayoutCheck")));
+
+    QVERIFY(controllerSource.contains(QStringLiteral("m_dubbing->downloadMediaFromLink")));
+    QVERIFY(controllerSource.contains(QStringLiteral("m_dubbing->downloadedMediaPath")));
+    QVERIFY(controllerSource.contains(QStringLiteral("m_dubbing->cancelMediaLinkImport")));
+    QVERIFY(controllerSource.contains(QStringLiteral("m_lastSourceImportUrl")));
+    QVERIFY(!controllerSource.contains(QStringLiteral("new RemoteMediaImportService")));
+
+    QVERIFY(mediaDownloadSource.contains(QStringLiteral("Use in Subtitle OCR")));
+    QVERIFY(mediaDownloadSource.contains(QStringLiteral("subtitleOcr.useDownloadedMedia")));
+    QVERIFY(mediaDownloadSource.contains(QStringLiteral("openSubtitleOcrRequested")));
+    QVERIFY(mainSource.contains(QStringLiteral("onOpenSubtitleOcrRequested")));
+    QVERIFY(mainSource.contains(QStringLiteral("width: 1024, height: 720")));
+    QVERIFY(mainSource.contains(QStringLiteral("width: 1280, height: 800")));
+    QVERIFY(mainSource.contains(QStringLiteral("width: 1600, height: 900")));
+
+    QVERIFY(welcomeSource.contains(QStringLiteral("StudioRouteRegistry.homeFeatureCards")));
+    QVERIFY(welcomeSource.contains(QStringLiteral("qmlSmokeHomeCardsCheck")));
+    QVERIFY(welcomeSource.contains(QStringLiteral("cardNumber: index + 1")));
+    QVERIFY(welcomeSource.contains(QStringLiteral("targetRoute: modelData.id")));
+    QVERIFY(welcomeSource.contains(QStringLiteral("onClicked: root.pageRequested(card.targetRoute)")));
+    QVERIFY(welcomeSource.contains(QStringLiteral("homeFeatureCard-")));
+    QVERIFY(welcomeSource.contains(QStringLiteral("Feature cards\"); value: \"10\"")));
+    QVERIFY(routeSource.contains(QStringLiteral("readonly property var homeFeatureCards")));
+    QCOMPARE(routeSource.count(QStringLiteral("homeCard: true")), 10);
+    QCOMPARE(routeSource.count(QStringLiteral("id: \"media-download\"")), 1);
+    QCOMPARE(routeSource.count(QStringLiteral("id: \"subtitle-ocr\"")), 1);
 }
 
 } // namespace LAStudio

@@ -15,6 +15,7 @@ private slots:
     void runsManagedAdapterPersistsReviewedSegmentsAndExports();
     void transfersReviewedSegmentsToSubtitleVoiceAndDubbing();
     void cancelsAndRetriesWithoutLeavingOcrStaging();
+    void importsSharedStagedMediaWithoutRedownloadAndPreservesSourceOnProbeFailure();
 };
 
 } // namespace LAStudio

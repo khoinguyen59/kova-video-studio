@@ -44,6 +44,11 @@ class SubtitleOcrController final : public QObject
     Q_PROPERTY(QUrl cropPreviewUrl READ cropPreviewUrl NOTIFY cropPreviewChanged)
     Q_PROPERTY(bool runtimeAvailable READ runtimeAvailable NOTIFY runtimeChanged)
     Q_PROPERTY(QString runtimePath READ runtimePath NOTIFY runtimeChanged)
+    Q_PROPERTY(bool sourceImporting READ sourceImporting NOTIFY sourceImportChanged)
+    Q_PROPERTY(QString sourceImportStatus READ sourceImportStatus NOTIFY sourceImportChanged)
+    Q_PROPERTY(qint64 sourceImportReceivedBytes READ sourceImportReceivedBytes NOTIFY sourceImportChanged)
+    Q_PROPERTY(qint64 sourceImportTotalBytes READ sourceImportTotalBytes NOTIFY sourceImportChanged)
+    Q_PROPERTY(QString sourceImportError READ sourceImportError NOTIFY sourceImportChanged)
 
 public:
     explicit SubtitleOcrController(SubtitleVoiceController *subtitleVoice,
@@ -72,8 +77,20 @@ public:
     QUrl cropPreviewUrl() const;
     bool runtimeAvailable() const;
     QString runtimePath() const;
+    bool sourceImporting() const { return m_sourceImporting; }
+    QString sourceImportStatus() const { return m_sourceImportStatus; }
+    qint64 sourceImportReceivedBytes() const { return m_sourceImportReceivedBytes; }
+    qint64 sourceImportTotalBytes() const { return m_sourceImportTotalBytes; }
+    QString sourceImportError() const { return m_sourceImportError; }
 
     Q_INVOKABLE bool loadSource(const QString &path);
+    // Public media URLs always delegate to DubbingController's existing
+    // RemoteMediaImportService.  The staged file is then probed as an OCR
+    // source; the URL itself is kept only in-memory for an explicit retry.
+    Q_INVOKABLE bool importSourceLink(const QString &url);
+    Q_INVOKABLE void cancelSourceImport();
+    Q_INVOKABLE bool retrySourceImport();
+    Q_INVOKABLE bool useDownloadedMedia(const QString &path);
     Q_INVOKABLE bool requestCropPreview(qint64 positionMs = 0);
     Q_INVOKABLE bool run();
     Q_INVOKABLE bool retry();
@@ -106,10 +123,13 @@ signals:
     void projectChanged();
     void cropPreviewChanged();
     void runtimeChanged();
+    void sourceImportChanged();
 
 private slots:
     void onProcessFinished(int exitCode, QProcess::ExitStatus status);
     void onProcessError(QProcess::ProcessError error);
+    void onSharedMediaImportChanged();
+    void onSharedMediaImportError();
 
 private:
     enum class Operation {
@@ -135,6 +155,8 @@ private:
     void setPhase(const QString &phase);
     void setProcessing(bool processing);
     void setProgress(int value, bool available);
+    void setSourceImportState(bool importing, const QString &status = QString(),
+                              const QString &error = QString());
     bool applyProject(const QVariantMap &project, const QString &absoluteProjectPath);
     static QVariantList segmentsToVariant(const QVector<SubtitleOcrSegment> &segments);
     static QVector<SubtitleOcrSegment> segmentsFromVariant(const QVariantList &segments, QString *error);
@@ -164,6 +186,14 @@ private:
     QString m_projectPath;
     QString m_workspacePath;
     QString m_cropPreviewPath;
+    bool m_waitingForSharedMedia = false;
+    bool m_sourceImportCancelRequested = false;
+    bool m_sourceImporting = false;
+    QString m_sourceImportStatus;
+    QString m_sourceImportError;
+    QString m_lastSourceImportUrl;
+    qint64 m_sourceImportReceivedBytes = 0;
+    qint64 m_sourceImportTotalBytes = -1;
     QVector<qint64> m_samples;
     QVector<SubtitleOcrObservation> m_observations;
     int m_sampleIndex = 0;

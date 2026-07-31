@@ -1,5 +1,10 @@
 #include <QCoreApplication>
+#include <QDir>
+#include <QFileInfo>
+#include <QProcess>
+#include <QProcessEnvironment>
 #include <QTemporaryDir>
+#include <QThread>
 #include <QtTest>
 #include <iostream>
 
@@ -43,6 +48,53 @@
 
 int main(int argc, char *argv[])
 {
+    // QtTest keeps a Windows output handle open until the process terminates.
+    // Run the actual suite in a child so this outer runner can print the
+    // completed report for CTest, including PASS, FAIL and SKIP evidence.
+    if (qEnvironmentVariableIntValue("LASTUDIO_QTEST_CHILD") != 1) {
+        QProcess child;
+        QProcessEnvironment childEnvironment = QProcessEnvironment::systemEnvironment();
+        childEnvironment.insert(QStringLiteral("LASTUDIO_QTEST_CHILD"), QStringLiteral("1"));
+        child.setProcessEnvironment(childEnvironment);
+        child.setProcessChannelMode(QProcess::ForwardedChannels);
+        child.setWorkingDirectory(QDir::currentPath());
+        child.start(QFileInfo(QString::fromLocal8Bit(argv[0])).absoluteFilePath());
+        if (!child.waitForStarted()) {
+            std::cerr << "Failed to start the isolated QtTest runner.\n";
+            return 1;
+        }
+        child.waitForFinished(-1);
+
+        const QString requestedSuite = qEnvironmentVariable("LASTUDIO_TEST_SUITE").trimmed();
+        const QStringList resultFiles = requestedSuite.isEmpty()
+            ? QDir::current().entryList({QStringLiteral("*_results.txt")}, QDir::Files)
+            : QStringList{requestedSuite + QStringLiteral("_results.txt")};
+        bool foundResult = false;
+        for (const QString &filename : resultFiles) {
+            // Windows can report the child as finished just before QtTest's
+            // redirected stream becomes visible to a second process. Retry
+            // briefly instead of turning a real test result into a false CI
+            // failure.
+            for (int attempt = 0; attempt < 40; ++attempt) {
+                QFile file(filename);
+                if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                    foundResult = true;
+                    QTextStream in(&file);
+                    while (!in.atEnd()) std::cout << in.readLine().toStdString() << "\n";
+                    file.close();
+                    file.remove();
+                    break;
+                }
+                QThread::msleep(50);
+            }
+        }
+        if (!foundResult) {
+            std::cerr << "Failed to read the completed QtTest report.\n";
+            return 1;
+        }
+        return child.exitStatus() == QProcess::NormalExit ? child.exitCode() : 1;
+    }
+
     QTemporaryDir testDataDir;
     if (!testDataDir.isValid()) {
         std::cerr << "Failed to create an isolated LA Studio test-data directory.\n";
@@ -66,32 +118,21 @@ int main(int argc, char *argv[])
         std::cout << "Running suite: " << name << "\n";
         std::cout << "==================================================\n";
 
-        QString filename = QString("%1_results.txt").arg(name);
+        const QString filename = QStringLiteral("%1_results.txt").arg(QString::fromLatin1(name));
         QByteArray filenameBytes = filename.toLocal8Bit();
-        char* fileArg = filenameBytes.data();
-
+        char *fileArg = filenameBytes.data();
         char* localArgv[] = {
             const_cast<char*>("LAStudioUnitTests"),
             const_cast<char*>("-o"),
             fileArg,
             nullptr
         };
+        // The parent process reads this report after this child exits; QtTest
+        // has then released its Windows file handle.
         int localArgc = 3;
 
         int suiteStatus = QTest::qExec(testObj, localArgc, localArgv);
         status |= suiteStatus;
-
-        QFile file(filename);
-        if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            QTextStream in(&file);
-            while (!in.atEnd()) {
-                std::cout << in.readLine().toStdString() << "\n";
-            }
-            file.close();
-            file.remove();
-        } else {
-            std::cout << "Failed to read test results file: " << name << "_results.txt\n";
-        }
     };
 
     {

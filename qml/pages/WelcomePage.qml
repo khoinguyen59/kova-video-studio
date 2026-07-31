@@ -27,72 +27,42 @@ Rectangle {
         }
         return Number(value).toLocaleString(Qt.locale(), 'f', index === 0 ? 0 : 1) + " " + units[index]
     }
-    readonly property var studioCards: [
-        {
-            title: qsTr("Speech to Text"),
-            group: qsTr("Transcription"),
-            description: qsTr("Convert audio files or microphone recordings into editable local transcripts."),
-            iconName: "mic",
-            routeId: "studio-stt",
-            accent: "#64b5f6"
-        },
-        {
-            title: qsTr("Text to Speech"),
-            group: qsTr("Generation"),
-            description: qsTr("Generate natural speech from scripts using models installed on this device."),
-            iconName: "volume",
-            routeId: "studio-tts",
-            accent: "#a27eff"
-        },
-        {
-            title: qsTr("Voice Cloning"),
-            group: qsTr("Custom Voice"),
-            description: qsTr("Create speech from a reference voice while keeping the workflow offline."),
-            iconName: "spark",
-            routeId: "studio-voice-cloning",
-            accent: "#ff8fb3"
-        },
-        {
-            title: qsTr("Voice Design"),
-            group: qsTr("Voice Control"),
-            description: qsTr("Describe voice characteristics and generate speech with controllable style."),
-            iconName: "waves",
-            routeId: "studio-voice-design",
-            accent: "#7bd88f"
-        },
-        {
-            title: qsTr("Alignment"),
-            group: qsTr("Timing"),
-            description: qsTr("Match a known transcript to audio and export precise local timestamps."),
-            iconName: "alignment",
-            routeId: "studio-alignment",
-            accent: "#ffa726"
-        },
-        {
-            title: qsTr("Translation"),
-            group: qsTr("Localization"),
-            description: qsTr("Translate scripts and subtitles locally, then review each segment."),
-            iconName: "translate",
-            routeId: "studio-translation",
-            accent: "#64d8cb"
-        },
-        {
-            title: qsTr("Dubbing"),
-            group: qsTr("Localization"),
-            description: qsTr("Create timestamped translated speech tracks from local audio or video."),
-            iconName: "dubbing",
-            routeId: "studio-dubbing",
-            accent: "#64d8cb"
-        },
-        {
-            title: qsTr("LLM Chat"),
-            group: qsTr("Language Models"),
-            description: qsTr("Chat privately with local language models powered by llama.cpp."),
-            iconName: "chat",
-            routeId: "studio-llm",
-            accent: Theme.accentLight
+    readonly property var studioCards: StudioRouteRegistry.homeFeatureCards
+
+    // Exercised by the offscreen route smoke after layout has settled. This
+    // keeps the Home catalogue and its route activation contract testable as
+    // the shared registry grows.
+    function qmlSmokeHomeCardsCheck() {
+        if (studioCardRepeater.count !== 10) return false
+        var seenRoutes = {}
+        var cards = []
+        for (var i = 0; i < studioCardRepeater.count; ++i) {
+            var card = studioCardRepeater.itemAt(i)
+            if (!card || !card.visible || card.width <= 0 || card.height <= 0
+                    || card.x < -1 || card.y < -1
+                    || card.x + card.width > studioCardGrid.width + 1)
+                return false
+            if (seenRoutes[card.targetRoute]) return false
+            seenRoutes[card.targetRoute] = true
+            cards.push(card)
         }
-    ]
+        var download = cards[8]
+        var subtitleOcr = cards[9]
+        if (!download || !subtitleOcr
+                || download.cardNumber !== 9 || subtitleOcr.cardNumber !== 10
+                || download.targetRoute !== "media-download"
+                || subtitleOcr.targetRoute !== "subtitle-ocr") return false
+        for (var left = 0; left < cards.length; ++left) {
+            for (var right = left + 1; right < cards.length; ++right) {
+                var a = cards[left]
+                var b = cards[right]
+                if (a.x < b.x + b.width && a.x + a.width > b.x
+                        && a.y < b.y + b.height && a.y + a.height > b.y)
+                    return false
+            }
+        }
+        return true
+    }
 
     Component.onCompleted: {
         if (!AppController.settings.onboardingComplete) firstRunDialog.open()
@@ -302,7 +272,7 @@ Rectangle {
                         Text {
                             Layout.fillWidth: true
                             Layout.maximumWidth: 760
-                            text: qsTr("A focused desktop workspace for speech-to-text, text-to-speech, voice cloning, and voice design. Pick a feature card below to start.")
+                            text: qsTr("A focused desktop workspace for speech, media download, subtitle OCR, and localization. Pick a feature card below to start.")
                             color: Theme.textSecondary
                             font.pixelSize: 14
                             lineHeight: 1.35
@@ -315,7 +285,7 @@ Rectangle {
 
                             InfoChip { label: qsTr("Offline processing"); iconName: "cpu"; accent: Theme.accentLight }
                             InfoChip { label: qsTr("Private by design"); iconName: "folder"; accent: Theme.success }
-                            InfoChip { label: qsTr("Six audio studios"); iconName: "spark"; accent: Theme.warning }
+                            InfoChip { label: qsTr("Ten feature cards"); iconName: "spark"; accent: Theme.warning }
                         }
                     }
 
@@ -340,7 +310,7 @@ Rectangle {
                                 font.bold: true
                             }
 
-                            OverviewRow { label: qsTr("Core studios"); value: "6"; iconName: "spark"; accent: Theme.accentLight }
+                            OverviewRow { label: qsTr("Feature cards"); value: "10"; iconName: "spark"; accent: Theme.accentLight }
                             OverviewRow { label: qsTr("Audio workflows"); value: qsTr("Focused"); iconName: "waves"; accent: Theme.warning }
                             OverviewRow { label: qsTr("Runtime mode"); value: qsTr("Local"); iconName: "cpu"; accent: Theme.success }
 
@@ -352,7 +322,7 @@ Rectangle {
 
                             Text {
                                 Layout.fillWidth: true
-                                text: qsTr("The home page highlights the main audio capabilities. Configuration stays inside each studio.")
+                            text: qsTr("The home page highlights all ten primary workflows. Configuration stays inside each feature.")
                                 color: Theme.textSecondary
                                 font.pixelSize: 12
                                 lineHeight: 1.25
@@ -384,12 +354,14 @@ Rectangle {
             }
 
             GridLayout {
+                id: studioCardGrid
                 Layout.fillWidth: true
                 columns: root.width > 1420 ? 4 : (root.width > 860 ? 2 : 1)
                 rowSpacing: Theme.paddingMedium
                 columnSpacing: Theme.paddingMedium
 
                 Repeater {
+                    id: studioCardRepeater
                     model: root.studioCards
 
                     StudioCard {
@@ -398,12 +370,13 @@ Rectangle {
 
                         Layout.fillWidth: true
                         Layout.preferredHeight: 142
+                        objectName: "homeFeatureCard-" + targetRoute
                         cardNumber: index + 1
-                        title: modelData.title
+                        title: modelData.label
                         group: modelData.group
                         description: modelData.description
                         iconName: modelData.iconName
-                        targetRoute: modelData.routeId
+                        targetRoute: modelData.id
                         accent: modelData.accent
                     }
                 }
