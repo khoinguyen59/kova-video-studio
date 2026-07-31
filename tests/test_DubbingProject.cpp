@@ -1362,6 +1362,10 @@ void TestDubbingProject::dubbingUiUsesExactModelWorkers()
     QVERIFY(inspectorSource.contains(
         QStringLiteral("dubbing.selectCloneVoicePreset")));
     QVERIFY(inspectorSource.contains(QStringLiteral("VoiceLibraryDialog")));
+    QVERIFY(inspectorSource.contains(
+        QStringLiteral("Saved voice-design presets are not available for Dubbing yet.")));
+    QVERIFY(inspectorSource.contains(
+        QStringLiteral("will not silently substitute a designed voice")));
     QVERIFY(!inspectorSource.contains(
         QStringLiteral("Auto-select a clean voice reference")));
     QVERIFY(inspectorSource.contains(

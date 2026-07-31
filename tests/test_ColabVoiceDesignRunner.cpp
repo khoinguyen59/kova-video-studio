@@ -5,13 +5,16 @@
 #include <QPointer>
 #include <QJsonDocument>
 #include <QRegularExpression>
+#include <QScopeGuard>
 #include <QTcpServer>
 #include <QTcpSocket>
+#include <QTemporaryDir>
 #include <QThread>
 
 #include <cstring>
 
 #include "controllers/tts/ColabVoiceDesignController.h"
+#include "controllers/shared/VoiceDesignPresetService.h"
 #include "remote/ColabSession.h"
 #include "tts/ColabVoiceDesignRunner.h"
 #include "test_ColabVoiceDesignRunner.h"
@@ -96,6 +99,26 @@ private:
 
 void TestColabVoiceDesignRunner::testPostsIndependentVoiceDesignContract()
 {
+    QTemporaryDir profile;
+    QVERIFY(profile.isValid());
+    const QByteArray previousDataDir = qgetenv("LASTUDIO_DATA_DIR");
+    const bool hadDataDir = qEnvironmentVariableIsSet("LASTUDIO_DATA_DIR");
+    qputenv("LASTUDIO_DATA_DIR", profile.path().toUtf8());
+    const auto restoreDataDir = qScopeGuard([hadDataDir, previousDataDir] {
+        if (hadDataDir) qputenv("LASTUDIO_DATA_DIR", previousDataDir);
+        else qunsetenv("LASTUDIO_DATA_DIR");
+    });
+    const QString family = QStringLiteral("qwen3-tts-1.7b-voicedesign");
+    const QString description = QStringLiteral("Warm low female voice");
+    VoiceDesignPresetService presets;
+    QVERIFY(presets.addPreset(family, QStringLiteral("Saved warm voice"), description));
+    const QVariantMap saved = presets.presetsForFamily(family).constFirst().toMap();
+    QVERIFY(!saved.value(QStringLiteral("id")).toString().isEmpty());
+    VoiceDesignPresetService restarted;
+    const QVariantMap reloaded = restarted.presetsForFamily(family).constFirst().toMap();
+    QCOMPARE(reloaded.value(QStringLiteral("id")).toString(), saved.value(QStringLiteral("id")).toString());
+    QCOMPARE(reloaded.value(QStringLiteral("description")).toString(), description);
+
     VoiceDesignMock server;
     QVERIFY(server.start());
     qRegisterMetaType<ColabVoiceDesignRequest>("ColabVoiceDesignRequest");
@@ -112,9 +135,9 @@ void TestColabVoiceDesignRunner::testPostsIndependentVoiceDesignContract()
     ColabVoiceDesignRequest request;
     request.workerUrl = QUrl(server.baseUrl());
     request.bearerToken = QStringLiteral("colab-design-token");
-    request.model = QStringLiteral("qwen3-tts-1.7b-voicedesign");
+    request.model = family;
     request.text = QStringLiteral("A short design line.");
-    request.voiceDescription = QStringLiteral("Warm low female voice");
+    request.voiceDescription = reloaded.value(QStringLiteral("description")).toString();
     request.style = QStringLiteral("Calm and intimate");
     request.language = QStringLiteral("en");
     request.temperature = 0.7F;

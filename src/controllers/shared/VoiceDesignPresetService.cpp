@@ -8,8 +8,16 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QDateTime>
+#include <QSaveFile>
 
 namespace LAStudio {
+namespace {
+
+constexpr int kVoiceDesignPresetSchemaVersion = 1;
+constexpr auto kVoiceDesignPresetSchemaKey = "schemaVersion";
+constexpr auto kVoiceDesignPresetItemsKey = "presets";
+
+} // namespace
 
 VoiceDesignPresetService::VoiceDesignPresetService(QObject *parent)
     : QObject(parent)
@@ -30,10 +38,28 @@ QVariantList VoiceDesignPresetService::loadAllPresets() const
     }
     QByteArray data = file.readAll();
     QJsonDocument doc = QJsonDocument::fromJson(data);
-    if (!doc.isArray()) {
+    // Keep existing user libraries readable while establishing a versioned
+    // on-disk contract for later migrations.  A saved design is durable
+    // metadata (family/name/description), never a worker profile or WAV.
+    QJsonArray arr;
+    if (doc.isArray()) {
+        arr = doc.array();
+    } else if (doc.isObject()) {
+        const QJsonObject root = doc.object();
+        if (root.value(QLatin1String(kVoiceDesignPresetSchemaKey)).toInt()
+            != kVoiceDesignPresetSchemaVersion) {
+            Logger::warning("VoiceDesignPresetService", "Unsupported voice-design preset metadata schema.");
+            return list;
+        }
+        const QJsonValue entries = root.value(QLatin1String(kVoiceDesignPresetItemsKey));
+        if (!entries.isArray()) {
+            Logger::warning("VoiceDesignPresetService", "Voice-design preset metadata has no presets array.");
+            return list;
+        }
+        arr = entries.toArray();
+    } else {
         return list;
     }
-    QJsonArray arr = doc.array();
     list.reserve(arr.size());
     for (const QJsonValue &val : arr) {
         if (val.isObject()) {
@@ -48,7 +74,7 @@ bool VoiceDesignPresetService::saveAllPresets(const QVariantList &presets)
     QString path = presetsFilePath();
     QDir().mkpath(QFileInfo(path).absolutePath());
 
-    QFile file(path);
+    QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         Logger::error("VoiceDesignPresetService", "Failed to write presets file: " + path);
         emit errorOccurred(QStringLiteral("Failed to save presets locally."));
@@ -60,9 +86,14 @@ bool VoiceDesignPresetService::saveAllPresets(const QVariantList &presets)
         arr.append(QJsonObject::fromVariantMap(item.toMap()));
     }
 
-    QJsonDocument doc(arr);
-    file.write(doc.toJson());
-    file.close();
+    QJsonObject root;
+    root.insert(QLatin1String(kVoiceDesignPresetSchemaKey), kVoiceDesignPresetSchemaVersion);
+    root.insert(QLatin1String(kVoiceDesignPresetItemsKey), arr);
+    if (file.write(QJsonDocument(root).toJson()) < 0 || !file.commit()) {
+        Logger::error("VoiceDesignPresetService", "Failed to atomically commit presets file: " + path);
+        emit errorOccurred(QStringLiteral("Failed to save presets locally."));
+        return false;
+    }
     return true;
 }
 

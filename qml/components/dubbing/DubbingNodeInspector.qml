@@ -358,6 +358,20 @@ Rectangle {
                 }
 
                 SettingsSection {
+                    title: qsTr("Voice design")
+                    iconName: "spark"
+                    visible: root.node && root.node.id === "synthesize"
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: qsTr("Saved voice-design presets are not available for Dubbing yet. They contain a design description for a dedicated Voice Design worker, while this node accepts only an exact TTS voice or a saved reference voice. LA Studio will not silently substitute a designed voice or treat an exported WAV as a reusable design preset.")
+                        color: Theme.textSecondary
+                        font.pixelSize: 10
+                        wrapMode: Text.WordWrap
+                    }
+                }
+
+                SettingsSection {
                     title: qsTr("Forced alignment")
                     iconName: "clock"
                     visible: root.isRemoteTranscription
