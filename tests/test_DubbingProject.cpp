@@ -2037,12 +2037,14 @@ void TestDubbingProject::exportsSelfContainedCapCutDraftWithUnverifiedImportStat
     QVector<float> samples(sampleRate, 0.02F);
     const QString sourcePath = dir.filePath(QStringLiteral("nguon-goc-private.mp4"));
     const QString masterPath = dir.filePath(QStringLiteral("original.wav"));
+    const QString vocalsPath = dir.filePath(QStringLiteral("vocals.wav"));
     const QString backgroundPath = dir.filePath(QStringLiteral("background.wav"));
     const QString mixPath = dir.filePath(QStringLiteral("dubbed-mix.wav"));
     const QString clipPath = dir.filePath(QStringLiteral("clip-01.wav"));
     const QString secondClipPath = dir.filePath(QStringLiteral("clip-02.wav"));
     QVERIFY(WavIO::saveFloat(sourcePath, samples.constData(), samples.size(), sampleRate));
     QVERIFY(WavIO::saveFloat(masterPath, samples.constData(), samples.size(), sampleRate));
+    QVERIFY(WavIO::saveFloat(vocalsPath, samples.constData(), samples.size(), sampleRate));
     QVERIFY(WavIO::saveFloat(backgroundPath, samples.constData(), samples.size(), sampleRate));
     QVERIFY(WavIO::saveFloat(mixPath, samples.constData(), samples.size(), sampleRate));
     QVERIFY(WavIO::saveFloat(clipPath, samples.constData(), samples.size(), sampleRate));
@@ -2056,6 +2058,7 @@ void TestDubbingProject::exportsSelfContainedCapCutDraftWithUnverifiedImportStat
                     {QStringLiteral("sourceText"), QStringLiteral("Original text")},
                     {QStringLiteral("targetText"), QString::fromUtf8("Bản dịch tiếng Việt")},
                     {QStringLiteral("clipPath"), clipPath},
+                    {QStringLiteral("volume"), 0.85},
                     {QStringLiteral("colabToken"), QStringLiteral("temporary-colab-secret")},
                     {QStringLiteral("gatewayApiKey"), QStringLiteral("gateway-secret")}},
         QVariantMap{{QStringLiteral("id"), QStringLiteral("segment-02")},
@@ -2064,21 +2067,37 @@ void TestDubbingProject::exportsSelfContainedCapCutDraftWithUnverifiedImportStat
                     {QStringLiteral("speakerId"), QStringLiteral("speaker-2")},
                     {QStringLiteral("sourceText"), QString::fromUtf8("Câu gốc thứ hai")},
                     {QStringLiteral("targetText"), QString::fromUtf8("Câu dịch thứ hai")},
-                    {QStringLiteral("clipPath"), secondClipPath}}
+                    {QStringLiteral("clipPath"), secondClipPath},
+                    {QStringLiteral("rippleOriginalStartMs"), 700},
+                    {QStringLiteral("rippleOriginalEndMs"), 1400},
+                    {QStringLiteral("rippleOffsetMs"), 150}}
     };
+    QVariantMap subtitleStyle = DubbingSubtitleService::defaultStyle();
+    subtitleStyle.insert(QStringLiteral("fontFamily"), QStringLiteral("Noto Sans CJK"));
+    subtitleStyle.insert(QStringLiteral("fontSize"), 52);
+    subtitleStyle.insert(QStringLiteral("textColor"), QStringLiteral("#FF80D8FF"));
+    subtitleStyle.insert(QStringLiteral("outlineWidth"), 3);
+    subtitleStyle.insert(QStringLiteral("lineSpacing"), 1.2);
+    const QVariantMap subtitleConfiguration{{QStringLiteral("source"), QStringLiteral("imported-vtt")},
+                                            {QStringLiteral("style"), subtitleStyle}};
+    const QVariantMap timingConfiguration{{QStringLiteral("mode"), QStringLiteral("ripple")},
+                                          {QStringLiteral("minimumGapMs"), 100}};
     QString draftPath;
     QString warning;
     QString error;
     QVERIFY2(CapCutDraftExporter::exportDraft(
                  dir.path(), QString::fromUtf8("Dự án kiểm thử"), sourcePath, masterPath,
-                 backgroundPath, mixPath, true, 1800, segments, &draftPath, &warning, &error),
+                 backgroundPath, mixPath, true, 1800, segments, vocalsPath, subtitleConfiguration,
+                 timingConfiguration, &draftPath, &warning, &error),
              qPrintable(error));
     QVERIFY(QFileInfo(draftPath).isDir());
     QVERIFY(QFileInfo(QDir(draftPath).filePath(QStringLiteral("draft_content.json"))).isFile());
     QVERIFY(QFileInfo(QDir(draftPath).filePath(QStringLiteral("draft_meta_info.json"))).isFile());
     QVERIFY(QFileInfo(QDir(draftPath).filePath(QStringLiteral("assets/clips/0001.wav"))).isFile());
     QVERIFY(QFileInfo(QDir(draftPath).filePath(QStringLiteral("assets/clips/0002.wav"))).isFile());
+    QVERIFY(QFileInfo(QDir(draftPath).filePath(QStringLiteral("assets/source-vocals.wav"))).isFile());
     QVERIFY(QFileInfo(QDir(draftPath).filePath(QStringLiteral("subtitles/dubbed.srt"))).isFile());
+    QVERIFY(QFileInfo(QDir(draftPath).filePath(QStringLiteral("LA_STUDIO_EDITABLE_MANIFEST.json"))).isFile());
     QVERIFY(warning.contains(QStringLiteral("not yet verified")));
 
     QFile contentFile(QDir(draftPath).filePath(QStringLiteral("draft_content.json")));
@@ -2087,13 +2106,21 @@ void TestDubbingProject::exportsSelfContainedCapCutDraftWithUnverifiedImportStat
     QVERIFY(content.isObject());
     const QJsonObject materials = content.object().value(QStringLiteral("materials")).toObject();
     QCOMPARE(materials.value(QStringLiteral("videos")).toArray().size(), 1);
-    QVERIFY(materials.value(QStringLiteral("audios")).toArray().size() >= 5);
-    QVERIFY(content.object().value(QStringLiteral("tracks")).toArray().size() >= 5);
+    QVERIFY(materials.value(QStringLiteral("audios")).toArray().size() >= 6);
+    QCOMPARE(materials.value(QStringLiteral("texts")).toArray().size(), 2);
+    QVERIFY(content.object().value(QStringLiteral("tracks")).toArray().size() >= 7);
     for (const QJsonValue &audio : materials.value(QStringLiteral("audios")).toArray()) {
         const QString asset = audio.toObject().value(QStringLiteral("path")).toString();
         QVERIFY(QFileInfo(asset).isFile());
         QVERIFY(QDir::cleanPath(asset).startsWith(QDir::cleanPath(draftPath) + QLatin1Char('/')));
     }
+    const QJsonObject textMaterial = materials.value(QStringLiteral("texts")).toArray().first().toObject();
+    const QJsonObject textContent = QJsonDocument::fromJson(
+        textMaterial.value(QStringLiteral("content")).toString().toUtf8()).object();
+    QVERIFY(!textContent.value(QStringLiteral("text")).toString().isEmpty());
+    QCOMPARE(textContent.value(QStringLiteral("styles")).toArray().first().toObject()
+                 .value(QStringLiteral("font")).toObject().value(QStringLiteral("path")).toString(),
+             QString());
     contentFile.close();
 
     QFile segmentFile(QDir(draftPath).filePath(QStringLiteral("segments.json")));
@@ -2104,6 +2131,8 @@ void TestDubbingProject::exportsSelfContainedCapCutDraftWithUnverifiedImportStat
     QCOMPARE(exportedSegments.size(), 2);
     QCOMPARE(exportedSegments.at(1).toObject().value(QStringLiteral("startMs")).toInt(), 850);
     QCOMPARE(exportedSegments.at(1).toObject().value(QStringLiteral("endMs")).toInt(), 1800);
+    QCOMPARE(exportedSegments.at(1).toObject().value(QStringLiteral("rippleOffsetMs")).toInt(), 150);
+    QVERIFY(!exportedSegments.at(1).toObject().value(QStringLiteral("subtitleMaterialId")).toString().isEmpty());
     QVERIFY(!segmentBytes.contains("temporary-colab-secret"));
     QVERIFY(!segmentBytes.contains("gateway-secret"));
     QFile subtitlesFile(QDir(draftPath).filePath(QStringLiteral("subtitles/dubbed.srt")));
@@ -2112,10 +2141,28 @@ void TestDubbingProject::exportsSelfContainedCapCutDraftWithUnverifiedImportStat
     QVERIFY(subtitlesBytes.contains("00:00:00,850 --> 00:00:01,800"));
     QVERIFY(subtitlesBytes.contains(QString::fromUtf8("Câu dịch thứ hai").toUtf8()));
 
+    QFile editableManifestFile(QDir(draftPath).filePath(QStringLiteral("LA_STUDIO_EDITABLE_MANIFEST.json")));
+    QVERIFY(editableManifestFile.open(QIODevice::ReadOnly));
+    const QByteArray editableManifestBytes = editableManifestFile.readAll();
+    const QJsonObject editableManifest = QJsonDocument::fromJson(editableManifestBytes).object();
+    QCOMPARE(editableManifest.value(QStringLiteral("capCutImportStatus")).toString(),
+             QStringLiteral("structurally-validated-manual-import-pending"));
+    QCOMPARE(editableManifest.value(QStringLiteral("subtitle")).toObject()
+                 .value(QStringLiteral("source")).toString(), QStringLiteral("imported-vtt"));
+    QCOMPARE(editableManifest.value(QStringLiteral("subtitle")).toObject()
+                 .value(QStringLiteral("style")).toObject().value(QStringLiteral("fontSize")).toInt(), 52);
+    QCOMPARE(editableManifest.value(QStringLiteral("timing")).toObject()
+                 .value(QStringLiteral("mode")).toString(), QStringLiteral("ripple"));
+    QCOMPARE(editableManifest.value(QStringLiteral("subtitle")).toObject()
+                 .value(QStringLiteral("editableTextSegmentCount")).toInt(), 2);
+    QVERIFY(!editableManifestBytes.contains("temporary-colab-secret"));
+    QVERIFY(!editableManifestBytes.contains("gateway-secret"));
+
     QString secondDraft;
     QVERIFY2(CapCutDraftExporter::exportDraft(
                  dir.path(), QStringLiteral("collision-safe"), sourcePath, masterPath,
-                 backgroundPath, mixPath, true, 1800, segments, &secondDraft, nullptr, &error),
+                 backgroundPath, mixPath, true, 1800, segments, vocalsPath, subtitleConfiguration,
+                 timingConfiguration, &secondDraft, nullptr, &error),
              qPrintable(error));
     QVERIFY(secondDraft != draftPath);
     QVERIFY(QFileInfo(secondDraft).isDir());
@@ -2127,7 +2174,8 @@ void TestDubbingProject::exportsSelfContainedCapCutDraftWithUnverifiedImportStat
     QString rejectedDraft;
     QVERIFY(!CapCutDraftExporter::exportDraft(
         dir.path(), QStringLiteral("missing-asset"), sourcePath, masterPath, backgroundPath,
-        mixPath, true, 1800, missingAssetSegments, &rejectedDraft, nullptr, &error));
+        mixPath, true, 1800, missingAssetSegments, vocalsPath, subtitleConfiguration,
+        timingConfiguration, &rejectedDraft, nullptr, &error));
     QVERIFY(rejectedDraft.isEmpty());
     QVERIFY(error.contains(QStringLiteral("valid generated audio clip")));
 }
@@ -2757,6 +2805,24 @@ void TestDubbingProject::dubbingTimingUiWiresPreviewApplyAndUndo()
     QVERIFY(reviewSource.contains(QStringLiteral("measured duration")));
     QVERIFY(reviewSource.contains(QStringLiteral("Timeline: %1 ms → %2 ms")));
     QVERIFY(reviewSource.contains(QStringLiteral("originalStartMs")));
+}
+
+void TestDubbingProject::dubbingExportUiSeparatesMp4AndEditableCapCutDraft()
+{
+    const QDir sourceRoot(QStringLiteral(LASTUDIO_SOURCE_DIR));
+    QFile page(sourceRoot.filePath(QStringLiteral("qml/pages/DubbingPage.qml")));
+    QFile dialog(sourceRoot.filePath(QStringLiteral("qml/components/dubbing/DubbingExportDialog.qml")));
+    QVERIFY(page.open(QIODevice::ReadOnly));
+    QVERIFY(dialog.open(QIODevice::ReadOnly));
+    const QString pageSource = QString::fromUtf8(page.readAll());
+    const QString dialogSource = QString::fromUtf8(dialog.readAll());
+    QVERIFY(pageSource.contains(QStringLiteral("exportOptionsDialog.qmlSmokeExportRoutesCheck")));
+    QVERIFY(dialogSource.contains(QStringLiteral("Rendered Video (MP4)")));
+    QVERIFY(dialogSource.contains(QStringLiteral("Export rendered MP4")));
+    QVERIFY(dialogSource.contains(QStringLiteral("Editable CapCut Draft")));
+    QVERIFY(dialogSource.contains(QStringLiteral("Export editable draft")));
+    QVERIFY(dialogSource.contains(QStringLiteral("editable subtitle text segments")));
+    QVERIFY(dialogSource.contains(QStringLiteral("CapCut import unverified")));
 }
 
 void TestDubbingProject::normalizesOcrOnlyTranscriptWithProvenance()

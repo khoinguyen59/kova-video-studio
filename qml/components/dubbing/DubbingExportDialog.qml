@@ -31,6 +31,15 @@ Dialog {
     signal packageExportRequested()
     signal capCutDraftExportRequested()
 
+    function qmlSmokeExportRoutesCheck() {
+        return renderedVideoExportPane.width > 0
+            && renderedVideoExportPane.height > 0
+            && editableCapCutDraftPane.width > 0
+            && editableCapCutDraftPane.height > 0
+            && renderedVideoExportPane.primaryActionButton.width > 0
+            && editableCapCutDraftPane.primaryActionButton.width > 0
+    }
+
     function compactProjectName(path) {
         if (path === "") return qsTr("Dubbing project")
         var parts = path.replace(/\\/g, "/").split("/")
@@ -132,10 +141,10 @@ Dialog {
 
             Repeater {
                 model: [
-                    { label: qsTr("Source quality"), tab: root.videoSource ? 0 : 1 },
+                    { label: qsTr("Rendered MP4"), tab: root.videoSource ? 0 : 1 },
                     { label: qsTr("Audio review"), tab: 1 },
                     { label: qsTr("Subtitle handoff"), tab: 2 },
-                    { label: qsTr("Review package"), tab: 3 }
+                    { label: qsTr("Editable CapCut Draft"), tab: 3 }
                 ]
                 delegate: Button {
                     id: presetButton
@@ -176,10 +185,10 @@ Dialog {
 
                 Repeater {
                     model: [
-                        { label: qsTr("Video"), icon: "dubbing" },
+                        { label: qsTr("Rendered MP4"), icon: "dubbing" },
                         { label: qsTr("Audio"), icon: "volume" },
                         { label: qsTr("Subtitles"), icon: "file" },
-                        { label: qsTr("Package"), icon: "folder" }
+                        { label: qsTr("Editable Draft"), icon: "folder" }
                     ]
                     delegate: Button {
                         id: exportTabButton
@@ -242,13 +251,15 @@ Dialog {
                 currentIndex: root.selectedTab
 
                 ExportPane {
-                    title: qsTr("Dubbed video")
+                    id: renderedVideoExportPane
+                    objectName: "dubbingRenderedVideoExportPane"
+                    title: qsTr("Rendered Video (MP4)")
                     description: root.videoSource
-                                 ? qsTr("Keep the source video stream and replace its audio with the rendered dubbing mix.")
+                                 ? qsTr("Create a final MP4 by keeping the source video and rendering the reviewed dubbing mix into its audio.")
                                  : qsTr("The current source is audio-only. Use the Audio tab for this project.")
                     detail: qsTr("MP4 · source video quality · AAC 192 kbps")
                     iconName: "dubbing"
-                    actionText: qsTr("Export video")
+                    actionText: qsTr("Export rendered MP4")
                     actionEnabled: root.videoSource && root.segmentCount > 0 && !root.busy
                     onActionRequested: root.videoExportRequested()
                 }
@@ -534,15 +545,17 @@ Dialog {
                 }
 
                 ExportPane {
-                    title: qsTr("Review package")
-                    description: qsTr("Create a folder containing the project snapshot, rendered mix, available stems, subtitles, and per-segment clips.")
-                    detail: qsTr("Folder package · manifest included · local files only")
+                    id: editableCapCutDraftPane
+                    objectName: "dubbingEditableCapCutDraftPane"
+                    title: qsTr("Editable CapCut Draft")
+                    description: qsTr("Create a draft folder with separate original media/audio, optional vocals/background, each generated voice clip, and editable subtitle text segments.")
+                    detail: qsTr("Draft folder · separate editable tracks · CapCut import unverified")
                     iconName: "folder"
-                    actionText: qsTr("Export package")
-                    secondaryActionText: qsTr("CapCut draft")
+                    actionText: qsTr("Export editable draft")
+                    secondaryActionText: qsTr("Export review package")
                     actionEnabled: root.segmentCount > 0 && !root.busy
-                    onActionRequested: root.packageExportRequested()
-                    onSecondaryActionRequested: root.capCutDraftExportRequested()
+                    onActionRequested: root.capCutDraftExportRequested()
+                    onSecondaryActionRequested: root.packageExportRequested()
                 }
             }
         }
@@ -564,7 +577,7 @@ Dialog {
             }
             Text {
                 text: root.capCutDraftPath !== ""
-                      ? qsTr("CapCut draft (import unverified): %1").arg(root.capCutDraftPath)
+                      ? qsTr("Editable CapCut Draft (manual import still required): %1").arg(root.capCutDraftPath)
                       : qsTr("Exports stay on this device.")
                 color: root.capCutDraftPath !== "" ? Theme.warning : Theme.textSecondary
                 font.pixelSize: Theme.fontSmall
@@ -591,6 +604,7 @@ Dialog {
         property int paneHeight: 154
         property string secondaryActionText: ""
         property bool actionEnabled: true
+        property alias primaryActionButton: primaryActionButton
         signal actionRequested()
         signal secondaryActionRequested()
 
@@ -652,6 +666,7 @@ Dialog {
                     Layout.preferredWidth: 150
                     spacing: Theme.paddingSmall
                     PrimaryButton {
+                        id: primaryActionButton
                         Layout.fillWidth: true
                         text: pane.actionText
                         iconName: "download"

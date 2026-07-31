@@ -171,6 +171,7 @@ Item {
                 || dubbingTranscriptSourceMode.width <= 0)
             return false
         subtitleEditorDialog.open()
+        exportOptionsDialog.open()
         reviewStepId = "synthesize"
         return dubbingTranscriptSourceMode.model[0].id === "stt"
             && dubbingTranscriptSourceMode.model[1].id === "ocr"
@@ -178,6 +179,7 @@ Item {
             && sourceMediaPanel.qmlSmokeMediaControlsCheck()
             && subtitleEditorDialog.qmlSmokeLayoutCheck()
             && dubbingVoiceClipReview.qmlSmokeTimingResolutionCheck()
+            && exportOptionsDialog.qmlSmokeExportRoutesCheck()
     }
 
     function runStep(stepId) {

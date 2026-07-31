@@ -2,6 +2,7 @@
 
 #include <QString>
 #include <QVariantList>
+#include <QVariantMap>
 
 namespace LAStudio {
 
@@ -21,6 +22,9 @@ public:
                             bool sourceIsVideo,
                             qint64 sourceDurationMs,
                             const QVariantList &segments,
+                            const QString &vocalsAudioPath,
+                            const QVariantMap &subtitleConfiguration,
+                            const QVariantMap &timingConfiguration,
                             QString *draftDirectory,
                             QString *warning = nullptr,
                             QString *error = nullptr);

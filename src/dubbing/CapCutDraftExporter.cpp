@@ -1,15 +1,19 @@
 #include "dubbing/CapCutDraftExporter.h"
+#include "dubbing/DubbingSubtitleService.h"
 
+#include <QColor>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <QSet>
 #include <QUuid>
 
 namespace LAStudio {
@@ -151,7 +155,8 @@ QJsonObject videoMaterial(const QString &id, const QString &path, const QString 
 }
 
 QJsonObject mediaSegment(const QString &materialId, qint64 targetStartUs,
-                         qint64 targetDurationUs, bool video, QJsonArray *speeds)
+                         qint64 targetDurationUs, bool video, QJsonArray *speeds,
+                         double volume = 1.0)
 {
     const QString speedId = newId();
     if (speeds) speeds->append(speedMaterial(speedId));
@@ -172,7 +177,7 @@ QJsonObject mediaSegment(const QString &materialId, qint64 targetStartUs,
                        {QStringLiteral("target_timerange"), timerange(targetStartUs, targetDurationUs)},
                        {QStringLiteral("source_timerange"), timerange(0, targetDurationUs)},
                        {QStringLiteral("speed"), 1.0},
-                       {QStringLiteral("volume"), 1.0},
+                       {QStringLiteral("volume"), qBound(0.0, volume, 4.0)},
                        {QStringLiteral("extra_material_refs"), QJsonArray{speedId}},
                        {QStringLiteral("common_keyframes"), QJsonArray{}},
                        {QStringLiteral("keyframe_refs"), QJsonArray{}},
@@ -196,6 +201,125 @@ QJsonObject mediaSegment(const QString &materialId, qint64 targetStartUs,
         result.insert(QStringLiteral("clip"), QJsonValue::Null);
         result.insert(QStringLiteral("hdr_settings"), QJsonValue::Null);
     }
+    return result;
+}
+
+QString capCutColor(const QString &value, const QString &fallback, double opacity = 1.0)
+{
+    QColor color(value);
+    if (!color.isValid()) color = QColor(fallback);
+    color.setAlphaF(qBound(0.0, opacity, 1.0) * color.alphaF());
+    return QStringLiteral("#%1%2%3%4")
+        .arg(color.red(), 2, 16, QLatin1Char('0'))
+        .arg(color.green(), 2, 16, QLatin1Char('0'))
+        .arg(color.blue(), 2, 16, QLatin1Char('0'))
+        .arg(color.alpha(), 2, 16, QLatin1Char('0')).toUpper();
+}
+
+QJsonArray capCutRgb(const QString &value, const QString &fallback)
+{
+    QColor color(value);
+    if (!color.isValid()) color = QColor(fallback);
+    return {color.redF(), color.greenF(), color.blueF()};
+}
+
+int capCutAlignment(const QVariantMap &style)
+{
+    const QString alignment = style.value(QStringLiteral("alignment")).toString();
+    if (alignment == QStringLiteral("custom")) {
+        const double x = style.value(QStringLiteral("positionX"), 0.5).toDouble();
+        return x < 0.34 ? 0 : x > 0.66 ? 2 : 1;
+    }
+    return 1;
+}
+
+QJsonObject textMaterial(const QString &id, const QString &text, const QVariantMap &style)
+{
+    const QString fontPath = style.value(QStringLiteral("fontFile")).toString();
+    const int utf16ByteLength = text.size() * 2;
+    const QJsonObject fill{
+        {QStringLiteral("content"), QJsonObject{
+            {QStringLiteral("solid"), QJsonObject{
+                {QStringLiteral("color"), capCutRgb(
+                    style.value(QStringLiteral("textColor")).toString(),
+                    QStringLiteral("#FFFFFFFF"))}}}}}
+    };
+    const QJsonObject rangeStyle{
+        {QStringLiteral("range"), QJsonArray{0, utf16ByteLength}},
+        {QStringLiteral("fill"), fill},
+        {QStringLiteral("font"), QJsonObject{{QStringLiteral("id"), QString()},
+                                                {QStringLiteral("path"), fontPath}}},
+        {QStringLiteral("size"), style.value(QStringLiteral("fontSize")).toInt()},
+        {QStringLiteral("bold"), style.value(QStringLiteral("fontWeight")).toInt() >= 600},
+        {QStringLiteral("italic"), false},
+        {QStringLiteral("underline"), false}
+    };
+    const QJsonObject content{
+        {QStringLiteral("text"), text},
+        {QStringLiteral("styles"), QJsonArray{rangeStyle}},
+        {QStringLiteral("layer_weight"), 1},
+        {QStringLiteral("effect"), QJsonArray{}}
+    };
+    return {{QStringLiteral("id"), id},
+            {QStringLiteral("type"), QStringLiteral("text")},
+            {QStringLiteral("content"), QString::fromUtf8(
+                QJsonDocument(content).toJson(QJsonDocument::Compact))},
+            {QStringLiteral("font_name"), style.value(QStringLiteral("fontFamily")).toString()},
+            {QStringLiteral("font_path"), fontPath},
+            {QStringLiteral("font_size"), style.value(QStringLiteral("fontSize")).toDouble()},
+            {QStringLiteral("text_color"), capCutColor(
+                style.value(QStringLiteral("textColor")).toString(), QStringLiteral("#FFFFFFFF"))},
+            {QStringLiteral("text_alpha"), 1.0},
+            {QStringLiteral("border_color"), capCutColor(
+                style.value(QStringLiteral("outlineColor")).toString(), QStringLiteral("#00000000"))},
+            {QStringLiteral("border_width"), style.value(QStringLiteral("outlineWidth")).toDouble()},
+            {QStringLiteral("border_alpha"), 1.0},
+            {QStringLiteral("background_color"), capCutColor(
+                style.value(QStringLiteral("backgroundColor")).toString(), QStringLiteral("#00000000"),
+                style.value(QStringLiteral("backgroundOpacity")).toDouble())},
+            {QStringLiteral("background_alpha"),
+                style.value(QStringLiteral("backgroundOpacity")).toDouble()},
+            {QStringLiteral("background_style"), 0},
+            {QStringLiteral("background_round_radius"), 0.0},
+            {QStringLiteral("background_width"), style.value(QStringLiteral("maxWidth")).toDouble()},
+            {QStringLiteral("background_height"), 0.14},
+            {QStringLiteral("background_horizontal_offset"), 0.0},
+            {QStringLiteral("background_vertical_offset"), 0.0},
+            {QStringLiteral("has_shadow"),
+                style.value(QStringLiteral("shadowOffset")).toInt() > 0},
+            {QStringLiteral("shadow_alpha"), 1.0},
+            {QStringLiteral("shadow_angle"), -45.0},
+            {QStringLiteral("shadow_color"), capCutColor(
+                style.value(QStringLiteral("shadowColor")).toString(), QStringLiteral("#00000000"))},
+            {QStringLiteral("shadow_distance"), style.value(QStringLiteral("shadowOffset")).toDouble()},
+            {QStringLiteral("shadow_smoothing"), 1.0},
+            {QStringLiteral("text_alignment"), capCutAlignment(style)},
+            {QStringLiteral("vertical"), false},
+            {QStringLiteral("fixed_width"), -1.0},
+            {QStringLiteral("fixed_height"), -1.0},
+            {QStringLiteral("letter_spacing"), 0.0},
+            {QStringLiteral("line_feed"), 1},
+            {QStringLiteral("line_spacing"), style.value(QStringLiteral("lineSpacing")).toDouble()},
+            {QStringLiteral("is_rich_text"), false},
+            {QStringLiteral("use_effect_default_color"), false}};
+}
+
+QJsonObject textSegment(const QString &materialId, qint64 targetStartUs,
+                        qint64 targetDurationUs, const QVariantMap &style)
+{
+    QJsonObject result = mediaSegment(materialId, targetStartUs, targetDurationUs, false, nullptr);
+    const double positionX = style.value(QStringLiteral("positionX"), 0.5).toDouble();
+    const double positionY = style.value(QStringLiteral("positionY"), 0.9).toDouble();
+    result.insert(QStringLiteral("clip"), QJsonObject{
+        {QStringLiteral("alpha"), 1.0},
+        {QStringLiteral("flip"), QJsonObject{{QStringLiteral("horizontal"), false},
+                                               {QStringLiteral("vertical"), false}}},
+        {QStringLiteral("rotation"), 0.0},
+        {QStringLiteral("scale"), QJsonObject{{QStringLiteral("x"), 1.0},
+                                                {QStringLiteral("y"), 1.0}}},
+        {QStringLiteral("transform"), QJsonObject{{QStringLiteral("x"), (positionX - 0.5) * 2.0},
+                                                    {QStringLiteral("y"), (0.5 - positionY) * 2.0}}}});
+    result.insert(QStringLiteral("extra_material_refs"), QJsonArray{});
     return result;
 }
 
@@ -255,19 +379,68 @@ bool validateDraft(const QString &draftPath, const QString &publishedDraftPath, 
     const QJsonArray tracks = root.value(QStringLiteral("tracks")).toArray();
     if (materials.isEmpty() || tracks.isEmpty())
         return fail(error, QStringLiteral("CapCut draft has no materials or tracks."));
+    QHash<QString, QString> materialKindsById;
     for (const QString &kind : {QStringLiteral("videos"), QStringLiteral("audios")}) {
         for (const QJsonValue &value : materials.value(kind).toArray()) {
-            const QString assetPath = value.toObject().value(QStringLiteral("path")).toString();
+            const QJsonObject material = value.toObject();
+            const QString id = material.value(QStringLiteral("id")).toString();
+            const QString assetPath = material.value(QStringLiteral("path")).toString();
             QString validationPath = assetPath;
             const QString relativePath = QDir(publishedDraftPath).relativeFilePath(assetPath);
             if (!relativePath.startsWith(QStringLiteral("..")))
                 validationPath = QDir(draftPath).filePath(relativePath);
             if (assetPath.isEmpty() || !QFileInfo(validationPath).isFile())
                 return fail(error, QStringLiteral("CapCut draft references a missing %1 asset.").arg(kind));
+            if (id.isEmpty() || materialKindsById.contains(id))
+                return fail(error, QStringLiteral("CapCut draft has a duplicate or missing material identifier."));
+            materialKindsById.insert(id, kind);
         }
     }
-    return QFileInfo(QDir(draftPath).filePath(QStringLiteral("draft_meta_info.json"))).isFile()
-        ? true : fail(error, QStringLiteral("CapCut draft metadata was not written."));
+    const QJsonArray textMaterials = materials.value(QStringLiteral("texts")).toArray();
+    if (textMaterials.isEmpty())
+        return fail(error, QStringLiteral("CapCut draft has no editable subtitle text materials."));
+    for (const QJsonValue &value : textMaterials) {
+        const QJsonObject material = value.toObject();
+        const QString id = material.value(QStringLiteral("id")).toString();
+        QJsonParseError textError;
+        const QJsonDocument textContent = QJsonDocument::fromJson(
+            material.value(QStringLiteral("content")).toString().toUtf8(), &textError);
+        if (id.isEmpty() || material.value(QStringLiteral("type")).toString() != QStringLiteral("text")
+            || textError.error != QJsonParseError::NoError || !textContent.isObject()
+            || textContent.object().value(QStringLiteral("text")).toString().trimmed().isEmpty()
+            || materialKindsById.contains(id)) {
+            return fail(error, QStringLiteral("CapCut editable subtitle material is invalid."));
+        }
+        materialKindsById.insert(id, QStringLiteral("texts"));
+    }
+    bool textTrackFound = false;
+    QSet<QString> referencedTextMaterials;
+    for (const QJsonValue &trackValue : tracks) {
+        const QJsonObject trackObject = trackValue.toObject();
+        const QString trackType = trackObject.value(QStringLiteral("type")).toString();
+        if (trackType == QStringLiteral("text")) textTrackFound = true;
+        for (const QJsonValue &segmentValue : trackObject.value(QStringLiteral("segments")).toArray()) {
+            const QJsonObject segment = segmentValue.toObject();
+            const QString materialId = segment.value(QStringLiteral("material_id")).toString();
+            const QJsonObject target = segment.value(QStringLiteral("target_timerange")).toObject();
+            const QString materialKind = materialKindsById.value(materialId);
+            const bool correctKind = (trackType == QStringLiteral("video") && materialKind == QStringLiteral("videos"))
+                || (trackType == QStringLiteral("audio") && materialKind == QStringLiteral("audios"))
+                || (trackType == QStringLiteral("text") && materialKind == QStringLiteral("texts"));
+            if (!correctKind || target.value(QStringLiteral("start")).toVariant().toLongLong() < 0
+                || target.value(QStringLiteral("duration")).toVariant().toLongLong() <= 0) {
+                return fail(error, QStringLiteral("CapCut draft has an invalid track-to-material timing reference."));
+            }
+            if (trackType == QStringLiteral("text")) referencedTextMaterials.insert(materialId);
+        }
+    }
+    if (!textTrackFound || referencedTextMaterials.size() != textMaterials.size())
+        return fail(error, QStringLiteral("CapCut draft has no editable subtitle text track."));
+    if (!QFileInfo(QDir(draftPath).filePath(QStringLiteral("draft_meta_info.json"))).isFile())
+        return fail(error, QStringLiteral("CapCut draft metadata was not written."));
+    if (!QFileInfo(QDir(draftPath).filePath(QStringLiteral("LA_STUDIO_EDITABLE_MANIFEST.json"))).isFile())
+        return fail(error, QStringLiteral("CapCut editable-draft manifest was not written."));
+    return true;
 }
 
 } // namespace
@@ -281,6 +454,9 @@ bool CapCutDraftExporter::exportDraft(const QString &parentDirectory,
                                       bool sourceIsVideo,
                                       qint64 sourceDurationMs,
                                       const QVariantList &segments,
+                                      const QString &vocalsAudioPath,
+                                      const QVariantMap &subtitleConfiguration,
+                                      const QVariantMap &timingConfiguration,
                                       QString *draftDirectory,
                                       QString *warning,
                                       QString *error)
@@ -293,6 +469,13 @@ bool CapCutDraftExporter::exportDraft(const QString &parentDirectory,
         return fail(error, QStringLiteral("Render the dubbed mix before exporting a CapCut draft."));
     if (segments.isEmpty())
         return fail(error, QStringLiteral("Generate at least one timed segment before exporting a CapCut draft."));
+
+    QVariantMap subtitleStyle;
+    QString styleError;
+    if (!DubbingSubtitleService::normalizeStyle(
+            subtitleConfiguration.value(QStringLiteral("style")).toMap(), subtitleStyle, &styleError)) {
+        return fail(error, QStringLiteral("Cannot export CapCut subtitle style: %1").arg(styleError));
+    }
 
     QDir parent(QFileInfo(parentDirectory).absoluteFilePath());
     if (!parent.mkpath(QStringLiteral(".")))
@@ -331,6 +514,11 @@ bool CapCutDraftExporter::exportDraft(const QString &parentDirectory,
         copiedMaster = QDir(assetRoot).filePath(QStringLiteral("source-audio.wav"));
         if (!copyAsset(masterAudioPath, copiedMaster, false, error)) return abort();
     }
+    QString copiedVocals;
+    if (!vocalsAudioPath.trimmed().isEmpty() && QFileInfo(vocalsAudioPath).isFile()) {
+        copiedVocals = QDir(assetRoot).filePath(QStringLiteral("source-vocals.wav"));
+        if (!copyAsset(vocalsAudioPath, copiedVocals, false, error)) return abort();
+    }
     QString copiedBackground;
     if (!backgroundAudioPath.trimmed().isEmpty() && QFileInfo(backgroundAudioPath).isFile()) {
         copiedBackground = QDir(assetRoot).filePath(QStringLiteral("background.wav"));
@@ -354,22 +542,31 @@ bool CapCutDraftExporter::exportDraft(const QString &parentDirectory,
     const QString clipsRoot = QDir(assetRoot).filePath(QStringLiteral("clips"));
     QJsonArray clipSegments;
     QJsonArray audioMaterials;
+    QJsonArray textMaterials;
     QJsonArray speedMaterials;
     QJsonArray segmentManifest;
 
     const QString mixId = newId();
     audioMaterials.append(audioMaterial(mixId, publishedAssetPath(copiedMix),
-                                        QStringLiteral("Dubbed mix"), timelineDurationUs));
+                                        QStringLiteral("Rendered dubbing mix (reference)"), timelineDurationUs));
     QJsonArray mixTrackSegments;
-    mixTrackSegments.append(mediaSegment(mixId, 0, timelineDurationUs, false, &speedMaterials));
+    mixTrackSegments.append(mediaSegment(mixId, 0, timelineDurationUs, false, &speedMaterials, 0.0));
 
     if (!copiedMaster.isEmpty()) {
         const QString id = newId();
         audioMaterials.append(audioMaterial(id, publishedAssetPath(copiedMaster),
-                                            QStringLiteral("Original audio"), timelineDurationUs));
+                                            QStringLiteral("Original audio (reference)"), timelineDurationUs));
         QJsonArray originalTrack;
-        originalTrack.append(mediaSegment(id, 0, timelineDurationUs, false, &speedMaterials));
-        clipSegments.append(track(QStringLiteral("audio"), QStringLiteral("Original audio"), originalTrack));
+        originalTrack.append(mediaSegment(id, 0, timelineDurationUs, false, &speedMaterials, 0.0));
+        clipSegments.append(track(QStringLiteral("audio"), QStringLiteral("Original audio (muted)"), originalTrack));
+    }
+    if (!copiedVocals.isEmpty()) {
+        const QString id = newId();
+        audioMaterials.append(audioMaterial(id, publishedAssetPath(copiedVocals),
+                                            QStringLiteral("Source vocals (reference)"), timelineDurationUs));
+        QJsonArray vocalsTrack;
+        vocalsTrack.append(mediaSegment(id, 0, timelineDurationUs, false, &speedMaterials, 0.0));
+        clipSegments.append(track(QStringLiteral("audio"), QStringLiteral("Source vocals (muted)"), vocalsTrack));
     }
     if (!copiedBackground.isEmpty()) {
         const QString id = newId();
@@ -379,9 +576,10 @@ bool CapCutDraftExporter::exportDraft(const QString &parentDirectory,
         backgroundTrack.append(mediaSegment(id, 0, timelineDurationUs, false, &speedMaterials));
         clipSegments.append(track(QStringLiteral("audio"), QStringLiteral("Background"), backgroundTrack));
     }
-    clipSegments.append(track(QStringLiteral("audio"), QStringLiteral("Dubbed mix"), mixTrackSegments));
+    clipSegments.append(track(QStringLiteral("audio"), QStringLiteral("Rendered dubbing mix (muted)"), mixTrackSegments));
 
     QJsonArray perSegmentTrack;
+    QJsonArray subtitleTrack;
     int index = 0;
     for (const QVariant &value : segments) {
         const QVariantMap segment = value.toMap();
@@ -398,16 +596,39 @@ bool CapCutDraftExporter::exportDraft(const QString &parentDirectory,
         audioMaterials.append(audioMaterial(id, publishedAssetPath(copiedClip),
                                             QStringLiteral("Segment %1").arg(index), durationUs));
         perSegmentTrack.append(mediaSegment(id, startMs * kMicrosecondsPerMillisecond,
-                                            durationUs, false, &speedMaterials));
+                                            durationUs, false, &speedMaterials,
+                                            segment.value(QStringLiteral("volume"), 1.0).toDouble()));
+        const QString subtitleText = segment.value(QStringLiteral("targetText")).toString().trimmed().isEmpty()
+            ? segment.value(QStringLiteral("sourceText")).toString().trimmed()
+            : segment.value(QStringLiteral("targetText")).toString().trimmed();
+        QString subtitleMaterialId;
+        if (!subtitleText.isEmpty()) {
+            subtitleMaterialId = newId();
+            textMaterials.append(textMaterial(subtitleMaterialId, subtitleText, subtitleStyle));
+            subtitleTrack.append(textSegment(subtitleMaterialId,
+                                              startMs * kMicrosecondsPerMillisecond,
+                                              durationUs, subtitleStyle));
+        }
         segmentManifest.append(QJsonObject{{QStringLiteral("id"), segment.value(QStringLiteral("id")).toString()},
                                             {QStringLiteral("startMs"), startMs},
                                             {QStringLiteral("endMs"), startMs + durationMs},
                                             {QStringLiteral("speakerId"), segment.value(QStringLiteral("speakerId")).toString()},
                                             {QStringLiteral("sourceText"), segment.value(QStringLiteral("sourceText")).toString()},
                                             {QStringLiteral("targetText"), segment.value(QStringLiteral("targetText")).toString()},
-                                            {QStringLiteral("clipAsset"), relativeAsset}});
+                                            {QStringLiteral("clipAsset"), relativeAsset},
+                                            {QStringLiteral("volume"), segment.value(QStringLiteral("volume"), 1.0).toDouble()},
+                                            {QStringLiteral("rippleOriginalStartMs"), segment.value(QStringLiteral("rippleOriginalStartMs")).toLongLong()},
+                                            {QStringLiteral("rippleOriginalEndMs"), segment.value(QStringLiteral("rippleOriginalEndMs")).toLongLong()},
+                                            {QStringLiteral("rippleOffsetMs"), segment.value(QStringLiteral("rippleOffsetMs")).toLongLong()},
+                                            {QStringLiteral("intentionalOverlap"), segment.value(QStringLiteral("intentionalOverlap")).toBool()},
+                                            {QStringLiteral("subtitleMaterialId"), subtitleMaterialId}});
     }
-    clipSegments.append(track(QStringLiteral("audio"), QStringLiteral("Generated clips"), perSegmentTrack));
+    if (textMaterials.isEmpty()) {
+        fail(error, QStringLiteral("Every editable CapCut draft needs at least one source or translated subtitle."));
+        return abort();
+    }
+    clipSegments.append(track(QStringLiteral("audio"), QStringLiteral("Generated voice clips"), perSegmentTrack));
+    clipSegments.append(track(QStringLiteral("text"), QStringLiteral("Editable subtitles"), subtitleTrack));
 
     QJsonArray videoMaterials;
     if (sourceIsVideo) {
@@ -415,8 +636,16 @@ bool CapCutDraftExporter::exportDraft(const QString &parentDirectory,
         videoMaterials.append(videoMaterial(videoId, publishedAssetPath(copiedSource),
                                             QStringLiteral("Original media"), timelineDurationUs));
         QJsonArray sourceVideoTrack;
-        sourceVideoTrack.append(mediaSegment(videoId, 0, timelineDurationUs, true, &speedMaterials));
-        clipSegments.prepend(track(QStringLiteral("video"), QStringLiteral("Original media"), sourceVideoTrack));
+        sourceVideoTrack.append(mediaSegment(videoId, 0, timelineDurationUs, true, &speedMaterials, 0.0));
+        clipSegments.prepend(track(QStringLiteral("video"), QStringLiteral("Original video (muted)"), sourceVideoTrack));
+    } else {
+        const QString sourceAudioId = newId();
+        audioMaterials.append(audioMaterial(sourceAudioId, publishedAssetPath(copiedSource),
+                                            QStringLiteral("Original source audio (reference)"), timelineDurationUs));
+        QJsonArray sourceAudioTrack;
+        sourceAudioTrack.append(mediaSegment(sourceAudioId, 0, timelineDurationUs, false, &speedMaterials, 0.0));
+        clipSegments.prepend(track(QStringLiteral("audio"), QStringLiteral("Original source audio (muted)"),
+                                  sourceAudioTrack));
     }
 
     QJsonObject materials;
@@ -440,6 +669,7 @@ bool CapCutDraftExporter::exportDraft(const QString &parentDirectory,
     for (const QString &kind : materialKinds) materials.insert(kind, QJsonArray{});
     materials.insert(QStringLiteral("videos"), videoMaterials);
     materials.insert(QStringLiteral("audios"), audioMaterials);
+    materials.insert(QStringLiteral("texts"), textMaterials);
     materials.insert(QStringLiteral("speeds"), speedMaterials);
 
     const QDateTime now = QDateTime::currentDateTimeUtc();
@@ -481,11 +711,74 @@ bool CapCutDraftExporter::exportDraft(const QString &parentDirectory,
                            {QStringLiteral("draft_root_path"), parent.absolutePath()},
                            {QStringLiteral("draft_timeline_materials_size_"), 0},
                            {QStringLiteral("tm_duration"), timelineDurationUs}};
+    const auto relativeDraftPath = [&stagingPath](const QString &path) {
+        return path.isEmpty() ? QString() : QDir(stagingPath).relativeFilePath(path);
+    };
+    const QVariantMap safeTimingConfiguration{
+        {QStringLiteral("mode"), timingConfiguration.value(QStringLiteral("mode"), QStringLiteral("keep")).toString()},
+        {QStringLiteral("minimumGapMs"), qBound(0,
+            timingConfiguration.value(QStringLiteral("minimumGapMs"), 80).toInt(), 5000)}};
+    QJsonArray editableTracks{
+        QJsonObject{{QStringLiteral("role"), QStringLiteral("original-media")},
+                    {QStringLiteral("type"), sourceIsVideo ? QStringLiteral("video") : QStringLiteral("audio")},
+                    {QStringLiteral("initialVolume"), 0.0}}};
+    if (!copiedMaster.isEmpty()) {
+        editableTracks.append(QJsonObject{{QStringLiteral("role"), QStringLiteral("original-audio")},
+                                          {QStringLiteral("type"), QStringLiteral("audio")},
+                                          {QStringLiteral("initialVolume"), 0.0}});
+    }
+    if (!copiedVocals.isEmpty()) {
+        editableTracks.append(QJsonObject{{QStringLiteral("role"), QStringLiteral("source-vocals")},
+                                          {QStringLiteral("type"), QStringLiteral("audio")},
+                                          {QStringLiteral("initialVolume"), 0.0}});
+    }
+    if (!copiedBackground.isEmpty()) {
+        editableTracks.append(QJsonObject{{QStringLiteral("role"), QStringLiteral("background")},
+                                          {QStringLiteral("type"), QStringLiteral("audio")},
+                                          {QStringLiteral("initialVolume"), 1.0}});
+    }
+    editableTracks.append(QJsonObject{{QStringLiteral("role"), QStringLiteral("rendered-dubbing-mix")},
+                                      {QStringLiteral("type"), QStringLiteral("audio")},
+                                      {QStringLiteral("initialVolume"), 0.0}});
+    editableTracks.append(QJsonObject{{QStringLiteral("role"), QStringLiteral("generated-voice-clips")},
+                                      {QStringLiteral("type"), QStringLiteral("audio")},
+                                      {QStringLiteral("segmentCount"), perSegmentTrack.size()}});
+    editableTracks.append(QJsonObject{{QStringLiteral("role"), QStringLiteral("editable-subtitles")},
+                                      {QStringLiteral("type"), QStringLiteral("text")},
+                                      {QStringLiteral("segmentCount"), subtitleTrack.size()}});
+    const QJsonObject editableManifest{
+        {QStringLiteral("format"), QStringLiteral("la-studio-editable-capcut-draft")},
+        {QStringLiteral("version"), 2},
+        {QStringLiteral("capCutImportStatus"), QStringLiteral("structurally-validated-manual-import-pending")},
+        {QStringLiteral("timelineDurationMs"), timelineDurationMs},
+        {QStringLiteral("assets"), QJsonObject{
+            {QStringLiteral("originalMedia"), relativeDraftPath(copiedSource)},
+            {QStringLiteral("originalAudio"), relativeDraftPath(copiedMaster)},
+            {QStringLiteral("sourceVocals"), relativeDraftPath(copiedVocals)},
+            {QStringLiteral("background"), relativeDraftPath(copiedBackground)},
+            {QStringLiteral("renderedDubbingMix"), relativeDraftPath(copiedMix)},
+            {QStringLiteral("generatedClipDirectory"), QStringLiteral("assets/clips")}}},
+        {QStringLiteral("tracks"), editableTracks},
+        {QStringLiteral("subtitle"), QJsonObject{
+            {QStringLiteral("source"), subtitleConfiguration.value(QStringLiteral("source"),
+                                                                       QStringLiteral("segments")).toString()},
+            {QStringLiteral("style"), QJsonObject::fromVariantMap(subtitleStyle)},
+            {QStringLiteral("editableTextSegmentCount"), subtitleTrack.size()},
+            {QStringLiteral("sidecars"), QJsonArray{QStringLiteral("subtitles/original.srt"),
+                                                      QStringLiteral("subtitles/dubbed.srt")}}}},
+        {QStringLiteral("timing"), QJsonObject::fromVariantMap(safeTimingConfiguration)},
+        {QStringLiteral("segments"), segmentManifest},
+        {QStringLiteral("effects"), QJsonArray{}}
+    };
     if (!writeJson(QDir(stagingPath).filePath(QStringLiteral("draft_content.json")), content, error)
         || !writeJson(QDir(stagingPath).filePath(QStringLiteral("draft_meta_info.json")), meta, error)
+        || !writeJson(QDir(stagingPath).filePath(QStringLiteral("LA_STUDIO_EDITABLE_MANIFEST.json")),
+                      editableManifest, error)
         || !writeJson(QDir(stagingPath).filePath(QStringLiteral("segments.json")),
                       QJsonObject{{QStringLiteral("format"), QStringLiteral("la-studio-capcut-segments")},
-                                  {QStringLiteral("version"), 1},
+                                  {QStringLiteral("version"), 2},
+                                  {QStringLiteral("subtitleStyle"), QJsonObject::fromVariantMap(subtitleStyle)},
+                                  {QStringLiteral("timingConfiguration"), QJsonObject::fromVariantMap(safeTimingConfiguration)},
                                   {QStringLiteral("segments"), segmentManifest}}, error)
         || !writeText(QDir(stagingPath).filePath(QStringLiteral("subtitles/original.srt")),
                       subtitles(segments, false), error)
@@ -494,9 +787,11 @@ bool CapCutDraftExporter::exportDraft(const QString &parentDirectory,
         || !writeText(QDir(stagingPath).filePath(QStringLiteral("LA_STUDIO_IMPORT_STATUS.md")),
                       QStringLiteral("# CapCut draft export status\n\n"
                                      "This folder contains a self-contained CapCut draft schema and copied local assets. "
-                                     "It was structurally validated by LA Studio, but manual import into CapCut has not "
-                                     "been verified on this machine. Do not treat import compatibility as confirmed until "
-                                     "that manual check succeeds.\n"), error)
+                                     "Original media/audio, optional source vocals/background, a muted rendered mix, each "
+                                     "generated voice clip, and editable subtitle text segments remain separate. It was "
+                                     "structurally validated by LA Studio, but manual import into CapCut has not been "
+                                     "verified on this machine. Do not treat import compatibility as confirmed until that "
+                                     "manual check succeeds.\n"), error)
         || !validateDraft(stagingPath, finalPath, error)) {
         return abort();
     }

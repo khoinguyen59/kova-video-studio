@@ -3815,7 +3815,8 @@ bool DubbingController::exportCapCutDraft(const QString &directoryPath)
             outputDirectory, QFileInfo(m_project.projectPath).completeBaseName(),
             m_project.sourceMediaPath, m_project.masterAudioPath, m_project.backgroundAudioPath,
             previewPath(), m_project.sourceIsVideo, m_project.sourceDurationMs,
-            m_project.segments, &draftPath, &warning, &error)) {
+            m_project.segments, m_project.analysisAudioPath, subtitleConfiguration(),
+            timingConfiguration(), &draftPath, &warning, &error)) {
         setError(error);
         return false;
     }
