@@ -231,6 +231,10 @@ void ColabVoiceCloneController::cloneVoice(const QString &text, const QString &r
     request.steps = steps;
     request.consentConfirmed = consentConfirmed;
     request.existingProfileId = signature == m_profileSignature ? m_profileId : QString();
+    // HTTP is never accepted by production sessions. Propagate the explicit
+    // loopback-only test flag so the controller contract can be exercised
+    // end-to-end without weakening production endpoint validation.
+    request.allowInsecureLocalhost = m_session->allowsInsecureLocalhostForTests();
     request.cancellation = InferenceCancellationToken(m_cancellation);
     m_profileSignature = signature;
     m_activeSessionRevision = m_sessionRevision;

@@ -309,11 +309,14 @@ bool DubbingSynthesisJob::start(const QVariantList &segments, const QString &pro
             QStringLiteral("|clone-preset|%1").arg(m_cloneVoicePresetId));
         if (m_executionProvider == ExecutionProvider::ColabDirect) {
             const QFileInfo referenceInfo(m_voiceReference.audioPath);
-            const QString profileSignature = QStringLiteral("%1|%2|%3|%4|%5")
+            const QString cloneModel = m_cacheSettings.value(
+                QStringLiteral("effectiveVoiceCloneModel")).toString();
+            const QString profileSignature = QStringLiteral("%1|%2|%3|%4|%5|%6")
                 .arg(referenceInfo.absoluteFilePath(),
                      QString::number(referenceInfo.size()),
                      QString::number(referenceInfo.lastModified().toMSecsSinceEpoch()),
-                     m_voiceReference.referenceText, m_settings.value(QStringLiteral("lang")).toString());
+                     m_voiceReference.referenceText, m_settings.value(QStringLiteral("lang")).toString(),
+                     cloneModel);
             if (m_colabVoiceProfileSignature != profileSignature) {
                 m_colabVoiceProfileSignature = profileSignature;
                 m_colabVoiceProfileId.clear();

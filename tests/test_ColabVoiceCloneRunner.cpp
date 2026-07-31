@@ -94,6 +94,15 @@ public:
     QString baseUrl() const { return QStringLiteral("http://127.0.0.1:%1").arg(m_server.serverPort()); }
     QList<QByteArray> requests() const { return m_requests; }
 
+    int requestCount(const QByteArray &prefix) const
+    {
+        int count = 0;
+        for (const QByteArray &request : m_requests) {
+            if (request.startsWith(prefix)) ++count;
+        }
+        return count;
+    }
+
 private:
     static QByteArray jsonResponse(int status, const QByteArray &body)
     {
@@ -240,6 +249,93 @@ void TestColabVoiceCloneRunner::testRunsVoiceProfileAndGenerationDirectlyOnColab
     QVERIFY(callsAfterDelete.at(5).toLower().contains("authorization: bearer colab-voice-token"));
     workerThread.quit();
     QVERIFY(workerThread.wait(5000));
+}
+
+void TestColabVoiceCloneRunner::controllerReusesProfileOnlyForMatchingDurableReference()
+{
+    VoiceCloneMock server;
+    QVERIFY(server.start());
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const QString referencePath = temporary.filePath(QStringLiteral("reference.wav"));
+    QFile reference(referencePath);
+    QVERIFY(reference.open(QIODevice::WriteOnly));
+    QVERIFY(reference.write(referenceWav()) > 0);
+    reference.close();
+    const QString replacementReferencePath = temporary.filePath(QStringLiteral("replacement-reference.wav"));
+    QFile replacementReference(replacementReferencePath);
+    QVERIFY(replacementReference.open(QIODevice::WriteOnly));
+    QVERIFY(replacementReference.write(referenceWav()) > 0);
+    replacementReference.close();
+
+    // setSession() is the explicit unit-test seam. Production UI must pass the
+    // asynchronous exact worker verification before it can call useColab().
+    ColabSession session;
+    QString sessionError;
+    QVERIFY(session.setSession(server.baseUrl(), QStringLiteral("loopback-token"),
+                               &sessionError, true));
+    ColabVoiceCloneController controller(&session, nullptr, nullptr, nullptr, nullptr);
+    controller.useColab();
+    QVERIFY(controller.colabActive());
+    QSignalSpy finished(&controller, &ColabVoiceCloneController::synthesisFinished);
+    QSignalSpy errors(&controller, &ColabVoiceCloneController::errorOccurred);
+
+    const auto clone = [&controller, &finished](const QString &text, const QString &path,
+                                                const QString &referenceText,
+                                                const QString &language) {
+        const int expected = finished.count() + 1;
+        controller.cloneVoice(text, path, referenceText, language,
+                              QStringLiteral("Saved reference"), true);
+        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), expected, 8000);
+    };
+
+    clone(QStringLiteral("First segment"), referencePath, QStringLiteral("Exact source transcript"),
+          QStringLiteral("vi"));
+    QCOMPARE(errors.count(), 0);
+    QCOMPARE(controller.profileId(), QStringLiteral("profile-1"));
+    QCOMPARE(server.requestCount(QByteArrayLiteral("POST /v2/jobs/profile ")), 1);
+
+    // Changing generated text must reuse the temporary profile created from
+    // the same durable reference, transcript, language, and exact model.
+    clone(QStringLiteral("Second segment"), referencePath, QStringLiteral("Exact source transcript"),
+          QStringLiteral("vi"));
+    QCOMPARE(errors.count(), 0);
+    QCOMPARE(server.requestCount(QByteArrayLiteral("POST /v2/jobs/profile ")), 1);
+    QCOMPARE(server.requestCount(QByteArrayLiteral("POST /v2/jobs/generation ")), 2);
+    QVERIFY(server.requests().at(5).contains("\"profile_id\":\"profile-1\""));
+
+    // Transcript/language are durable-reference inputs; either change must
+    // rebuild the transient worker profile rather than silently reuse it.
+    clone(QStringLiteral("Third segment"), referencePath, QStringLiteral("Changed exact transcript"),
+          QStringLiteral("vi"));
+    QCOMPARE(server.requestCount(QByteArrayLiteral("POST /v2/jobs/profile ")), 2);
+
+    clone(QStringLiteral("Fourth segment"), referencePath,
+          QStringLiteral("Changed exact transcript"), QStringLiteral("en"));
+    QCOMPARE(server.requestCount(QByteArrayLiteral("POST /v2/jobs/profile ")), 3);
+
+    clone(QStringLiteral("Fifth segment"), replacementReferencePath,
+          QStringLiteral("Changed exact transcript"), QStringLiteral("en"));
+    QCOMPARE(server.requestCount(QByteArrayLiteral("POST /v2/jobs/profile ")), 4);
+
+    // A new worker session invalidates the old temporary profile. The next
+    // request rebuilds it from the still-local durable reference.
+    session.clear();
+    QVERIFY(controller.profileId().isEmpty());
+    QVERIFY(session.setSession(server.baseUrl(), QStringLiteral("loopback-token-2"),
+                               &sessionError, true));
+    controller.useColab();
+    clone(QStringLiteral("Sixth segment"), replacementReferencePath,
+          QStringLiteral("Changed exact transcript"),
+          QStringLiteral("vi"));
+    QCOMPARE(server.requestCount(QByteArrayLiteral("POST /v2/jobs/profile ")), 5);
+    QCOMPARE(errors.count(), 0);
+
+    // Changing model explicitly clears the session and the temporary profile;
+    // it cannot reuse a profile across exact worker/model contracts.
+    QVERIFY(controller.selectColabModel(QStringLiteral("qwen3-tts-0.6b-base")));
+    QVERIFY(controller.profileId().isEmpty());
+    QVERIFY(!controller.colabConnected());
 }
 
 void TestColabVoiceCloneRunner::testRejectsProfileWithoutConsent()

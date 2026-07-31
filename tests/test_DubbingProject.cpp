@@ -1158,6 +1158,14 @@ void TestDubbingProject::dubbingUiUsesExactModelWorkers()
         QStringLiteral("request.model = model;")));
     QVERIFY(synthesisSource.contains(
         QStringLiteral("voiceCloneModelId")));
+    QVERIFY(synthesisSource.contains(
+        QStringLiteral("effectiveVoiceCloneModel")));
+    QVERIFY(synthesisSource.contains(
+        QStringLiteral("%1|%2|%3|%4|%5|%6")));
+    QVERIFY(synthesisSource.contains(
+        QStringLiteral("m_colabVoiceProfileId.clear")));
+    QVERIFY(!synthesisSource.contains(
+        QStringLiteral("cloneVoiceProfileId")));
 
     QFile transcriptionJob(
         QStringLiteral(LASTUDIO_SOURCE_DIR)

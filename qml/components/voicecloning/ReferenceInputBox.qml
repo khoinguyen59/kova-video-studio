@@ -52,7 +52,7 @@ ColumnLayout {
     function defaultVoiceName() {
         if (root.audioPath !== "")
             return VoiceCloningUtils.fileNameFromPath(root.audioPath)
-        return "Cloned voice"
+        return "Reference voice"
     }
 
     function loadSavedVoice(index) {
@@ -104,7 +104,7 @@ ColumnLayout {
             }
 
             Text {
-                text: "Saved Voices"
+                text: "Saved reference voices"
                 color: Theme.textPrimary
                 font.pixelSize: Theme.fontSmall
                 font.bold: true
@@ -128,7 +128,7 @@ ColumnLayout {
             spacing: Theme.paddingSmall
 
             PrimaryButton {
-                text: "Save Current"
+                text: "Save reference"
                 quiet: true
                 implicitHeight: 34
                 implicitWidth: 120
