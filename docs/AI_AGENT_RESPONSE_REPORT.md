@@ -1,4 +1,80 @@
-# CURRENT AUTHORITATIVE RESPONSE -- package acceptance continuation (2026-07-30)
+# CURRENT AUTHORITATIVE RESPONSE -- Direct Colab Dubbing audit and voice-library hardening (2026-07-31)
+
+**Request executed:** the current A → H instruction in `AI_AGENT_REQUEST.md`, without GUI automation, desktop-app control, user-profile access, model/runtime download, or changes to any reference repository.
+
+## Audit result and decisions
+
+| Reference | Evidence read | LA Studio decision |
+| --- | --- | --- |
+| OpenCut (`origin = https://github.com/OpenCut-app/OpenCut.git`) | `apps/desktop/src/shell.rs` and its Browser/Preview/Inspector/Timeline panels | **Reject as implementation source.** It is currently a persistent-panel shell with placeholder text only; it has no project, asset, timeline, serialization, undo, autosave, or exporter model to reuse. |
+| Kova | `internal/service/link2file.go`, `source_audio_separation.go`, project/workdir/manifest, CapCut builder and desktop entrypoint | **Adapt safety patterns only.** LA Studio retains its own direct-HTTPS staging, probe/normalize, two-stem fail-closed separation, workflow journal, and portable staging. It does not adopt yt-dlp, browser/cookie handling, or a second project architecture. |
+| Kova Voice Studio | Wails app, Go worker bridge, Python `store.py`, `api.py`, `jobs.py`, and tests | **Adapt owned-copy/validated persistence.** The useful pattern is durable reference media with checksum, explicit consent and no credential persistence; no Go/Python code was copied. |
+| pyCapCut | `draft_folder.py`, `script_file.py`, material/track/segment serializers | **Structural reference only.** LA Studio's `CapCutDraftExporter` remains labelled `CapCut structure generated — import not yet verified`; no CapCut application was opened or controlled. |
+
+## Root cause and correction
+
+The shared voice library already copied reference audio atomically and stored its SHA-256, but its metadata file was an unversioned top-level JSON array. That left no explicit on-disk schema contract for a clean package or future migration. The Dubbing selector test also unnecessarily loaded a mock local TTS model, masking the required Direct-Colab-only persistence invariant.
+
+`VoiceClonePresetService` now writes an atomic metadata envelope:
+
+```json
+{ "schemaVersion": 1, "presets": [ ... ] }
+```
+
+It still reads the legacy array safely and rewrites it to the current schema on the next successful edit. Each preset keeps its app-owned audio path, byte count, SHA-256, and storage version. No URL, token, gateway key, worker profile, or other credential is serialized.
+
+The Dubbing regression now proves all of the following without a loaded local TTS/clone model:
+
+- create/import → app-owned WAV copy → atomic metadata → recreated service → Dubbing selector;
+- a selected preset survives project save/reopen;
+- changing from the exact `omnivoice` clone family to `voxcpm2` leaves the old selector empty and rejects selection instead of falling back;
+- zero preset and missing/corrupt preset remain blocking conditions; existing two-speaker snapshot regression remains intact.
+
+The QML/catalog/Direct-Colab contract was also re-traced: `VoiceCloningPage.qml` selects an exact catalog family through `ColabVoiceCloneController::selectColabModel`, then saves that family without local runtime/files; `ReferenceInputBox` and `VoiceLibraryDialog` use that same family key; Dubbing filters `VoiceClonePresetService` by the configured `voiceCloneModelId`. The six voice-cloning catalog IDs match the six exact notebook mappings.
+
+## Source and verification
+
+Changed and committed files for this continuation:
+
+- `CMakeLists.txt` — default application version `0.0.2.1`.
+- `src/controllers/shared/VoiceClonePresetService.cpp` — schema envelope plus legacy-read migration.
+- `tests/test_DubbingProject.cpp` — no-local-model persistence/selector check, exact-family mismatch check, schema assertions.
+
+Commands completed:
+
+```powershell
+ctest --test-dir out\build\windows-msvc-tests --output-on-failure
+# 35/35 passed
+
+& .\graphify\.venv\Scripts\graphify.exe update .
+
+.\scripts\package.ps1 -SkipInstaller -PortableInternalLayout -Version 0.0.2.1 `
+  -MaxParallelJobs 1 -QtRoot .tools\Qt\6.9.3 -VcpkgRoot .deps\vcpkg `
+  -LlamaCppSourceDir .deps\llama.cpp -AllowUnsignedEspeakForInternalBuild
+```
+
+## Package evidence
+
+- EXE: `out\LA-Studio-0.0.2.1\LA-Studio-0.0.2.1.exe`
+- EXE metadata: `FileVersion = 0.0.2.1`, `ProductVersion = 0.0.2.1`, `ProductName = LA Studio`
+- Size: `21,314,048` bytes
+- SHA-256: `B650AD4DB6B5610FCDE7490CB6CD46486B0561032E1AADD5A767F4439FA02199`
+- Package staging and license manifests: passed (16 required artifacts each).
+- Distribution status: **internal-only** because the package uses the SHA-256-verified but unsigned eSpeak NG MSI.
+
+| Gate | Result | Evidence / limit |
+| --- | --- | --- |
+| Source/mock/loopback/QML regression | PASS | Full CTest: 35/35. |
+| Direct Colab / Gateway isolation | PASS at regression level | Exact-model, session-memory, wrong-worker and route-isolation suites passed. |
+| Clean-package voice library | PASS at persistence/controller level | No local TTS model is loaded by the new selector/persistence regression. |
+| Portable package | PASS | Build, staging and EXE metadata/version verification completed. |
+| GUI click-through acceptance | BLOCKED | The active instruction explicitly forbids GUI automation or opening/controlling the EXE. No UI result is claimed. |
+| Live Colab GPU synthesis/separation | BLOCKED | No user-provided temporary worker URL/token; no GPU job was started. |
+| Live CapCut import | BLOCKED | No CapCut UI was opened or controlled. |
+
+---
+
+# Previous authoritative response -- package acceptance continuation (2026-07-30)
 
 **Request executed:** the newest `AI_AGENT_REQUEST.md` instruction: finish package/user acceptance only; do not add features or rewrite architecture; repair only a reproducible concrete defect; record results here; then wait for a new MD instruction.
 

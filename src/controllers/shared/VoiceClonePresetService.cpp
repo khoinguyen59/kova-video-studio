@@ -15,6 +15,12 @@
 
 namespace LAStudio {
 
+namespace {
+constexpr int kVoiceClonePresetSchemaVersion = 1;
+constexpr auto kVoiceClonePresetSchemaKey = "schemaVersion";
+constexpr auto kVoiceClonePresetItemsKey = "presets";
+}
+
 VoiceClonePresetService::VoiceClonePresetService(QObject *parent)
     : QObject(parent)
 {
@@ -39,11 +45,26 @@ QVariantList VoiceClonePresetService::loadAllPresets() const
     }
 
     QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-    if (!doc.isArray()) {
+    QJsonArray arr;
+    if (doc.isArray()) {
+        // Preserve libraries created before the metadata envelope existed.
+        // The next successful edit rewrites them in the current schema.
+        arr = doc.array();
+    } else if (doc.isObject()) {
+        const QJsonObject root = doc.object();
+        if (root.value(QLatin1String(kVoiceClonePresetSchemaKey)).toInt() != kVoiceClonePresetSchemaVersion) {
+            Logger::warning("VoiceClonePresetService", "Unsupported voice preset metadata schema.");
+            return list;
+        }
+        const QJsonValue entries = root.value(QLatin1String(kVoiceClonePresetItemsKey));
+        if (!entries.isArray()) {
+            Logger::warning("VoiceClonePresetService", "Voice preset metadata has no presets array.");
+            return list;
+        }
+        arr = entries.toArray();
+    } else {
         return list;
     }
-
-    QJsonArray arr = doc.array();
     list.reserve(arr.size());
     for (const QJsonValue &val : arr) {
         if (val.isObject()) {
@@ -70,7 +91,10 @@ bool VoiceClonePresetService::saveAllPresets(const QVariantList &presets)
         arr.append(QJsonObject::fromVariantMap(item.toMap()));
     }
 
-    const QByteArray document = QJsonDocument(arr).toJson(QJsonDocument::Indented);
+    QJsonObject root;
+    root.insert(QLatin1String(kVoiceClonePresetSchemaKey), kVoiceClonePresetSchemaVersion);
+    root.insert(QLatin1String(kVoiceClonePresetItemsKey), arr);
+    const QByteArray document = QJsonDocument(root).toJson(QJsonDocument::Indented);
     if (file.write(document) != document.size() || !file.commit()) {
         Logger::error("VoiceClonePresetService", "Failed to atomically commit presets file: " + path);
         emit errorOccurred(QStringLiteral("Failed to save voice clone presets locally."));

@@ -1490,8 +1490,9 @@ void TestDubbingProject::cloneVoicePresetSelectionPersistsAndMissingPresetBlocks
     const QString sourcePath = dir.filePath(QStringLiteral("reference.wav"));
     QVERIFY(WavIO::saveFloat(sourcePath, samples.constData(), samples.size(), sampleRate));
 
+    // Selecting or persisting a managed reference must not load a local
+    // clone/TTS model. Dubbing voice cloning is a Direct Colab contract.
     TtsEngine tts;
-    tts.loadModel(QStringLiteral("mock-model.onnx"));
     VoiceClonePresetService presets;
     DubbingController controller(nullptr, &tts);
     controller.setVoiceClonePresetService(&presets);
@@ -1528,6 +1529,16 @@ void TestDubbingProject::cloneVoicePresetSelectionPersistsAndMissingPresetBlocks
     QVERIFY(reloaded.openProject(dir.filePath(QStringLiteral("project.ladub.json"))));
     QCOMPARE(reloaded.selectedCloneVoicePresetId(), presetId);
     QVERIFY(reloaded.cloneVoiceSelectionValid());
+
+    // A preset belongs to the exact configured Colab clone model. A change to
+    // another supported family must not silently reuse the old reference.
+    QVERIFY(reloaded.setWorkflowNodeParameters(
+        QStringLiteral("synthesize"),
+        QVariantMap{{QStringLiteral("voiceCloneModelId"), QStringLiteral("voxcpm2")}}));
+    QCOMPARE(reloaded.cloneVoicePresetFamily(), QStringLiteral("voxcpm2"));
+    QVERIFY(reloaded.cloneVoicePresets().isEmpty());
+    QVERIFY(!reloaded.selectCloneVoicePreset(presetId));
+    QVERIFY(reloaded.lastError().contains(QStringLiteral("unavailable")));
 
     QVERIFY(presets.deletePreset(presetId));
     QVERIFY(!reloaded.cloneVoiceSelectionValid());
@@ -1625,7 +1636,10 @@ void TestDubbingProject::voiceClonePresetLibraryPersistsAtomicallyAndProtectsSou
         + QStringLiteral("/presets/voice_clone_presets.json");
     QFile metadata(metadataPath);
     QVERIFY(metadata.open(QIODevice::ReadOnly));
-    QVERIFY(QJsonDocument::fromJson(metadata.readAll()).isArray());
+    const QJsonDocument metadataDocument = QJsonDocument::fromJson(metadata.readAll());
+    QVERIFY(metadataDocument.isObject());
+    QCOMPARE(metadataDocument.object().value(QStringLiteral("schemaVersion")).toInt(), 1);
+    QVERIFY(metadataDocument.object().value(QStringLiteral("presets")).isArray());
     metadata.close();
 
     // A fresh service simulates an application restart. It must read the
