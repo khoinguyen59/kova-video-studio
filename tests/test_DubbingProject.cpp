@@ -2,6 +2,7 @@
 
 #include "dubbing/DubbingProject.h"
 #include "dubbing/DubbingSubtitleService.h"
+#include "dubbing/DubbingTimingService.h"
 #include "dubbing/CapCutDraftExporter.h"
 #include "dubbing/DubbingTranscriptFusionService.h"
 #include "controllers/dubbing/DubbingController.h"
@@ -2675,6 +2676,87 @@ void TestDubbingProject::dubbingSubtitleUiWiresImportPreviewAndBurnIn()
     QVERIFY(editorSource.contains(QStringLiteral("Burn the styled subtitles into rendered MP4")));
     QVERIFY(editorSource.contains(QStringLiteral("safeMargin")));
     QVERIFY(editorSource.contains(QStringLiteral("positionX")));
+}
+
+void TestDubbingProject::resolvesGlobalTimingConflictsWithRippleAndUndo()
+{
+    const QVariantList segments{
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("a")},
+                    {QStringLiteral("speakerId"), QStringLiteral("speaker-1")},
+                    {QStringLiteral("startMs"), 0}, {QStringLiteral("endMs"), 800},
+                    {QStringLiteral("durationMs"), 1000}},
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("b")},
+                    {QStringLiteral("speakerId"), QStringLiteral("speaker-2")},
+                    {QStringLiteral("startMs"), 600}, {QStringLiteral("endMs"), 1200},
+                    {QStringLiteral("durationMs"), 900},
+                    {QStringLiteral("words"), QVariantList{
+                        QVariantMap{{QStringLiteral("startMs"), 620}, {QStringLiteral("endMs"), 840}}}}},
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("c")},
+                    {QStringLiteral("speakerId"), QStringLiteral("speaker-1")},
+                    {QStringLiteral("startMs"), 1300}, {QStringLiteral("endMs"), 1600},
+                    {QStringLiteral("durationMs"), 350}}
+    };
+    const QVariantMap analysis = DubbingTimingService::analyzeSpeechOverlaps(segments, 100);
+    QCOMPARE(analysis.value(QStringLiteral("blockingConflictCount")).toInt(), 2);
+    QCOMPARE(analysis.value(QStringLiteral("conflicts")).toList().size(), 2);
+
+    QVariantMap rippleReport;
+    QString error;
+    const QVariantList rippled = DubbingTimingService::rippleForward(segments, 100, &rippleReport, &error);
+    QVERIFY2(!rippled.isEmpty(), qPrintable(error));
+    QCOMPARE(rippled.at(0).toMap().value(QStringLiteral("endMs")).toLongLong(), qint64(1000));
+    QCOMPARE(rippled.at(1).toMap().value(QStringLiteral("startMs")).toLongLong(), qint64(1100));
+    QCOMPARE(rippled.at(1).toMap().value(QStringLiteral("endMs")).toLongLong(), qint64(2000));
+    QCOMPARE(rippled.at(1).toMap().value(QStringLiteral("words")).toList().first().toMap()
+                 .value(QStringLiteral("startMs")).toLongLong(), qint64(1120));
+    QCOMPARE(rippled.at(2).toMap().value(QStringLiteral("startMs")).toLongLong(), qint64(2100));
+    QCOMPARE(rippleReport.value(QStringLiteral("blockingConflictCount")).toInt(), 0);
+    QCOMPARE(rippleReport.value(QStringLiteral("originalConflicts")).toList().size(), 2);
+    QCOMPARE(rippleReport.value(QStringLiteral("durationIncreaseMs")).toLongLong(), qint64(800));
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    DubbingController controller(nullptr, nullptr);
+    const QString projectPath = dir.filePath(QStringLiteral("timing.ladub.json"));
+    QVERIFY(controller.newProject(projectPath));
+    controller.addSegment(0, 800, QStringLiteral("First"));
+    controller.addSegment(600, 1200, QStringLiteral("Second"));
+    controller.updateSegment(0, {{QStringLiteral("durationMs"), 1000}});
+    controller.updateSegment(1, {{QStringLiteral("durationMs"), 900}});
+    QVERIFY(!controller.timingConflicts().isEmpty());
+    const QVariantMap preview = controller.previewTimingResolution(QStringLiteral("ripple"), 100);
+    QVERIFY(!preview.isEmpty());
+    QVERIFY(controller.applyTimingResolution(QStringLiteral("ripple"), 100));
+    QCOMPARE(controller.segments().at(1).toMap().value(QStringLiteral("startMs")).toLongLong(), qint64(1100));
+    QVERIFY(controller.timingUndoAvailable());
+    QVERIFY(controller.undoTimingResolution());
+    QCOMPARE(controller.segments().at(1).toMap().value(QStringLiteral("startMs")).toLongLong(), qint64(600));
+    QCOMPARE(controller.timingConfiguration().value(QStringLiteral("mode")).toString(),
+             QStringLiteral("ripple"));
+
+    DubbingController reopened(nullptr, nullptr);
+    QVERIFY2(reopened.openProject(projectPath), qPrintable(reopened.lastError()));
+    QCOMPARE(reopened.timingConfiguration().value(QStringLiteral("minimumGapMs")).toInt(), 100);
+}
+
+void TestDubbingProject::dubbingTimingUiWiresPreviewApplyAndUndo()
+{
+    const QDir sourceRoot(QStringLiteral(LASTUDIO_SOURCE_DIR));
+    QFile page(sourceRoot.filePath(QStringLiteral("qml/pages/DubbingPage.qml")));
+    QFile review(sourceRoot.filePath(QStringLiteral("qml/components/dubbing/DubbingVoiceClipReview.qml")));
+    QVERIFY(page.open(QIODevice::ReadOnly));
+    QVERIFY(review.open(QIODevice::ReadOnly));
+    const QString pageSource = QString::fromUtf8(page.readAll());
+    const QString reviewSource = QString::fromUtf8(review.readAll());
+    QVERIFY(pageSource.contains(QStringLiteral("dubbingVoiceClipReview.qmlSmokeTimingResolutionCheck")));
+    QVERIFY(reviewSource.contains(QStringLiteral("dubbingTimingResolutionPanel")));
+    QVERIFY(reviewSource.contains(QStringLiteral("previewTimingResolution")));
+    QVERIFY(reviewSource.contains(QStringLiteral("applyTimingResolution")));
+    QVERIFY(reviewSource.contains(QStringLiteral("undoTimingResolution")));
+    QVERIFY(reviewSource.contains(QStringLiteral("setIntentionalTimingOverlap")));
+    QVERIFY(reviewSource.contains(QStringLiteral("measured duration")));
+    QVERIFY(reviewSource.contains(QStringLiteral("Timeline: %1 ms → %2 ms")));
+    QVERIFY(reviewSource.contains(QStringLiteral("originalStartMs")));
 }
 
 void TestDubbingProject::normalizesOcrOnlyTranscriptWithProvenance()

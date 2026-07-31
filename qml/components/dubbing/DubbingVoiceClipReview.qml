@@ -40,6 +40,38 @@ ColumnLayout {
         return Theme.success
     }
 
+    function conflictSummary(conflicts, mode) {
+        if (!conflicts || conflicts.length === 0)
+            return qsTr("No speech overlaps detected")
+        var blocking = 0
+        for (var index = 0; index < conflicts.length; ++index)
+            if (conflicts[index].blocking) ++blocking
+        if (mode === "ripple" && blocking > 0)
+            return qsTr("%1 overlap(s) will be resolved on apply").arg(blocking)
+        return blocking > 0
+            ? qsTr("%1 blocking overlap(s) need review").arg(blocking)
+            : qsTr("%1 intentional overlap(s) retained").arg(conflicts.length)
+    }
+
+    function revisionFor(report, segmentIndex) {
+        if (!report || !report.revisions) return null
+        for (var index = 0; index < report.revisions.length; ++index) {
+            if (report.revisions[index].index === segmentIndex)
+                return report.revisions[index]
+        }
+        return null
+    }
+
+    function qmlSmokeTimingResolutionCheck() {
+        return timingResolutionPanel.width > 0
+            && timingResolutionPanel.height > 0
+            && timingModeSelector.width > 0
+            && timingGapSelector.width > 0
+            && timingPreviewButton.width > 0
+            && timingApplyButton.width > 0
+            && timingUndoButton.width > 0
+    }
+
 ColumnLayout {
     Layout.fillWidth: true
     Layout.fillHeight: true
@@ -66,6 +98,186 @@ ColumnLayout {
         Layout.fillWidth: true
         Layout.preferredHeight: 1
         color: Qt.rgba(1, 1, 1, 0.07)
+    }
+
+    Rectangle {
+        id: timingResolutionPanel
+        objectName: "dubbingTimingResolutionPanel"
+        Layout.fillWidth: true
+        Layout.preferredHeight: 142
+        radius: Theme.radiusSmall
+        color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.055)
+        border.color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.25)
+        border.width: 1
+
+        property var displayedReport: root.dubbing.timingResolutionPreview
+        property var displayedConflicts: displayedReport && displayedReport.mode === "ripple"
+                                        && displayedReport.originalConflicts !== undefined
+                                      ? displayedReport.originalConflicts
+                                      : displayedReport && displayedReport.conflicts !== undefined
+                                        ? displayedReport.conflicts : root.dubbing.timingConflicts
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: Theme.paddingSmall
+            spacing: 4
+
+            RowLayout {
+                Layout.fillWidth: true
+                Text {
+                    text: qsTr("Speech timing")
+                    color: Theme.textPrimary
+                    font.pixelSize: Theme.fontSmall
+                    font.bold: true
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: root.conflictSummary(timingResolutionPanel.displayedConflicts,
+                                               timingResolutionPanel.displayedReport.mode || "keep")
+                    color: timingResolutionPanel.displayedReport
+                           && timingResolutionPanel.displayedReport.blockingConflictCount > 0
+                         ? Theme.warning : Theme.textSecondary
+                    font.pixelSize: 10
+                    elide: Text.ElideRight
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 6
+
+                ComboBox {
+                    id: timingModeSelector
+                    objectName: "dubbingTimingModeSelector"
+                    Layout.preferredWidth: 142
+                    model: [
+                        { label: qsTr("Keep timing"), id: "keep" },
+                        { label: qsTr("Ripple forward"), id: "ripple" },
+                        { label: qsTr("Manual review"), id: "manual" }
+                    ]
+                    textRole: "label"
+                    valueRole: "id"
+                    Component.onCompleted: {
+                        var preferred = root.dubbing.timingConfiguration.mode || "keep"
+                        for (var index = 0; index < model.length; ++index) {
+                            if (model[index].id === preferred) {
+                                currentIndex = index
+                                break
+                            }
+                        }
+                    }
+                }
+
+                SpinBox {
+                    id: timingGapSelector
+                    objectName: "dubbingTimingGapSelector"
+                    Layout.preferredWidth: 92
+                    from: 0
+                    to: 5000
+                    stepSize: 20
+                    value: root.dubbing.timingConfiguration.minimumGapMs || 80
+                    editable: true
+                }
+                Text {
+                    text: qsTr("gap ms")
+                    color: Theme.textSecondary
+                    font.pixelSize: 10
+                }
+                Item { Layout.fillWidth: true }
+                Button {
+                    id: timingPreviewButton
+                    objectName: "dubbingTimingPreviewButton"
+                    text: qsTr("Preview")
+                    enabled: !root.dubbing.processing
+                    onClicked: root.dubbing.previewTimingResolution(
+                                   timingModeSelector.currentValue, timingGapSelector.value)
+                }
+                Button {
+                    id: timingApplyButton
+                    objectName: "dubbingTimingApplyButton"
+                    text: timingModeSelector.currentValue === "ripple" ? qsTr("Apply ripple")
+                                                                       : qsTr("Save mode")
+                    enabled: !root.dubbing.processing
+                    onClicked: root.dubbing.applyTimingResolution(
+                                   timingModeSelector.currentValue, timingGapSelector.value)
+                }
+                Button {
+                    id: timingUndoButton
+                    objectName: "dubbingTimingUndoButton"
+                    text: qsTr("Undo")
+                    enabled: !root.dubbing.processing && root.dubbing.timingUndoAvailable
+                    onClicked: root.dubbing.undoTimingResolution()
+                }
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: timingModeSelector.currentValue === "ripple"
+                    ? qsTr("Ripple uses each generated clip's measured duration, moves later captions with speech, and invalidates old preview/export output.")
+                    : timingModeSelector.currentValue === "manual"
+                      ? qsTr("Manual review preserves all timings. Mark only deliberately simultaneous dialogue as intentional below.")
+                      : qsTr("Keep timing preserves all cue positions; blocking speech overlaps remain visible for review.")
+                color: Theme.textSecondary
+                font.pixelSize: 10
+                wrapMode: Text.WordWrap
+                maximumLineCount: 2
+                elide: Text.ElideRight
+            }
+
+            Text {
+                Layout.fillWidth: true
+                visible: timingResolutionPanel.displayedReport
+                         && timingResolutionPanel.displayedReport.mode === "ripple"
+                text: visible
+                    ? qsTr("Timeline: %1 ms → %2 ms (%3 ms)")
+                          .arg(timingResolutionPanel.displayedReport.timelineDurationMs)
+                          .arg(timingResolutionPanel.displayedReport.revisedTimelineDurationMs)
+                          .arg(timingResolutionPanel.displayedReport.durationIncreaseMs >= 0
+                               ? "+" + timingResolutionPanel.displayedReport.durationIncreaseMs
+                               : timingResolutionPanel.displayedReport.durationIncreaseMs)
+                    : ""
+                color: Theme.accentLight
+                font.pixelSize: 10
+                elide: Text.ElideRight
+            }
+
+            ListView {
+                id: timingConflictList
+                objectName: "dubbingTimingConflictList"
+                Layout.fillWidth: true
+                Layout.preferredHeight: 36
+                clip: true
+                spacing: 3
+                model: timingResolutionPanel.displayedConflicts || []
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                delegate: RowLayout {
+                    required property var modelData
+                    readonly property var revision: root.revisionFor(
+                                                    timingResolutionPanel.displayedReport,
+                                                    modelData.secondIndex)
+                    width: ListView.view.width
+                    Text {
+                        Layout.fillWidth: true
+                        text: revision
+                            ? qsTr("Segments %1 → %2: %3 ms; %4 → %5 ms")
+                                  .arg(modelData.firstIndex + 1).arg(modelData.secondIndex + 1)
+                                  .arg(modelData.overlapMs).arg(revision.originalStartMs)
+                                  .arg(revision.revisedStartMs)
+                            : qsTr("Segments %1 → %2: %3 ms").arg(modelData.firstIndex + 1)
+                                  .arg(modelData.secondIndex + 1).arg(modelData.overlapMs)
+                        color: modelData.blocking ? Theme.warning : Theme.textSecondary
+                        font.pixelSize: 10
+                        elide: Text.ElideRight
+                    }
+                    Button {
+                        text: modelData.intentional ? qsTr("Require gap") : qsTr("Allow overlap")
+                        enabled: !root.dubbing.processing
+                        onClicked: root.dubbing.setIntentionalTimingOverlap(
+                                       modelData.secondIndex, !modelData.intentional)
+                    }
+                }
+            }
+        }
     }
 
     ListView {

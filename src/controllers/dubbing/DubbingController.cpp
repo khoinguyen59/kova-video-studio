@@ -9,6 +9,7 @@
 #include "controllers/shared/VoiceClonePresetService.h"
 #include "dubbing/CapCutDraftExporter.h"
 #include "dubbing/DubbingSubtitleService.h"
+#include "dubbing/DubbingTimingService.h"
 #include "dubbing/EspeakNgPhonemizer.h"
 #include "dubbing/media/RemoteMediaImportService.h"
 #include "dubbing/workflow/DubbingWorkflowDefinition.h"
@@ -2766,6 +2767,10 @@ bool DubbingController::newProject(const QString &path)
     m_project.subtitleConfiguration = {{QStringLiteral("source"), QStringLiteral("segments")},
                                        {QStringLiteral("burnIn"), false},
                                        {QStringLiteral("style"), DubbingSubtitleService::defaultStyle()}};
+    m_project.timingConfiguration = {{QStringLiteral("mode"), QStringLiteral("keep")},
+                                     {QStringLiteral("minimumGapMs"), 80}};
+    m_timingResolutionPreview.clear();
+    m_timingUndoSegments.clear();
     m_workflowNodeConfigurations.clear();
     m_stepOutputs.clear();
     m_lastCompletedStepId.clear();
@@ -2807,6 +2812,12 @@ bool DubbingController::openProject(const QString &path)
                                            {QStringLiteral("burnIn"), false},
                                            {QStringLiteral("style"), DubbingSubtitleService::defaultStyle()}};
     }
+    if (m_project.timingConfiguration.isEmpty()) {
+        m_project.timingConfiguration = {{QStringLiteral("mode"), QStringLiteral("keep")},
+                                         {QStringLiteral("minimumGapMs"), 80}};
+    }
+    m_timingResolutionPreview.clear();
+    m_timingUndoSegments.clear();
     if (m_project.dubbingQuality == QStringLiteral("custom"))
         m_workflowNodeConfigurations = m_project.workflowNodeConfigurations;
     else {
@@ -3048,6 +3059,153 @@ QVariantMap DubbingController::subtitleConfiguration() const
     if (!configuration.contains(QStringLiteral("burnIn")))
         configuration.insert(QStringLiteral("burnIn"), false);
     return configuration;
+}
+
+QVariantMap DubbingController::timingConfiguration() const
+{
+    QVariantMap configuration = m_project.timingConfiguration;
+    QString mode = configuration.value(QStringLiteral("mode"), QStringLiteral("keep"))
+                       .toString().trimmed().toLower();
+    if (mode != QStringLiteral("keep") && mode != QStringLiteral("ripple")
+        && mode != QStringLiteral("manual")) {
+        mode = QStringLiteral("keep");
+    }
+    configuration.insert(QStringLiteral("mode"), mode);
+    configuration.insert(QStringLiteral("minimumGapMs"),
+                         qBound(0, configuration.value(QStringLiteral("minimumGapMs"), 80).toInt(),
+                                5000));
+    return configuration;
+}
+
+QVariantList DubbingController::timingConflicts() const
+{
+    const QVariantMap configuration = timingConfiguration();
+    return DubbingTimingService::analyzeSpeechOverlaps(
+               m_project.segments, configuration.value(QStringLiteral("minimumGapMs")).toLongLong())
+        .value(QStringLiteral("conflicts")).toList();
+}
+
+QVariantMap DubbingController::previewTimingResolution(const QString &mode, int minimumGapMs)
+{
+    const QString normalizedMode = mode.trimmed().toLower();
+    if (normalizedMode != QStringLiteral("keep") && normalizedMode != QStringLiteral("ripple")
+        && normalizedMode != QStringLiteral("manual")) {
+        setError(QStringLiteral("Choose Keep timing, Ripple forward, or Manual timing."));
+        return {};
+    }
+    if (!hasProject()) {
+        setError(QStringLiteral("Open a dubbing project before resolving speech timing."));
+        return {};
+    }
+
+    const qint64 gapMs = qBound(0, minimumGapMs, 5000);
+    QVariantMap report;
+    if (normalizedMode == QStringLiteral("ripple")) {
+        QString error;
+        const QVariantList revised = DubbingTimingService::rippleForward(
+            m_project.segments, gapMs, &report, &error);
+        if (revised.isEmpty() && !m_project.segments.isEmpty()) {
+            setError(error);
+            return {};
+        }
+    } else {
+        report = DubbingTimingService::analyzeSpeechOverlaps(m_project.segments, gapMs);
+        report.insert(QStringLiteral("mode"), normalizedMode);
+        report.insert(QStringLiteral("manualReviewRequired"), normalizedMode == QStringLiteral("manual"));
+    }
+    m_timingResolutionPreview = report;
+    clearError();
+    emit timingResolutionChanged();
+    return report;
+}
+
+bool DubbingController::applyTimingResolution(const QString &mode, int minimumGapMs)
+{
+    const QString normalizedMode = mode.trimmed().toLower();
+    if (normalizedMode != QStringLiteral("keep") && normalizedMode != QStringLiteral("ripple")
+        && normalizedMode != QStringLiteral("manual")) {
+        setError(QStringLiteral("Choose Keep timing, Ripple forward, or Manual timing."));
+        return false;
+    }
+    const QVariantMap preview = previewTimingResolution(normalizedMode, minimumGapMs);
+    if (preview.isEmpty() && !m_project.segments.isEmpty()) return false;
+
+    QVariantMap configuration = timingConfiguration();
+    configuration.insert(QStringLiteral("mode"), normalizedMode);
+    configuration.insert(QStringLiteral("minimumGapMs"), qBound(0, minimumGapMs, 5000));
+
+    if (normalizedMode == QStringLiteral("ripple")) {
+        QString error;
+        QVariantMap report;
+        const QVariantList revised = DubbingTimingService::rippleForward(
+            m_project.segments, configuration.value(QStringLiteral("minimumGapMs")).toLongLong(),
+            &report, &error);
+        if (revised.isEmpty() && !m_project.segments.isEmpty()) {
+            setError(error);
+            return false;
+        }
+        if (report.value(QStringLiteral("blockingConflictCount")).toInt() != 0) {
+            setError(QStringLiteral("Ripple preview still contains blocking speech overlaps."));
+            return false;
+        }
+        m_timingUndoSegments = m_project.segments;
+        m_project.segments = revised;
+        m_timingResolutionPreview = report;
+        invalidateTimingOutputs();
+        emit segmentsChanged();
+        emit workflowChanged();
+    } else {
+        // Keep and manual modes deliberately leave all timestamps unchanged.
+        // Manual mode is a durable explicit-review decision, not an automatic repair.
+        m_timingUndoSegments.clear();
+    }
+
+    m_project.timingConfiguration = configuration;
+    clearError();
+    emit projectChanged();
+    emit timingResolutionChanged();
+    persistAfterEdit();
+    return true;
+}
+
+bool DubbingController::undoTimingResolution()
+{
+    if (m_timingUndoSegments.isEmpty()) {
+        setError(QStringLiteral("No ripple timing change is available to undo."));
+        return false;
+    }
+    m_project.segments = m_timingUndoSegments;
+    m_timingUndoSegments.clear();
+    m_timingResolutionPreview = DubbingTimingService::analyzeSpeechOverlaps(
+        m_project.segments,
+        timingConfiguration().value(QStringLiteral("minimumGapMs")).toLongLong());
+    invalidateTimingOutputs();
+    clearError();
+    emit segmentsChanged();
+    emit projectChanged();
+    emit workflowChanged();
+    emit timingResolutionChanged();
+    persistAfterEdit();
+    return true;
+}
+
+bool DubbingController::setIntentionalTimingOverlap(int segmentIndex, bool enabled)
+{
+    if (segmentIndex < 0 || segmentIndex >= m_project.segments.size()) {
+        setError(QStringLiteral("Choose a valid speech segment before changing overlap intent."));
+        return false;
+    }
+    QVariantMap segment = m_project.segments.at(segmentIndex).toMap();
+    segment.insert(QStringLiteral("intentionalOverlap"), enabled);
+    m_project.segments[segmentIndex] = segment;
+    m_timingResolutionPreview = DubbingTimingService::analyzeSpeechOverlaps(
+        m_project.segments,
+        timingConfiguration().value(QStringLiteral("minimumGapMs")).toLongLong());
+    clearError();
+    emit segmentsChanged();
+    emit timingResolutionChanged();
+    persistAfterEdit();
+    return true;
 }
 
 bool DubbingController::importMediaFromLink(const QString &url)
@@ -3762,7 +3920,11 @@ void DubbingController::addSegment(qint64 startMs, qint64 endMs, const QString &
     segment.insert(QStringLiteral("speakerId"), QStringLiteral("speaker-1"));
     segment.insert(QStringLiteral("state"), QStringLiteral("draft"));
     m_project.segments.append(segment);
+    m_timingResolutionPreview.clear();
+    m_timingUndoSegments.clear();
+    invalidateTimingOutputs();
     emit segmentsChanged();
+    emit timingResolutionChanged();
     emit workflowChanged();
     persistAfterEdit();
 }
@@ -3782,6 +3944,11 @@ void DubbingController::updateSegment(int index, const QVariantMap &patch)
             != segment.value(QStringLiteral("speakerId")).toString();
     const qint64 startMs = patch.value(QStringLiteral("startMs"), segment.value(QStringLiteral("startMs"))).toLongLong();
     const qint64 endMs = patch.value(QStringLiteral("endMs"), segment.value(QStringLiteral("endMs"))).toLongLong();
+    const bool timingChanged = startMs != segment.value(QStringLiteral("startMs")).toLongLong()
+        || endMs != segment.value(QStringLiteral("endMs")).toLongLong()
+        || (patch.contains(QStringLiteral("durationMs"))
+            && patch.value(QStringLiteral("durationMs")).toLongLong()
+                != segment.value(QStringLiteral("durationMs")).toLongLong());
     if (endMs <= startMs) {
         setError(QStringLiteral("Segment end must be after its start."));
         return;
@@ -3841,6 +4008,12 @@ void DubbingController::updateSegment(int index, const QVariantMap &patch)
         }
     }
     m_project.segments[index] = segment;
+    if (timingChanged) {
+        m_timingResolutionPreview.clear();
+        m_timingUndoSegments.clear();
+        invalidateTimingOutputs();
+        emit timingResolutionChanged();
+    }
     emit segmentsChanged();
     emit workflowChanged();
     persistAfterEdit();
@@ -3850,7 +4023,11 @@ void DubbingController::removeSegment(int index)
 {
     if (index < 0 || index >= m_project.segments.size()) return;
     m_project.segments.removeAt(index);
+    m_timingResolutionPreview.clear();
+    m_timingUndoSegments.clear();
+    invalidateTimingOutputs();
     emit segmentsChanged();
+    emit timingResolutionChanged();
     emit workflowChanged();
     persistAfterEdit();
 }
@@ -3893,6 +4070,21 @@ void DubbingController::setError(const QString &message)
 void DubbingController::persistAfterEdit()
 {
     if (!m_project.projectPath.isEmpty()) saveProject();
+}
+
+void DubbingController::invalidateTimingOutputs()
+{
+    // A ripple changes every downstream timestamp.  Keep the existing assets
+    // on disk for recovery, but make neither preview nor export appear current.
+    m_stepOutputs.remove(QStringLiteral("mix"));
+    m_stepOutputs.remove(QStringLiteral("export"));
+    m_pendingExportPath.clear();
+    if (m_runner) {
+        m_runner->setPreviewPath(QString());
+        m_runner->setExportPath(QString());
+    }
+    emit previewChanged();
+    emit exportChanged();
 }
 
 } // namespace LAStudio

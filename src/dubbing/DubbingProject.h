@@ -13,7 +13,7 @@ namespace LAStudio {
 class DubbingProject
 {
 public:
-    static constexpr int CurrentSchemaVersion = 10;
+    static constexpr int CurrentSchemaVersion = 11;
 
     QString projectPath;
     QString sourceMediaPath;
@@ -46,6 +46,9 @@ public:
     // imported file contents are deliberately not persisted: reviewed cues are
     // stored in segments, while an external source remains user-owned.
     QVariantMap subtitleConfiguration;
+    // Resolution policy is persisted, but the original media is never
+    // rewritten. Individual segment ripple offsets remain reviewable.
+    QVariantMap timingConfiguration;
     QVariantMap customRewriteConfiguration;
     QVariantList speakers;
     QVariantList segments;

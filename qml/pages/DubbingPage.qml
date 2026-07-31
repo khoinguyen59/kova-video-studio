@@ -171,11 +171,13 @@ Item {
                 || dubbingTranscriptSourceMode.width <= 0)
             return false
         subtitleEditorDialog.open()
+        reviewStepId = "synthesize"
         return dubbingTranscriptSourceMode.model[0].id === "stt"
             && dubbingTranscriptSourceMode.model[1].id === "ocr"
             && dubbingTranscriptSourceMode.model[2].id === "stt+ocr"
             && sourceMediaPanel.qmlSmokeMediaControlsCheck()
             && subtitleEditorDialog.qmlSmokeLayoutCheck()
+            && dubbingVoiceClipReview.qmlSmokeTimingResolutionCheck()
     }
 
     function runStep(stepId) {
@@ -831,6 +833,7 @@ Item {
                         }
                     }
                     DubbingVoiceClipReview {
+                        id: dubbingVoiceClipReview
                         visible: root.displayedStepId === "synthesize"
                         dubbing: root.dubbing
                         sourceMediaPanel: sourceMediaPanel

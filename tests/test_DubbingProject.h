@@ -42,6 +42,8 @@ private slots:
     void importsDubbingSubtitleFormatsWithoutInventingTiming();
     void persistsDubbingSubtitleStyleAndExportsUnicodeAss();
     void dubbingSubtitleUiWiresImportPreviewAndBurnIn();
+    void resolvesGlobalTimingConflictsWithRippleAndUndo();
+    void dubbingTimingUiWiresPreviewApplyAndUndo();
     void exportsSelfContainedCapCutDraftWithUnverifiedImportStatus();
     void segmentNormalizerSplitsLongAsrTranscript();
     void segmentNormalizerUsesAlignedWordBoundaries();
