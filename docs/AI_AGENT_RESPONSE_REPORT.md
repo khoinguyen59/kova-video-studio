@@ -40,6 +40,8 @@ Changed and committed files for this continuation:
 - `src/controllers/shared/VoiceClonePresetService.cpp` — schema envelope plus legacy-read migration.
 - `tests/test_DubbingProject.cpp` — no-local-model persistence/selector check, exact-family mismatch check, schema assertions.
 
+Source/test/version commit on `main`: `5a4c84a` — `fix: harden direct colab voice preset library`.
+
 Commands completed:
 
 ```powershell
