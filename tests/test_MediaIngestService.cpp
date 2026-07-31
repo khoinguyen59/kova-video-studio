@@ -9,6 +9,7 @@
 #include <QDir>
 #include <QFile>
 #include <QHostAddress>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -72,6 +73,41 @@ private:
     QByteArray m_body;
     int m_bodyDelayMs = 0;
     qint64 m_announcedBytes = -1;
+    int m_requestCount = 0;
+};
+
+class RedirectMediaServer final : public QObject
+{
+public:
+    explicit RedirectMediaServer(QUrl target)
+        : m_target(std::move(target))
+    {
+        connect(&m_server, &QTcpServer::newConnection, this, [this] {
+            while (QTcpSocket *socket = m_server.nextPendingConnection()) {
+                connect(socket, &QTcpSocket::readyRead, this, [this, socket] {
+                    if (socket->property("requestHandled").toBool() || socket->bytesAvailable() == 0) return;
+                    socket->setProperty("requestHandled", true);
+                    ++m_requestCount;
+                    socket->write("HTTP/1.1 302 Found\r\nLocation: "
+                                  + m_target.toString(QUrl::FullyEncoded).toUtf8()
+                                  + "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                    socket->disconnectFromHost();
+                });
+                connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+            }
+        });
+    }
+
+    bool start() { return m_server.listen(QHostAddress::LocalHost); }
+    QUrl url() const
+    {
+        return QUrl(QStringLiteral("http://127.0.0.1:%1/redirect").arg(m_server.serverPort()));
+    }
+    int requestCount() const { return m_requestCount; }
+
+private:
+    QTcpServer m_server;
+    QUrl m_target;
     int m_requestCount = 0;
 };
 
@@ -226,6 +262,24 @@ void TestMediaIngestService::rejectsUnsafeRemoteMediaUrl()
     QVERIFY(privateAddressFinished.constFirst().at(2).toString().contains(QStringLiteral("HTTPS")));
 }
 
+void TestMediaIngestService::rejectsPrivateRedirectBeforeAnyStaging()
+{
+    QTemporaryDir staging;
+    QVERIFY(staging.isValid());
+    RedirectMediaServer redirector(QUrl(QStringLiteral("http://192.168.1.99/private.wav")));
+    QVERIFY(redirector.start());
+
+    RemoteMediaImportService service(staging.path());
+    QSignalSpy finished(&service, &RemoteMediaImportService::finished);
+    QVERIFY(service.download(redirector.url()));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 10000);
+    const QList<QVariant> result = finished.constFirst();
+    QVERIFY(!result.at(0).toBool());
+    QVERIFY(result.at(2).toString().contains(QStringLiteral("redirected to an unsafe")));
+    QCOMPARE(redirector.requestCount(), 1);
+    QVERIFY(QDir(staging.path()).entryList(QDir::Files | QDir::NoDotAndDotDot).isEmpty());
+}
+
 void TestMediaIngestService::rejectsUnsafePublicAdapterResults()
 {
     QTemporaryDir staging;
@@ -297,6 +351,58 @@ void TestMediaIngestService::resolvesPublicVideoPageThroughManagedAdapter()
     if (hadPrevious) qputenv("LASTUDIO_YTDLP", previous);
     else qunsetenv("LASTUDIO_YTDLP");
     QCOMPARE(server.requestCount(), publicUrls.size());
+}
+
+void TestMediaIngestService::resolverTimeoutCanRetry()
+{
+    QTemporaryDir staging;
+    QVERIFY(staging.isValid());
+    DirectMediaServer server;
+    QVERIFY(server.start());
+    const QString adapterPath = staging.filePath(QStringLiteral("slow-yt-dlp.cmd"));
+    const QByteArray previous = qgetenv("LASTUDIO_YTDLP");
+    const bool hadPrevious = qEnvironmentVariableIsSet("LASTUDIO_YTDLP");
+    qputenv("LASTUDIO_YTDLP", adapterPath.toUtf8());
+    const auto restoreAdapter = qScopeGuard([previous, hadPrevious] {
+        if (hadPrevious) qputenv("LASTUDIO_YTDLP", previous);
+        else qunsetenv("LASTUDIO_YTDLP");
+    });
+
+    QFile adapter(adapterPath);
+    QVERIFY(adapter.open(QIODevice::WriteOnly | QIODevice::Text));
+    QVERIFY(adapter.write("@echo off\r\nping 127.0.0.1 -n 5 > nul\r\n") > 0);
+    adapter.close();
+
+    // One second is deliberately above normal Windows process-start latency
+    // for the successful retry while still making the intentionally stalled
+    // adapter fail quickly and deterministically.
+    RemoteMediaImportService service(staging.path(), nullptr, 1000);
+    QSignalSpy finished(&service, &RemoteMediaImportService::finished);
+    QVERIFY(service.download(QUrl(QStringLiteral("https://www.youtube.com/watch?v=fixture"))));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 5000);
+    QVERIFY(!finished.constFirst().at(0).toBool());
+    QVERIFY(finished.constFirst().at(2).toString().contains(QStringLiteral("timed out")));
+    QTRY_VERIFY_WITH_TIMEOUT(!service.active(), 1000);
+    QTest::qWait(100);
+
+    QVERIFY(adapter.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text));
+    QVERIFY(adapter.write("@echo off\r\necho "
+                          + server.url().toString(QUrl::FullyEncoded).toUtf8() + "\r\n") > 0);
+    adapter.close();
+    QVERIFY(service.download(QUrl(QStringLiteral("https://www.youtube.com/watch?v=retry"))));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 2, 10000);
+    QVERIFY(finished.constLast().at(0).toBool());
+    QCOMPARE(server.requestCount(), 1);
+}
+
+void TestMediaIngestService::resolverArgumentsKeepUntrustedUrlPositional()
+{
+    const QUrl source(QStringLiteral("https://www.youtube.com/watch?v=fixture&--output=evil"));
+    const QStringList arguments = RemoteMediaImportService::publicVideoResolverArguments(source);
+    QCOMPARE(arguments, QStringList({QStringLiteral("--no-playlist"), QStringLiteral("--no-warnings"),
+                                     QStringLiteral("--no-cookies"), QStringLiteral("--get-url"),
+                                     QStringLiteral("--"), source.toString(QUrl::FullyEncoded)}));
+    QCOMPARE(arguments.count(source.toString(QUrl::FullyEncoded)), 1);
 }
 
 void TestMediaIngestService::controllerCommitsDirectLinkOnlyAfterRealProbeAndNormalization()

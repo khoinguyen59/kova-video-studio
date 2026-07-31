@@ -54,12 +54,14 @@ QString safeFileName(QString value)
 
 } // namespace
 
-RemoteMediaImportService::RemoteMediaImportService(const QString &storageRoot, QObject *parent)
+RemoteMediaImportService::RemoteMediaImportService(const QString &storageRoot, QObject *parent,
+                                                   int resolverTimeoutMs)
     : QObject(parent)
     , m_storageRoot(storageRoot.trimmed().isEmpty()
                         ? QDir(PathUtils::cacheDir()).filePath(QStringLiteral("dubbing/link-imports"))
                         : QDir::cleanPath(storageRoot))
     , m_network(new QNetworkAccessManager(this))
+    , m_resolverTimeoutMs(qMax(1, resolverTimeoutMs))
 {
     connect(&m_resolver, &QProcess::readyReadStandardOutput, this,
             [this] { m_resolverOutput += m_resolver.readAllStandardOutput(); });
@@ -74,6 +76,12 @@ RemoteMediaImportService::RemoteMediaImportService(const QString &storageRoot, Q
         m_resolverOutput += m_resolver.readAllStandardOutput();
         m_resolverError += m_resolver.readAllStandardError();
         if (!m_active) return;
+        if (!m_pendingResolverTerminationError.isEmpty()) {
+            const QString error = m_pendingResolverTerminationError;
+            m_pendingResolverTerminationError.clear();
+            fail(error);
+            return;
+        }
         if (status != QProcess::NormalExit || exitCode != 0) {
             fail(QStringLiteral("The public-video adapter could not resolve this URL."));
             return;
@@ -90,6 +98,15 @@ RemoteMediaImportService::RemoteMediaImportService(const QString &storageRoot, Q
         }
         validateAndStartDirectDownload(resolved);
     });
+}
+
+QStringList RemoteMediaImportService::publicVideoResolverArguments(const QUrl &sourceUrl)
+{
+    // `--` makes the page URL positional even if its query/path begins with
+    // an option-looking token. QProcess receives this list without a shell.
+    return {QStringLiteral("--no-playlist"), QStringLiteral("--no-warnings"),
+            QStringLiteral("--no-cookies"), QStringLiteral("--get-url"),
+            QStringLiteral("--"), sourceUrl.toString(QUrl::FullyEncoded)};
 }
 
 bool RemoteMediaImportService::isSupportedSource(const QUrl &sourceUrl) const
@@ -124,16 +141,21 @@ bool RemoteMediaImportService::resolvePublicVideoPage(const QUrl &sourceUrl)
     }
     m_resolverOutput.clear();
     m_resolverError.clear();
+    m_pendingResolverTerminationError.clear();
     m_active = true;
+    const quint64 resolverRunId = ++m_resolverRunId;
     m_resolver.setProgram(executable);
-    m_resolver.setArguments({QStringLiteral("--no-playlist"), QStringLiteral("--no-warnings"),
-                             QStringLiteral("--no-cookies"), QStringLiteral("--get-url"),
-                             sourceUrl.toString(QUrl::FullyEncoded)});
+    m_resolver.setArguments(publicVideoResolverArguments(sourceUrl));
     m_resolver.start();
-    QTimer::singleShot(60000, this, [this] {
-        if (m_active && m_resolver.state() != QProcess::NotRunning) {
+    QTimer::singleShot(m_resolverTimeoutMs, this, [this, resolverRunId] {
+        if (m_active && resolverRunId == m_resolverRunId
+            && m_resolver.state() != QProcess::NotRunning) {
+            // Do not report a retryable failure until QProcess has actually
+            // stopped. Starting it again while its old process is alive is a
+            // race on Windows and used to make the Retry action fail.
+            m_pendingResolverTerminationError =
+                QStringLiteral("The public-video adapter timed out while resolving the URL.");
             m_resolver.kill();
-            fail(QStringLiteral("The public-video adapter timed out while resolving the URL."));
         }
     });
     return true;
@@ -193,13 +215,16 @@ void RemoteMediaImportService::startDirectDownload(const QUrl &sourceUrl)
 {
 
     if (!QDir().mkpath(m_storageRoot)) {
-        emit finished(false, {}, QStringLiteral("Cannot create LA Studio media staging storage."));
+        fail(QStringLiteral("Cannot create LA Studio media staging storage."));
         return;
     }
 
     QNetworkRequest request(sourceUrl);
+    // Redirects are manually restarted through validateAndStartDirectDownload
+    // so every redirect target receives the same literal and DNS safety check
+    // as the original URL before any connection or staging write is made.
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
-                         QNetworkRequest::NoLessSafeRedirectPolicy);
+                         QNetworkRequest::ManualRedirectPolicy);
     request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("LA-Studio/MediaImport"));
     m_active = true;
     m_bytesWritten = 0;
@@ -231,6 +256,20 @@ void RemoteMediaImportService::startDirectDownload(const QUrl &sourceUrl)
     });
     connect(m_reply, &QNetworkReply::finished, this, [this]() {
         if (!m_active || !m_reply) return;
+
+        const QUrl redirect = m_reply->attribute(QNetworkRequest::RedirectionTargetAttribute).toUrl();
+        if (!redirect.isEmpty()) {
+            const QUrl target = m_reply->url().resolved(redirect);
+            if (!isSupportedSource(target)) {
+                fail(QStringLiteral("The media URL redirected to an unsafe or unsupported address."));
+                return;
+            }
+            m_reply->deleteLater();
+            m_reply = nullptr;
+            validateAndStartDirectDownload(target);
+            return;
+        }
+
         consumeAvailableData();
         if (!m_active || !m_reply) return;
 
@@ -267,7 +306,11 @@ void RemoteMediaImportService::cancel()
         QHostInfo::abortHostLookup(m_hostLookupId);
         m_hostLookupId = -1;
     }
-    if (m_resolver.state() != QProcess::NotRunning) m_resolver.kill();
+    if (m_resolver.state() != QProcess::NotRunning) {
+        m_pendingResolverTerminationError = QStringLiteral("Media link import canceled.");
+        m_resolver.kill();
+        return;
+    }
     if (m_active) fail(QStringLiteral("Media link import canceled."));
 }
 

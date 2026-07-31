@@ -21,11 +21,15 @@ class RemoteMediaImportService final : public QObject
     Q_OBJECT
 public:
     explicit RemoteMediaImportService(const QString &storageRoot = QString(),
-                                      QObject *parent = nullptr);
+                                      QObject *parent = nullptr,
+                                      int resolverTimeoutMs = 60000);
 
     bool download(const QUrl &sourceUrl);
     void cancel();
     bool active() const { return m_active; }
+    // Keep the untrusted page URL as one positional process argument.  This
+    // is public so the regression can assert the process contract directly.
+    static QStringList publicVideoResolverArguments(const QUrl &sourceUrl);
 
 signals:
     void transferProgress(qint64 receivedBytes, qint64 totalBytes);
@@ -53,6 +57,9 @@ private:
     QString m_outputPath;
     qint64 m_bytesWritten = 0;
     bool m_active = false;
+    int m_resolverTimeoutMs = 60000;
+    quint64 m_resolverRunId = 0;
+    QString m_pendingResolverTerminationError;
 };
 
 } // namespace LAStudio
