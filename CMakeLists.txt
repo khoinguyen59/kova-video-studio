@@ -223,6 +223,7 @@ set(LASTUDIO_SOURCES
     src/controllers/dubbing/DubbingController.cpp
     src/dubbing/AudioTimelineMixer.cpp
     src/subtitles/SrtTimelineParser.cpp
+    src/subtitles/SubtitleOcrPipeline.cpp
     src/tts/SubtitleSmartFitPlanner.cpp
     src/tts/TimedSpeechPipeline.cpp
     src/audio/AudioTimelineRenderer.cpp
@@ -413,6 +414,7 @@ set(LASTUDIO_HEADERS
     src/dubbing/AudioTimelineMixer.h
     src/subtitles/TimedTextCue.h
     src/subtitles/SrtTimelineParser.h
+    src/subtitles/SubtitleOcrPipeline.h
     src/tts/SubtitleSmartFitPlanner.h
     src/tts/TimedSpeechPipeline.h
     src/audio/AudioTimelineRenderer.h
