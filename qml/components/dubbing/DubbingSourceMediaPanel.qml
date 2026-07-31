@@ -248,6 +248,57 @@ Rectangle {
         }
         Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1, 1, 1, 0.07) }
 
+        // Keep the direct-link import action above the fill-height preview so
+        // it remains visible at short window heights and high display scale.
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Theme.paddingSmall
+            TextField {
+                id: directMediaLink
+                Layout.fillWidth: true
+                enabled: !root.dubbing.processing && !root.dubbing.linkImporting
+                placeholderText: qsTr("Import direct HTTPS video or audio link")
+                color: Theme.textPrimary
+                placeholderTextColor: Theme.textSecondary
+                font.pixelSize: Theme.fontSmall
+                selectByMouse: true
+                leftPadding: Theme.paddingMedium
+                rightPadding: Theme.paddingMedium
+                background: Rectangle { radius: Theme.radiusSmall; color: Qt.rgba(1, 1, 1, 0.035); border.color: parent.activeFocus ? Theme.accent : Qt.rgba(1, 1, 1, 0.09); border.width: parent.activeFocus ? 2 : 1 }
+                onAccepted: {
+                    if (text.trim().length > 0)
+                        root.linkImportRequested(text.trim())
+                }
+            }
+            PrimaryButton {
+                text: qsTr("Import link")
+                iconName: "download"
+                quiet: true
+                enabled: directMediaLink.text.trim().length > 0 && !root.dubbing.processing && !root.dubbing.linkImporting
+                onClicked: root.linkImportRequested(directMediaLink.text.trim())
+            }
+            PrimaryButton {
+                visible: root.dubbing.linkImporting
+                text: qsTr("Cancel")
+                iconName: "close"
+                quiet: true
+                onClicked: root.cancelLinkImportRequested()
+            }
+        }
+        Text {
+            Layout.fillWidth: true
+            visible: root.dubbing.linkImporting
+            color: Theme.textSecondary
+            font.pixelSize: Theme.fontSmall
+            text: {
+                var status = root.dubbing.linkImportStatus || qsTr("Downloading media")
+                var received = root.dubbing.linkImportReceivedBytes
+                var total = root.dubbing.linkImportTotalBytes
+                return total > 0 ? status + " — " + root.formatBytes(received) + " / " + root.formatBytes(total)
+                                 : status + (received > 0 ? " — " + root.formatBytes(received) : "")
+            }
+        }
+
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -394,54 +445,6 @@ Rectangle {
             Layout.fillWidth: true
             FieldProxy { Layout.fillWidth: true; text: root.dubbing.sourceMediaPath; placeholderText: qsTr("Media file path") }
             PrimaryButton { text: qsTr("Browse"); iconName: "folder"; quiet: true; enabled: !root.dubbing.processing && !root.dubbing.linkImporting; onClicked: root.browseRequested() }
-        }
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Theme.paddingSmall
-            TextField {
-                id: directMediaLink
-                Layout.fillWidth: true
-                enabled: !root.dubbing.processing && !root.dubbing.linkImporting
-                placeholderText: qsTr("Import direct HTTPS video or audio link")
-                color: Theme.textPrimary
-                placeholderTextColor: Theme.textSecondary
-                font.pixelSize: Theme.fontSmall
-                selectByMouse: true
-                leftPadding: Theme.paddingMedium
-                rightPadding: Theme.paddingMedium
-                background: Rectangle { radius: Theme.radiusSmall; color: Qt.rgba(1, 1, 1, 0.035); border.color: parent.activeFocus ? Theme.accent : Qt.rgba(1, 1, 1, 0.09); border.width: parent.activeFocus ? 2 : 1 }
-                onAccepted: {
-                    if (text.trim().length > 0)
-                        root.linkImportRequested(text.trim())
-                }
-            }
-            PrimaryButton {
-                text: qsTr("Import link")
-                iconName: "download"
-                quiet: true
-                enabled: directMediaLink.text.trim().length > 0 && !root.dubbing.processing && !root.dubbing.linkImporting
-                onClicked: root.linkImportRequested(directMediaLink.text.trim())
-            }
-            PrimaryButton {
-                visible: root.dubbing.linkImporting
-                text: qsTr("Cancel")
-                iconName: "close"
-                quiet: true
-                onClicked: root.cancelLinkImportRequested()
-            }
-        }
-        Text {
-            Layout.fillWidth: true
-            visible: root.dubbing.linkImporting
-            color: Theme.textSecondary
-            font.pixelSize: Theme.fontSmall
-            text: {
-                var status = root.dubbing.linkImportStatus || qsTr("Downloading media")
-                var received = root.dubbing.linkImportReceivedBytes
-                var total = root.dubbing.linkImportTotalBytes
-                return total > 0 ? status + " — " + root.formatBytes(received) + " / " + root.formatBytes(total)
-                                 : status + (received > 0 ? " — " + root.formatBytes(received) : "")
-            }
         }
     }
 

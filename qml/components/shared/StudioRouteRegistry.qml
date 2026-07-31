@@ -20,6 +20,7 @@ QtObject {
         "my-models": 11,
         "developer": 12,
         "settings": 13,
+        "media-download": 14,
         "tools-alignment": 6
     }
 
@@ -38,7 +39,8 @@ QtObject {
         { id: "models", label: qsTr("Models"), iconName: "gallery" },
         { id: "my-models", label: qsTr("My Models"), iconName: "folder" },
         { id: "developer", label: qsTr("Developer"), iconName: "code" },
-        { id: "settings", label: qsTr("Settings"), iconName: "settings" }
+        { id: "settings", label: qsTr("Settings"), iconName: "settings" },
+        { id: "media-download", label: qsTr("Download"), iconName: "download" }
     ]
 
     readonly property var capabilityRouteMap: {

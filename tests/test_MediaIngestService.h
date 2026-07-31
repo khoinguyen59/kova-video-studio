@@ -16,6 +16,9 @@ private slots:
     void rejectsOversizedMediaBeforeStaging();
     void rejectsUnsafeRemoteMediaUrl();
     void controllerCommitsDirectLinkOnlyAfterRealProbeAndNormalization();
+    void standaloneDownloadHandsOffOwnedMediaWithoutSecondDownload();
+    void standaloneDownloadKeepsExistingProjectWhenProbeFails();
+    void downloadRouteAndDubbingLinkControlAreWired();
 };
 
 } // namespace LAStudio

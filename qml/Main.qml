@@ -195,6 +195,7 @@ ApplicationWindow {
         case 11: return myModelsLoader.status === Loader.Ready
         case 12: return developerLoader.status === Loader.Ready
         case 13: return settingsLoader.status === Loader.Ready
+        case 14: return mediaDownloadLoader.status === Loader.Ready
         default: return false
         }
     }
@@ -659,6 +660,17 @@ ApplicationWindow {
                     Layout.fillHeight: true
                     active: stack.currentIndex === 13
                     sourceComponent: SettingsPage {}
+                }
+                Loader {
+                    id: mediaDownloadLoader
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    active: stack.currentIndex === 14
+                    sourceComponent: MediaDownloadPage {
+                        onOpenDubbingRequested: {
+                            stack.currentIndex = StudioRouteRegistry.getIndex("studio-dubbing")
+                        }
+                    }
                 }
                 }
 

@@ -62,6 +62,9 @@ class DubbingController : public QObject
     Q_PROPERTY(QString linkImportStatus READ linkImportStatus NOTIFY linkImportChanged)
     Q_PROPERTY(qint64 linkImportReceivedBytes READ linkImportReceivedBytes NOTIFY linkImportChanged)
     Q_PROPERTY(qint64 linkImportTotalBytes READ linkImportTotalBytes NOTIFY linkImportChanged)
+    Q_PROPERTY(bool downloadedMediaReady READ downloadedMediaReady NOTIFY linkImportChanged)
+    Q_PROPERTY(QString downloadedMediaPath READ downloadedMediaPath NOTIFY linkImportChanged)
+    Q_PROPERTY(QString downloadedMediaFileName READ downloadedMediaFileName NOTIFY linkImportChanged)
     Q_PROPERTY(QVariantList workflowNodes READ workflowNodes NOTIFY workflowChanged)
     Q_PROPERTY(QVariantMap workflowNodeConfigurations READ workflowNodeConfigurations NOTIFY workflowChanged)
     Q_PROPERTY(bool workflowReady READ workflowReady NOTIFY workflowChanged)
@@ -150,6 +153,9 @@ public:
     QString linkImportStatus() const { return m_linkImportStatus; }
     qint64 linkImportReceivedBytes() const { return m_linkImportReceivedBytes; }
     qint64 linkImportTotalBytes() const { return m_linkImportTotalBytes; }
+    bool downloadedMediaReady() const;
+    QString downloadedMediaPath() const { return m_downloadedMediaPath; }
+    QString downloadedMediaFileName() const;
     QVariantList workflowNodes() const;
     QVariantMap workflowNodeConfigurations() const { return m_workflowNodeConfigurations; }
     bool workflowReady() const;
@@ -206,6 +212,8 @@ public:
     Q_INVOKABLE void closeProject();
     Q_INVOKABLE bool importMedia(const QString &pathOrUrl);
     Q_INVOKABLE bool importMediaFromLink(const QString &url);
+    Q_INVOKABLE bool downloadMediaFromLink(const QString &url);
+    Q_INVOKABLE bool handoffDownloadedMediaToDubbing();
     Q_INVOKABLE void cancelMediaLinkImport();
     Q_INVOKABLE void transcribeSource();
     Q_INVOKABLE void translateSource();
@@ -356,6 +364,8 @@ private:
     QString m_capCutDraftWarning;
     RemoteMediaImportService *m_remoteMediaImport = nullptr;
     QString m_pendingLinkedMediaPath;
+    QString m_downloadedMediaPath;
+    bool m_downloadOnly = false;
     QString m_linkImportStatus;
     qint64 m_linkImportReceivedBytes = 0;
     qint64 m_linkImportTotalBytes = -1;

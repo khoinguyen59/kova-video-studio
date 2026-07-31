@@ -468,6 +468,16 @@ bool DubbingController::linkImporting() const
         || !m_pendingLinkedMediaPath.isEmpty();
 }
 
+bool DubbingController::downloadedMediaReady() const
+{
+    return !m_downloadedMediaPath.isEmpty() && QFileInfo(m_downloadedMediaPath).isFile();
+}
+
+QString DubbingController::downloadedMediaFileName() const
+{
+    return downloadedMediaReady() ? QFileInfo(m_downloadedMediaPath).fileName() : QString();
+}
+
 QString DubbingController::stage() const
 {
     if (m_automaticSetupActive) return QStringLiteral("model-setup");
@@ -2956,6 +2966,8 @@ bool DubbingController::importMediaFromLink(const QString &url)
     if (m_project.projectPath.isEmpty() && !newProject()) return false;
 
     clearError();
+    m_downloadOnly = false;
+    m_downloadedMediaPath.clear();
     m_linkImportStatus = QStringLiteral("Downloading direct media link");
     m_linkImportReceivedBytes = 0;
     m_linkImportTotalBytes = -1;
@@ -2966,11 +2978,67 @@ bool DubbingController::importMediaFromLink(const QString &url)
     return m_remoteMediaImport->download(sourceUrl);
 }
 
+bool DubbingController::downloadMediaFromLink(const QString &url)
+{
+    const QUrl sourceUrl = QUrl::fromUserInput(url.trimmed());
+    if (!m_remoteMediaImport) {
+        setError(QStringLiteral("Media download is unavailable in this build."));
+        return false;
+    }
+    if (linkImporting() || processing()) {
+        setError(QStringLiteral("Finish or cancel the active media import before starting another download."));
+        return false;
+    }
+
+    clearError();
+    m_downloadOnly = true;
+    m_downloadedMediaPath.clear();
+    m_linkImportStatus = QStringLiteral("Downloading direct media link");
+    m_linkImportReceivedBytes = 0;
+    m_linkImportTotalBytes = -1;
+    emit linkImportChanged();
+    // RemoteMediaImportService is the one direct-media downloader used by
+    // both Download and Dubbing. It stages an owned file and never persists
+    // the source URL, cookies, browser state, or credentials.
+    return m_remoteMediaImport->download(sourceUrl);
+}
+
+bool DubbingController::handoffDownloadedMediaToDubbing()
+{
+    if (!downloadedMediaReady()) {
+        setError(QStringLiteral("Download a media file before sending it to Dubbing."));
+        return false;
+    }
+    if (linkImporting() || processing()) {
+        setError(QStringLiteral("Finish or cancel the active media import before sending downloaded media to Dubbing."));
+        return false;
+    }
+    if (!m_runner) {
+        setError(QStringLiteral("Dubbing media validation is unavailable in this build."));
+        return false;
+    }
+    if (m_project.projectPath.isEmpty() && !newProject()) return false;
+
+    clearError();
+    m_downloadOnly = false;
+    m_pendingLinkedMediaPath = m_downloadedMediaPath;
+    m_linkImportStatus = QStringLiteral("Validating and normalizing downloaded media");
+    m_linkImportReceivedBytes = QFileInfo(m_downloadedMediaPath).size();
+    m_linkImportTotalBytes = m_linkImportReceivedBytes;
+    emit linkImportChanged();
+    // This is deliberately not importMedia(): local-file import previews a
+    // source, whereas link handoff must validate/probe before it can replace
+    // Dubbing project media.
+    m_runner->startIngest(m_downloadedMediaPath);
+    return true;
+}
+
 void DubbingController::cancelMediaLinkImport()
 {
     if (m_remoteMediaImport && m_remoteMediaImport->active()) m_remoteMediaImport->cancel();
     if (!m_pendingLinkedMediaPath.isEmpty() && m_runner) m_runner->cancel();
     m_pendingLinkedMediaPath.clear();
+    m_downloadOnly = false;
     m_linkImportStatus.clear();
     m_linkImportReceivedBytes = 0;
     m_linkImportTotalBytes = -1;
@@ -3028,7 +3096,9 @@ void DubbingController::onIngestFinished(bool success, const QVariantMap &manife
                      .arg(m_project.sourceMediaPath, m_project.sourceHash,
                           m_project.masterAudioPath, m_project.analysisAudioPath));
     if (importedFromLink) {
+        const bool usedStandaloneDownload = m_pendingLinkedMediaPath == m_downloadedMediaPath;
         m_pendingLinkedMediaPath.clear();
+        if (usedStandaloneDownload) m_downloadedMediaPath.clear();
         m_linkImportStatus.clear();
         m_linkImportReceivedBytes = 0;
         m_linkImportTotalBytes = -1;
@@ -3044,6 +3114,7 @@ void DubbingController::onRemoteMediaDownloadFinished(bool success, const QStrin
                                                        const QString &error)
 {
     if (!success) {
+        m_downloadOnly = false;
         m_linkImportStatus.clear();
         m_linkImportReceivedBytes = 0;
         m_linkImportTotalBytes = -1;
@@ -3052,9 +3123,19 @@ void DubbingController::onRemoteMediaDownloadFinished(bool success, const QStrin
         return;
     }
     if (!m_runner || !QFileInfo(localPath).isFile()) {
+        m_downloadOnly = false;
         m_linkImportStatus.clear();
         emit linkImportChanged();
         setError(QStringLiteral("Downloaded media staging file is unavailable."));
+        return;
+    }
+    if (m_downloadOnly) {
+        m_downloadOnly = false;
+        m_downloadedMediaPath = localPath;
+        m_linkImportStatus = QStringLiteral("Download complete — ready to send to Dubbing");
+        m_linkImportReceivedBytes = QFileInfo(localPath).size();
+        m_linkImportTotalBytes = m_linkImportReceivedBytes;
+        emit linkImportChanged();
         return;
     }
     m_pendingLinkedMediaPath = localPath;

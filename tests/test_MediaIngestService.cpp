@@ -256,4 +256,101 @@ void TestMediaIngestService::controllerCommitsDirectLinkOnlyAfterRealProbeAndNor
     QVERIFY(!serialized.contains("127.0.0.1"));
 }
 
+void TestMediaIngestService::standaloneDownloadHandsOffOwnedMediaWithoutSecondDownload()
+{
+    MediaIngestService mediaRuntimeCheck;
+    if (!mediaRuntimeCheck.available()) {
+        QSKIP("This integration regression requires the managed FFmpeg/FFprobe runtime. Set LASTUDIO_FFMPEG and LASTUDIO_FFPROBE in the test environment.");
+    }
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString fixturePath = dir.filePath(QStringLiteral("handoff.wav"));
+    const QVector<float> samples(16000, 0.02F);
+    QVERIFY(WavIO::saveFloat(fixturePath, samples.constData(), samples.size(), 16000));
+    QFile fixture(fixturePath);
+    QVERIFY(fixture.open(QIODevice::ReadOnly));
+    DirectMediaServer server(fixture.readAll());
+    QVERIFY(server.start());
+
+    DubbingController controller(nullptr, nullptr);
+    QVERIFY(controller.downloadMediaFromLink(server.url().toString()));
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.linkImporting(), 15000);
+    QVERIFY2(controller.lastError().isEmpty(), qPrintable(controller.lastError()));
+    QVERIFY(controller.downloadedMediaReady());
+    const QString stagedPath = controller.downloadedMediaPath();
+    QVERIFY(QFileInfo(stagedPath).isFile());
+    QCOMPARE(server.requestCount(), 1);
+
+    QVERIFY(controller.handoffDownloadedMediaToDubbing());
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.linkImporting(), 15000);
+    QVERIFY2(controller.lastError().isEmpty(), qPrintable(controller.lastError()));
+    QCOMPARE(server.requestCount(), 1);
+    QVERIFY(QFileInfo(controller.sourceMediaPath()).isFile());
+    QVERIFY(QFileInfo(controller.normalizedAudioPath()).isFile());
+    QVERIFY(!controller.downloadedMediaReady());
+}
+
+void TestMediaIngestService::standaloneDownloadKeepsExistingProjectWhenProbeFails()
+{
+    MediaIngestService mediaRuntimeCheck;
+    if (!mediaRuntimeCheck.available()) {
+        QSKIP("This integration regression requires the managed FFmpeg/FFprobe runtime. Set LASTUDIO_FFMPEG and LASTUDIO_FFPROBE in the test environment.");
+    }
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString existingPath = dir.filePath(QStringLiteral("existing.wav"));
+    const QVector<float> samples(16000, 0.02F);
+    QVERIFY(WavIO::saveFloat(existingPath, samples.constData(), samples.size(), 16000));
+    DirectMediaServer invalidServer(QByteArray("not-a-media-file"));
+    QVERIFY(invalidServer.start());
+
+    DubbingController controller(nullptr, nullptr);
+    QVERIFY(controller.newProject(dir.filePath(QStringLiteral("existing.ladub.json"))));
+    QVERIFY(controller.importMedia(existingPath));
+    const QString previousSource = controller.sourceMediaPath();
+    QVERIFY(QFileInfo(previousSource).isFile());
+
+    QVERIFY(controller.downloadMediaFromLink(invalidServer.url().toString()));
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.linkImporting(), 15000);
+    QVERIFY(controller.downloadedMediaReady());
+    QVERIFY(controller.handoffDownloadedMediaToDubbing());
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.linkImporting(), 15000);
+    QCOMPARE(controller.sourceMediaPath(), previousSource);
+    QVERIFY(!controller.lastError().isEmpty());
+    QVERIFY(controller.downloadedMediaReady());
+    QCOMPARE(invalidServer.requestCount(), 1);
+}
+
+void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
+{
+    const QDir sourceRoot(QStringLiteral(LASTUDIO_SOURCE_DIR));
+    const auto readSource = [&sourceRoot](const QString &relativePath) {
+        QFile file(sourceRoot.filePath(relativePath));
+        if (!file.open(QIODevice::ReadOnly)) return QString();
+        return QString::fromUtf8(file.readAll());
+    };
+
+    const QString routes = readSource(QStringLiteral("qml/components/shared/StudioRouteRegistry.qml"));
+    const QString main = readSource(QStringLiteral("qml/Main.qml"));
+    const QString page = readSource(QStringLiteral("qml/pages/MediaDownloadPage.qml"));
+    const QString dubbingSource = readSource(QStringLiteral("qml/components/dubbing/DubbingSourceMediaPanel.qml"));
+    const QString popup = readSource(QStringLiteral("qml/components/DownloadsPopup.qml"));
+    QVERIFY(routes.contains(QStringLiteral("media-download")));
+    QVERIFY(routes.contains(QStringLiteral("label: qsTr(\"Download\")")));
+    QVERIFY(main.contains(QStringLiteral("id: mediaDownloadLoader")));
+    QVERIFY(main.contains(QStringLiteral("MediaDownloadPage")));
+    QVERIFY(main.contains(QStringLiteral("case 14: return mediaDownloadLoader.status === Loader.Ready")));
+    QVERIFY(page.contains(QStringLiteral("downloadMediaFromLink")));
+    QVERIFY(page.contains(QStringLiteral("handoffDownloadedMediaToDubbing")));
+    QVERIFY(page.contains(QStringLiteral("downloadedMediaPath")));
+    QVERIFY(page.contains(QStringLiteral("Use in Dubbing")));
+    QVERIFY(page.contains(QStringLiteral("Public video-page URLs")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("Import direct HTTPS video or audio link")));
+    QCOMPARE(dubbingSource.count(QStringLiteral("Import direct HTTPS video or audio link")), 1);
+    QVERIFY(dubbingSource.contains(QStringLiteral("Keep the direct-link import action above the fill-height preview")));
+    QVERIFY(popup.contains(QStringLiteral("AppController.downloads.allDownloads")));
+}
+
 } // namespace LAStudio
