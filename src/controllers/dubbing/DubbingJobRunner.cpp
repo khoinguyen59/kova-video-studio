@@ -810,7 +810,8 @@ bool DubbingJobRunner::startExport(const QString &sourceMediaPath, const QString
 bool DubbingJobRunner::startExport(const QString &sourceMediaPath,
                                    const QString &audioPath,
                                    const QString &outputPath,
-                                   const QVariantList &segments)
+                                   const QVariantList &segments,
+                                   const QVariantMap &subtitleConfiguration)
 {
     if (m_run.processing()) {
         setBusyError(QStringLiteral("Finish the active dubbing operation before exporting."));
@@ -825,7 +826,8 @@ bool DubbingJobRunner::startExport(const QString &sourceMediaPath,
     emit stateChanged();
     setProcessing(true, QStringLiteral("export"), 0);
     return m_exportJob && m_exportJob->startExport(sourceMediaPath, audioPath, outputPath,
-                                                    segments.isEmpty() ? m_activeSegments : segments);
+                                                    segments.isEmpty() ? m_activeSegments : segments,
+                                                    subtitleConfiguration);
 }
 
 void DubbingJobRunner::setPreviewPath(const QString &path)

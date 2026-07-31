@@ -69,6 +69,7 @@ class DubbingController : public QObject
     Q_PROPERTY(QVariantList workflowNodes READ workflowNodes NOTIFY workflowChanged)
     Q_PROPERTY(QVariantMap workflowNodeConfigurations READ workflowNodeConfigurations NOTIFY workflowChanged)
     Q_PROPERTY(QVariantMap transcriptConfiguration READ transcriptConfiguration NOTIFY projectChanged)
+    Q_PROPERTY(QVariantMap subtitleConfiguration READ subtitleConfiguration NOTIFY projectChanged)
     Q_PROPERTY(bool workflowReady READ workflowReady NOTIFY workflowChanged)
     Q_PROPERTY(QString workflowStatusText READ workflowStatusText NOTIFY workflowChanged)
     Q_PROPERTY(QString workflowId READ workflowId CONSTANT)
@@ -162,6 +163,7 @@ public:
     QVariantList workflowNodes() const;
     QVariantMap workflowNodeConfigurations() const { return m_workflowNodeConfigurations; }
     QVariantMap transcriptConfiguration() const { return m_project.transcriptConfiguration; }
+    QVariantMap subtitleConfiguration() const;
     bool workflowReady() const;
     QString workflowStatusText() const;
     QString workflowId() const;
@@ -227,6 +229,10 @@ public:
     Q_INVOKABLE bool exportMedia(const QString &path);
     Q_INVOKABLE bool exportAudioStem(const QString &stem, const QString &path);
     Q_INVOKABLE bool exportSubtitles(const QString &path, bool useTargetText = true);
+    Q_INVOKABLE bool importSubtitles(const QString &path,
+                                     const QString &untimedStrategy = QStringLiteral("existing-segment"));
+    Q_INVOKABLE bool setSubtitleStyle(const QVariantMap &style);
+    Q_INVOKABLE bool setSubtitleBurnIn(bool enabled);
     Q_INVOKABLE bool exportPackage(const QString &directoryPath);
     Q_INVOKABLE bool exportCapCutDraft(const QString &directoryPath);
     // Imports reviewed OCR results only after an existing Dubbing project is

@@ -170,10 +170,12 @@ Item {
                 || dubbingTranscriptSourcePanel.width <= 0
                 || dubbingTranscriptSourceMode.width <= 0)
             return false
+        subtitleEditorDialog.open()
         return dubbingTranscriptSourceMode.model[0].id === "stt"
             && dubbingTranscriptSourceMode.model[1].id === "ocr"
             && dubbingTranscriptSourceMode.model[2].id === "stt+ocr"
             && sourceMediaPanel.qmlSmokeMediaControlsCheck()
+            && subtitleEditorDialog.qmlSmokeLayoutCheck()
     }
 
     function runStep(stepId) {
@@ -481,6 +483,7 @@ Item {
                     dubbing: root.dubbing
                     selectedSegment: root.selectedSegment
                     onBrowseRequested: mediaFileDialog.open()
+                    onSubtitleEditorRequested: subtitleEditorDialog.open()
                     onLinkImportRequested: function(url) { root.dubbing.importMediaFromLink(url) }
                     onCancelLinkImportRequested: root.dubbing.cancelMediaLinkImport()
                     onSegmentSelected: root.selectedSegment = index
@@ -923,6 +926,11 @@ Item {
         }
         onPackageExportRequested: packageExportFolderDialog.open()
         onCapCutDraftExportRequested: capCutDraftFolderDialog.open()
+    }
+
+    DubbingSubtitleEditor {
+        id: subtitleEditorDialog
+        dubbing: root.dubbing
     }
 
     DubbingColabSetupDialog {

@@ -80,7 +80,8 @@ public:
     bool renderPreview(const QVariantList &segments, const QString &projectPath, const QString &path = QString());
     bool startExport(const QString &sourceMediaPath, const QString &outputPath);
     bool startExport(const QString &sourceMediaPath, const QString &audioPath,
-                     const QString &outputPath, const QVariantList &segments = {});
+                     const QString &outputPath, const QVariantList &segments = {},
+                     const QVariantMap &subtitleConfiguration = QVariantMap());
 
     // Helpers to let controller update/clear state in runner
     void setPreviewPath(const QString &path);

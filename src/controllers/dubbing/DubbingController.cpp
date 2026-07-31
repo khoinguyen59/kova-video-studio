@@ -8,6 +8,7 @@
 #include "controllers/subtitles/SubtitleOcrController.h"
 #include "controllers/shared/VoiceClonePresetService.h"
 #include "dubbing/CapCutDraftExporter.h"
+#include "dubbing/DubbingSubtitleService.h"
 #include "dubbing/EspeakNgPhonemizer.h"
 #include "dubbing/media/RemoteMediaImportService.h"
 #include "dubbing/workflow/DubbingWorkflowDefinition.h"
@@ -121,42 +122,7 @@ QString subtitleTimestamp(qint64 milliseconds, bool webVtt)
 bool writeDubbingSubtitles(const QVariantList &segments, const QString &path,
                            bool useTargetText, QString *error)
 {
-    const bool webVtt = QFileInfo(path).suffix().compare(QStringLiteral("vtt"), Qt::CaseInsensitive) == 0;
-    QStringList lines;
-    if (webVtt) lines.append(QStringLiteral("WEBVTT\n"));
-
-    int cueNumber = 1;
-    for (const QVariant &entry : segments) {
-        const QVariantMap segment = entry.toMap();
-        const QString text = segment.value(useTargetText ? QStringLiteral("targetText")
-                                                         : QStringLiteral("sourceText")).toString().trimmed();
-        if (text.isEmpty()) continue;
-        if (!webVtt) lines.append(QString::number(cueNumber));
-        lines.append(subtitleTimestamp(segment.value(QStringLiteral("startMs")).toLongLong(), webVtt)
-                     + QStringLiteral(" --> ")
-                     + subtitleTimestamp(segment.value(QStringLiteral("endMs")).toLongLong(), webVtt));
-        lines.append(text);
-        lines.append(QString());
-        ++cueNumber;
-    }
-    if (cueNumber == 1) {
-        if (error) *error = useTargetText
-            ? QStringLiteral("No translated subtitle text is available.")
-            : QStringLiteral("No source subtitle text is available.");
-        return false;
-    }
-
-    QSaveFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        if (error) *error = file.errorString();
-        return false;
-    }
-    file.write(lines.join(QLatin1Char('\n')).toUtf8());
-    if (!file.commit()) {
-        if (error) *error = file.errorString();
-        return false;
-    }
-    return true;
+    return DubbingSubtitleService::writeSidecar(segments, path, useTargetText, error);
 }
 
 bool replaceCopy(const QString &source, const QString &destination, QString *error)
@@ -442,7 +408,7 @@ DubbingController::DubbingController(SttSessionController *sttSession, TtsEngine
             m_pendingExportPath.clear();
             if (!m_runner->startExport(m_project.sourceMediaPath,
                                        outputs.value(QStringLiteral("audio")).toString(),
-                                       destination, m_project.segments)) {
+                                       destination, m_project.segments, subtitleConfiguration())) {
                 emit workflowChanged();
                 return;
             }
@@ -2797,6 +2763,9 @@ bool DubbingController::ensureProject(const QString &path)
 bool DubbingController::newProject(const QString &path)
 {
     m_project = DubbingProject();
+    m_project.subtitleConfiguration = {{QStringLiteral("source"), QStringLiteral("segments")},
+                                       {QStringLiteral("burnIn"), false},
+                                       {QStringLiteral("style"), DubbingSubtitleService::defaultStyle()}};
     m_workflowNodeConfigurations.clear();
     m_stepOutputs.clear();
     m_lastCompletedStepId.clear();
@@ -2833,6 +2802,11 @@ bool DubbingController::openProject(const QString &path)
         return false;
     }
     m_project = std::move(loaded);
+    if (m_project.subtitleConfiguration.isEmpty()) {
+        m_project.subtitleConfiguration = {{QStringLiteral("source"), QStringLiteral("segments")},
+                                           {QStringLiteral("burnIn"), false},
+                                           {QStringLiteral("style"), DubbingSubtitleService::defaultStyle()}};
+    }
     if (m_project.dubbingQuality == QStringLiteral("custom"))
         m_workflowNodeConfigurations = m_project.workflowNodeConfigurations;
     else {
@@ -3057,6 +3031,23 @@ bool DubbingController::importMedia(const QString &pathOrUrl)
     emit workflowChanged();
     persistAfterEdit();
     return true;
+}
+
+QVariantMap DubbingController::subtitleConfiguration() const
+{
+    QVariantMap configuration = m_project.subtitleConfiguration;
+    QVariantMap style;
+    QString ignored;
+    if (!DubbingSubtitleService::normalizeStyle(configuration.value(QStringLiteral("style")).toMap(),
+                                                style, &ignored)) {
+        style = DubbingSubtitleService::defaultStyle();
+    }
+    configuration.insert(QStringLiteral("style"), style);
+    if (!configuration.contains(QStringLiteral("source")))
+        configuration.insert(QStringLiteral("source"), QStringLiteral("segments"));
+    if (!configuration.contains(QStringLiteral("burnIn")))
+        configuration.insert(QStringLiteral("burnIn"), false);
+    return configuration;
 }
 
 bool DubbingController::importMediaFromLink(const QString &url)
@@ -3449,7 +3440,7 @@ bool DubbingController::exportMedia(const QString &path)
         return true;
     }
     return m_runner->startExport(m_project.sourceMediaPath, previewPath(), outputPath,
-                                 m_project.segments);
+                                 m_project.segments, subtitleConfiguration());
 }
 
 bool DubbingController::exportAudioStem(const QString &stem, const QString &path)
@@ -3564,6 +3555,83 @@ bool DubbingController::exportPackage(const QString &directoryPath)
         return false;
     }
     clearError();
+    return true;
+}
+
+bool DubbingController::importSubtitles(const QString &path, const QString &untimedStrategy)
+{
+    if (processing()) {
+        setError(QStringLiteral("Wait for the active Dubbing operation before importing subtitles."));
+        return false;
+    }
+    if (!hasProject()) {
+        setError(QStringLiteral("Open a Dubbing project before importing subtitles."));
+        return false;
+    }
+    const QString localPath = QFileInfo(PathUtils::urlToLocalPath(path)).absoluteFilePath();
+    if (path.isEmpty() || !QFileInfo(localPath).isFile()) {
+        setError(QStringLiteral("Choose an existing SRT, VTT, ASS/SSA, TXT or Markdown subtitle file."));
+        return false;
+    }
+    QVariantList imported;
+    bool hasTiming = false;
+    QString format;
+    QString error;
+    if (!DubbingSubtitleService::importFile(localPath, imported, hasTiming, format, &error)) {
+        setError(error);
+        return false;
+    }
+    QVariantList replacement = imported;
+    if (!hasTiming) {
+        if (untimedStrategy != QStringLiteral("existing-segment")) {
+            setError(QStringLiteral("TXT/Markdown has no timestamps. Select line-per-existing-segment or run forced alignment before import; LA Studio will not invent timing."));
+            return false;
+        }
+        if (!DubbingSubtitleService::mapUntimedLines(imported, m_project.segments, replacement, &error)) {
+            setError(error);
+            return false;
+        }
+    }
+    m_project.segments = replacement;
+    QVariantMap configuration = subtitleConfiguration();
+    configuration.insert(QStringLiteral("source"), QStringLiteral("imported-") + format);
+    configuration.insert(QStringLiteral("hasOriginalTiming"), hasTiming);
+    configuration.insert(QStringLiteral("untimedMapping"), hasTiming ? QString() : untimedStrategy);
+    configuration.insert(QStringLiteral("importedFileName"), QFileInfo(localPath).fileName());
+    m_project.subtitleConfiguration = configuration;
+    clearError();
+    emit segmentsChanged();
+    emit projectChanged();
+    emit workflowChanged();
+    persistAfterEdit();
+    return true;
+}
+
+bool DubbingController::setSubtitleStyle(const QVariantMap &style)
+{
+    QVariantMap normalized;
+    QString error;
+    if (!DubbingSubtitleService::normalizeStyle(style, normalized, &error)) {
+        setError(error);
+        return false;
+    }
+    QVariantMap configuration = subtitleConfiguration();
+    configuration.insert(QStringLiteral("style"), normalized);
+    m_project.subtitleConfiguration = configuration;
+    clearError();
+    emit projectChanged();
+    persistAfterEdit();
+    return true;
+}
+
+bool DubbingController::setSubtitleBurnIn(bool enabled)
+{
+    QVariantMap configuration = subtitleConfiguration();
+    configuration.insert(QStringLiteral("burnIn"), enabled);
+    m_project.subtitleConfiguration = configuration;
+    clearError();
+    emit projectChanged();
+    persistAfterEdit();
     return true;
 }
 

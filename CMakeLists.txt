@@ -214,6 +214,7 @@ set(LASTUDIO_SOURCES
     src/controllers/stt/SttAudioDecoder.cpp
     src/dubbing/DubbingProject.cpp
     src/dubbing/DubbingTranscriptFusionService.cpp
+    src/dubbing/DubbingSubtitleService.cpp
     src/dubbing/CapCutDraftExporter.cpp
     src/dubbing/EspeakNgPhonemizer.cpp
     src/dubbing/DubbingDuration.cpp
@@ -411,6 +412,7 @@ set(LASTUDIO_HEADERS
     src/controllers/tts/SubtitleVoiceController.h
     src/controllers/stt/SttAudioDecoder.h
     src/dubbing/DubbingProject.h
+    src/dubbing/DubbingSubtitleService.h
     src/dubbing/CapCutDraftExporter.h
     src/dubbing/EspeakNgPhonemizer.h
     src/dubbing/DubbingTimingService.h
@@ -542,6 +544,7 @@ qt_add_qml_module(LAStudio
         qml/components/alignment/AlignmentPlayerButton.qml
         qml/components/alignment/AlignmentResultMetric.qml
         qml/components/dubbing/DubbingExportDialog.qml
+        qml/components/dubbing/DubbingSubtitleEditor.qml
         qml/components/dubbing/DubbingColabSetupDialog.qml
         qml/components/dubbing/DubbingTranslationFixDialog.qml
         qml/components/dubbing/DubbingQualityDialog.qml

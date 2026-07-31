@@ -1,6 +1,7 @@
 #include "controllers/dubbing/DubbingExportJob.h"
 
 #include "dubbing/AudioTimelineMixer.h"
+#include "dubbing/DubbingSubtitleService.h"
 #include "dubbing/media/AtomicMediaCommit.h"
 #include "dubbing/media/MediaToolService.h"
 
@@ -110,7 +111,8 @@ bool DubbingExportJob::renderPreview(const QVariantList &segments, const QString
 }
 
 bool DubbingExportJob::startExport(const QString &sourceMediaPath, const QString &audioPath,
-                                   const QString &outputPath, const QVariantList &segments)
+                                   const QString &outputPath, const QVariantList &segments,
+                                   const QVariantMap &subtitleConfiguration)
 {
     if (m_running) { fail(QStringLiteral("Finish the active export operation first.")); return false; }
     if (outputPath.isEmpty()) { fail(QStringLiteral("Choose an output path.")); return false; }
@@ -150,11 +152,28 @@ bool DubbingExportJob::startExport(const QString &sourceMediaPath, const QString
     if (!m_mediaTools) { clearExportPaths(); fail(QStringLiteral("Media tool service is unavailable.")); return false; }
     m_running = true;
     emit progressChanged(QStringLiteral("export"), 0);
-    m_exportSubtitlePath = m_exportStagingPath + QStringLiteral(".srt");
-    if (!writeTargetSubtitles(segments, m_exportSubtitlePath))
+    m_exportBurnIn = subtitleConfiguration.value(QStringLiteral("burnIn")).toBool();
+    m_exportSubtitlePath = m_exportStagingPath + (m_exportBurnIn ? QStringLiteral(".ass")
+                                                                   : QStringLiteral(".srt"));
+    QString subtitleError;
+    const bool wroteSubtitle = m_exportBurnIn
+        ? DubbingSubtitleService::writeAss(segments,
+                                           subtitleConfiguration.value(QStringLiteral("style")).toMap(),
+                                           m_exportSubtitlePath, true, &subtitleError)
+        : DubbingSubtitleService::writeSidecar(segments, m_exportSubtitlePath, true, &subtitleError);
+    if (!wroteSubtitle) {
+        if (m_exportBurnIn) {
+            QFile::remove(m_exportStagingPath);
+            clearExportPaths();
+            m_running = false;
+            fail(subtitleError.isEmpty() ? QStringLiteral("Cannot create the burn-in subtitle track.")
+                                         : subtitleError);
+            return false;
+        }
         m_exportSubtitlePath.clear();
+    }
     m_mediaTools->muxVideoWithAudio(sourceMediaPath, m_exportAudioPath,
-                                    m_exportSubtitlePath, m_exportStagingPath);
+                                    m_exportSubtitlePath, m_exportStagingPath, m_exportBurnIn);
     return true;
 }
 
@@ -225,6 +244,7 @@ void DubbingExportJob::clearExportPaths()
     m_exportStagingPath.clear();
     m_exportAudioPath.clear();
     m_exportSubtitlePath.clear();
+    m_exportBurnIn = false;
 }
 
 void DubbingExportJob::fail(const QString &message)

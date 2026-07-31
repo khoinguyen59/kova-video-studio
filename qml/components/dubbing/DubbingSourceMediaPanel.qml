@@ -22,11 +22,21 @@ Rectangle {
     property real pendingPosition: -1
     property bool pendingPlayback: false
     property int sourceSwitchAttempts: 0
+    readonly property var subtitleStyle: (root.dubbing.subtitleConfiguration || {}).style || ({})
+    readonly property string activeSubtitleText: {
+        for (var i = 0; i < root.dubbing.segments.length; ++i) {
+            var segment = root.dubbing.segments[i]
+            if (mediaPlayer.position >= segment.startMs && mediaPlayer.position <= segment.endMs)
+                return (segment.targetText || segment.sourceText || "").trim()
+        }
+        return ""
+    }
 
     signal browseRequested()
     signal linkImportRequested(string url)
     signal cancelLinkImportRequested()
     signal segmentSelected(int index)
+    signal subtitleEditorRequested()
 
     Layout.fillWidth: true
     Layout.fillHeight: true
@@ -114,6 +124,8 @@ Rectangle {
     function qmlSmokeMediaControlsCheck() {
         return controlsAutoHide.qmlSmokeStateCheck()
                 && controlsAutoHide.delayMs === 2000
+                && subtitleEditorButton.width > 0
+                && subtitlePreviewOverlay.width > 0
     }
 
     MediaControlsAutoHide {
@@ -220,6 +232,13 @@ Rectangle {
                 font.pixelSize: Theme.fontSmall
                 font.bold: true
                 font.letterSpacing: 1.1
+            }
+            Button {
+                id: subtitleEditorButton
+                objectName: "dubbingSubtitleEditorButton"
+                text: qsTr("Subtitles")
+                enabled: root.dubbing.hasProject && !root.dubbing.processing
+                onClicked: root.subtitleEditorRequested()
             }
             Item { Layout.fillWidth: true }
             Rectangle {
@@ -330,6 +349,62 @@ Rectangle {
                 Text { anchors.horizontalCenter: parent.horizontalCenter; text: qsTr("WAV, MP3, MP4 or MKV"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
             }
             VideoOutput { id: videoOutput; anchors.fill: parent; visible: root.isVideoSource; fillMode: VideoOutput.PreserveAspectFit }
+            FontLoader {
+                id: subtitlePreviewFont
+                source: root.subtitleStyle.fontFile || ""
+            }
+            Rectangle {
+                id: subtitlePreviewOverlay
+                objectName: "dubbingSubtitlePreviewOverlay"
+                readonly property string alignment: root.subtitleStyle.alignment || "bottom"
+                readonly property real safeMargin: Number(root.subtitleStyle.safeMargin || 0.06)
+                visible: root.isVideoSource && root.activeSubtitleText.length > 0
+                width: Math.max(80, parent.width * Number(root.subtitleStyle.maxWidth || 0.82))
+                height: subtitlePreviewText.implicitHeight + Theme.paddingSmall * 2
+                x: alignment === "custom" ? parent.width * Number(root.subtitleStyle.positionX || 0.5) - width / 2
+                                           : (parent.width - width) / 2
+                y: alignment === "top" ? parent.height * safeMargin
+                  : alignment === "custom" ? parent.height * Number(root.subtitleStyle.positionY || 0.90) - height / 2
+                                             : parent.height - height - parent.height * safeMargin - previewControls.height
+                radius: Theme.radiusSmall
+                color: "transparent"
+                z: 2
+                Rectangle {
+                    anchors.fill: parent
+                    radius: parent.radius
+                    color: root.subtitleStyle.backgroundColor || "#00000000"
+                    opacity: Math.max(0, Math.min(1, Number(root.subtitleStyle.backgroundOpacity || 0)))
+                }
+                Text {
+                    id: subtitlePreviewShadow
+                    anchors.fill: parent
+                    anchors.leftMargin: Theme.paddingSmall + Number(root.subtitleStyle.shadowOffset || 0)
+                    anchors.rightMargin: Theme.paddingSmall - Number(root.subtitleStyle.shadowOffset || 0)
+                    anchors.topMargin: Theme.paddingSmall + Number(root.subtitleStyle.shadowOffset || 0)
+                    anchors.bottomMargin: Theme.paddingSmall - Number(root.subtitleStyle.shadowOffset || 0)
+                    text: root.activeSubtitleText
+                    color: root.subtitleStyle.shadowColor || "#99000000"
+                    font.family: subtitlePreviewFont.status === FontLoader.Ready ? subtitlePreviewFont.name : (root.subtitleStyle.fontFamily || "Arial")
+                    font.pixelSize: Number(root.subtitleStyle.fontSize || 42)
+                    font.weight: Number(root.subtitleStyle.fontWeight || 600)
+                    horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
+                    wrapMode: Text.WordWrap; lineHeight: Number(root.subtitleStyle.lineSpacing || 1.0); lineHeightMode: Text.ProportionalHeight
+                }
+                Text {
+                    id: subtitlePreviewText
+                    anchors.fill: parent
+                    anchors.margins: Theme.paddingSmall
+                    text: root.activeSubtitleText
+                    color: root.subtitleStyle.textColor || "#FFFFFFFF"
+                    font.family: subtitlePreviewFont.status === FontLoader.Ready ? subtitlePreviewFont.name : (root.subtitleStyle.fontFamily || "Arial")
+                    font.pixelSize: Number(root.subtitleStyle.fontSize || 42)
+                    font.weight: Number(root.subtitleStyle.fontWeight || 600)
+                    style: Text.Outline
+                    styleColor: root.subtitleStyle.outlineColor || "#D9000000"
+                    horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
+                    wrapMode: Text.WordWrap; lineHeight: Number(root.subtitleStyle.lineSpacing || 1.0); lineHeightMode: Text.ProportionalHeight
+                }
+            }
             Rectangle {
                 anchors.fill: parent
                 color: Qt.rgba(0.06, 0.06, 0.09, 0.95)

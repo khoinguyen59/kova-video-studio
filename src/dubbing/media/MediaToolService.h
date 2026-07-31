@@ -19,7 +19,8 @@ public:
     void muxVideoWithAudio(const QString &videoPath,
                            const QString &audioPath,
                            const QString &subtitlePath,
-                           const QString &outputPath);
+                           const QString &outputPath,
+                           bool burnInSubtitles = false);
     void cancel();
 
 signals:

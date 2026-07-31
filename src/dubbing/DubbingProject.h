@@ -13,7 +13,7 @@ namespace LAStudio {
 class DubbingProject
 {
 public:
-    static constexpr int CurrentSchemaVersion = 9;
+    static constexpr int CurrentSchemaVersion = 10;
 
     QString projectPath;
     QString sourceMediaPath;
@@ -42,6 +42,10 @@ public:
     // transcript source/ROI choice survives reopening an adaptive project.
     // It intentionally contains no remote URL, token, or staged file path.
     QVariantMap transcriptConfiguration;
+    // Style and source kind are durable editing decisions. File paths and
+    // imported file contents are deliberately not persisted: reviewed cues are
+    // stored in segments, while an external source remains user-owned.
+    QVariantMap subtitleConfiguration;
     QVariantMap customRewriteConfiguration;
     QVariantList speakers;
     QVariantList segments;

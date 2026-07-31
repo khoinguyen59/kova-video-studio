@@ -1,6 +1,7 @@
 #include "test_DubbingProject.h"
 
 #include "dubbing/DubbingProject.h"
+#include "dubbing/DubbingSubtitleService.h"
 #include "dubbing/CapCutDraftExporter.h"
 #include "dubbing/DubbingTranscriptFusionService.h"
 #include "controllers/dubbing/DubbingController.h"
@@ -2569,6 +2570,111 @@ void TestDubbingProject::roundTripsDurationSettings()
     DubbingProject loaded;
     QVERIFY2(DubbingProject::load(project.projectPath, loaded, &error), qPrintable(error));
     QCOMPARE(loaded.durationControl.value(QStringLiteral("maxPreTtsIterations")).toInt(), 3);
+}
+
+void TestDubbingProject::importsDubbingSubtitleFormatsWithoutInventingTiming()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString projectPath = dir.filePath(QStringLiteral("subtitle-import.ladub.json"));
+    DubbingController controller(nullptr, nullptr);
+    QVERIFY(controller.newProject(projectPath));
+
+    const QString vttPath = dir.filePath(QStringLiteral("source.vtt"));
+    QVERIFY(writeFixtureFile(vttPath,
+        QByteArray("WEBVTT\n\n00:00:01.000 --> 00:00:02.400\nViá»‡t / ä¸­æ–‡\n\n")));
+    QVERIFY2(controller.importSubtitles(vttPath), qPrintable(controller.lastError()));
+    QCOMPARE(controller.segments().size(), 1);
+    QCOMPARE(controller.segments().first().toMap().value(QStringLiteral("startMs")).toLongLong(), qint64(1000));
+    QCOMPARE(controller.segments().first().toMap().value(QStringLiteral("endMs")).toLongLong(), qint64(2400));
+    QCOMPARE(controller.segments().first().toMap().value(QStringLiteral("sourceText")).toString(),
+             QString::fromUtf8("Viá»‡t / ä¸­æ–‡"));
+    QCOMPARE(controller.subtitleConfiguration().value(QStringLiteral("source")).toString(),
+             QStringLiteral("imported-vtt"));
+
+    const QString assPath = dir.filePath(QStringLiteral("source.ass"));
+    QVERIFY(writeFixtureFile(assPath,
+        QByteArray("[Events]\nDialogue: 0,0:00:03.00,0:00:04.25,Default,,0,0,0,,{\\i1}ã“ã‚“ã«ã¡ã¯\\NäŸ©ë…•í•˜ì„¸ìš”\n")));
+    QVERIFY2(controller.importSubtitles(assPath), qPrintable(controller.lastError()));
+    QCOMPARE(controller.segments().first().toMap().value(QStringLiteral("startMs")).toLongLong(), qint64(3000));
+    QCOMPARE(controller.segments().first().toMap().value(QStringLiteral("sourceText")).toString(),
+             QString::fromUtf8("ã“ã‚“ã«ã¡ã¯\näŸ©ë…•í•˜ì„¸ìš”"));
+
+    controller.addSegment(5000, 6000, QStringLiteral("Anchor 2"));
+    const QVariantList timelineBefore = controller.segments();
+    const QString txtPath = dir.filePath(QStringLiteral("untimed.txt"));
+    QVERIFY(writeFixtureFile(txtPath, QByteArray("Má»™t dÃ²ng\nDÃ²ng hai\n")));
+    QVERIFY2(controller.importSubtitles(txtPath, QStringLiteral("existing-segment")),
+             qPrintable(controller.lastError()));
+    QCOMPARE(controller.segments().size(), 2);
+    QCOMPARE(controller.segments().at(0).toMap().value(QStringLiteral("startMs")).toLongLong(),
+             timelineBefore.at(0).toMap().value(QStringLiteral("startMs")).toLongLong());
+    QCOMPARE(controller.segments().at(1).toMap().value(QStringLiteral("endMs")).toLongLong(),
+             timelineBefore.at(1).toMap().value(QStringLiteral("endMs")).toLongLong());
+
+    QVERIFY(writeFixtureFile(txtPath, QByteArray("Too few lines\n")));
+    QVERIFY(!controller.importSubtitles(txtPath, QStringLiteral("existing-segment")));
+    QVERIFY(controller.lastError().contains(QStringLiteral("exactly one non-empty line")));
+    QVERIFY(!controller.importSubtitles(txtPath, QStringLiteral("alignment")));
+    QVERIFY(controller.lastError().contains(QStringLiteral("will not invent timing")));
+}
+
+void TestDubbingProject::persistsDubbingSubtitleStyleAndExportsUnicodeAss()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    DubbingController controller(nullptr, nullptr);
+    const QString projectPath = dir.filePath(QStringLiteral("subtitle-style.ladub.json"));
+    QVERIFY(controller.newProject(projectPath));
+    controller.addSegment(0, 1800, QString::fromUtf8("Tiáº¿ng Viá»‡t ä¸­æ–‡ æ—¥æœ¬ì–´ í•œêµ­ì–´"));
+    QVariantMap style = DubbingSubtitleService::defaultStyle();
+    style.insert(QStringLiteral("fontFamily"), QStringLiteral("Noto Sans CJK"));
+    style.insert(QStringLiteral("fontSize"), 54);
+    style.insert(QStringLiteral("alignment"), QStringLiteral("top"));
+    style.insert(QStringLiteral("safeMargin"), 0.11);
+    QVERIFY(controller.setSubtitleStyle(style));
+    QVERIFY(controller.setSubtitleBurnIn(true));
+    QVERIFY(controller.saveProject());
+
+    DubbingController reopened(nullptr, nullptr);
+    QVERIFY2(reopened.openProject(projectPath), qPrintable(reopened.lastError()));
+    QCOMPARE(reopened.subtitleConfiguration().value(QStringLiteral("burnIn")).toBool(), true);
+    QCOMPARE(reopened.subtitleConfiguration().value(QStringLiteral("style")).toMap()
+                 .value(QStringLiteral("fontSize")).toInt(), 54);
+
+    const QString assPath = dir.filePath(QStringLiteral("styled.ass"));
+    QString error;
+    QVERIFY2(DubbingSubtitleService::writeAss(reopened.segments(),
+                                                reopened.subtitleConfiguration().value(QStringLiteral("style")).toMap(),
+                                                assPath, false, &error), qPrintable(error));
+    QFile assFile(assPath);
+    QVERIFY(assFile.open(QIODevice::ReadOnly));
+    const QByteArray bytes = assFile.readAll();
+    QVERIFY(bytes.contains("Style: LAStudio,Noto Sans CJK,54"));
+    QVERIFY(bytes.contains(QString::fromUtf8("Tiáº¿ng Viá»‡t ä¸­æ–‡ æ—¥æœ¬ì–´ í•œêµ­ì–´").toUtf8()));
+}
+
+void TestDubbingProject::dubbingSubtitleUiWiresImportPreviewAndBurnIn()
+{
+    const QDir sourceRoot(QStringLiteral(LASTUDIO_SOURCE_DIR));
+    QFile page(sourceRoot.filePath(QStringLiteral("qml/pages/DubbingPage.qml")));
+    QFile panel(sourceRoot.filePath(QStringLiteral("qml/components/dubbing/DubbingSourceMediaPanel.qml")));
+    QFile editor(sourceRoot.filePath(QStringLiteral("qml/components/dubbing/DubbingSubtitleEditor.qml")));
+    QVERIFY(page.open(QIODevice::ReadOnly));
+    QVERIFY(panel.open(QIODevice::ReadOnly));
+    QVERIFY(editor.open(QIODevice::ReadOnly));
+    const QString pageSource = QString::fromUtf8(page.readAll());
+    const QString panelSource = QString::fromUtf8(panel.readAll());
+    const QString editorSource = QString::fromUtf8(editor.readAll());
+    QVERIFY(pageSource.contains(QStringLiteral("DubbingSubtitleEditor")));
+    QVERIFY(panelSource.contains(QStringLiteral("dubbingSubtitlePreviewOverlay")));
+    QVERIFY(panelSource.contains(QStringLiteral("FontLoader")));
+    QVERIFY(panelSource.contains(QStringLiteral("dubbingSubtitleEditorButton")));
+    QVERIFY(editorSource.contains(QStringLiteral("*.srt *.vtt *.ass *.ssa *.txt *.md *.markdown")));
+    QVERIFY(editorSource.contains(QStringLiteral("timestamps are never invented")));
+    QVERIFY(editorSource.contains(QStringLiteral("Burn the styled subtitles into rendered MP4")));
+    QVERIFY(editorSource.contains(QStringLiteral("safeMargin")));
+    QVERIFY(editorSource.contains(QStringLiteral("positionX")));
 }
 
 void TestDubbingProject::normalizesOcrOnlyTranscriptWithProvenance()

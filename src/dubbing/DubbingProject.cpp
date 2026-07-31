@@ -54,6 +54,8 @@ QJsonObject DubbingProject::toJson() const
                 QJsonObject::fromVariantMap(workflowNodeConfigurations));
     json.insert(QStringLiteral("transcriptConfiguration"),
                 QJsonObject::fromVariantMap(transcriptConfiguration));
+    json.insert(QStringLiteral("subtitleConfiguration"),
+                QJsonObject::fromVariantMap(subtitleConfiguration));
     json.insert(QStringLiteral("customRewriteConfiguration"),
                 QJsonObject::fromVariantMap(customRewriteConfiguration));
     json.insert(QStringLiteral("speakers"), QJsonArray::fromVariantList(speakers));
@@ -109,6 +111,10 @@ bool DubbingProject::fromJson(const QJsonObject &json, DubbingProject &project, 
     if (version >= 9) {
         project.transcriptConfiguration =
             json.value(QStringLiteral("transcriptConfiguration")).toObject().toVariantMap();
+    }
+    if (version >= 10) {
+        project.subtitleConfiguration =
+            json.value(QStringLiteral("subtitleConfiguration")).toObject().toVariantMap();
     }
     project.speakers = json.value(QStringLiteral("speakers")).toArray().toVariantList();
     project.segments = json.value(QStringLiteral("segments")).toArray().toVariantList();

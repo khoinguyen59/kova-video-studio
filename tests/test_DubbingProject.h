@@ -39,6 +39,9 @@ private slots:
     void unchangedTextEditPreservesTranslationMetadata();
     void targetTextEditRefreshesDurationMetadata();
     void exportsSubtitlesAndReviewPackage();
+    void importsDubbingSubtitleFormatsWithoutInventingTiming();
+    void persistsDubbingSubtitleStyleAndExportsUnicodeAss();
+    void dubbingSubtitleUiWiresImportPreviewAndBurnIn();
     void exportsSelfContainedCapCutDraftWithUnverifiedImportStatus();
     void segmentNormalizerSplitsLongAsrTranscript();
     void segmentNormalizerUsesAlignedWordBoundaries();

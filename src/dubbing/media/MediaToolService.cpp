@@ -2,6 +2,7 @@
 
 #include "core/MediaRuntimeLocator.h"
 
+#include <QDir>
 #include <QFileInfo>
 #include <QRegularExpression>
 
@@ -31,7 +32,8 @@ bool MediaToolService::available() const
 void MediaToolService::muxVideoWithAudio(const QString &videoPath,
                                          const QString &audioPath,
                                          const QString &subtitlePath,
-                                         const QString &outputPath)
+                                         const QString &outputPath,
+                                         bool burnInSubtitles)
 {
     if (m_process.state() != QProcess::NotRunning) {
         emit finished(false, outputPath, QStringLiteral("Another media operation is already running."));
@@ -61,14 +63,22 @@ void MediaToolService::muxVideoWithAudio(const QString &videoPath,
     const bool hasSubtitles = !subtitlePath.isEmpty() && QFileInfo(subtitlePath).isFile();
     if (hasSubtitles)
         arguments.append({QStringLiteral("-i"), subtitlePath});
+    if (burnInSubtitles && hasSubtitles) {
+        QString filterPath = QDir::fromNativeSeparators(QFileInfo(subtitlePath).absoluteFilePath());
+        filterPath.replace(QLatin1Char(':'), QStringLiteral("\\:"));
+        filterPath.replace(QLatin1Char('\''), QStringLiteral("\\'"));
+        arguments.append({QStringLiteral("-vf"),
+                          QStringLiteral("subtitles=filename='%1'").arg(filterPath)});
+    }
     arguments.append({
         QStringLiteral("-map"), QStringLiteral("0:v:0?"),
         QStringLiteral("-map"), QStringLiteral("1:a:0"),
-        QStringLiteral("-c:v"), QStringLiteral("copy"),
+        QStringLiteral("-c:v"), burnInSubtitles && hasSubtitles
+            ? QStringLiteral("libx264") : QStringLiteral("copy"),
         QStringLiteral("-c:a"), QStringLiteral("aac"),
         QStringLiteral("-b:a"), QStringLiteral("192k")
     });
-    if (hasSubtitles) {
+    if (hasSubtitles && !burnInSubtitles) {
         const QString suffix = QFileInfo(outputPath).suffix().toLower();
         const QString codec = suffix == QStringLiteral("webm")
             ? QStringLiteral("webvtt")

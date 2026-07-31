@@ -127,6 +127,7 @@ set(TEST_SOURCES
     ../src/controllers/stt/SttAudioDecoder.cpp
     ../src/dubbing/DubbingProject.cpp
     ../src/dubbing/DubbingTranscriptFusionService.cpp
+    ../src/dubbing/DubbingSubtitleService.cpp
     ../src/dubbing/CapCutDraftExporter.cpp
     ../src/dubbing/EspeakNgPhonemizer.cpp
     ../src/dubbing/DubbingDuration.cpp
@@ -214,6 +215,7 @@ set(TEST_SOURCES
     ../src/audio/WaveformProvider.cpp
 
     ../src/core/DownloadManager.h
+    ../src/dubbing/DubbingSubtitleService.h
     ../src/core/MediaRuntimeLocator.h
     ../src/subtitles/SubtitleOcrPipeline.h
     ../src/subtitles/SubtitleOcrRuntimeLocator.h
