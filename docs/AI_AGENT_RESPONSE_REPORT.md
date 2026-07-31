@@ -1,4 +1,64 @@
-# CURRENT AUTHORITATIVE RESPONSE -- Coverage closure regressions (2026-07-31)
+# CURRENT AUTHORITATIVE RESPONSE -- Download media vertical slice (2026-07-31)
+
+**Request executed:** the newest `AI_AGENT_REQUEST.md`, with Download media completed before any unrelated work. Work remained inside LA-STUDIO. No GUI/browser/desktop control, real profile access, model/runtime download, live Colab worker, or reference repository modification was performed.
+
+## Download media result
+
+| Requirement | Source boundary | Regression/evidence | Status |
+| --- | --- | --- | --- |
+| Separate visible Download feature while preserving model/runtime Downloads popup | `qml/components/shared/StudioRouteRegistry.qml`, `qml/Main.qml`, `qml/components/Sidebar.qml`, `qml/components/DownloadsPopup.qml`, `qml/pages/MediaDownloadPage.qml` | New `media-download` route, loader and page; source regression proves old popup still reads `AppController.downloads.allDownloads`; QML route smoke loads the new page | PASS |
+| Dubbing link import is visible at the source entry area | `qml/components/dubbing/DubbingSourceMediaPanel.qml`, `qml/pages/DubbingPage.qml` | Direct HTTPS control moved before the fill-height preview and retains existing controller wiring; source regression verifies one control and its placement marker | PASS at QML-source/route-smoke level |
+| One shared downloader and safe Download -> Dubbing handoff | `src/controllers/dubbing/DubbingController.cpp`, `src/dubbing/media/RemoteMediaImportService.cpp`, `src/dubbing/media/MediaIngestService.cpp` | `standaloneDownloadHandsOffOwnedMediaWithoutSecondDownload` verifies one loopback request, app-owned staging, then probe/normalize after handoff; no second network download | PASS |
+| Preserve existing Dubbing project unless probe/normalization succeeds | same controller/ingest boundary | `standaloneDownloadKeepsExistingProjectWhenProbeFails` proves failed media probe retains the current project and keeps the staged file retryable | PASS |
+| Direct HTTPS media validation, byte progress, cancel/error/retry, size/scheme protections | `RemoteMediaImportService.cpp`, `DubbingController.cpp`, `MediaDownloadPage.qml` | Existing loopback success/progress/cancel/oversize/unsafe-URL/controller regressions plus new standalone handoff tests; page displays bytes only when total is known (no invented percentage) | PASS at service/controller/QML-source level |
+| Public video-page URLs (YouTube/TikTok) | no public-source adapter in this build | The page explicitly distinguishes direct files from public video pages. A compatible no-cookie/no-login/no-DRM adapter was not present and was not invented or claimed. | BLOCKED (external adapter/product decision) |
+
+## Root cause and fix
+
+The pre-existing sidebar **Downloads** action only opened the model/runtime queue (`DownloadsPopup`); it did not expose a media-from-link workflow. Dubbing already had direct-link controller logic, but its control was below a fill-height media preview and could be hidden at short window heights.
+
+`MediaDownloadPage.qml` now provides a distinct Download route with URL input, direct-HTTPS scope notice, app-owned staged result, real byte counters, cancel/retry/error state, and a **Use in Dubbing** action. It calls new narrowly-scoped `DubbingController` download/handoff methods which reuse its existing `RemoteMediaImportService`; the handoff intentionally uses the existing `MediaIngestService` runner to probe and normalize before it replaces a Dubbing project. No second downloader, model queue, credential storage, or silent fallback was introduced.
+
+## Changed source and tests
+
+- `CMakeLists.txt` - version `0.0.2.2` and new QML page packaging.
+- `src/controllers/dubbing/DubbingController.{h,cpp}` - download-only staging state and guarded handoff into the existing ingest pipeline.
+- `qml/components/shared/StudioRouteRegistry.qml`, `qml/Main.qml` - Download route/loader and smoke coverage.
+- `qml/pages/MediaDownloadPage.qml` - standalone user surface.
+- `qml/components/dubbing/DubbingSourceMediaPanel.qml` - above-fold direct-link import placement.
+- `tests/test_MediaIngestService.{h,cpp}` - no-redownload handoff, failed-probe project retention, and static route/wiring checks.
+
+Source/test/version commit on `main`: `3e357558aab430461adb6690a4a5814673c36967` (`feat: add staged media download workflow`). No push was made.
+
+## Verification completed before packaging
+
+```powershell
+cmake --build out\build\windows-msvc-tests --target LAStudioUnitTests -j 1
+cmake --build out\build\windows-msvc-tests --target LAStudio -j 1
+ctest --test-dir out\build\windows-msvc-tests -R '^TestMediaIngestService$' --output-on-failure
+ctest --test-dir out\build\windows-msvc-tests -R '^(TestMediaIngestService|TestDubbingProject|TestRemoteExecution|QmlRouteSmoke)$' --output-on-failure
+ctest --test-dir out\build\windows-msvc-tests --output-on-failure
+```
+
+- New media-ingest suite: PASS.
+- Targeted Media/Dubbing/Remote/QML set: PASS after rebuilding the application QML cache. The initial smoke run correctly caught a stale app executable built before the route change; rebuilding target `LAStudio` made the new resource bundle active and the smoke passed.
+- Full CTest: PASS, **35/35**.
+- GUI click-through, public web-page download, and live Colab GPU work remain unclaimed/blocklisted rather than reported as tested.
+
+## Package evidence
+
+`scripts/build.ps1` and `scripts/package.ps1` completed for a new, non-overwriting portable internal package. The package scripts verified 16 required staging artifacts and 16 required license artifacts. The build retains the existing internal-only restriction because the verified eSpeak NG MSI is unsigned.
+
+- EXE: `out\\LA-Studio-0.0.2.2\\LA-Studio-0.0.2.2.exe`
+- File/Product version: `0.0.2.2`; product: `LA Studio`
+- Size: `21,429,248` bytes
+- SHA-256: `6C2FA314EDFD0C3CCB1DF083BDAC5A4EBA441AB2D3B950CF296746A51BEEFC4A`
+- Portable dependency checks: `media-tools\\ffmpeg.exe`, `media-tools\\ffprobe.exe`, and `licenses\\THIRD-PARTY-NOTICES.md` present.
+- No EXE was launched or controlled. The earlier `0.0.2.1` package remains untouched.
+
+---
+
+# Previous authoritative response -- Coverage closure regressions (2026-07-31)
 
 **Request executed:** the current `AI_AGENT_REQUEST.md` A–F coverage instruction. Work stayed inside LA-STUDIO: no GUI/browser/CapCut automation, no real account/profile access, no model/runtime download, and no reference repository was modified.
 
