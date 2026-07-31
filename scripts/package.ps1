@@ -497,6 +497,38 @@ function Ensure-Bsdtar {
     Write-Host ">> Staged pinned bsdtar $version" -ForegroundColor Green
 }
 
+function Ensure-YtDlpRuntime {
+    param(
+        [Parameter(Mandatory = $true)][string] $RepositoryRoot,
+        [Parameter(Mandatory = $true)][string] $DeployRoot,
+        [Parameter(Mandatory = $true)][string] $StageRoot
+    )
+
+    # Pinned standalone adapter: no browser profile, cookies, or Python runtime
+    # is shipped. The application invokes it only with an argument list.
+    $version = "2026.07.04"
+    $expectedSha256 = "2f732ab09f59d96847ec8f73d29655a276b873b9f7a5ff18e88f5c8b80dcf29b"
+    $cachePath = Join-Path $RepositoryRoot ".deps\yt-dlp-$version.exe"
+    $target = Join-Path $DeployRoot "yt-dlp.exe"
+    New-Item -ItemType Directory -Path (Split-Path -Parent $cachePath) -Force | Out-Null
+    if (-not (Test-Path -LiteralPath $cachePath -PathType Leaf)) {
+        Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/download/$version/yt-dlp.exe" -OutFile $cachePath -UseBasicParsing
+    }
+    $actualSha256 = (Get-FileHash -LiteralPath $cachePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actualSha256 -ne $expectedSha256) {
+        throw "yt-dlp SHA-256 mismatch. Expected $expectedSha256 but got $actualSha256."
+    }
+    Copy-Item -LiteralPath $cachePath -Destination $target -Force
+    $licenseDir = Join-Path $StageRoot "licenses\yt-dlp"
+    New-Item -ItemType Directory -Path $licenseDir -Force | Out-Null
+    @"
+yt-dlp is released under The Unlicense (public domain dedication).
+Source: https://github.com/yt-dlp/yt-dlp
+Pinned binary version: $version
+"@ | Set-Content -LiteralPath (Join-Path $licenseDir "UNLICENSE.txt") -Encoding UTF8
+    Write-Host ">> Staged pinned yt-dlp $version" -ForegroundColor Green
+}
+
 function Stage-ThirdPartyLicenseTexts {
     param(
         [Parameter(Mandatory = $true)]
@@ -750,6 +782,7 @@ Copy-VcpkgRuntimeLibraries -BuildDirectory $buildDir -Triplet $vcpkgTriplet -Dep
 $sevenZipSource = Ensure-ArchiveExtractor -DeployRoot $deployRoot -VcpkgRoot $VcpkgRoot
 Ensure-Bsdtar -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir -BuildDirectory $buildDir -Triplet $vcpkgTriplet
 Ensure-FfmpegRuntime -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir
+Ensure-YtDlpRuntime -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir
 Stage-ThirdPartyLicenseTexts -RepositoryRoot $RepoRoot -StageRoot $stageDir -BuildDirectory $buildDir -Triplet $vcpkgTriplet -QtRoot $QtRoot -SevenZipSource $sevenZipSource
 if ($AllowUnsignedEspeakForInternalBuild) {
     Write-Warning "INTERNAL BUILD ONLY: permitting the SHA-256-verified but unsigned eSpeak NG MSI. Do not distribute this package or promote it to a release."

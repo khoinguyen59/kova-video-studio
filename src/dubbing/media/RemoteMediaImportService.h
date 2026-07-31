@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QPointer>
+#include <QProcess>
 #include <QSaveFile>
 #include <QUrl>
 
@@ -32,6 +33,10 @@ signals:
 
 private:
     bool isSupportedSource(const QUrl &sourceUrl) const;
+    bool isPublicVideoPage(const QUrl &sourceUrl) const;
+    bool resolvePublicVideoPage(const QUrl &sourceUrl);
+    void validateAndStartDirectDownload(const QUrl &sourceUrl);
+    void startDirectDownload(const QUrl &sourceUrl);
     bool ensureOutputFile();
     void consumeAvailableData();
     void fail(const QString &error);
@@ -40,6 +45,10 @@ private:
     QString m_storageRoot;
     QNetworkAccessManager *m_network = nullptr;
     QPointer<QNetworkReply> m_reply;
+    QProcess m_resolver;
+    QByteArray m_resolverOutput;
+    QByteArray m_resolverError;
+    int m_hostLookupId = -1;
     std::unique_ptr<QSaveFile> m_output;
     QString m_outputPath;
     qint64 m_bytesWritten = 0;

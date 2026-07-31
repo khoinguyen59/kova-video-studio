@@ -1,14 +1,18 @@
 #include "dubbing/media/RemoteMediaImportService.h"
 
 #include "core/PathUtils.h"
+#include "core/MediaRuntimeLocator.h"
 
 #include <QDir>
 #include <QFileInfo>
+#include <QHostAddress>
+#include <QHostInfo>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <QTimer>
 #include <QUuid>
 
 namespace LAStudio {
@@ -22,6 +26,19 @@ bool isLoopbackHost(const QString &host)
     return normalized == QStringLiteral("localhost")
         || normalized == QStringLiteral("127.0.0.1")
         || normalized == QStringLiteral("::1");
+}
+
+bool isPrivateLiteralAddress(const QString &host)
+{
+    QHostAddress address;
+    if (!address.setAddress(host.trimmed())) return false;
+    return address.isNull() || address.isLoopback() || address.isLinkLocal()
+        || address.isSiteLocal() || address.isMulticast() || address.isBroadcast()
+        || address.isInSubnet(QHostAddress(QStringLiteral("10.0.0.0")), 8)
+        || address.isInSubnet(QHostAddress(QStringLiteral("100.64.0.0")), 10)
+        || address.isInSubnet(QHostAddress(QStringLiteral("172.16.0.0")), 12)
+        || address.isInSubnet(QHostAddress(QStringLiteral("192.168.0.0")), 16)
+        || address.isInSubnet(QHostAddress(QStringLiteral("fc00::")), 7);
 }
 
 QString safeFileName(QString value)
@@ -44,30 +61,140 @@ RemoteMediaImportService::RemoteMediaImportService(const QString &storageRoot, Q
                         : QDir::cleanPath(storageRoot))
     , m_network(new QNetworkAccessManager(this))
 {
+    connect(&m_resolver, &QProcess::readyReadStandardOutput, this,
+            [this] { m_resolverOutput += m_resolver.readAllStandardOutput(); });
+    connect(&m_resolver, &QProcess::readyReadStandardError, this,
+            [this] { m_resolverError += m_resolver.readAllStandardError(); });
+    connect(&m_resolver, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
+        if (m_active && error == QProcess::FailedToStart)
+            fail(QStringLiteral("The managed public-video adapter could not be started."));
+    });
+    connect(&m_resolver, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
+            [this](int exitCode, QProcess::ExitStatus status) {
+        m_resolverOutput += m_resolver.readAllStandardOutput();
+        m_resolverError += m_resolver.readAllStandardError();
+        if (!m_active) return;
+        if (status != QProcess::NormalExit || exitCode != 0) {
+            fail(QStringLiteral("The public-video adapter could not resolve this URL."));
+            return;
+        }
+        const QList<QByteArray> lines = m_resolverOutput.trimmed().split('\n');
+        if (lines.size() != 1) {
+            fail(QStringLiteral("The public-video URL resolved to zero or multiple media files; playlists are not supported."));
+            return;
+        }
+        const QUrl resolved = QUrl::fromUserInput(QString::fromUtf8(lines.constFirst()).trimmed());
+        if (!isSupportedSource(resolved)) {
+            fail(QStringLiteral("The public-video adapter resolved to an unsafe or unsupported media URL."));
+            return;
+        }
+        validateAndStartDirectDownload(resolved);
+    });
 }
 
 bool RemoteMediaImportService::isSupportedSource(const QUrl &sourceUrl) const
 {
     if (!sourceUrl.isValid() || sourceUrl.host().trimmed().isEmpty() || !sourceUrl.userInfo().isEmpty())
         return false;
-    if (sourceUrl.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) == 0)
+    if (sourceUrl.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) == 0
+        && !isLoopbackHost(sourceUrl.host()) && !isPrivateLiteralAddress(sourceUrl.host()))
         return true;
     // A loopback HTTP exception permits deterministic offline regression tests.
     return sourceUrl.scheme().compare(QStringLiteral("http"), Qt::CaseInsensitive) == 0
         && isLoopbackHost(sourceUrl.host());
 }
 
+bool RemoteMediaImportService::isPublicVideoPage(const QUrl &sourceUrl) const
+{
+    const QString host = sourceUrl.host().trimmed().toLower();
+    return sourceUrl.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) == 0
+        && sourceUrl.userInfo().isEmpty()
+        && (host == QStringLiteral("youtube.com") || host.endsWith(QStringLiteral(".youtube.com"))
+            || host == QStringLiteral("youtu.be") || host == QStringLiteral("tiktok.com")
+            || host.endsWith(QStringLiteral(".tiktok.com")) || host == QStringLiteral("douyin.com")
+            || host.endsWith(QStringLiteral(".douyin.com")) || host == QStringLiteral("v.douyin.com"));
+}
+
+bool RemoteMediaImportService::resolvePublicVideoPage(const QUrl &sourceUrl)
+{
+    const QString executable = MediaRuntimeLocator::resolve().ytDlp;
+    if (executable.isEmpty()) {
+        emit finished(false, {}, QStringLiteral("Public-video support requires the managed yt-dlp adapter."));
+        return false;
+    }
+    m_resolverOutput.clear();
+    m_resolverError.clear();
+    m_active = true;
+    m_resolver.setProgram(executable);
+    m_resolver.setArguments({QStringLiteral("--no-playlist"), QStringLiteral("--no-warnings"),
+                             QStringLiteral("--no-cookies"), QStringLiteral("--get-url"),
+                             sourceUrl.toString(QUrl::FullyEncoded)});
+    m_resolver.start();
+    QTimer::singleShot(60000, this, [this] {
+        if (m_active && m_resolver.state() != QProcess::NotRunning) {
+            m_resolver.kill();
+            fail(QStringLiteral("The public-video adapter timed out while resolving the URL."));
+        }
+    });
+    return true;
+}
+
 bool RemoteMediaImportService::download(const QUrl &sourceUrl)
 {
     cancel();
+    if (isPublicVideoPage(sourceUrl)) return resolvePublicVideoPage(sourceUrl);
     if (!isSupportedSource(sourceUrl)) {
-        emit finished(false, {}, QStringLiteral("Enter a direct HTTPS media URL. HTTP is accepted only for local testing."));
+        emit finished(false, {}, QStringLiteral("Enter a direct HTTPS media file or a supported public YouTube, TikTok, or Douyin URL. HTTP is accepted only for local testing."));
         return false;
     }
 
+    validateAndStartDirectDownload(sourceUrl);
+    return true;
+}
+
+void RemoteMediaImportService::validateAndStartDirectDownload(const QUrl &sourceUrl)
+{
+    if (!m_active) m_active = true;
+    // Loopback HTTP is deliberately restricted to the deterministic offline
+    // test transport.  It is never accepted for public URLs or normal HTTP.
+    if (sourceUrl.scheme().compare(QStringLiteral("http"), Qt::CaseInsensitive) == 0
+        && isLoopbackHost(sourceUrl.host())) {
+        startDirectDownload(sourceUrl);
+        return;
+    }
+    QHostAddress literal;
+    if (literal.setAddress(sourceUrl.host())) {
+        if (isPrivateLiteralAddress(sourceUrl.host()))
+            fail(QStringLiteral("The media URL resolves to an unsafe private address."));
+        else
+            startDirectDownload(sourceUrl);
+        return;
+    }
+
+    const QString host = sourceUrl.host().trimmed();
+    m_hostLookupId = QHostInfo::lookupHost(host, this, [this, sourceUrl](const QHostInfo &result) {
+        m_hostLookupId = -1;
+        if (!m_active) return;
+        if (result.error() != QHostInfo::NoError || result.addresses().isEmpty()) {
+            fail(QStringLiteral("Cannot resolve the media host safely."));
+            return;
+        }
+        for (const QHostAddress &address : result.addresses()) {
+            if (isPrivateLiteralAddress(address.toString())) {
+                fail(QStringLiteral("The media URL resolves to an unsafe private address."));
+                return;
+            }
+        }
+        startDirectDownload(sourceUrl);
+    });
+}
+
+void RemoteMediaImportService::startDirectDownload(const QUrl &sourceUrl)
+{
+
     if (!QDir().mkpath(m_storageRoot)) {
         emit finished(false, {}, QStringLiteral("Cannot create LA Studio media staging storage."));
-        return false;
+        return;
     }
 
     QNetworkRequest request(sourceUrl);
@@ -83,6 +210,10 @@ bool RemoteMediaImportService::download(const QUrl &sourceUrl)
     // byte-count check below remains necessary for chunked/lying servers.
     connect(m_reply, &QNetworkReply::metaDataChanged, this, [this]() {
         if (!m_active || !m_reply) return;
+        if (!isSupportedSource(m_reply->url())) {
+            fail(QStringLiteral("The media URL redirected to an unsafe or unsupported address."));
+            return;
+        }
         const QVariant length = m_reply->header(QNetworkRequest::ContentLengthHeader);
         bool ok = false;
         const qint64 announcedBytes = length.toLongLong(&ok);
@@ -128,11 +259,15 @@ bool RemoteMediaImportService::download(const QUrl &sourceUrl)
         m_reply = nullptr;
         emit finished(true, completedPath, {});
     });
-    return true;
 }
 
 void RemoteMediaImportService::cancel()
 {
+    if (m_hostLookupId >= 0) {
+        QHostInfo::abortHostLookup(m_hostLookupId);
+        m_hostLookupId = -1;
+    }
+    if (m_resolver.state() != QProcess::NotRunning) m_resolver.kill();
     if (m_active) fail(QStringLiteral("Media link import canceled."));
 }
 

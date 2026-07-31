@@ -14,6 +14,7 @@
 #include <QTcpSocket>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QUuid>
 #include <QtTest>
 
 namespace LAStudio {
@@ -99,8 +100,10 @@ void TestMediaIngestService::prefersBundledMediaToolsOverExternalConfiguration()
     QVERIFY(QDir().mkpath(mediaToolsDirectory));
     const QString ffmpeg = mediaToolsDirectory + QStringLiteral("/ffmpeg.exe");
     const QString ffprobe = mediaToolsDirectory + QStringLiteral("/ffprobe.exe");
+    const QString ytDlp = mediaToolsDirectory + QStringLiteral("/yt-dlp.exe");
     QVERIFY(QFile(ffmpeg).open(QIODevice::WriteOnly));
     QVERIFY(QFile(ffprobe).open(QIODevice::WriteOnly));
+    QVERIFY(QFile(ytDlp).open(QIODevice::WriteOnly));
 
     const QByteArray originalFfmpeg = qgetenv("LASTUDIO_FFMPEG");
     const QByteArray originalFfprobe = qgetenv("LASTUDIO_FFPROBE");
@@ -114,6 +117,8 @@ void TestMediaIngestService::prefersBundledMediaToolsOverExternalConfiguration()
 
     QCOMPARE(QDir::cleanPath(runtime.ffmpeg), QDir::cleanPath(ffmpeg));
     QCOMPARE(QDir::cleanPath(runtime.ffprobe), QDir::cleanPath(ffprobe));
+    QCOMPARE(QDir::cleanPath(runtime.ytDlp), QDir::cleanPath(ytDlp));
+    QVERIFY(runtime.hasYtDlp());
     QVERIFY(runtime.isComplete());
 }
 
@@ -214,6 +219,84 @@ void TestMediaIngestService::rejectsUnsafeRemoteMediaUrl()
     QVERIFY(!service.download(QUrl(QStringLiteral("https://user:secret@example.invalid/media.wav"))));
     QCOMPARE(userInfoFinished.count(), 1);
     QVERIFY(!userInfoFinished.constFirst().at(0).toBool());
+
+    QSignalSpy privateAddressFinished(&service, &RemoteMediaImportService::finished);
+    QVERIFY(!service.download(QUrl(QStringLiteral("https://192.168.1.99/private.wav"))));
+    QCOMPARE(privateAddressFinished.count(), 1);
+    QVERIFY(privateAddressFinished.constFirst().at(2).toString().contains(QStringLiteral("HTTPS")));
+}
+
+void TestMediaIngestService::rejectsUnsafePublicAdapterResults()
+{
+    QTemporaryDir staging;
+    QVERIFY(staging.isValid());
+    const QByteArray previous = qgetenv("LASTUDIO_YTDLP");
+    const bool hadPrevious = qEnvironmentVariableIsSet("LASTUDIO_YTDLP");
+    const auto restoreAdapter = [&] {
+        if (hadPrevious) qputenv("LASTUDIO_YTDLP", previous);
+        else qunsetenv("LASTUDIO_YTDLP");
+    };
+
+    const auto expectRejected = [&](const QString &script, const QString &expectedError) {
+        const QString adapterPath = staging.filePath(
+            QStringLiteral("fake-yt-dlp-%1.cmd").arg(QUuid::createUuid().toString(QUuid::WithoutBraces)));
+        QFile adapter(adapterPath);
+        QVERIFY(adapter.open(QIODevice::WriteOnly | QIODevice::Text));
+        adapter.write(script.toUtf8());
+        adapter.close();
+        qputenv("LASTUDIO_YTDLP", adapterPath.toUtf8());
+
+        RemoteMediaImportService service(staging.path());
+        QSignalSpy finished(&service, &RemoteMediaImportService::finished);
+        QVERIFY(service.download(QUrl(QStringLiteral("https://www.youtube.com/watch?v=fixture"))));
+        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 10000);
+        QVERIFY(!finished.constFirst().at(0).toBool());
+        QVERIFY2(finished.constFirst().at(2).toString().contains(expectedError),
+                 qPrintable(finished.constFirst().at(2).toString()));
+    };
+
+    expectRejected(QStringLiteral("@echo off\r\nexit /b 2\r\n"), QStringLiteral("could not resolve"));
+    expectRejected(QStringLiteral("@echo off\r\necho https://example.com/a.mp4\r\necho https://example.com/b.mp4\r\n"),
+                   QStringLiteral("zero or multiple"));
+    expectRejected(QStringLiteral("@echo off\r\necho https://192.168.1.99/private.mp4\r\n"),
+                   QStringLiteral("unsafe"));
+    restoreAdapter();
+}
+
+void TestMediaIngestService::resolvesPublicVideoPageThroughManagedAdapter()
+{
+    QTemporaryDir staging;
+    QVERIFY(staging.isValid());
+    DirectMediaServer server;
+    QVERIFY(server.start());
+
+    const QString adapterPath = staging.filePath(QStringLiteral("fake-yt-dlp.cmd"));
+    QFile adapter(adapterPath);
+    QVERIFY(adapter.open(QIODevice::WriteOnly | QIODevice::Text));
+    adapter.write("@echo off\r\necho " + server.url().toString(QUrl::FullyEncoded).toUtf8() + "\r\n");
+    adapter.close();
+    const QByteArray previous = qgetenv("LASTUDIO_YTDLP");
+    const bool hadPrevious = qEnvironmentVariableIsSet("LASTUDIO_YTDLP");
+    qputenv("LASTUDIO_YTDLP", adapterPath.toUtf8());
+
+    const QStringList publicUrls{
+        QStringLiteral("https://www.youtube.com/watch?v=fixture"),
+        QStringLiteral("https://www.tiktok.com/@fixture/video/123"),
+        QStringLiteral("https://www.douyin.com/video/123"),
+        QStringLiteral("https://v.douyin.com/fixture/")
+    };
+    for (const QString &publicUrl : publicUrls) {
+        RemoteMediaImportService service(staging.path());
+        QSignalSpy finished(&service, &RemoteMediaImportService::finished);
+        QVERIFY(service.download(QUrl(publicUrl)));
+        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 10000);
+        const QList<QVariant> result = finished.constFirst();
+        QVERIFY2(result.at(0).toBool(), qPrintable(result.at(2).toString()));
+        QVERIFY(QFileInfo(result.at(1).toString()).isFile());
+    }
+    if (hadPrevious) qputenv("LASTUDIO_YTDLP", previous);
+    else qunsetenv("LASTUDIO_YTDLP");
+    QCOMPARE(server.requestCount(), publicUrls.size());
 }
 
 void TestMediaIngestService::controllerCommitsDirectLinkOnlyAfterRealProbeAndNormalization()
@@ -346,9 +429,10 @@ void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
     QVERIFY(page.contains(QStringLiteral("handoffDownloadedMediaToDubbing")));
     QVERIFY(page.contains(QStringLiteral("downloadedMediaPath")));
     QVERIFY(page.contains(QStringLiteral("Use in Dubbing")));
-    QVERIFY(page.contains(QStringLiteral("Public video-page URLs")));
-    QVERIFY(dubbingSource.contains(QStringLiteral("Import direct HTTPS video or audio link")));
-    QCOMPARE(dubbingSource.count(QStringLiteral("Import direct HTTPS video or audio link")), 1);
+    QVERIFY(page.contains(QStringLiteral("public YouTube, TikTok, or Douyin video")));
+    QVERIFY(page.contains(QStringLiteral("playlists, login/cookies, DRM/paywalls")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("Import direct media, YouTube, TikTok, or Douyin link")));
+    QCOMPARE(dubbingSource.count(QStringLiteral("Import direct media, YouTube, TikTok, or Douyin link")), 1);
     QVERIFY(dubbingSource.contains(QStringLiteral("Keep the direct-link import action above the fill-height preview")));
     QVERIFY(popup.contains(QStringLiteral("AppController.downloads.allDownloads")));
 }

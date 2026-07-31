@@ -15,6 +15,8 @@ private slots:
     void cancelRemovesPartialStagedMedia();
     void rejectsOversizedMediaBeforeStaging();
     void rejectsUnsafeRemoteMediaUrl();
+    void rejectsUnsafePublicAdapterResults();
+    void resolvesPublicVideoPageThroughManagedAdapter();
     void controllerCommitsDirectLinkOnlyAfterRealProbeAndNormalization();
     void standaloneDownloadHandsOffOwnedMediaWithoutSecondDownload();
     void standaloneDownloadKeepsExistingProjectWhenProbeFails();

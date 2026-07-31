@@ -257,7 +257,7 @@ Rectangle {
                 id: directMediaLink
                 Layout.fillWidth: true
                 enabled: !root.dubbing.processing && !root.dubbing.linkImporting
-                placeholderText: qsTr("Import direct HTTPS video or audio link")
+                placeholderText: qsTr("Import direct media, YouTube, TikTok, or Douyin link")
                 color: Theme.textPrimary
                 placeholderTextColor: Theme.textSecondary
                 font.pixelSize: Theme.fontSmall

@@ -7,9 +7,11 @@ namespace LAStudio {
 struct MediaRuntimePaths {
     QString ffmpeg;
     QString ffprobe;
+    QString ytDlp;
 
     bool hasFfmpeg() const;
     bool hasFfprobe() const;
+    bool hasYtDlp() const;
     bool isComplete() const;
 };
 

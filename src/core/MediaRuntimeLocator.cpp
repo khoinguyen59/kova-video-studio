@@ -55,6 +55,11 @@ bool MediaRuntimePaths::hasFfprobe() const
     return !ffprobe.isEmpty();
 }
 
+bool MediaRuntimePaths::hasYtDlp() const
+{
+    return !ytDlp.isEmpty();
+}
+
 bool MediaRuntimePaths::isComplete() const
 {
     return hasFfmpeg() && hasFfprobe();
@@ -73,6 +78,7 @@ MediaRuntimePaths MediaRuntimeLocator::resolveForApplicationDirectory(const QStr
     // installed FFmpeg change the behavior of a packaged application.
     result.ffmpeg = bundledTool(applicationDirectory, QStringLiteral("ffmpeg"));
     result.ffprobe = bundledTool(applicationDirectory, QStringLiteral("ffprobe"));
+    result.ytDlp = bundledTool(applicationDirectory, QStringLiteral("yt-dlp"));
     if (result.isComplete())
         return result;
 
@@ -83,6 +89,8 @@ MediaRuntimePaths MediaRuntimeLocator::resolveForApplicationDirectory(const QStr
     const QString configuredSiblingProbe = siblingTool(configuredFfmpeg, QStringLiteral("ffprobe"));
     const QString pathFfmpeg = QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
     const QString pathFfprobe = QStandardPaths::findExecutable(QStringLiteral("ffprobe"));
+    const QString configuredYtDlp = configuredTool("LASTUDIO_YTDLP");
+    const QString pathYtDlp = QStandardPaths::findExecutable(QStringLiteral("yt-dlp"));
 
     if (result.ffmpeg.isEmpty())
         result.ffmpeg = !configuredFfmpeg.isEmpty() ? configuredFfmpeg : pathFfmpeg;
@@ -93,6 +101,8 @@ MediaRuntimePaths MediaRuntimeLocator::resolveForApplicationDirectory(const QStr
         if (result.ffprobe.isEmpty())
             result.ffprobe = pathFfprobe;
     }
+    if (result.ytDlp.isEmpty())
+        result.ytDlp = !configuredYtDlp.isEmpty() ? configuredYtDlp : pathYtDlp;
 
     return result;
 }

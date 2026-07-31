@@ -43,7 +43,7 @@ Rectangle {
                 }
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("Download a direct video or audio file into LA Studio-owned staging, then choose when to validate it in Dubbing.")
+                    text: qsTr("Download a direct video/audio file or a supported public YouTube, TikTok, or Douyin video into LA Studio-owned staging, then choose when to validate it in Dubbing.")
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fontSmall
                     wrapMode: Text.WordWrap
@@ -65,14 +65,14 @@ Rectangle {
                     spacing: Theme.paddingMedium
 
                     Text {
-                        text: qsTr("Direct media URL")
+                        text: qsTr("Media or public video URL")
                         color: Theme.textPrimary
                         font.pixelSize: Theme.fontLarge
                         font.bold: true
                     }
                     Text {
                         Layout.fillWidth: true
-                        text: qsTr("Supported: a direct HTTPS video/audio file URL. HTTP is allowed only for local loopback testing. Public video-page URLs (such as YouTube or TikTok) are not downloaded by this build.")
+                        text: qsTr("Supported: direct HTTPS media files and public YouTube, TikTok, and Douyin video pages. Only one video is accepted; playlists, login/cookies, DRM/paywalls, user-info URLs, and unsafe redirects are blocked. HTTP is allowed only for local loopback testing.")
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fontSmall
                         wrapMode: Text.WordWrap
@@ -81,7 +81,7 @@ Rectangle {
                         id: sourceUrl
                         Layout.fillWidth: true
                         enabled: !root.dubbing.linkImporting && !root.dubbing.processing
-                        placeholderText: qsTr("https://example.com/video.mp4")
+                        placeholderText: qsTr("https://example.com/video.mp4 or https://www.youtube.com/watch?v=...")
                         selectByMouse: true
                         color: Theme.textPrimary
                         placeholderTextColor: Theme.textSecondary
