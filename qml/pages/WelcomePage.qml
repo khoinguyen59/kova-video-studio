@@ -61,6 +61,13 @@ Rectangle {
                     return false
             }
         }
+        if (homeScroll.contentHeight < studioCardGrid.y + studioCardGrid.height - 1)
+            return false
+        // At wide and medium sizes the shared registry should lay the new
+        // ninth and tenth cards out as the next readable pair. Narrow views
+        // are intentionally allowed to flow into one column.
+        if (download.y === subtitleOcr.y && download.x >= subtitleOcr.x)
+            return false
         return true
     }
 
@@ -163,11 +170,13 @@ Rectangle {
     }
 
     ScrollView {
+        id: homeScroll
         anchors.fill: parent
         contentWidth: availableWidth
         clip: true
 
         ColumnLayout {
+            id: homeContent
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.top: parent.top
             anchors.topMargin: root.compact ? Theme.paddingLarge : 34

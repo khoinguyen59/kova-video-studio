@@ -279,6 +279,11 @@ void TestSubtitleOcrRuntimeService::responsiveLayoutSharedMediaAndHomeCardsAreWi
     QVERIFY(pageSource.contains(QStringLiteral("id: sourceDropZone")));
     QVERIFY(pageSource.contains(QStringLiteral("id: chooseVideoButton")));
     QVERIFY(pageSource.contains(QStringLiteral("id: importLinkButton")));
+    QVERIFY(pageSource.contains(QStringLiteral("id: sourceImportIndeterminateIndicator")));
+    QVERIFY(pageSource.contains(QStringLiteral("subtitleOcrSourceImportIndeterminateIndicator")));
+    QVERIFY(pageSource.contains(
+        QStringLiteral("visible: ocr.sourceImporting && ocr.sourceImportTotalBytes <= 0")));
+    QVERIFY(pageSource.contains(QStringLiteral("running: visible")));
     QVERIFY(pageSource.contains(QStringLiteral("id: languagePackScroll")));
     QVERIFY(pageSource.contains(QStringLiteral("ocr.importSourceLink")));
     QVERIFY(pageSource.contains(QStringLiteral("ocr.cancelSourceImport")));
@@ -315,9 +320,15 @@ void TestSubtitleOcrRuntimeService::responsiveLayoutSharedMediaAndHomeCardsAreWi
     QVERIFY(mainSource.contains(QStringLiteral("width: 1024, height: 720")));
     QVERIFY(mainSource.contains(QStringLiteral("width: 1280, height: 800")));
     QVERIFY(mainSource.contains(QStringLiteral("width: 1600, height: 900")));
+    QVERIFY(mainSource.contains(QStringLiteral("qmlSmokeHomeLayoutSizeIndex")));
+    QVERIFY(mainSource.contains(QStringLiteral("qmlSmokeHomeLayoutResizePending")));
 
     QVERIFY(welcomeSource.contains(QStringLiteral("StudioRouteRegistry.homeFeatureCards")));
     QVERIFY(welcomeSource.contains(QStringLiteral("qmlSmokeHomeCardsCheck")));
+    QVERIFY(welcomeSource.contains(QStringLiteral("id: homeScroll")));
+    QVERIFY(welcomeSource.contains(QStringLiteral("id: homeContent")));
+    QVERIFY(welcomeSource.contains(
+        QStringLiteral("homeScroll.contentHeight < studioCardGrid.y + studioCardGrid.height - 1")));
     QVERIFY(welcomeSource.contains(QStringLiteral("cardNumber: index + 1")));
     QVERIFY(welcomeSource.contains(QStringLiteral("targetRoute: modelData.id")));
     QVERIFY(welcomeSource.contains(QStringLiteral("onClicked: root.pageRequested(card.targetRoute)")));

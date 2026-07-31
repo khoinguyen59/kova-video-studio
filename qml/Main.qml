@@ -23,6 +23,8 @@ ApplicationWindow {
     property bool restoringWindowPlacement: true
     property int qmlSmokeSubtitleLayoutSizeIndex: 0
     property bool qmlSmokeSubtitleLayoutResizePending: false
+    property int qmlSmokeHomeLayoutSizeIndex: 0
+    property bool qmlSmokeHomeLayoutResizePending: false
     property int qmlSmokeDubbingLayoutSizeIndex: 0
     property bool qmlSmokeDubbingLayoutResizePending: false
     title: appName + " - " + appVersion
@@ -182,6 +184,8 @@ ApplicationWindow {
         qmlSmokeTimer.waitTicks = 0
         qmlSmokeSubtitleLayoutSizeIndex = 0
         qmlSmokeSubtitleLayoutResizePending = false
+        qmlSmokeHomeLayoutSizeIndex = 0
+        qmlSmokeHomeLayoutResizePending = false
         qmlSmokeDubbingLayoutSizeIndex = 0
         qmlSmokeDubbingLayoutResizePending = false
         qmlSmokeTimer.start()
@@ -211,7 +215,23 @@ ApplicationWindow {
 
     function qmlSmokeExerciseRoute(routeIndex) {
         if (routeIndex === 0 && welcomePage.qmlSmokeHomeCardsCheck) {
-            return welcomePage.qmlSmokeHomeCardsCheck() ? 1 : -1
+            var homeSizes = [
+                { width: 1024, height: 720 },
+                { width: 1280, height: 800 },
+                { width: 1600, height: 900 }
+            ]
+            if (qmlSmokeHomeLayoutResizePending) {
+                qmlSmokeHomeLayoutResizePending = false
+                return welcomePage.qmlSmokeHomeCardsCheck() ? 0 : -1
+            }
+            if (qmlSmokeHomeLayoutSizeIndex < homeSizes.length) {
+                var homeSize = homeSizes[qmlSmokeHomeLayoutSizeIndex++]
+                root.width = homeSize.width
+                root.height = homeSize.height
+                qmlSmokeHomeLayoutResizePending = true
+                return 0
+            }
+            return 1
         }
         if (routeIndex === 1 && sttLoader.item
                 && sttLoader.item.qmlSmokePendingSelectionIsolated) {

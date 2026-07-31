@@ -17,6 +17,7 @@ private slots:
     void transfersReviewedSegmentsToSubtitleVoiceAndDubbing();
     void cancelsAndRetriesWithoutLeavingOcrStaging();
     void importsSharedStagedMediaWithoutRedownloadAndPreservesSourceOnProbeFailure();
+    void importsSharedMediaWithAnUnknownContentLength();
 };
 
 } // namespace LAStudio

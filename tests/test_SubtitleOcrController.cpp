@@ -70,8 +70,9 @@ struct OcrFixtures {
 class SharedMediaServer final : public QObject
 {
 public:
-    explicit SharedMediaServer(int bodyDelayMs = 0)
+    explicit SharedMediaServer(int bodyDelayMs = 0, bool includeContentLength = true)
         : m_bodyDelayMs(bodyDelayMs)
+        , m_includeContentLength(includeContentLength)
     {
         connect(&m_server, &QTcpServer::newConnection, this, [this] {
             while (QTcpSocket *socket = m_server.nextPendingConnection()) {
@@ -80,8 +81,11 @@ public:
                     socket->setProperty("handled", true);
                     ++m_requestCount;
                     const QByteArray body("subtitle-ocr-shared-media");
-                    socket->write("HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nContent-Length: "
-                                  + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n");
+                    QByteArray headers("HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\n");
+                    if (m_includeContentLength)
+                        headers += "Content-Length: " + QByteArray::number(body.size()) + "\r\n";
+                    headers += "Connection: close\r\n\r\n";
+                    socket->write(headers);
                     const auto sendBody = [socket, body] {
                         if (socket->state() == QAbstractSocket::ConnectedState) {
                             socket->write(body);
@@ -104,6 +108,7 @@ public:
 private:
     QTcpServer m_server;
     int m_bodyDelayMs = 0;
+    bool m_includeContentLength = true;
     int m_requestCount = 0;
 };
 
@@ -356,6 +361,30 @@ void TestSubtitleOcrController::importsSharedStagedMediaWithoutRedownloadAndPres
     QVERIFY2(controller.error().isEmpty(), qPrintable(controller.error()));
     QVERIFY(controller.sourcePath() != stagedSource);
     QCOMPARE(delayedServer.requestCount(), 2);
+}
+
+void TestSubtitleOcrController::importsSharedMediaWithAnUnknownContentLength()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    OcrRuntimeEnvironment environment;
+    OcrFixtures fixtures(directory);
+    QVERIFY(fixtures.create());
+    configure(fixtures);
+
+    DubbingController dubbing(nullptr, nullptr, static_cast<ModelManager *>(nullptr),
+                              static_cast<RuntimeManager *>(nullptr));
+    SubtitleOcrController controller(nullptr, &dubbing);
+    SharedMediaServer server(350, false);
+    QVERIFY(server.start());
+
+    QVERIFY(controller.importSourceLink(server.url().toString()));
+    QTRY_COMPARE_WITH_TIMEOUT(server.requestCount(), 1, 2000);
+    QTRY_VERIFY_WITH_TIMEOUT(controller.sourceImporting(), 2000);
+    QCOMPARE(controller.sourceImportTotalBytes(), qint64(-1));
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.processing() && !controller.sourceImporting(), 10000);
+    QVERIFY2(controller.error().isEmpty(), qPrintable(controller.error()));
+    QVERIFY(QFileInfo(controller.sourcePath()).isFile());
 }
 
 } // namespace LAStudio

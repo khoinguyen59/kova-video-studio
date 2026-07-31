@@ -346,6 +346,17 @@ Page {
                             to: ocr.sourceImportTotalBytes
                             value: ocr.sourceImportReceivedBytes
                         }
+                        BusyIndicator {
+                            id: sourceImportIndeterminateIndicator
+                            objectName: "subtitleOcrSourceImportIndeterminateIndicator"
+                            Layout.alignment: Qt.AlignHCenter
+                            // A public-media origin is permitted to omit
+                            // Content-Length. Keep an explicit running state
+                            // in that case rather than presenting a frozen
+                            // zero-percent progress bar.
+                            visible: ocr.sourceImporting && ocr.sourceImportTotalBytes <= 0
+                            running: visible
+                        }
                         Text {
                             Layout.fillWidth: true
                             visible: ocr.sourceImportError !== ""
