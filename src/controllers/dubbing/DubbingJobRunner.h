@@ -31,6 +31,7 @@ class DubbingTranslationFixService;
 class Settings;
 class ColabSession;
 class ColabSeparationRunner;
+class SubtitleOcrController;
 
 class DubbingJobRunner : public QObject
 {
@@ -68,6 +69,10 @@ public:
                            ColabSession *separationSession,
                            ColabSession *alignmentSession);
     void setTranslationFixConfiguration(const QVariantMap &configuration);
+    // Subtitle OCR stays a single shared controller/runtime. The runner only
+    // orchestrates it for the Dubbing Transcribe node; it never creates a
+    // second OCR pipeline or downloads a runtime.
+    void setSubtitleOcrController(SubtitleOcrController *controller);
     void startAudioGeneration(const QVariantList &segments, const QString &projectPath,
                               const QVariantMap &synthesisSettings = QVariantMap());
     void fitTiming(const QVariantList &segments, const QString &projectPath);
@@ -103,12 +108,21 @@ private:
     void setProcessing(bool value, const QString &stage, int progress);
     void setBusyError(const QString &message);
     void finishTranslation(const QVariantList &segments);
+    void finishTranscript(const QVariantList &segments);
+    void startOcrTranscript(const QVariantMap &parameters);
+    void finishCombinedTranscriptIfReady();
+    void failTranscriptSource(const QString &source, const QString &message);
+    void onSubtitleOcrSourceChanged();
+    void onSubtitleOcrSegmentsChanged();
+    void onSubtitleOcrErrorChanged();
+    void onSubtitleOcrProgressChanged();
 
     QPointer<SttSessionController> m_sttSession;
     QPointer<TtsEngine> m_tts;
     QPointer<TranslationEngine> m_translation;
     QPointer<ModelManager> m_models;
     QPointer<RuntimeManager> m_runtimes;
+    QPointer<SubtitleOcrController> m_subtitleOcr;
 
     DubbingRunCoordinator m_run;
     QString m_previewPath;
@@ -135,6 +149,15 @@ private:
     QVariantMap m_translationFixConfiguration;
     QString m_translationSourceLanguage;
     QString m_translationTargetLanguage;
+    QString m_transcriptSourceMode = QStringLiteral("stt");
+    QVariantMap m_transcriptParameters;
+    QString m_ocrTranscriptSourcePath;
+    bool m_ocrTranscriptActive = false;
+    bool m_ocrTranscriptLoadingSource = false;
+    bool m_sttTranscriptActive = false;
+    QVariantList m_sttTranscriptSegments;
+    QVariantList m_ocrTranscriptSegments;
+    QList<QMetaObject::Connection> m_subtitleOcrConnections;
     QString m_pendingSourceAudioPath;
     QFutureWatcher<QVariantList> *m_timingWatcher = nullptr;
     std::shared_ptr<QAtomicInteger<bool>> m_timingCancel;

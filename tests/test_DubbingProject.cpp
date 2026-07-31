@@ -2,6 +2,7 @@
 
 #include "dubbing/DubbingProject.h"
 #include "dubbing/CapCutDraftExporter.h"
+#include "dubbing/DubbingTranscriptFusionService.h"
 #include "controllers/dubbing/DubbingController.h"
 #include "controllers/dubbing/DubbingColabModelRoutes.h"
 #include "controllers/dubbing/DubbingJobRunner.h"
@@ -9,6 +10,7 @@
 #include "controllers/dubbing/DubbingSynthesisJob.h"
 #include "controllers/dubbing/DubbingTranslationJob.h"
 #include "controllers/dubbing/DubbingTranslationFixService.h"
+#include "controllers/subtitles/SubtitleOcrController.h"
 #include "controllers/shared/VoiceClonePresetService.h"
 #include "dubbing/AlignmentRefinementService.h"
 #include "dubbing/DubbingSegmentNormalizer.h"
@@ -34,6 +36,7 @@
 #include <QJsonObject>
 #include <QJsonDocument>
 #include <QRegularExpression>
+#include <QSignalSpy>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTemporaryDir>
@@ -71,6 +74,13 @@ private:
     bool m_wasSet = false;
     QByteArray m_previous;
 };
+
+bool writeFixtureFile(const QString &path, const QByteArray &contents)
+{
+    QFile file(path);
+    return file.open(QIODevice::WriteOnly | QIODevice::Text)
+        && file.write(contents) == contents.size();
+}
 
 class DubbingSttWorkerMock final : public QObject
 {
@@ -1439,6 +1449,33 @@ void TestDubbingProject::dubbingUiUsesExactModelWorkers()
         QStringLiteral("m_inputLoadStarted = true")));
     QVERIFY(transcriptionSource.contains(
         QStringLiteral("m_inputLoadStarted = false")));
+
+    QFile dubbingPage(
+        QStringLiteral(LASTUDIO_SOURCE_DIR)
+        + QStringLiteral("/qml/pages/DubbingPage.qml"));
+    QVERIFY(dubbingPage.open(QIODevice::ReadOnly));
+    const QString dubbingPageSource = QString::fromUtf8(dubbingPage.readAll());
+    QVERIFY(dubbingPageSource.contains(
+        QStringLiteral("objectName: \"dubbingTranscriptSourceMode\"")));
+    QVERIFY(dubbingPageSource.contains(QStringLiteral("{ id: \"stt\"")));
+    QVERIFY(dubbingPageSource.contains(QStringLiteral("{ id: \"ocr\"")));
+    QVERIFY(dubbingPageSource.contains(QStringLiteral("{ id: \"stt+ocr\"")));
+    QVERIFY(dubbingPageSource.contains(
+        QStringLiteral("dubbing.resolveTranscriptConflict(index, \"stt\")")));
+    QVERIFY(dubbingPageSource.contains(
+        QStringLiteral("dubbing.resolveTranscriptConflict(index, \"ocr\")")));
+
+    QFile transcriptionRunner(
+        QStringLiteral(LASTUDIO_SOURCE_DIR)
+        + QStringLiteral("/src/controllers/dubbing/DubbingJobRunner.cpp"));
+    QVERIFY(transcriptionRunner.open(QIODevice::ReadOnly));
+    const QString runnerSource = QString::fromUtf8(transcriptionRunner.readAll());
+    QVERIFY(runnerSource.contains(
+        QStringLiteral("setSubtitleOcrController")));
+    QVERIFY(runnerSource.contains(
+        QStringLiteral("Subtitle OCR controller is unavailable.")));
+    QVERIFY(runnerSource.contains(
+        QStringLiteral("DubbingTranscriptFusionService::fuse")));
 }
 
 void TestDubbingProject::dubbingTranscriptionWaitsForFreshDecodedAudio()
@@ -2532,6 +2569,194 @@ void TestDubbingProject::roundTripsDurationSettings()
     DubbingProject loaded;
     QVERIFY2(DubbingProject::load(project.projectPath, loaded, &error), qPrintable(error));
     QCOMPARE(loaded.durationControl.value(QStringLiteral("maxPreTtsIterations")).toInt(), 3);
+}
+
+void TestDubbingProject::normalizesOcrOnlyTranscriptWithProvenance()
+{
+    const QVariantList normalized = DubbingTranscriptFusionService::normalizeOcrSegments({
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("ocr-vi")},
+                    {QStringLiteral("startMs"), 120},
+                    {QStringLiteral("endMs"), 980},
+                    {QStringLiteral("text"), QStringLiteral("Xin chào thế giới")},
+                    {QStringLiteral("confidence"), 0.91}},
+        QVariantMap{{QStringLiteral("startMs"), 1000},
+                    {QStringLiteral("endMs"), 1000},
+                    {QStringLiteral("text"), QStringLiteral("invalid")}}
+    });
+
+    QCOMPARE(normalized.size(), 1);
+    const QVariantMap segment = normalized.constFirst().toMap();
+    QCOMPARE(segment.value(QStringLiteral("id")).toString(), QStringLiteral("ocr-vi"));
+    QCOMPARE(segment.value(QStringLiteral("sourceText")).toString(), QStringLiteral("Xin chào thế giới"));
+    QCOMPARE(segment.value(QStringLiteral("timingSource")).toString(), QStringLiteral("subtitle-ocr"));
+    QCOMPARE(segment.value(QStringLiteral("ocrConfidence")).toDouble(), 0.91);
+    const QVariantMap evidence = segment.value(QStringLiteral("transcriptProvenance"))
+                                     .toList().constFirst().toMap();
+    QCOMPARE(evidence.value(QStringLiteral("source")).toString(), QStringLiteral("ocr"));
+}
+
+void TestDubbingProject::fusesMatchingAndShiftedTranscriptWithoutDuplicates()
+{
+    const QVariantList stt{
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("stt-1")},
+                    {QStringLiteral("startMs"), 0}, {QStringLiteral("endMs"), 1000},
+                    {QStringLiteral("sourceText"), QStringLiteral("Xin chào thế giới")},
+                    {QStringLiteral("sttConfidence"), 0.82}},
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("stt-2")},
+                    {QStringLiteral("startMs"), 1800}, {QStringLiteral("endMs"), 2800},
+                    {QStringLiteral("sourceText"), QStringLiteral("你好，世界")},
+                    {QStringLiteral("sttConfidence"), 0.78}}
+    };
+    const QVariantList ocr{
+        QVariantMap{{QStringLiteral("startMs"), 40}, {QStringLiteral("endMs"), 940},
+                    {QStringLiteral("text"), QStringLiteral("Xin chào thế giới")},
+                    {QStringLiteral("confidence"), 0.88}},
+        // Center is shifted but stays within the deterministic timestamp/text threshold.
+        QVariantMap{{QStringLiteral("startMs"), 2230}, {QStringLiteral("endMs"), 3230},
+                    {QStringLiteral("text"), QStringLiteral("你好，世界")},
+                    {QStringLiteral("confidence"), 0.90}}
+    };
+
+    const QVariantList fused = DubbingTranscriptFusionService::fuse(stt, ocr);
+    QCOMPARE(fused.size(), 2);
+    QCOMPARE(fused.at(0).toMap().value(QStringLiteral("startMs")).toLongLong(), qint64(0));
+    QCOMPARE(fused.at(0).toMap().value(QStringLiteral("endMs")).toLongLong(), qint64(1000));
+    QCOMPARE(fused.at(0).toMap().value(QStringLiteral("fusionStatus")).toString(), QStringLiteral("matched"));
+    QCOMPARE(fused.at(1).toMap().value(QStringLiteral("startMs")).toLongLong(), qint64(1800));
+    QCOMPARE(fused.at(1).toMap().value(QStringLiteral("fusionStatus")).toString(), QStringLiteral("matched"));
+}
+
+void TestDubbingProject::exposesConflictEvidenceWithoutSilentChoice()
+{
+    const QVariantList fused = DubbingTranscriptFusionService::fuse(
+        {QVariantMap{{QStringLiteral("id"), QStringLiteral("stt-conflict")},
+                     {QStringLiteral("startMs"), 0}, {QStringLiteral("endMs"), 1200},
+                     {QStringLiteral("sourceText"), QStringLiteral("the red car")},
+                     {QStringLiteral("sttConfidence"), 0.70}}},
+        {QVariantMap{{QStringLiteral("startMs"), 0}, {QStringLiteral("endMs"), 1200},
+                     {QStringLiteral("text"), QStringLiteral("the blue house")},
+                     {QStringLiteral("confidence"), 0.98}}});
+
+    QCOMPARE(fused.size(), 1);
+    const QVariantMap conflict = fused.constFirst().toMap();
+    QCOMPARE(conflict.value(QStringLiteral("fusionStatus")).toString(), QStringLiteral("conflict"));
+    QVERIFY(conflict.value(QStringLiteral("fusionNeedsReview")).toBool());
+    QCOMPARE(conflict.value(QStringLiteral("sourceText")).toString(), QStringLiteral("the red car"));
+    QCOMPARE(conflict.value(QStringLiteral("fusionSttText")).toString(), QStringLiteral("the red car"));
+    QCOMPARE(conflict.value(QStringLiteral("fusionOcrText")).toString(), QStringLiteral("the blue house"));
+    QCOMPARE(conflict.value(QStringLiteral("transcriptProvenance")).toList().size(), 2);
+}
+
+void TestDubbingProject::preservesFusionAndTranscriptSettingsAcrossProjectReload()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    DubbingProject project;
+    project.projectPath = dir.filePath(QStringLiteral("fusion.ladub.json"));
+    project.transcriptConfiguration = {
+        {QStringLiteral("transcriptSource"), QStringLiteral("stt+ocr")},
+        {QStringLiteral("ocrLanguage"), QStringLiteral("chi_sim")},
+        {QStringLiteral("ocrRoi"), QVariantMap{{QStringLiteral("x"), 0.1},
+                                                 {QStringLiteral("y"), 0.70},
+                                                 {QStringLiteral("width"), 0.8},
+                                                 {QStringLiteral("height"), 0.2}}},
+        {QStringLiteral("ocrSampleIntervalMs"), 700},
+        {QStringLiteral("ocrMinimumConfidence"), 0.60}
+    };
+    project.segments = DubbingTranscriptFusionService::fuse(
+        {QVariantMap{{QStringLiteral("id"), QStringLiteral("stable")},
+                     {QStringLiteral("startMs"), 0}, {QStringLiteral("endMs"), 1000},
+                     {QStringLiteral("sourceText"), QStringLiteral("alpha")},
+                     {QStringLiteral("sttConfidence"), 0.6}}},
+        {QVariantMap{{QStringLiteral("startMs"), 0}, {QStringLiteral("endMs"), 1000},
+                     {QStringLiteral("text"), QStringLiteral("beta")},
+                     {QStringLiteral("confidence"), 0.9}}});
+    QString error;
+    QVERIFY2(project.save(&error), qPrintable(error));
+    DubbingProject restored;
+    QVERIFY2(DubbingProject::load(project.projectPath, restored, &error), qPrintable(error));
+    QCOMPARE(restored.transcriptConfiguration.value(QStringLiteral("transcriptSource")).toString(),
+             QStringLiteral("stt+ocr"));
+    QCOMPARE(restored.transcriptConfiguration.value(QStringLiteral("ocrRoi")).toMap()
+                 .value(QStringLiteral("y")).toDouble(), 0.70);
+    QCOMPARE(restored.segments.constFirst().toMap().value(QStringLiteral("fusionStatus")).toString(),
+             QStringLiteral("conflict"));
+    QCOMPARE(restored.segments.constFirst().toMap().value(QStringLiteral("fusionOcrText")).toString(),
+             QStringLiteral("beta"));
+}
+
+void TestDubbingProject::ocrOnlyTranscriptUsesTheSharedSubtitleOcrController()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString source = directory.filePath(QStringLiteral("source video.mp4"));
+    const QString ffprobe = directory.filePath(QStringLiteral("ffprobe.cmd"));
+    const QString ffmpeg = directory.filePath(QStringLiteral("ffmpeg.cmd"));
+    const QString tesseract = directory.filePath(QStringLiteral("tesseract.cmd"));
+    QVERIFY(writeFixtureFile(source, QByteArrayLiteral("video fixture")));
+    QVERIFY(writeFixtureFile(ffprobe, QByteArrayLiteral(
+        "@echo off\r\necho {\"streams\":[{\"width\":1920,\"height\":1080}],\"format\":{\"duration\":\"4.0\"}}\r\n")));
+    QVERIFY(writeFixtureFile(ffmpeg, QByteArrayLiteral(
+        "@echo off\r\nset \"last=\"\r\n:next\r\nif \"%~1\"==\"\" goto done\r\nset \"last=%~1\"\r\nshift\r\ngoto next\r\n:done\r\n> \"%last%\" echo OCR frame\r\n")));
+    QVERIFY(writeFixtureFile(tesseract, QByteArrayLiteral(
+        "@echo off\r\nif /I \"%~1\"==\"--list-langs\" (\r\n  echo List of available languages ^(1^):\r\n  echo eng\r\n  exit /b 0\r\n)\r\necho level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\r\necho 5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t96\tShared\r\necho 5\t1\t1\t1\t1\t2\t10\t0\t10\t10\t94\tOCR\r\n")));
+
+    ScopedEnvironmentValue ffmpegEnvironment("LASTUDIO_FFMPEG", ffmpeg.toUtf8());
+    ScopedEnvironmentValue ffprobeEnvironment("LASTUDIO_FFPROBE", ffprobe.toUtf8());
+    ScopedEnvironmentValue tesseractEnvironment("LASTUDIO_TESSERACT", tesseract.toUtf8());
+    SubtitleOcrController ocr(nullptr, nullptr);
+    DubbingJobRunner runner(nullptr, nullptr, static_cast<ModelManager *>(nullptr),
+                            static_cast<RuntimeManager *>(nullptr));
+    runner.setSubtitleOcrController(&ocr);
+    QSignalSpy completed(&runner, &DubbingJobRunner::segmentsUpdated);
+    QSignalSpy failed(&runner, &DubbingJobRunner::errorOccurred);
+
+    runner.startTranscription(QStringLiteral("en"), QString(), QString(),
+                              {{QStringLiteral("parameters"), QVariantMap{
+                                  {QStringLiteral("transcriptSource"), QStringLiteral("ocr")},
+                                  {QStringLiteral("ocrSourceMedia"), source},
+                                  {QStringLiteral("ocrLanguage"), QStringLiteral("eng")},
+                                  {QStringLiteral("ocrSampleIntervalMs"), 1000},
+                                  {QStringLiteral("ocrMinimumConfidence"), 0.90}}}});
+    QTRY_COMPARE_WITH_TIMEOUT(completed.count(), 1, 10000);
+    QCOMPARE(failed.count(), 0);
+    const QVariantList transcript = completed.constFirst().constFirst().toList();
+    QCOMPARE(transcript.size(), 1);
+    const QVariantMap segment = transcript.constFirst().toMap();
+    QCOMPARE(segment.value(QStringLiteral("sourceText")).toString(), QStringLiteral("Shared OCR"));
+    QCOMPARE(segment.value(QStringLiteral("timingSource")).toString(), QStringLiteral("subtitle-ocr"));
+    QCOMPARE(segment.value(QStringLiteral("transcriptProvenance")).toList().constFirst().toMap()
+                 .value(QStringLiteral("source")).toString(), QStringLiteral("ocr"));
+    QVERIFY(!runner.processing());
+}
+
+void TestDubbingProject::reviewerMustResolveFusionConflictExplicitly()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    DubbingController dubbing(nullptr, nullptr, static_cast<ModelManager *>(nullptr),
+                              static_cast<RuntimeManager *>(nullptr));
+    QVERIFY(dubbing.newProject(directory.filePath(QStringLiteral("review.ladub.json"))));
+    dubbing.addSegment(0, 1000, QStringLiteral("source from STT"));
+    dubbing.updateSegment(0, {{QStringLiteral("fusionStatus"), QStringLiteral("conflict")},
+                              {QStringLiteral("fusionNeedsReview"), true},
+                              {QStringLiteral("fusionSttText"), QStringLiteral("source from STT")},
+                              {QStringLiteral("fusionOcrText"), QStringLiteral("source from OCR")},
+                              {QStringLiteral("sttConfidence"), 0.65},
+                              {QStringLiteral("ocrConfidence"), 0.91}});
+    QVERIFY(!dubbing.resolveTranscriptConflict(0, QStringLiteral("automatic")));
+    QVERIFY(dubbing.resolveTranscriptConflict(0, QStringLiteral("ocr")));
+    const QVariantMap resolved = dubbing.segments().constFirst().toMap();
+    QCOMPARE(resolved.value(QStringLiteral("sourceText")).toString(), QStringLiteral("source from OCR"));
+    QCOMPARE(resolved.value(QStringLiteral("fusionChoice")).toString(), QStringLiteral("ocr"));
+    QCOMPARE(resolved.value(QStringLiteral("fusionStatus")).toString(), QStringLiteral("resolved"));
+    QVERIFY(!resolved.value(QStringLiteral("fusionNeedsReview")).toBool());
+
+    DubbingProject reopened;
+    QString error;
+    QVERIFY2(DubbingProject::load(dubbing.projectPath(), reopened, &error), qPrintable(error));
+    QCOMPARE(reopened.segments.constFirst().toMap().value(QStringLiteral("fusionChoice")).toString(),
+             QStringLiteral("ocr"));
 }
 
 

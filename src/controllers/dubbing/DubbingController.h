@@ -29,6 +29,7 @@ class Settings;
 class ColabSession;
 class VoiceClonePresetService;
 class RemoteMediaImportService;
+class SubtitleOcrController;
 
 class DubbingController : public QObject
 {
@@ -67,6 +68,7 @@ class DubbingController : public QObject
     Q_PROPERTY(QString downloadedMediaFileName READ downloadedMediaFileName NOTIFY linkImportChanged)
     Q_PROPERTY(QVariantList workflowNodes READ workflowNodes NOTIFY workflowChanged)
     Q_PROPERTY(QVariantMap workflowNodeConfigurations READ workflowNodeConfigurations NOTIFY workflowChanged)
+    Q_PROPERTY(QVariantMap transcriptConfiguration READ transcriptConfiguration NOTIFY projectChanged)
     Q_PROPERTY(bool workflowReady READ workflowReady NOTIFY workflowChanged)
     Q_PROPERTY(QString workflowStatusText READ workflowStatusText NOTIFY workflowChanged)
     Q_PROPERTY(QString workflowId READ workflowId CONSTANT)
@@ -122,6 +124,7 @@ public:
                            ColabSession *separationSession,
                            ColabSession *alignmentSession);
     void setVoiceClonePresetService(VoiceClonePresetService *service);
+    void setSubtitleOcrController(SubtitleOcrController *controller);
 
     bool hasProject() const { return !m_project.projectPath.isEmpty(); }
     QString projectPath() const { return m_project.projectPath; }
@@ -158,6 +161,7 @@ public:
     QString downloadedMediaFileName() const;
     QVariantList workflowNodes() const;
     QVariantMap workflowNodeConfigurations() const { return m_workflowNodeConfigurations; }
+    QVariantMap transcriptConfiguration() const { return m_project.transcriptConfiguration; }
     bool workflowReady() const;
     QString workflowStatusText() const;
     QString workflowId() const;
@@ -228,6 +232,7 @@ public:
     // Imports reviewed OCR results only after an existing Dubbing project is
     // open. The source media/project is left unchanged on validation failure.
     Q_INVOKABLE bool replaceTranscriptSegments(const QVariantList &ocrSegments);
+    Q_INVOKABLE bool resolveTranscriptConflict(int index, const QString &choice);
     Q_INVOKABLE void addSegment(qint64 startMs, qint64 endMs, const QString &sourceText = QString());
     Q_INVOKABLE void updateSegment(int index, const QVariantMap &patch);
     Q_INVOKABLE void removeSegment(int index);
@@ -347,10 +352,12 @@ private:
     bool snapshotSelectedColabStagesForWorkflow();
     void observeColabSession(const QString &stageId, ColabSession *session);
     void refreshColabSetupSnapshot(const QString &stageId, bool verified);
+    QVariantMap effectiveTranscriptConfiguration(bool captureOcrSettings);
 
     DubbingProject m_project;
     Settings *m_settings = nullptr;
     DubbingJobRunner *m_runner = nullptr;
+    SubtitleOcrController *m_subtitleOcr = nullptr;
     NodeRegistry *m_workflowRegistry = nullptr;
     WorkflowGraphRunner *m_workflowRunner = nullptr;
     std::unique_ptr<WorkflowReviewStore> m_workflowReviewStore;

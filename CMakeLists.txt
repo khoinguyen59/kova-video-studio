@@ -213,6 +213,7 @@ set(LASTUDIO_SOURCES
     src/controllers/tts/SubtitleVoiceController.cpp
     src/controllers/stt/SttAudioDecoder.cpp
     src/dubbing/DubbingProject.cpp
+    src/dubbing/DubbingTranscriptFusionService.cpp
     src/dubbing/CapCutDraftExporter.cpp
     src/dubbing/EspeakNgPhonemizer.cpp
     src/dubbing/DubbingDuration.cpp

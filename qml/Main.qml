@@ -23,6 +23,8 @@ ApplicationWindow {
     property bool restoringWindowPlacement: true
     property int qmlSmokeSubtitleLayoutSizeIndex: 0
     property bool qmlSmokeSubtitleLayoutResizePending: false
+    property int qmlSmokeDubbingLayoutSizeIndex: 0
+    property bool qmlSmokeDubbingLayoutResizePending: false
     title: appName + " - " + appVersion
     color: Theme.background
 
@@ -180,6 +182,8 @@ ApplicationWindow {
         qmlSmokeTimer.waitTicks = 0
         qmlSmokeSubtitleLayoutSizeIndex = 0
         qmlSmokeSubtitleLayoutResizePending = false
+        qmlSmokeDubbingLayoutSizeIndex = 0
+        qmlSmokeDubbingLayoutResizePending = false
         qmlSmokeTimer.start()
     }
 
@@ -212,6 +216,26 @@ ApplicationWindow {
         if (routeIndex === 1 && sttLoader.item
                 && sttLoader.item.qmlSmokePendingSelectionIsolated) {
             return sttLoader.item.qmlSmokePendingSelectionIsolated()
+        }
+        if (routeIndex === 8 && dubbingLoader.item
+                && dubbingLoader.item.qmlSmokeTranscriptSourceCheck) {
+            var dubbingSizes = [
+                { width: 1024, height: 720 },
+                { width: 1280, height: 800 },
+                { width: 1600, height: 900 }
+            ]
+            if (qmlSmokeDubbingLayoutResizePending) {
+                qmlSmokeDubbingLayoutResizePending = false
+                return dubbingLoader.item.qmlSmokeTranscriptSourceCheck() ? 0 : -1
+            }
+            if (qmlSmokeDubbingLayoutSizeIndex < dubbingSizes.length) {
+                var dubbingSize = dubbingSizes[qmlSmokeDubbingLayoutSizeIndex++]
+                root.width = dubbingSize.width
+                root.height = dubbingSize.height
+                qmlSmokeDubbingLayoutResizePending = true
+                return 0
+            }
+            return 1
         }
         if (routeIndex === 15 && subtitleOcrLoader.item
                 && subtitleOcrLoader.item.qmlSmokeLayoutCheck) {

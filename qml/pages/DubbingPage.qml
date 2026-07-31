@@ -152,11 +152,27 @@ Item {
     function stepRunReady(stepId) {
         var node = root.workflowNode(stepId)
         if (!node || node.state === "missing" || node.state === "blocked") return false
+        if (stepId === "transcribe"
+                && (dubbing.transcriptConfiguration.transcriptSource || "stt") === "ocr")
+            return node.state === "ready" || node.state === "completed"
         if (stepId === "synthesize" && dubbing.cloneVoiceSelectionRequired
                 && !dubbing.cloneVoiceSelectionValid) return false
         if (node.configurable === true && node.selectedFamilyId
                 && node.providerState !== "ready") return false
         return true
+    }
+
+    function qmlSmokeTranscriptSourceCheck() {
+        reviewStepId = "transcribe"
+        if (!dubbingTranscriptSourcePanel.visible
+                || !dubbingTranscriptSourceMode.visible
+                || dubbingTranscriptSourceMode.count !== 3
+                || dubbingTranscriptSourcePanel.width <= 0
+                || dubbingTranscriptSourceMode.width <= 0)
+            return false
+        return dubbingTranscriptSourceMode.model[0].id === "stt"
+            && dubbingTranscriptSourceMode.model[1].id === "ocr"
+            && dubbingTranscriptSourceMode.model[2].id === "stt+ocr"
     }
 
     function runStep(stepId) {
@@ -512,6 +528,78 @@ Item {
                         onNextRequested: root.runNextNode(nodeId)
                         onFixRequested: translationFixDialog.openForAll()
                     }
+                    Rectangle {
+                        id: dubbingTranscriptSourcePanel
+                        objectName: "dubbingTranscriptSourcePanel"
+                        visible: root.displayedStepId === "transcribe"
+                        Layout.fillWidth: true
+                        implicitHeight: transcriptSourceLayout.implicitHeight + Theme.paddingMedium * 2
+                        radius: Theme.radiusSmall
+                        color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.08)
+                        border.color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.28)
+                        border.width: 1
+                        ColumnLayout {
+                            id: transcriptSourceLayout
+                            anchors.fill: parent
+                            anchors.margins: Theme.paddingMedium
+                            spacing: Theme.paddingSmall
+                            Text {
+                                text: qsTr("Transcript source")
+                                color: Theme.textPrimary
+                                font.bold: true
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                ComboBox {
+                                    id: dubbingTranscriptSourceMode
+                                    objectName: "dubbingTranscriptSourceMode"
+                                    Layout.fillWidth: true
+                                    textRole: "label"
+                                    valueRole: "id"
+                                    model: [
+                                        { id: "stt", label: qsTr("STT") },
+                                        { id: "ocr", label: qsTr("OCR") },
+                                        { id: "stt+ocr", label: qsTr("STT + OCR") }
+                                    ]
+                                    currentIndex: {
+                                        var source = dubbing.transcriptConfiguration.transcriptSource || "stt"
+                                        for (var i = 0; i < model.length; ++i)
+                                            if (model[i].id === source) return i
+                                        return 0
+                                    }
+                                    enabled: !dubbing.processing
+                                    onActivated: function(index) {
+                                        dubbing.setWorkflowNodeParameters("transcribe", {
+                                            transcriptSource: model[index].id
+                                        })
+                                    }
+                                }
+                                Text {
+                                    text: (dubbing.transcriptConfiguration.transcriptSource || "stt") === "ocr"
+                                          ? qsTr("Uses Subtitle OCR video, runtime, language and ROI.")
+                                          : (dubbing.transcriptConfiguration.transcriptSource || "stt") === "stt+ocr"
+                                            ? qsTr("Both sources must succeed; conflicts remain for review.")
+                                            : qsTr("Uses the existing audio STT route only.")
+                                    color: Theme.textSecondary
+                                    font.pixelSize: Theme.fontSmall
+                                    wrapMode: Text.WordWrap
+                                    Layout.preferredWidth: 260
+                                }
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                visible: (dubbing.transcriptConfiguration.transcriptSource || "stt") !== "stt"
+                                text: qsTr("OCR setup is saved with this Dubbing project when you run: %1 · sample %2 ms · confidence %3")
+                                      .arg(dubbing.transcriptConfiguration.ocrLanguage || qsTr("current Subtitle OCR language"))
+                                      .arg(dubbing.transcriptConfiguration.ocrSampleIntervalMs || "—")
+                                      .arg(dubbing.transcriptConfiguration.ocrMinimumConfidence === undefined
+                                           ? "—" : Number(dubbing.transcriptConfiguration.ocrMinimumConfidence).toFixed(2))
+                                color: Theme.textSecondary
+                                font.pixelSize: Theme.fontSmall
+                                wrapMode: Text.WordWrap
+                            }
+                        }
+                    }
                     RowLayout { Layout.fillWidth: true
                         ColumnLayout { Layout.fillWidth: true; spacing: 1
                             Text { text: root.stepTitle(root.displayedStepId).toUpperCase(); color: Theme.textPrimary; font.pixelSize: Theme.fontLarge; font.bold: true }
@@ -564,6 +652,58 @@ Item {
                                         text: modelData.targetText || ""
                                         placeholderText: qsTr("Target translation")
                                         onActiveFocusChanged: if (!activeFocus) dubbing.updateSegment(index, { targetText: text })
+                                    }
+                                    Rectangle {
+                                        objectName: "dubbingTranscriptConflict-" + index
+                                        visible: modelData.fusionStatus === "conflict"
+                                        Layout.fillWidth: true
+                                        implicitHeight: fusionConflictLayout.implicitHeight + Theme.paddingSmall * 2
+                                        radius: Theme.radiusSmall
+                                        color: Qt.rgba(Theme.warning.r, Theme.warning.g, Theme.warning.b, 0.12)
+                                        border.color: Theme.warning
+                                        border.width: 1
+                                        ColumnLayout {
+                                            id: fusionConflictLayout
+                                            anchors.fill: parent
+                                            anchors.margins: Theme.paddingSmall
+                                            spacing: 2
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: qsTr("STT/OCR conflict — choose the reviewed source; no automatic decision was made.")
+                                                color: Theme.warning
+                                                font.pixelSize: Theme.fontSmall
+                                                font.bold: true
+                                                wrapMode: Text.WordWrap
+                                            }
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: qsTr("STT (%1): %2").arg(Number(modelData.sttConfidence || 0).toFixed(2)).arg(modelData.fusionSttText || "")
+                                                color: Theme.textSecondary
+                                                wrapMode: Text.WordWrap
+                                            }
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: qsTr("OCR (%1): %2").arg(Number(modelData.ocrConfidence || 0).toFixed(2)).arg(modelData.fusionOcrText || "")
+                                                color: Theme.textSecondary
+                                                wrapMode: Text.WordWrap
+                                            }
+                                            RowLayout {
+                                                PrimaryButton {
+                                                    objectName: "dubbingUseSttConflict-" + index
+                                                    text: qsTr("Use STT")
+                                                    quiet: true
+                                                    enabled: !dubbing.processing
+                                                    onClicked: dubbing.resolveTranscriptConflict(index, "stt")
+                                                }
+                                                PrimaryButton {
+                                                    objectName: "dubbingUseOcrConflict-" + index
+                                                    text: qsTr("Use OCR")
+                                                    quiet: true
+                                                    enabled: !dubbing.processing
+                                                    onClicked: dubbing.resolveTranscriptConflict(index, "ocr")
+                                                }
+                                            }
+                                        }
                                     }
                                     Text {
                                         Layout.fillWidth: true

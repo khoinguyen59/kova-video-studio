@@ -13,7 +13,7 @@ namespace LAStudio {
 class DubbingProject
 {
 public:
-    static constexpr int CurrentSchemaVersion = 8;
+    static constexpr int CurrentSchemaVersion = 9;
 
     QString projectPath;
     QString sourceMediaPath;
@@ -38,6 +38,10 @@ public:
                                                {QStringLiteral("upperToleranceRatio"), 0.20},
                                                {QStringLiteral("autoRewrite"), true}};
     QVariantMap workflowNodeConfigurations;
+    // Kept independently from the custom-workflow model selection so a
+    // transcript source/ROI choice survives reopening an adaptive project.
+    // It intentionally contains no remote URL, token, or staged file path.
+    QVariantMap transcriptConfiguration;
     QVariantMap customRewriteConfiguration;
     QVariantList speakers;
     QVariantList segments;

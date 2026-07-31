@@ -5,6 +5,7 @@
 #include "controllers/dubbing/DubbingJobRunner.h"
 #include "controllers/dubbing/DubbingColabModelRoutes.h"
 #include "controllers/dubbing/DubbingTranslationFixService.h"
+#include "controllers/subtitles/SubtitleOcrController.h"
 #include "controllers/shared/VoiceClonePresetService.h"
 #include "dubbing/CapCutDraftExporter.h"
 #include "dubbing/EspeakNgPhonemizer.h"
@@ -258,7 +259,10 @@ DubbingController::DubbingController(SttSessionController *sttSession, TtsEngine
         if (m_workflowMode == QStringLiteral("automatic")) {
             appendAutomaticEvent(QStringLiteral("Completed %1").arg(visibleStepForNode(nodeId)),
                                  QStringLiteral("completed"), nodeId);
-            if (nodeId == QStringLiteral("transcribe")) {
+            if (nodeId == QStringLiteral("transcribe")
+                && m_project.transcriptConfiguration.value(QStringLiteral("transcriptSource"),
+                                                            QStringLiteral("stt")).toString().trimmed().toLower()
+                       != QStringLiteral("ocr")) {
                 if (auto *app = AppController::instance(); app && app->sessionRegistry()) {
                     if (IModelSession *stt = app->sessionRegistry()->sessionForCapability(
                             QStringLiteral("stt"))) {
@@ -624,12 +628,22 @@ QString DubbingController::adaptiveStatusText() const
 
 QVariantMap DubbingController::firstCustomSetupIssue() const
 {
-    const QList<QPair<QString, QString>> requiredNodes{
+    const QString transcriptSource = m_project.transcriptConfiguration.value(
+        QStringLiteral("transcriptSource"), QStringLiteral("stt")).toString().trimmed().toLower();
+    if ((transcriptSource == QStringLiteral("ocr") || transcriptSource == QStringLiteral("stt+ocr"))
+        && (!m_subtitleOcr || !m_subtitleOcr->runtimeAvailable())) {
+        return {{QStringLiteral("nodeId"), QStringLiteral("transcribe")},
+                {QStringLiteral("setupKind"), QStringLiteral("subtitle-ocr-runtime")},
+                {QStringLiteral("message"),
+                 QStringLiteral("Install the Subtitle OCR runtime before using OCR transcript source.")}};
+    }
+    QList<QPair<QString, QString>> requiredNodes{
         {QStringLiteral("source-separate"), QStringLiteral("voice-isolation")},
-        {QStringLiteral("transcribe"), QStringLiteral("stt")},
         {QStringLiteral("translate"), QStringLiteral("translation")},
         {QStringLiteral("synthesize"), QStringLiteral("tts")}
     };
+    if (transcriptSource != QStringLiteral("ocr"))
+        requiredNodes.insert(1, {QStringLiteral("transcribe"), QStringLiteral("stt")});
     for (const auto &required : requiredNodes) {
         const QVariantMap selected = m_workflowNodeConfigurations.value(required.first).toMap();
         if (selected.isEmpty()) {
@@ -807,6 +821,12 @@ QString DubbingController::selectedColabModelForStage(const QString &stageId) co
 
 bool DubbingController::stageUsesDirectColab(const QString &stageId) const
 {
+    if (stageId == QStringLiteral("transcribe")
+        && m_project.transcriptConfiguration.value(QStringLiteral("transcriptSource"),
+                                                    QStringLiteral("stt")).toString().trimmed().toLower()
+               == QStringLiteral("ocr")) {
+        return false;
+    }
     const QString configurationNode = stageId == QStringLiteral("voice-clone")
         ? QStringLiteral("synthesize")
         : stageId == QStringLiteral("alignment") ? QStringLiteral("transcribe") : stageId;
@@ -1049,6 +1069,46 @@ void DubbingController::setVoiceClonePresetService(VoiceClonePresetService *serv
     emit workflowChanged();
 }
 
+void DubbingController::setSubtitleOcrController(SubtitleOcrController *controller)
+{
+    m_subtitleOcr = controller;
+    if (m_runner) m_runner->setSubtitleOcrController(controller);
+}
+
+QVariantMap DubbingController::effectiveTranscriptConfiguration(bool captureOcrSettings)
+{
+    QVariantMap selected = m_workflowNodeConfigurations.value(QStringLiteral("transcribe")).toMap();
+    QVariantMap parameters = selected.value(QStringLiteral("parameters")).toMap();
+    if (parameters.isEmpty()) parameters = selected;
+    for (auto it = m_project.transcriptConfiguration.cbegin();
+         it != m_project.transcriptConfiguration.cend(); ++it) {
+        parameters.insert(it.key(), it.value());
+    }
+    QString mode = parameters.value(QStringLiteral("transcriptSource"), QStringLiteral("stt"))
+                       .toString().trimmed().toLower();
+    if (mode != QStringLiteral("ocr") && mode != QStringLiteral("stt+ocr")) mode = QStringLiteral("stt");
+    parameters.insert(QStringLiteral("transcriptSource"), mode);
+    if (captureOcrSettings && m_subtitleOcr) {
+        const QVariantMap roi{{QStringLiteral("x"), m_subtitleOcr->roiX()},
+                              {QStringLiteral("y"), m_subtitleOcr->roiY()},
+                              {QStringLiteral("width"), m_subtitleOcr->roiWidth()},
+                              {QStringLiteral("height"), m_subtitleOcr->roiHeight()}};
+        parameters.insert(QStringLiteral("ocrLanguage"), m_subtitleOcr->ocrLanguage());
+        parameters.insert(QStringLiteral("ocrRoi"), roi);
+        parameters.insert(QStringLiteral("ocrSampleIntervalMs"), m_subtitleOcr->sampleIntervalMs());
+        parameters.insert(QStringLiteral("ocrMinimumConfidence"), m_subtitleOcr->minimumConfidence());
+    }
+    m_project.transcriptConfiguration = {
+        {QStringLiteral("transcriptSource"), parameters.value(QStringLiteral("transcriptSource"))},
+        {QStringLiteral("ocrLanguage"), parameters.value(QStringLiteral("ocrLanguage"))},
+        {QStringLiteral("ocrRoi"), parameters.value(QStringLiteral("ocrRoi"))},
+        {QStringLiteral("ocrSampleIntervalMs"), parameters.value(QStringLiteral("ocrSampleIntervalMs"))},
+        {QStringLiteral("ocrMinimumConfidence"), parameters.value(QStringLiteral("ocrMinimumConfidence"))}
+    };
+    selected.insert(QStringLiteral("parameters"), parameters);
+    return selected;
+}
+
 QString DubbingController::cloneVoicePresetFamily() const
 {
     const QVariantMap synthesis = m_workflowNodeConfigurations
@@ -1221,9 +1281,22 @@ QVariantList DubbingController::workflowNodes() const
             detail = separated ? QStringLiteral("Voice and background stems available")
                                : (hasMedia ? QStringLiteral("Use original audio if separation is unavailable") : QStringLiteral("Import source media"));
         } else if (definition.id == QStringLiteral("transcribe")) {
+            const QString transcriptSource = m_project.transcriptConfiguration.value(
+                QStringLiteral("transcriptSource"), QStringLiteral("stt")).toString().trimmed().toLower();
             const bool audioReady = !m_project.analysisAudioPath.trimmed().isEmpty() || !m_project.masterAudioPath.trimmed().isEmpty();
-            state = hasSegments ? QStringLiteral("completed") : (audioReady ? QStringLiteral("ready") : QStringLiteral("blocked"));
-            detail = hasSegments ? QStringLiteral("%1 segments").arg(m_project.segments.size()) : QStringLiteral("Speech-to-text source stage");
+            const bool ocrReady = m_subtitleOcr && m_subtitleOcr->runtimeAvailable();
+            const bool sourceReady = transcriptSource == QStringLiteral("ocr") ? hasMedia
+                : transcriptSource == QStringLiteral("stt+ocr") ? (hasMedia && audioReady) : audioReady;
+            state = hasSegments ? QStringLiteral("completed")
+                : (!sourceReady || ((transcriptSource == QStringLiteral("ocr")
+                                     || transcriptSource == QStringLiteral("stt+ocr")) && !ocrReady)
+                   ? QStringLiteral("blocked") : QStringLiteral("ready"));
+            detail = hasSegments ? QStringLiteral("%1 segments").arg(m_project.segments.size())
+                : transcriptSource == QStringLiteral("ocr")
+                    ? QStringLiteral("Subtitle OCR transcript source")
+                    : transcriptSource == QStringLiteral("stt+ocr")
+                        ? QStringLiteral("STT + Subtitle OCR transcript sources")
+                        : QStringLiteral("Speech-to-text source stage");
         } else if (definition.id == QStringLiteral("review-transcript")) {
             state = hasSegments ? QStringLiteral("completed") : QStringLiteral("blocked");
             detail = hasSegments ? QStringLiteral("Transcript available for review") : QStringLiteral("Transcribe source media first");
@@ -1389,6 +1462,11 @@ bool DubbingController::workflowReady() const
     const bool sttReady = remoteSttSelected || (AppController::instance() && AppController::instance()->sessionRegistry()
         && AppController::instance()->sessionRegistry()->sessionForCapability(QStringLiteral("stt"))
         && AppController::instance()->sessionRegistry()->sessionForCapability(QStringLiteral("stt"))->canProcess());
+    const QString transcriptSource = m_project.transcriptConfiguration.value(
+        QStringLiteral("transcriptSource"), QStringLiteral("stt")).toString().trimmed().toLower();
+    const bool ocrReady = m_subtitleOcr && m_subtitleOcr->runtimeAvailable();
+    const bool transcriptReady = transcriptSource == QStringLiteral("ocr") ? ocrReady
+        : transcriptSource == QStringLiteral("stt+ocr") ? (sttReady && ocrReady) : sttReady;
     const bool translationConfigured = !m_workflowNodeConfigurations.value(QStringLiteral("translate")).toMap().isEmpty();
     bool translatedArtifactReady = !m_project.segments.isEmpty();
     for (const QVariant &entry : m_project.segments) {
@@ -1449,7 +1527,7 @@ bool DubbingController::workflowReady() const
         && !m_project.targetLanguage.trimmed().isEmpty()
         && (!cloneVoiceSelectionRequired() || cloneVoiceSelectionValid())
         && ttsReady
-        && sttReady
+        && transcriptReady
         && translationReady;
 }
 
@@ -1677,6 +1755,18 @@ bool DubbingController::setWorkflowNodeParameters(const QString &nodeId, const Q
     }
     selected.insert(QStringLiteral("parameters"), current);
     m_workflowNodeConfigurations.insert(nodeId, selected);
+    if (nodeId == QStringLiteral("transcribe")) {
+        QString mode = current.value(QStringLiteral("transcriptSource"), QStringLiteral("stt"))
+                           .toString().trimmed().toLower();
+        if (mode != QStringLiteral("ocr") && mode != QStringLiteral("stt+ocr")) mode = QStringLiteral("stt");
+        m_project.transcriptConfiguration.insert(QStringLiteral("transcriptSource"), mode);
+        for (const QString &key : {QStringLiteral("ocrLanguage"), QStringLiteral("ocrRoi"),
+                                   QStringLiteral("ocrSampleIntervalMs"),
+                                   QStringLiteral("ocrMinimumConfidence")}) {
+            if (current.contains(key))
+                m_project.transcriptConfiguration.insert(key, current.value(key));
+        }
+    }
     if (m_project.dubbingQuality == QStringLiteral("custom"))
         m_project.workflowNodeConfigurations = m_workflowNodeConfigurations;
     else
@@ -2212,9 +2302,16 @@ void DubbingController::advanceAutomaticSetup()
                               QStringLiteral("voice-isolation"), false)) return;
     appendAutomaticEvent(QStringLiteral("Voice isolation model is ready"),
                          QStringLiteral("completed"), QStringLiteral("source-separate"));
-    if (!ensureAutomaticModel(QStringLiteral("transcribe"), QStringLiteral("stt"), true)) return;
-    appendAutomaticEvent(QStringLiteral("Speech-to-text model is ready"),
-                         QStringLiteral("completed"), QStringLiteral("transcribe"));
+    const QString transcriptSource = m_project.transcriptConfiguration.value(
+        QStringLiteral("transcriptSource"), QStringLiteral("stt")).toString().trimmed().toLower();
+    if (transcriptSource != QStringLiteral("ocr")) {
+        if (!ensureAutomaticModel(QStringLiteral("transcribe"), QStringLiteral("stt"), true)) return;
+        appendAutomaticEvent(QStringLiteral("Speech-to-text model is ready"),
+                             QStringLiteral("completed"), QStringLiteral("transcribe"));
+    } else {
+        appendAutomaticEvent(QStringLiteral("STT setup skipped for OCR-only transcript"),
+                             QStringLiteral("completed"), QStringLiteral("transcribe"));
+    }
     if (!ensureAutomaticModel(QStringLiteral("translate"), QStringLiteral("translation"), false)) return;
     appendAutomaticEvent(QStringLiteral("Translation model is ready"),
                          QStringLiteral("completed"), QStringLiteral("translate"));
@@ -2261,6 +2358,8 @@ bool DubbingController::runWorkflow(const QString &outputPath)
         return false;
     }
     if (!snapshotSelectedColabStagesForWorkflow()) return false;
+    const QVariantMap transcriptConfiguration = effectiveTranscriptConfiguration(true);
+    persistAfterEdit();
     WorkflowGraph graph = DubbingWorkflowDefinition::create();
     QVariantMap effectiveDurationControl = m_project.durationControl;
     effectiveDurationControl.insert(
@@ -2285,9 +2384,14 @@ bool DubbingController::runWorkflow(const QString &outputPath)
             node.parameters.insert(QStringLiteral("value"), m_project.sourceMediaPath);
             node.properties.insert(QStringLiteral("value"), m_project.sourceMediaPath);
         } else if (node.id == QStringLiteral("transcribe")) {
+            const QVariantMap persistedParameters = transcriptConfiguration.value(
+                QStringLiteral("parameters")).toMap();
+            for (auto it = persistedParameters.cbegin(); it != persistedParameters.cend(); ++it)
+                node.parameters.insert(it.key(), it.value());
             node.parameters.insert(QStringLiteral("language"),
                                    m_project.sourceLanguage.trimmed().isEmpty()
                                        ? QStringLiteral("auto") : m_project.sourceLanguage);
+            node.parameters.insert(QStringLiteral("ocrSourceMedia"), m_project.sourceMediaPath);
             node.properties = node.parameters;
         } else if (node.id == QStringLiteral("translate")) {
             node.parameters.insert(QStringLiteral("sourceLanguage"), m_project.sourceLanguage);
@@ -2402,8 +2506,11 @@ void DubbingController::startStepByStep()
         return;
     }
     setWorkflowMode(QStringLiteral("step"));
+    const QString transcriptSource = m_project.transcriptConfiguration.value(
+        QStringLiteral("transcriptSource"), QStringLiteral("stt")).toString().trimmed().toLower();
     if (m_project.masterAudioPath.isEmpty()) setCurrentStep(QStringLiteral("ingest"));
-    else if (m_project.backgroundAudioPath.isEmpty()) setCurrentStep(QStringLiteral("source-separate"));
+    else if (m_project.backgroundAudioPath.isEmpty() && transcriptSource != QStringLiteral("ocr"))
+        setCurrentStep(QStringLiteral("source-separate"));
     else if (m_project.segments.isEmpty()) setCurrentStep(QStringLiteral("transcribe"));
     else {
         bool allTranslated = true;
@@ -3152,18 +3259,23 @@ void DubbingController::transcribeSource()
         setError(QStringLiteral("Import media before starting transcription."));
         return;
     }
+    QVariantMap configuration = effectiveTranscriptConfiguration(true);
+    QVariantMap parameters = configuration.value(QStringLiteral("parameters")).toMap();
+    parameters.insert(QStringLiteral("ocrSourceMedia"), m_project.sourceMediaPath);
+    configuration.insert(QStringLiteral("parameters"), parameters);
+    const QString mode = parameters.value(QStringLiteral("transcriptSource"), QStringLiteral("stt"))
+                             .toString().trimmed().toLower();
     const QString audioPath = !m_project.analysisAudioPath.isEmpty() ? m_project.analysisAudioPath
                                                                      : m_project.masterAudioPath;
-    if (audioPath.isEmpty()) {
+    if (mode != QStringLiteral("ocr") && audioPath.isEmpty()) {
         setError(QStringLiteral("Normalize and separate the source audio before transcription."));
         return;
     }
     Logger::info(QStringLiteral("DubbingController"),
-                 QStringLiteral("Starting dubbing transcription language=%1 audio=%2")
-                     .arg(m_project.sourceLanguage, audioPath));
-    m_runner->startTranscription(m_project.sourceLanguage, audioPath, QString(),
-                                 m_workflowNodeConfigurations
-                                     .value(QStringLiteral("transcribe")).toMap());
+                 QStringLiteral("Starting dubbing transcription source=%1 language=%2 audio=%3")
+                     .arg(mode, m_project.sourceLanguage, audioPath));
+    persistAfterEdit();
+    m_runner->startTranscription(m_project.sourceLanguage, audioPath, QString(), configuration);
 }
 
 void DubbingController::translateSource()
@@ -3534,6 +3646,30 @@ bool DubbingController::replaceTranscriptSegments(const QVariantList &ocrSegment
     }
 
     m_project.segments = replacement;
+    clearError();
+    emit segmentsChanged();
+    emit workflowChanged();
+    persistAfterEdit();
+    return true;
+}
+
+bool DubbingController::resolveTranscriptConflict(int index, const QString &choice)
+{
+    if (processing() || index < 0 || index >= m_project.segments.size()) return false;
+    const QString normalized = choice.trimmed().toLower();
+    if (normalized != QStringLiteral("stt") && normalized != QStringLiteral("ocr")) return false;
+    QVariantMap segment = m_project.segments.at(index).toMap();
+    if (segment.value(QStringLiteral("fusionStatus")).toString() != QStringLiteral("conflict")) return false;
+    const QString text = segment.value(normalized == QStringLiteral("stt")
+                                           ? QStringLiteral("fusionSttText")
+                                           : QStringLiteral("fusionOcrText")).toString().trimmed();
+    if (text.isEmpty()) return false;
+    segment.insert(QStringLiteral("sourceText"), text);
+    segment.insert(QStringLiteral("fusionChoice"), normalized);
+    segment.insert(QStringLiteral("fusionStatus"), QStringLiteral("resolved"));
+    segment.insert(QStringLiteral("fusionNeedsReview"), false);
+    segment.insert(QStringLiteral("state"), QStringLiteral("transcribed"));
+    m_project.segments[index] = segment;
     clearError();
     emit segmentsChanged();
     emit workflowChanged();

@@ -116,6 +116,7 @@ AppController::AppController(QObject *parent)
     m_subtitleOcrRuntime = new SubtitleOcrRuntimeService(m_downloads, this);
     m_subtitleOcr = new SubtitleOcrController(m_subtitleVoice, m_dubbing, this);
     m_subtitleOcr->setRuntimeService(m_subtitleOcrRuntime);
+    m_dubbing->setSubtitleOcrController(m_subtitleOcr);
     // Dubbing owns a project-level selection, while the preset service owns
     // the durable reference media.  Inject the service instead of reading the
     // library indirectly from QML so every run is validated by the controller.

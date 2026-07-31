@@ -7,8 +7,10 @@
 #include "controllers/dubbing/DubbingExportJob.h"
 #include "controllers/dubbing/DubbingTranslationJob.h"
 #include "controllers/dubbing/DubbingTranslationFixService.h"
+#include "controllers/subtitles/SubtitleOcrController.h"
 #include "translation/TranslationEngine.h"
 #include "dubbing/DubbingTimingService.h"
+#include "dubbing/DubbingTranscriptFusionService.h"
 
 #include "SttSessionController.h"
 #include "tts/TtsEngine.h"
@@ -46,6 +48,20 @@ QString protectedTokensFor(const QString &text)
     while (match.hasNext()) tokens.append(match.next().captured(0));
     tokens.removeDuplicates();
     return tokens.join(QStringLiteral(", "));
+}
+
+QVariantMap transcriptParametersFor(const QVariantMap &configuration)
+{
+    const QVariantMap nested = configuration.value(QStringLiteral("parameters")).toMap();
+    return nested.isEmpty() ? configuration : nested;
+}
+
+QString transcriptSourceModeFor(const QVariantMap &parameters)
+{
+    const QString mode = parameters.value(QStringLiteral("transcriptSource"),
+                                           QStringLiteral("stt")).toString().trimmed().toLower();
+    return mode == QStringLiteral("ocr") || mode == QStringLiteral("stt+ocr")
+        ? mode : QStringLiteral("stt");
 }
 
 }
@@ -115,14 +131,27 @@ DubbingJobRunner::DubbingJobRunner(SttSessionController *sttSession, TtsEngine *
         m_run.setProgress(progress);
         emit stateChanged();
     });
-    connect(m_transcriptionJob, &DubbingTranscriptionJob::failed,
-            this, &DubbingJobRunner::setError);
+    connect(m_transcriptionJob, &DubbingTranscriptionJob::failed, this,
+            [this](const QString &message) {
+        if (!m_run.processing() || m_run.stageId() != DubbingStage::Transcription) return;
+        m_sttTranscriptActive = false;
+        failTranscriptSource(QStringLiteral("STT"), message);
+    });
     connect(m_transcriptionJob, &DubbingTranscriptionJob::completed, this,
             [this](const QVariantList &segments) {
         if (!m_run.processing() || m_run.stageId() != DubbingStage::Transcription) return;
-        setProcessing(false, QStringLiteral("transcribed"), 100);
-        emit segmentsUpdated(segments);
-        emit stageCompleted(QStringLiteral("transcribe"), {{QStringLiteral("transcript"), segments}});
+        m_sttTranscriptActive = false;
+        if (segments.isEmpty()) {
+            failTranscriptSource(QStringLiteral("STT"),
+                                 QStringLiteral("STT completed without usable transcript segments."));
+            return;
+        }
+        if (m_transcriptSourceMode == QStringLiteral("stt+ocr")) {
+            m_sttTranscriptSegments = segments;
+            finishCombinedTranscriptIfReady();
+            return;
+        }
+        finishTranscript(segments);
     });
 
     m_synthesisJob = new DubbingSynthesisJob(m_tts, this);
@@ -246,6 +275,166 @@ DubbingJobRunner::DubbingJobRunner(SttSessionController *sttSession, TtsEngine *
 void DubbingJobRunner::setTranslationFixConfiguration(const QVariantMap &configuration)
 {
     m_translationFixConfiguration = configuration;
+}
+
+void DubbingJobRunner::setSubtitleOcrController(SubtitleOcrController *controller)
+{
+    for (const QMetaObject::Connection &connection : std::as_const(m_subtitleOcrConnections))
+        QObject::disconnect(connection);
+    m_subtitleOcrConnections.clear();
+    m_subtitleOcr = controller;
+    if (!m_subtitleOcr) return;
+
+    m_subtitleOcrConnections = {
+        connect(m_subtitleOcr, &SubtitleOcrController::sourceChanged,
+                this, &DubbingJobRunner::onSubtitleOcrSourceChanged),
+        connect(m_subtitleOcr, &SubtitleOcrController::segmentsChanged,
+                this, &DubbingJobRunner::onSubtitleOcrSegmentsChanged),
+        connect(m_subtitleOcr, &SubtitleOcrController::errorChanged,
+                this, &DubbingJobRunner::onSubtitleOcrErrorChanged),
+        connect(m_subtitleOcr, &SubtitleOcrController::progressChanged,
+                this, &DubbingJobRunner::onSubtitleOcrProgressChanged)
+    };
+}
+
+void DubbingJobRunner::finishTranscript(const QVariantList &segments)
+{
+    if (!m_run.processing() || m_run.stageId() != DubbingStage::Transcription) return;
+    m_activeSegments = segments;
+    setProcessing(false, QStringLiteral("transcribed"), 100);
+    emit segmentsUpdated(segments);
+    emit stageCompleted(QStringLiteral("transcribe"),
+                        {{QStringLiteral("transcript"), segments},
+                         {QStringLiteral("transcriptSource"), m_transcriptSourceMode}});
+}
+
+void DubbingJobRunner::failTranscriptSource(const QString &source, const QString &message)
+{
+    if (m_transcriptSourceMode == QStringLiteral("stt+ocr") && m_ocrTranscriptActive
+        && m_subtitleOcr) {
+        m_subtitleOcr->cancel();
+        m_ocrTranscriptActive = false;
+    }
+    if (m_transcriptSourceMode == QStringLiteral("stt+ocr") && m_sttTranscriptActive
+        && m_transcriptionJob) {
+        m_transcriptionJob->cancel();
+        m_sttTranscriptActive = false;
+    }
+    setError(QStringLiteral("%1 transcript failed: %2").arg(source, message));
+}
+
+void DubbingJobRunner::startOcrTranscript(const QVariantMap &parameters)
+{
+    if (!m_subtitleOcr) {
+        failTranscriptSource(QStringLiteral("OCR"),
+                             QStringLiteral("Subtitle OCR controller is unavailable."));
+        return;
+    }
+    m_ocrTranscriptSourcePath = parameters.value(QStringLiteral("ocrSourceMedia")).toString().trimmed();
+    if (m_ocrTranscriptSourcePath.isEmpty()) {
+        failTranscriptSource(QStringLiteral("OCR"),
+                             QStringLiteral("Import source video before running the OCR transcript route."));
+        return;
+    }
+    if (parameters.contains(QStringLiteral("ocrLanguage"))
+        && !m_subtitleOcr->setOcrLanguage(parameters.value(QStringLiteral("ocrLanguage")).toString())) {
+        failTranscriptSource(QStringLiteral("OCR"), m_subtitleOcr->error());
+        return;
+    }
+    if (parameters.contains(QStringLiteral("ocrSampleIntervalMs"))
+        && !m_subtitleOcr->setSampleIntervalMs(parameters.value(QStringLiteral("ocrSampleIntervalMs")).toLongLong())) {
+        failTranscriptSource(QStringLiteral("OCR"), m_subtitleOcr->error());
+        return;
+    }
+    if (parameters.contains(QStringLiteral("ocrMinimumConfidence"))
+        && !m_subtitleOcr->setMinimumConfidence(parameters.value(QStringLiteral("ocrMinimumConfidence")).toDouble())) {
+        failTranscriptSource(QStringLiteral("OCR"), m_subtitleOcr->error());
+        return;
+    }
+    const QVariantMap roi = parameters.value(QStringLiteral("ocrRoi")).toMap();
+    if (!roi.isEmpty() && !m_subtitleOcr->setRoi(roi.value(QStringLiteral("x")).toDouble(),
+                                                 roi.value(QStringLiteral("y")).toDouble(),
+                                                 roi.value(QStringLiteral("width")).toDouble(),
+                                                 roi.value(QStringLiteral("height")).toDouble())) {
+        failTranscriptSource(QStringLiteral("OCR"), m_subtitleOcr->error());
+        return;
+    }
+    m_ocrTranscriptActive = true;
+    m_ocrTranscriptLoadingSource = true;
+    if (!m_subtitleOcr->loadSource(m_ocrTranscriptSourcePath)) {
+        m_ocrTranscriptActive = false;
+        m_ocrTranscriptLoadingSource = false;
+        failTranscriptSource(QStringLiteral("OCR"), m_subtitleOcr->error());
+    }
+}
+
+void DubbingJobRunner::onSubtitleOcrSourceChanged()
+{
+    if (!m_ocrTranscriptActive || !m_ocrTranscriptLoadingSource || !m_subtitleOcr
+        || !m_run.processing() || m_run.stageId() != DubbingStage::Transcription) return;
+    if (QFileInfo(m_subtitleOcr->sourcePath()).absoluteFilePath()
+        != QFileInfo(m_ocrTranscriptSourcePath).absoluteFilePath()) return;
+    m_ocrTranscriptLoadingSource = false;
+    if (!m_subtitleOcr->run()) {
+        m_ocrTranscriptActive = false;
+        failTranscriptSource(QStringLiteral("OCR"), m_subtitleOcr->error());
+    }
+}
+
+void DubbingJobRunner::onSubtitleOcrSegmentsChanged()
+{
+    if (!m_ocrTranscriptActive || !m_subtitleOcr || m_subtitleOcr->processing()
+        || m_subtitleOcr->phase() != QStringLiteral("completed")
+        || !m_run.processing() || m_run.stageId() != DubbingStage::Transcription) return;
+    m_ocrTranscriptActive = false;
+    m_ocrTranscriptSegments = DubbingTranscriptFusionService::normalizeOcrSegments(m_subtitleOcr->segments());
+    if (m_ocrTranscriptSegments.isEmpty()) {
+        failTranscriptSource(QStringLiteral("OCR"),
+                             QStringLiteral("OCR completed without usable subtitle segments."));
+        return;
+    }
+    if (m_transcriptSourceMode == QStringLiteral("ocr")) {
+        finishTranscript(m_ocrTranscriptSegments);
+        return;
+    }
+    finishCombinedTranscriptIfReady();
+}
+
+void DubbingJobRunner::onSubtitleOcrErrorChanged()
+{
+    if (!m_ocrTranscriptActive || !m_subtitleOcr || m_subtitleOcr->error().trimmed().isEmpty()
+        || !m_run.processing() || m_run.stageId() != DubbingStage::Transcription) return;
+    m_ocrTranscriptActive = false;
+    m_ocrTranscriptLoadingSource = false;
+    failTranscriptSource(QStringLiteral("OCR"), m_subtitleOcr->error());
+}
+
+void DubbingJobRunner::onSubtitleOcrProgressChanged()
+{
+    if (!m_ocrTranscriptActive || !m_subtitleOcr || !m_run.processing()
+        || m_run.stageId() != DubbingStage::Transcription || !m_subtitleOcr->progressAvailable()) return;
+    // This is a worker-reported percentage, not a synthetic workflow weight.
+    m_run.setProgress(m_subtitleOcr->progress());
+    emit stateChanged();
+}
+
+void DubbingJobRunner::finishCombinedTranscriptIfReady()
+{
+    if (m_transcriptSourceMode != QStringLiteral("stt+ocr") || m_ocrTranscriptActive
+        || m_sttTranscriptActive || !m_run.processing()) return;
+    if (m_sttTranscriptSegments.isEmpty() || m_ocrTranscriptSegments.isEmpty()) {
+        failTranscriptSource(m_sttTranscriptSegments.isEmpty() ? QStringLiteral("STT") : QStringLiteral("OCR"),
+                             QStringLiteral("STT + OCR requires usable segments from both sources; no fallback was used."));
+        return;
+    }
+    const QVariantList fused = DubbingTranscriptFusionService::fuse(
+        m_sttTranscriptSegments, m_ocrTranscriptSegments);
+    if (fused.isEmpty()) {
+        failTranscriptSource(QStringLiteral("STT + OCR"),
+                             QStringLiteral("The two transcript sources could not produce a reviewable result."));
+        return;
+    }
+    finishTranscript(fused);
 }
 
 void DubbingJobRunner::setRemoteServices(Settings *settings, ColabSession *translationSession,
@@ -423,23 +612,51 @@ void DubbingJobRunner::startTranscription(const QString &sourceLanguage,
                                           const QString &fallbackAudioPath,
                                           const QVariantMap &modelConfiguration)
 {
-    if (m_run.processing() || (m_transcriptionJob && m_transcriptionJob->running())) {
+    const QVariantMap parameters = transcriptParametersFor(modelConfiguration);
+    const QString sourceMode = transcriptSourceModeFor(parameters);
+    if (m_run.processing() || (m_transcriptionJob && m_transcriptionJob->running())
+        || m_ocrTranscriptActive) {
         setBusyError(QStringLiteral("Speech transcription is already running."));
+        return;
+    }
+    if ((sourceMode == QStringLiteral("stt") || sourceMode == QStringLiteral("stt+ocr"))
+        && sourceMediaPath.trimmed().isEmpty()) {
+        setError(QStringLiteral("STT transcript failed: normalize the source audio before running STT."));
         return;
     }
     m_run.ensureRun();
     m_run.beginNode();
+    m_transcriptSourceMode = sourceMode;
+    m_transcriptParameters = parameters;
+    m_sttTranscriptSegments.clear();
+    m_ocrTranscriptSegments.clear();
+    m_sttTranscriptActive = sourceMode != QStringLiteral("ocr");
+    m_ocrTranscriptActive = false;
+    m_ocrTranscriptLoadingSource = false;
     Logger::info(QStringLiteral("DubbingPipeline"),
-                 QStringLiteral("[transcription] start run=%1 node=%2 provider=%3 language=%4 audio=%5 size=%6 bytes")
+                 QStringLiteral("[transcription] start run=%1 node=%2 source=%3 provider=%4 language=%5 audio=%6 size=%7 bytes")
                      .arg(m_run.runId(), m_run.nodeRunId())
-                     .arg(modelConfiguration.value(QStringLiteral("executionProvider"),
+                     .arg(sourceMode,
+                          parameters.value(QStringLiteral("executionProvider"),
                                                     QStringLiteral("local-dev")).toString(),
                           sourceLanguage, sourceMediaPath)
                      .arg(QFileInfo(sourceMediaPath).size()));
     setProcessing(true, QStringLiteral("transcription"), 0);
-    if (!m_transcriptionJob
-        || !m_transcriptionJob->start(sourceLanguage, sourceMediaPath, fallbackAudioPath,
-                                      modelConfiguration)) return;
+    if (sourceMode != QStringLiteral("ocr")) {
+        if (!m_transcriptionJob || !m_transcriptionJob->start(sourceLanguage, sourceMediaPath,
+                                                              fallbackAudioPath, modelConfiguration)) {
+            // DubbingTranscriptionJob can emit its precise readiness error
+            // synchronously before returning false. Do not overwrite that
+            // diagnostic with a generic orchestration error.
+            if (m_run.processing()) {
+                m_sttTranscriptActive = false;
+                failTranscriptSource(QStringLiteral("STT"),
+                                     QStringLiteral("The STT route could not be started."));
+            }
+            return;
+        }
+    }
+    if (sourceMode != QStringLiteral("stt")) startOcrTranscript(parameters);
 }
 
 void DubbingJobRunner::startTranslation(const QString &sourceLanguage, const QString &targetLanguage, const QVariantList &segments,
@@ -539,7 +756,13 @@ void DubbingJobRunner::cancel()
         return;
     }
     if (m_run.stageId() == DubbingStage::Tts && m_synthesisJob) m_synthesisJob->cancel();
-    if (m_run.stageId() == DubbingStage::Transcription && m_transcriptionJob) m_transcriptionJob->cancel();
+    if (m_run.stageId() == DubbingStage::Transcription) {
+        if (m_sttTranscriptActive && m_transcriptionJob) m_transcriptionJob->cancel();
+        if (m_ocrTranscriptActive && m_subtitleOcr) m_subtitleOcr->cancel();
+        m_sttTranscriptActive = false;
+        m_ocrTranscriptActive = false;
+        m_ocrTranscriptLoadingSource = false;
+    }
     if (m_run.stageId() == DubbingStage::FitTiming && m_timingCancel)
         m_timingCancel->storeRelease(true);
     if ((m_run.stageId() == DubbingStage::Mix || m_run.stageId() == DubbingStage::Export) && m_exportJob)

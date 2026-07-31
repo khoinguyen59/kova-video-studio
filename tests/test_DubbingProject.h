@@ -70,6 +70,12 @@ private slots:
     void dubbingColabModelsMapToExactNotebooks();
     void dubbingUiUsesExactModelWorkers();
     void dubbingTranscriptionWaitsForFreshDecodedAudio();
+    void normalizesOcrOnlyTranscriptWithProvenance();
+    void fusesMatchingAndShiftedTranscriptWithoutDuplicates();
+    void exposesConflictEvidenceWithoutSilentChoice();
+    void preservesFusionAndTranscriptSettingsAcrossProjectReload();
+    void ocrOnlyTranscriptUsesTheSharedSubtitleOcrController();
+    void reviewerMustResolveFusionConflictExplicitly();
 };
 
 } // namespace LAStudio
