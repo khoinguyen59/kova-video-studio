@@ -19,21 +19,33 @@ ColumnLayout {
     property string familyId: ""
     property var savedVoices: []
     property int selectedSavedVoiceIndex: -1
+    // Keep the durable preset identity separate from its editable fields.
+    // This lets the Colab controller invalidate a temporary profile whenever
+    // the user switches a saved reference.
+    property string selectedSavedVoiceId: ""
+    property bool loadingSavedVoice: false
 
     signal audioCleared()
     signal playClicked()
     signal stopClicked()
 
     onAudioPathChanged: {
+        if (!root.loadingSavedVoice)
+            root.selectedSavedVoiceId = ""
         AppController.preview.requestWavSamples(root.audioPath)
     }
 
     onReferenceTextChanged: {
+        if (!root.loadingSavedVoice)
+            root.selectedSavedVoiceId = ""
         if (refTextEdit.text !== root.referenceText)
             refTextEdit.text = root.referenceText
     }
 
-    onFamilyIdChanged: reloadSavedVoices()
+    onFamilyIdChanged: {
+        root.selectedSavedVoiceId = ""
+        reloadSavedVoices()
+    }
     Component.onCompleted: reloadSavedVoices()
 
     Connections {
@@ -47,6 +59,7 @@ ColumnLayout {
     function reloadSavedVoices() {
         root.savedVoices = root.familyId !== "" ? AppController.voiceClonePresets.presetsForFamily(root.familyId) : []
         root.selectedSavedVoiceIndex = -1
+        root.selectedSavedVoiceId = ""
     }
 
     function defaultVoiceName() {
@@ -58,9 +71,13 @@ ColumnLayout {
     function loadSavedVoice(index) {
         if (root.locked || index < 0 || index >= root.savedVoices.length) return
         var voice = root.savedVoices[index]
+        if (!voice.valid) return
+        root.loadingSavedVoice = true
         root.selectedSavedVoiceIndex = index
+        root.selectedSavedVoiceId = voice.id || ""
         root.audioPath = voice.audioPath || ""
         root.referenceText = voice.referenceText || ""
+        root.loadingSavedVoice = false
     }
 
     function saveCurrentVoice() {

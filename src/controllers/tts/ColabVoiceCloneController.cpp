@@ -184,7 +184,7 @@ void ColabVoiceCloneController::useLocal()
 void ColabVoiceCloneController::cloneVoice(const QString &text, const QString &referencePath,
                                            const QString &referenceText, const QString &language,
                                            const QString &profileName, bool consentConfirmed,
-                                           float speed, int steps)
+                                           const QString &referencePresetId, float speed, int steps)
 {
     if (!m_colabActive || m_processing || m_profileDeletionPending || !m_session) return;
     const QString normalizedText = text.trimmed();
@@ -209,7 +209,8 @@ void ColabVoiceCloneController::cloneVoice(const QString &text, const QString &r
     }
 
     const QString normalizedLanguage = language.trimmed().isEmpty() ? QStringLiteral("vi") : language.trimmed();
-    const QString signature = referenceSignature(normalizedReferencePath, normalizedReferenceText, normalizedLanguage);
+    const QString signature = referenceSignature(normalizedReferencePath, normalizedReferenceText,
+                                                 normalizedLanguage, referencePresetId.trimmed());
     m_activeText = normalizedText;
     m_cancellation = std::make_shared<std::atomic_bool>(false);
     m_processing = true;
@@ -389,13 +390,21 @@ void ColabVoiceCloneController::onRunnerFailed(const QString &error)
 
 QString ColabVoiceCloneController::referenceSignature(const QString &referencePath,
                                                        const QString &referenceText,
-                                                       const QString &language) const
+                                                       const QString &language,
+                                                       const QString &referencePresetId) const
 {
     const QFileInfo info(referencePath);
-    return QStringLiteral("%1|%2|%3|%4|%5|%6")
-        .arg(info.absoluteFilePath(), QString::number(info.size()),
-             QString::number(info.lastModified().toMSecsSinceEpoch()),
-             referenceText, language, m_model);
+    // A saved preset is a durable user selection.  Include its identity even
+    // when two presets happen to have identical audio/text, so switching the
+    // selection never reuses a temporary worker profile by accident.
+    return QStringLiteral("%1|%2|%3|%4|%5|%6|%7")
+        .arg(info.absoluteFilePath())
+        .arg(QString::number(info.size()))
+        .arg(QString::number(info.lastModified().toMSecsSinceEpoch()))
+        .arg(referenceText)
+        .arg(language)
+        .arg(m_model)
+        .arg(referencePresetId);
 }
 
 } // namespace LAStudio

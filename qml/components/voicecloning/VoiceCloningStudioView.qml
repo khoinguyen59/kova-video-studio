@@ -579,7 +579,8 @@ StudioShell {
                                         if (root.colabActive) {
                                             root.activeClone.cloneVoice(VoiceCloningUtils.normalizeText(inputText.text), root.referenceAudioPath,
                                                                         referenceBox.referenceText, root.selectedLanguageCode,
-                                                                        settingsPanel.colabProfileName, settingsPanel.colabConsent)
+                                                                        settingsPanel.colabProfileName, settingsPanel.colabConsent,
+                                                                        referenceBox.selectedSavedVoiceId)
                                         } else if (!root.remoteFirstMode) {
                                             var settings = settingsPanel.getSettingsObject(root.selectedLanguageCode, inputText.text, referenceBox.referenceText)
                                             AppController.tts.cloneVoice(VoiceCloningUtils.normalizeText(inputText.text), root.referenceAudioPath, settings)

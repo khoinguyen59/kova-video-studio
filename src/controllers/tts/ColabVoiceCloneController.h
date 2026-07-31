@@ -66,6 +66,7 @@ public:
     Q_INVOKABLE void cloneVoice(const QString &text, const QString &referencePath,
                                 const QString &referenceText, const QString &language,
                                 const QString &profileName, bool consentConfirmed,
+                                const QString &referencePresetId = {},
                                 float speed = 1.0F, int steps = 32);
     Q_INVOKABLE void clearProfile();
     Q_INVOKABLE void deleteColabProfile();
@@ -94,7 +95,8 @@ private slots:
 
 private:
     QString referenceSignature(const QString &referencePath, const QString &referenceText,
-                               const QString &language) const;
+                               const QString &language,
+                               const QString &referencePresetId) const;
 
     ColabSession *m_session = nullptr;
     Settings *m_settings = nullptr;

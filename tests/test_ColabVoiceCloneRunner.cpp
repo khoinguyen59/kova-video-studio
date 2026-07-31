@@ -6,6 +6,7 @@
 #include <QJsonObject>
 #include <QPointer>
 #include <QRegularExpression>
+#include <QScopeGuard>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTemporaryDir>
@@ -13,6 +14,7 @@
 
 #include <cstring>
 
+#include "controllers/shared/VoiceClonePresetService.h"
 #include "controllers/tts/ColabVoiceCloneController.h"
 #include "remote/ColabSession.h"
 #include "tts/ColabVoiceCloneRunner.h"
@@ -336,6 +338,75 @@ void TestColabVoiceCloneRunner::controllerReusesProfileOnlyForMatchingDurableRef
     QVERIFY(controller.selectColabModel(QStringLiteral("qwen3-tts-0.6b-base")));
     QVERIFY(controller.profileId().isEmpty());
     QVERIFY(!controller.colabConnected());
+}
+
+void TestColabVoiceCloneRunner::savedPresetSurvivesRestartAndInvalidatesTemporaryProfile()
+{
+    QTemporaryDir dataDirectory;
+    QVERIFY(dataDirectory.isValid());
+    const QByteArray previousDataDirectory = qgetenv("LASTUDIO_DATA_DIR");
+    qputenv("LASTUDIO_DATA_DIR", dataDirectory.path().toUtf8());
+    const auto restoreDataDirectory = qScopeGuard([previousDataDirectory] {
+        if (previousDataDirectory.isEmpty()) qunsetenv("LASTUDIO_DATA_DIR");
+        else qputenv("LASTUDIO_DATA_DIR", previousDataDirectory);
+    });
+
+    QTemporaryDir sourceDirectory;
+    QVERIFY(sourceDirectory.isValid());
+    const QString sourcePath = sourceDirectory.filePath(QStringLiteral("reference.wav"));
+    QFile source(sourcePath);
+    QVERIFY(source.open(QIODevice::WriteOnly));
+    QVERIFY(source.write(referenceWav()) > 0);
+    source.close();
+
+    VoiceClonePresetService createdPresets;
+    QVERIFY(createdPresets.addPreset(QStringLiteral("omnivoice"), QStringLiteral("Saved one"),
+                                     sourcePath, QStringLiteral("Exact saved transcript")));
+    QVERIFY(createdPresets.addPreset(QStringLiteral("omnivoice"), QStringLiteral("Saved two"),
+                                     sourcePath, QStringLiteral("Exact saved transcript")));
+
+    // A new service represents an application restart: the persisted IDs and
+    // managed audio must be available without retaining the original source.
+    VoiceClonePresetService reloadedPresets;
+    const QVariantList saved = reloadedPresets.presetsForFamily(QStringLiteral("omnivoice"));
+    QCOMPARE(saved.size(), 2);
+    const QVariantMap savedOne = saved.at(0).toMap();
+    const QVariantMap savedTwo = saved.at(1).toMap();
+    QVERIFY(savedOne.value(QStringLiteral("valid")).toBool());
+    QVERIFY(savedTwo.value(QStringLiteral("valid")).toBool());
+    QVERIFY(!savedOne.value(QStringLiteral("id")).toString().isEmpty());
+    QVERIFY(!savedTwo.value(QStringLiteral("id")).toString().isEmpty());
+    QVERIFY(QFileInfo::exists(savedOne.value(QStringLiteral("audioPath")).toString()));
+
+    VoiceCloneMock server;
+    QVERIFY(server.start());
+    ColabSession session;
+    QString sessionError;
+    QVERIFY(session.setSession(server.baseUrl(), QStringLiteral("loopback-token"),
+                               &sessionError, true));
+    ColabVoiceCloneController controller(&session, nullptr, nullptr, nullptr, nullptr);
+    controller.useColab();
+    QSignalSpy finished(&controller, &ColabVoiceCloneController::synthesisFinished);
+    QSignalSpy errors(&controller, &ColabVoiceCloneController::errorOccurred);
+    const auto run = [&controller, &finished, &savedOne](const QString &text, const QString &presetId) {
+        const int expected = finished.count() + 1;
+        controller.cloneVoice(text, savedOne.value(QStringLiteral("audioPath")).toString(),
+                              savedOne.value(QStringLiteral("referenceText")).toString(),
+                              QStringLiteral("vi"), QStringLiteral("Saved reference"), true, presetId);
+        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), expected, 8000);
+    };
+
+    run(QStringLiteral("First saved sentence"), savedOne.value(QStringLiteral("id")).toString());
+    run(QStringLiteral("Second saved sentence"), savedOne.value(QStringLiteral("id")).toString());
+    QCOMPARE(server.requestCount(QByteArrayLiteral("POST /v2/jobs/profile ")), 1);
+    QCOMPARE(server.requestCount(QByteArrayLiteral("POST /v2/jobs/generation ")), 2);
+
+    // The UI normally changes audio too, but this isolates the durable-ID
+    // invariant: a different saved selection cannot share an old profile.
+    run(QStringLiteral("Third saved sentence"), savedTwo.value(QStringLiteral("id")).toString());
+    QCOMPARE(server.requestCount(QByteArrayLiteral("POST /v2/jobs/profile ")), 2);
+    QCOMPARE(server.requestCount(QByteArrayLiteral("POST /v2/jobs/generation ")), 3);
+    QCOMPARE(errors.count(), 0);
 }
 
 void TestColabVoiceCloneRunner::testRejectsProfileWithoutConsent()
