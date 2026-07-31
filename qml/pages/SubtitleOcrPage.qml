@@ -62,26 +62,54 @@ Page {
                    (right - left) / displayedWidth, (bottom - top) / displayedHeight)
     }
 
+    function itemRectInContent(item) {
+        var point = item.mapToItem(pageContent, 0, 0)
+        return { x: point.x, y: point.y, width: item.width, height: item.height }
+    }
+
+    function rectanglesOverlap(first, second) {
+        var a = itemRectInContent(first)
+        var b = itemRectInContent(second)
+        return a.x < b.x + b.width - 1 && a.x + a.width > b.x + 1
+            && a.y < b.y + b.height - 1 && a.y + a.height > b.y + 1
+    }
+
     // Used by the offscreen QML route smoke. It verifies the responsive card
-    // contract rather than assuming a fixed window height or z-order.
+    // contract, child reachability and disabled-runtime behavior rather than
+    // assuming a fixed window height or z-order.
     function qmlSmokeLayoutCheck() {
         var cards = [sourceMediaCard, previewCard, runtimeCard, settingsCard, transcriptCard]
         for (var i = 0; i < cards.length; ++i) {
             var card = cards[i]
+            var rect = itemRectInContent(card)
             if (!card.visible || card.width <= 0 || card.height <= 0
-                    || card.x < -1 || card.y < -1
-                    || card.x + card.width > pageContent.width + 1) return false
+                    || rect.x < -1 || rect.y < -1
+                    || rect.x + rect.width > pageContent.width + 1) return false
+            for (var j = i + 1; j < cards.length; ++j)
+                if (rectanglesOverlap(card, cards[j])) return false
         }
         // A blank link field correctly keeps Import link disabled; the smoke
         // contract is that the field itself remains usable while runtime is
         // missing, not that an empty URL can be submitted.
         if (!chooseVideoButton.visible || !chooseVideoButton.enabled
                 || !sourceDropZone.visible || !sourceLinkInput.visible || !sourceLinkInput.enabled
-                || !importLinkButton.visible)
+                || !importLinkButton.visible || !sourceDropArea.enabled
+                || chooseVideoButton.width < chooseVideoButton.implicitWidth
+                || chooseVideoButton.height < chooseVideoButton.implicitHeight
+                || importLinkButton.width < importLinkButton.implicitWidth
+                || sourceLinkInput.width <= 0 || sourceDropZone.height <= 0)
             return false
-        if (subtitleOcrScroll.contentHeight < transcriptCard.y + transcriptCard.height - 1) return false
-        return previewCard.y >= sourceMediaCard.y + sourceMediaCard.height - 1
-                || previewCard.x >= sourceMediaCard.x + sourceMediaCard.width - 1
+        if (videoCanvas.width <= 0 || videoCanvas.height <= 0
+                || languagePackScroll.width <= 0 || languagePackScroll.height <= 0
+                || languageSelector.width < languageSelector.implicitWidth
+                || runOcrButton.width < runOcrButton.implicitWidth)
+            return false
+        if (!runtime.runtimeAvailable && (languageSelector.enabled || runOcrButton.enabled))
+            return false
+        var transcriptRect = itemRectInContent(transcriptCard)
+        if (subtitleOcrScroll.contentHeight < transcriptRect.y + transcriptRect.height - 1)
+            return false
+        return !rectanglesOverlap(sourceMediaCard, previewCard)
     }
 
     component RoiHandle: Rectangle {
@@ -532,6 +560,7 @@ Page {
                             Layout.fillWidth: true
                             spacing: Theme.paddingSmall
                             Button {
+                                id: runOcrButton
                                 objectName: "subtitleOcrRunButton"
                                 text: qsTr("Run Subtitle OCR")
                                 enabled: !ocr.processing && ocr.sourcePath !== "" && ocr.roiWidth > 0 && ocr.roiHeight > 0 && ocr.runtimeAvailable && root.selectedLanguageReady
