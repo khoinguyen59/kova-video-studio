@@ -29,6 +29,7 @@ public:
                              const QString &destDir, const QVariantMap &metadata = {});
     Q_INVOKABLE bool enqueueUrl(const QString &url, const QString &filename,
                                 const QString &destDir, const QVariantMap &metadata = {});
+    Q_INVOKABLE bool cancel(const QString &identifier, const QString &filename);
     Q_INVOKABLE void cancelAll();
     Q_INVOKABLE void clearCompleted();
     Q_INVOKABLE void removeDownload(const QString &identifier, const QString &filename);

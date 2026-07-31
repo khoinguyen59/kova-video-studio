@@ -4,9 +4,13 @@
 #include <QString>
 #include <QVariantList>
 #include <QVariantMap>
+#include <QHash>
 #include <QtQml/qqml.h>
 
 #include <curl/curl.h>
+
+#include <atomic>
+#include <memory>
 
 namespace LAStudio {
 
@@ -28,6 +32,10 @@ public:
     Q_INVOKABLE void downloadUrl(const QString &url,
                                  const QString &filename,
                                  const QString &destDir);
+    // Cancels exactly one managed transfer.  The worker observes this through
+    // curl's progress callback, removes its partial file, and emits the normal
+    // downloadError terminal signal so callers can offer a real retry.
+    Q_INVOKABLE bool cancelDownload(const QString &identifier, const QString &filename);
 
 signals:
     void searchingChanged();
@@ -52,8 +60,10 @@ private:
                           const QString &identifier,
                           const QString &filename,
                           const QString &destDir);
+    static QString downloadKey(const QString &identifier, const QString &filename);
 
     bool m_searching = false;
+    QHash<QString, std::shared_ptr<std::atomic_bool>> m_downloadCancellations;
 };
 
 } // namespace LAStudio

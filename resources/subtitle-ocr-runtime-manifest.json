@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "component": "Tesseract OCR",
+  "automaticDownload": false,
+  "userInitiatedDownload": true,
+  "managedInstallRoot": "app-data/subtitle-ocr/runtime",
+  "resolutionOrder": [
+    "LASTUDIO_TESSERACT (advanced override)",
+    "app-owned subtitle-ocr/runtime/tesseract.exe",
+    "subtitle-ocr/tesseract.exe beside the application"
+  ],
+  "license": "Apache-2.0",
+  "licenseUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+  "runtime": {
+    "version": "5.5.3.20260724",
+    "architecture": "windows-x64",
+    "fileName": "tesseract-ocr-w64-setup-5.5.3.20260724.exe",
+    "url": "https://github.com/tesseract-ocr/tesseract/releases/download/5.5.3/tesseract-ocr-w64-setup-5.5.3.20260724.exe",
+    "sha256": "bee9e3434bd94fd65387d9be28cd467a41f61b1275383b55b0f59a1331270ae4",
+    "bytes": 26573224
+  },
+  "languageData": {
+    "repository": "https://github.com/tesseract-ocr/tessdata_fast",
+    "commit": "87416418657359cb625c412a48b6e1d6d41c29bd",
+    "packages": [
+      { "code": "eng", "label": "English", "fileName": "eng.traineddata", "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/eng.traineddata", "sha256": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2", "bytes": 4113088 },
+      { "code": "vie", "label": "Vietnamese", "fileName": "vie.traineddata", "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/vie.traineddata", "sha256": "79df64caf7bcfb2a27df5042ecb6121e196eada34da774956995747636d5bfa1", "bytes": 531275 },
+      { "code": "chi_sim", "label": "Chinese (Simplified)", "fileName": "chi_sim.traineddata", "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/chi_sim.traineddata", "sha256": "a5fcb6f0db1e1d6d8522f39db4e848f05984669172e584e8d76b6b3141e1f730", "bytes": 2469156 },
+      { "code": "chi_tra", "label": "Chinese (Traditional)", "fileName": "chi_tra.traineddata", "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/chi_tra.traineddata", "sha256": "529c5b5797d64b126065cd55f2bb4c7fd7b15790798091b1ff259941a829330b", "bytes": 2366642 },
+      { "code": "jpn", "label": "Japanese", "fileName": "jpn.traineddata", "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/jpn.traineddata", "sha256": "1f5de9236d2e85f5fdf4b3c500f2d4926f8d9449f28f5394472d9e8d83b91b4d", "bytes": 2471260 },
+      { "code": "kor", "label": "Korean", "fileName": "kor.traineddata", "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/kor.traineddata", "sha256": "6b85e11d9bbf07863b97b3523b1b112844c43e713df8b66418a081fd1060b3b2", "bytes": 1677415 }
+    ]
+  }
+}

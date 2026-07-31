@@ -22,6 +22,7 @@ struct DownloadContext {
     QString identifier;
     QString filename;
     QFile *file;
+    std::shared_ptr<std::atomic_bool> cancellation;
     qint64 resumeOffset = 0;
     qint64 lastUpdate = 0;
 };
@@ -49,6 +50,9 @@ int HFHubClient::progressCallback(void *clientp, curl_off_t dltotal, curl_off_t 
                                    curl_off_t /*ultotal*/, curl_off_t /*ulnow*/)
 {
     auto *ctx = static_cast<DownloadContext *>(clientp);
+    if (ctx->cancellation && ctx->cancellation->load()) {
+        return 1; // CURLE_ABORTED_BY_CALLBACK; terminal cleanup happens below.
+    }
     
     // Throttle updates to ~10Hz (every 100ms) to prevent UI thread saturation
     // but always allow the final update (dlnow == dltotal)
@@ -228,12 +232,35 @@ void HFHubClient::downloadFile(const QString &modelId,
     internalDownload(url, modelId, filename, destDir);
 }
 
+QString HFHubClient::downloadKey(const QString &identifier, const QString &filename)
+{
+    return identifier + QStringLiteral("::") + filename;
+}
+
+bool HFHubClient::cancelDownload(const QString &identifier, const QString &filename)
+{
+    const auto cancellation = m_downloadCancellations.value(downloadKey(identifier, filename));
+    if (!cancellation) return false;
+    cancellation->store(true);
+    return true;
+}
+
 void HFHubClient::internalDownload(const QString &url,
                                    const QString &identifier,
                                    const QString &filename,
                                    const QString &destDir)
 {
-    QThreadPool::globalInstance()->start([this, url, identifier, filename, destDir]() {
+    const QString key = downloadKey(identifier, filename);
+    const auto cancellation = std::make_shared<std::atomic_bool>(false);
+    m_downloadCancellations.insert(key, cancellation);
+    QThreadPool::globalInstance()->start([this, url, identifier, filename, destDir, key, cancellation]() {
+        const auto reportEarlyError = [this, identifier, filename, key, cancellation](const QString &message) {
+            QMetaObject::invokeMethod(this, [=]() {
+                if (m_downloadCancellations.value(key) == cancellation)
+                    m_downloadCancellations.remove(key);
+                emit downloadError(identifier, filename, message);
+            }, Qt::QueuedConnection);
+        };
         QDir().mkpath(destDir);
         const QString localPath = destDir + QStringLiteral("/") + filename;
         const QString tempPath = localPath + QStringLiteral(".download");
@@ -250,8 +277,14 @@ void HFHubClient::internalDownload(const QString &url,
         CURLcode res = CURLE_OK;
         long responseCode = 0;
         QString err;
+        bool cancelled = false;
 
         for (int attempt = 1; attempt <= maxAttempts; ++attempt) {
+            if (cancellation->load()) {
+                cancelled = true;
+                err = QStringLiteral("Download cancelled.");
+                break;
+            }
             const qint64 resumeOffset = QFileInfo(tempPath).size();
             QFile file(tempPath);
             const QIODevice::OpenMode mode = resumeOffset > 0
@@ -259,24 +292,18 @@ void HFHubClient::internalDownload(const QString &url,
                 : QIODevice::WriteOnly;
 
             if (!file.open(mode)) {
-                QMetaObject::invokeMethod(this, [=]() {
-                    emit downloadError(identifier, filename,
-                                       QStringLiteral("Cannot open file for writing: ") + tempPath);
-                }, Qt::QueuedConnection);
+                reportEarlyError(QStringLiteral("Cannot open file for writing: ") + tempPath);
                 return;
             }
 
             CURL *curl = curl_easy_init();
             if (!curl) {
                 file.close();
-                QMetaObject::invokeMethod(this, [=]() {
-                    emit downloadError(identifier, filename,
-                                       QStringLiteral("Failed to initialize curl"));
-                }, Qt::QueuedConnection);
+                reportEarlyError(QStringLiteral("Failed to initialize curl"));
                 return;
             }
 
-            DownloadContext ctx{this, identifier, filename, &file, resumeOffset};
+            DownloadContext ctx{this, identifier, filename, &file, cancellation, resumeOffset};
 
             curl_easy_setopt(curl, CURLOPT_URL, urlBytes.constData());
             curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,
@@ -300,6 +327,12 @@ void HFHubClient::internalDownload(const QString &url,
             curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &responseCode);
             curl_easy_cleanup(curl);
             file.close();
+
+            if (cancellation->load()) {
+                cancelled = true;
+                err = QStringLiteral("Download cancelled.");
+                break;
+            }
 
             if (res == CURLE_RANGE_ERROR && resumeOffset > 0) {
                 QFile::remove(tempPath);
@@ -328,24 +361,33 @@ void HFHubClient::internalDownload(const QString &url,
             QThread::msleep(static_cast<unsigned long>(attempt * 500));
         }
 
-        if (res != CURLE_OK || responseCode >= 400 || QFileInfo(tempPath).size() == 0) {
+        if (cancelled || res != CURLE_OK || responseCode >= 400 || QFileInfo(tempPath).size() == 0) {
+            if (cancelled) {
+                QFile::remove(tempPath);
+            }
             if (!isRetryableDownloadError(res)) {
                 QFile::remove(tempPath);
             } else if (QFileInfo(tempPath).size() > 0) {
                 err += QStringLiteral(" (partial download saved; retry to resume)");
             }
             QMetaObject::invokeMethod(this, [=]() {
+                if (m_downloadCancellations.value(key) == cancellation)
+                    m_downloadCancellations.remove(key);
                 emit downloadError(identifier, filename, err);
             }, Qt::QueuedConnection);
         } else {
             QFile::remove(localPath);
             if (QFile::rename(tempPath, localPath)) {
                 QMetaObject::invokeMethod(this, [=]() {
+                    if (m_downloadCancellations.value(key) == cancellation)
+                        m_downloadCancellations.remove(key);
                     emit downloadFinished(identifier, filename, localPath);
                 }, Qt::QueuedConnection);
             } else {
                 QFile::remove(tempPath);
                 QMetaObject::invokeMethod(this, [=]() {
+                    if (m_downloadCancellations.value(key) == cancellation)
+                        m_downloadCancellations.remove(key);
                     emit downloadError(identifier, filename,
                                        QStringLiteral("Failed to rename temporary file to destination: ") + localPath);
                 }, Qt::QueuedConnection);

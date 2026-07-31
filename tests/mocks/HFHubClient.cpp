@@ -19,6 +19,16 @@ void HFHubClient::downloadUrl(const QString &, const QString &, const QString &)
 {
 }
 
+bool HFHubClient::cancelDownload(const QString &, const QString &)
+{
+    return true;
+}
+
+QString HFHubClient::downloadKey(const QString &identifier, const QString &filename)
+{
+    return identifier + QStringLiteral("::") + filename;
+}
+
 size_t HFHubClient::writeCallback(char *, size_t, size_t, void *)
 {
     return 0;

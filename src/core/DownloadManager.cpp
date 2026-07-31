@@ -144,6 +144,13 @@ bool DownloadManager::enqueueUrl(const QString &url, const QString &filename,
     return true;
 }
 
+bool DownloadManager::cancel(const QString &identifier, const QString &filename)
+{
+    const QString key = makeKey(identifier, filename);
+    if (!m_downloads.contains(key) || m_downloads.value(key).done || !m_hub) return false;
+    return m_hub->cancelDownload(identifier, filename);
+}
+
 qint64 DownloadManager::expectedDownloadBytes(const QVariantMap &metadata)
 {
     for (const QString &key : {QStringLiteral("expectedBytes"), QStringLiteral("sizeBytes")}) {
@@ -230,6 +237,11 @@ bool DownloadManager::rejectForDiskSpace(const QString &key, const DownloadEntry
 
 void DownloadManager::cancelAll()
 {
+    if (m_hub) {
+        for (auto it = m_downloads.cbegin(); it != m_downloads.cend(); ++it) {
+            if (!it->done) m_hub->cancelDownload(it->identifier, it->filename);
+        }
+    }
     m_downloads.clear();
     m_order.clear();
     saveHistory();
@@ -256,6 +268,8 @@ void DownloadManager::removeDownload(const QString &identifier, const QString &f
 {
     QString key = makeKey(identifier, filename);
     if (m_downloads.contains(key)) {
+        if (!m_downloads.value(key).done && m_hub)
+            m_hub->cancelDownload(identifier, filename);
         m_downloads.remove(key);
         m_order.removeAll(key);
         saveHistory();

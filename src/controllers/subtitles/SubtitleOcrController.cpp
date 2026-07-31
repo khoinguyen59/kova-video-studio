@@ -5,6 +5,7 @@
 #include "core/MediaRuntimeLocator.h"
 #include "core/PathUtils.h"
 #include "subtitles/SubtitleOcrRuntimeLocator.h"
+#include "subtitles/SubtitleOcrRuntimeService.h"
 
 #include <QCryptographicHash>
 #include <QDir>
@@ -64,16 +65,33 @@ QUrl SubtitleOcrController::cropPreviewUrl() const
 
 bool SubtitleOcrController::runtimeAvailable() const
 {
+    if (m_runtimeService) return m_runtimeService->runtimeAvailable();
     return !SubtitleOcrRuntimeLocator::resolveTesseract().isEmpty();
 }
 
 QString SubtitleOcrController::runtimePath() const
 {
+    if (m_runtimeService) return m_runtimeService->runtimePath();
     return SubtitleOcrRuntimeLocator::resolveTesseract();
 }
 
 void SubtitleOcrController::refreshRuntime()
 {
+    if (m_runtimeService) m_runtimeService->refresh();
+    emit runtimeChanged();
+}
+
+void SubtitleOcrController::setRuntimeService(SubtitleOcrRuntimeService *runtimeService)
+{
+    if (m_runtimeService == runtimeService) return;
+    if (m_runtimeService) disconnect(m_runtimeService, nullptr, this, nullptr);
+    m_runtimeService = runtimeService;
+    if (m_runtimeService) {
+        connect(m_runtimeService, &SubtitleOcrRuntimeService::runtimeChanged,
+                this, &SubtitleOcrController::runtimeChanged);
+        connect(m_runtimeService, &SubtitleOcrRuntimeService::stateChanged,
+                this, &SubtitleOcrController::runtimeChanged);
+    }
     emit runtimeChanged();
 }
 
@@ -298,8 +316,8 @@ bool SubtitleOcrController::run()
         return false;
     }
     const QString tesseract = runtimePath();
-    if (tesseract.isEmpty()) {
-        setError(QStringLiteral("Subtitle OCR runtime is not installed. Install Tesseract and its language data explicitly; LA Studio will not download it automatically."));
+    if (tesseract.isEmpty() || !runtimeAvailable()) {
+        setError(QStringLiteral("Subtitle OCR runtime is unavailable. Use Install runtime in Subtitle OCR, then install the selected language pack before running."));
         emit runtimeChanged();
         return false;
     }

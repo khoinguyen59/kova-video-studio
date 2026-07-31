@@ -24,6 +24,7 @@
 #include "test_SubtitleVoice.h"
 #include "test_SubtitleOcrPipeline.h"
 #include "test_SubtitleOcrController.h"
+#include "test_SubtitleOcrRuntimeService.h"
 #include "test_TtsTextPreprocessor.h"
 #include "test_TtsRequestValidator.h"
 #include "test_LlmChatEngine.h"
@@ -176,6 +177,11 @@ int main(int argc, char *argv[])
     {
         LAStudio::TestSubtitleOcrController suite;
         runSuite(&suite, "TestSubtitleOcrController");
+    }
+
+    {
+        LAStudio::TestSubtitleOcrRuntimeService suite;
+        runSuite(&suite, "TestSubtitleOcrRuntimeService");
     }
 
     {

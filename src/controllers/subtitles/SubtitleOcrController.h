@@ -12,10 +12,11 @@ namespace LAStudio {
 
 class DubbingController;
 class SubtitleVoiceController;
+class SubtitleOcrRuntimeService;
 
-// Asynchronous, offline hard-subtitle OCR controller.  FFmpeg, FFprobe and
-// Tesseract are always invoked with QProcess argument lists; this controller
-// never downloads an OCR model or opens a browser/session on the user's behalf.
+// Asynchronous, offline hard-subtitle OCR controller. FFmpeg, FFprobe and
+// Tesseract are always invoked with QProcess argument lists. A managed runtime
+// may be installed only through the separate explicit user action service.
 class SubtitleOcrController final : public QObject
 {
     Q_OBJECT
@@ -91,6 +92,7 @@ public:
     Q_INVOKABLE bool sendToSubtitleVoice();
     Q_INVOKABLE bool sendToDubbing();
     Q_INVOKABLE void refreshRuntime();
+    void setRuntimeService(SubtitleOcrRuntimeService *runtimeService);
 
 signals:
     void sourceChanged();
@@ -140,6 +142,7 @@ private:
 
     SubtitleVoiceController *m_subtitleVoice = nullptr;
     DubbingController *m_dubbing = nullptr;
+    SubtitleOcrRuntimeService *m_runtimeService = nullptr;
     QProcess m_process;
     Operation m_operation = Operation::None;
     bool m_processing = false;

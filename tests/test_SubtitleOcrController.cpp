@@ -95,7 +95,7 @@ void TestSubtitleOcrController::blocksMissingManagedRuntimeWithoutSilentDownload
     loadFixture(controller, fixtures.source);
     QVERIFY(!controller.runtimeAvailable());
     QVERIFY(!controller.run());
-    QVERIFY(controller.error().contains(QStringLiteral("will not download"), Qt::CaseInsensitive));
+    QVERIFY(controller.error().contains(QStringLiteral("Install runtime"), Qt::CaseInsensitive));
 }
 
 void TestSubtitleOcrController::rejectsInvalidVideoProbeWithoutReplacingCurrentSource()

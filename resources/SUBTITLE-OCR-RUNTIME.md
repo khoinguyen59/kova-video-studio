@@ -1,36 +1,38 @@
-# Subtitle OCR runtime manifest
+# Subtitle OCR managed runtime
 
-LA Studio's Subtitle OCR feature runs the Tesseract command-line runtime on
-the local CPU. It is intentionally **not** downloaded by the application, and
-no OCR model is fetched when the user opens the feature or presses Run.
+Subtitle OCR uses the CPU Tesseract command-line runtime. It is not downloaded
+when the page opens and it is not downloaded when **Run Subtitle OCR** is
+pressed. A user must explicitly choose **Install app-managed runtime** and then
+choose any missing language packs.
 
-## Supplying a reviewed runtime
+## Install behaviour
 
-Use one of the following explicit deployment choices:
+- The package contains `runtime-manifest.json` with the pinned HTTPS URL,
+  version and SHA-256 for the Windows x64 Tesseract installer, plus each
+  language pack. The app verifies SHA-256 before executing or activating data.
+- The installer runs silently only after that click and targets application data
+  (`subtitle-ocr/runtime`), never Program Files. It should not request admin
+  rights. The new runtime is staged and atomically swapped only after a usable
+  executable and manifest exist.
+- English (`eng`), Vietnamese (`vie`), Simplified Chinese (`chi_sim`),
+  Traditional Chinese (`chi_tra`), Japanese (`jpn`) and Korean (`kor`) are
+  individually selectable. A failed, cancelled or checksum-invalid language
+  download never replaces an existing verified pack.
+- Progress is shown only from actual received/total transfer bytes. Retry and
+  cancel keep the previous runtime untouched.
 
-1. Place a reviewed `tesseract.exe` and its `tessdata` directory in
-   `subtitle-ocr/` beside `LA-Studio-<version>.exe`.
-2. Set the process environment variable `LASTUDIO_TESSERACT` to the absolute
-   path of a reviewed `tesseract.exe`. Configure that runtime's data path
-   (normally `TESSDATA_PREFIX`) according to the upstream Tesseract guidance.
-3. Install a reviewed system Tesseract runtime that is available on `PATH`.
-
-The app resolves only these local locations. It never runs a package manager,
-opens a web page, or downloads a language file. Use **Refresh OCR runtime** in
-the Subtitle OCR page after changing an installed runtime.
-
-Each selected language must have its matching Tesseract trained-data file
-(for example, `eng.traineddata`, `vie.traineddata`, or `chi_sim.traineddata`).
-Before extracting video frames, LA Studio invokes `tesseract --list-langs` and
-stops with an actionable error if the requested language is unavailable.
+The app uses the app-owned runtime on later launches. `LASTUDIO_TESSERACT` is
+an advanced explicit override; if it is set, the page identifies it as an
+external runtime and does not alter it. `PATH` is not used as an implicit
+Tesseract selection source. A Tesseract `--list-langs` preflight still blocks
+OCR before frame extraction if the selected language is unavailable.
 
 ## Provenance and licensing
 
-Tesseract OCR is an Apache-2.0 project. This package ships this manifest and
-does **not** ship a Tesseract executable or trained-data files. Release owners
-who add a reviewed runtime must include the exact upstream license texts,
-version, source URL, and checksums in the release payload before distribution.
+Tesseract and `tessdata_fast` are Apache-2.0. This portable package ships the
+manifest and this notice; it does not bundle the Tesseract binary or trained
+data. See `runtime-manifest.json` for pinned provenance.
 
-- Upstream project: <https://github.com/tesseract-ocr/tesseract>
-- Upstream language data: <https://github.com/tesseract-ocr/tessdata>
+- Upstream engine: <https://github.com/tesseract-ocr/tesseract>
+- Upstream language data: <https://github.com/tesseract-ocr/tessdata_fast>
 - License: <https://www.apache.org/licenses/LICENSE-2.0>

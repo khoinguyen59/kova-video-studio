@@ -618,34 +618,31 @@ function Stage-SubtitleOcrRuntimeManifest {
         [string] $StageRoot
     )
 
-    # Tesseract is deliberately not fetched by either the packager or the
-    # app. The release payload instead makes the local-only resolution and
-    # license/provenance obligation explicit beside the optional runtime path.
     $noticeSource = Join-Path $RepositoryRoot "resources\SUBTITLE-OCR-RUNTIME.md"
+    $manifestSource = Join-Path $RepositoryRoot "resources\subtitle-ocr-runtime-manifest.json"
     if (-not (Test-Path -LiteralPath $noticeSource -PathType Leaf)) {
         throw "Subtitle OCR runtime manifest source was not found: $noticeSource"
+    }
+    if (-not (Test-Path -LiteralPath $manifestSource -PathType Leaf)) {
+        throw "Subtitle OCR runtime JSON manifest source was not found: $manifestSource"
+    }
+    try {
+        $manifest = Get-Content -LiteralPath $manifestSource -Raw -Encoding UTF8 | ConvertFrom-Json
+    } catch {
+        throw "Subtitle OCR runtime manifest is invalid JSON: $($_.Exception.Message)"
+    }
+    if ($manifest.automaticDownload -ne $false -or $manifest.userInitiatedDownload -ne $true -or
+        [string]::IsNullOrWhiteSpace($manifest.runtime.sha256) -or $manifest.languageData.packages.Count -lt 6) {
+        throw "Subtitle OCR runtime manifest is missing explicit-install, checksum, or language-pack metadata"
     }
     $runtimeRoot = Join-Path $DeployRoot "subtitle-ocr"
     New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
     Copy-Item -LiteralPath $noticeSource -Destination (Join-Path $runtimeRoot "README.txt") -Force
-    $manifest = [ordered]@{
-        schemaVersion = 1
-        component = "Tesseract OCR"
-        executable = "tesseract.exe"
-        bundled = $false
-        localOnly = $true
-        automaticDownload = $false
-        resolutionOrder = @("subtitle-ocr/tesseract.exe", "LASTUDIO_TESSERACT", "PATH")
-        languageVerification = "tesseract --list-langs"
-        license = "Apache-2.0"
-        source = "https://github.com/tesseract-ocr/tesseract"
-        languageDataSource = "https://github.com/tesseract-ocr/tessdata"
-    }
-    $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $runtimeRoot "runtime-manifest.json") -Encoding UTF8
+    Copy-Item -LiteralPath $manifestSource -Destination (Join-Path $runtimeRoot "runtime-manifest.json") -Force
     $licenseRoot = Join-Path $StageRoot "licenses\tesseract"
     New-Item -ItemType Directory -Path $licenseRoot -Force | Out-Null
     Copy-Item -LiteralPath $noticeSource -Destination (Join-Path $licenseRoot "RUNTIME-NOTICE.md") -Force
-    Write-Host ">> Staged Subtitle OCR runtime manifest (external runtime; no automatic download)" -ForegroundColor Green
+    Write-Host ">> Staged Subtitle OCR managed-runtime manifest (explicit user download only)" -ForegroundColor Green
 }
 
 function Copy-VcpkgRuntimeLibraries {

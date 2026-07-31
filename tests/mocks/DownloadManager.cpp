@@ -33,6 +33,11 @@ bool DownloadManager::enqueueUrl(const QString &, const QString &, const QString
     return true;
 }
 
+bool DownloadManager::cancel(const QString &, const QString &)
+{
+    return true;
+}
+
 void DownloadManager::cancelAll()
 {
 }

@@ -6,7 +6,7 @@ include(cmake/RuntimeAbi.cmake)
 # automation may override it with -DLASTUDIO_VERSION=<major.minor.release.build>.
 # Internal builds use four numeric fields so each artifact has an unambiguous,
 # monotonically ordered label: 0.0.0.1 ... 0.0.0.9, then 0.0.1.0.
-set(LASTUDIO_VERSION "0.0.2.5" CACHE STRING "LA Studio application version")
+set(LASTUDIO_VERSION "0.0.2.6" CACHE STRING "LA Studio application version")
 if(NOT LASTUDIO_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$")
     message(FATAL_ERROR "LASTUDIO_VERSION must use MAJOR.MINOR.RELEASE.BUILD format; got '${LASTUDIO_VERSION}'")
 endif()
@@ -225,6 +225,7 @@ set(LASTUDIO_SOURCES
     src/subtitles/SrtTimelineParser.cpp
     src/subtitles/SubtitleOcrPipeline.cpp
     src/subtitles/SubtitleOcrRuntimeLocator.cpp
+    src/subtitles/SubtitleOcrRuntimeService.cpp
     src/controllers/subtitles/SubtitleOcrController.cpp
     src/tts/SubtitleSmartFitPlanner.cpp
     src/tts/TimedSpeechPipeline.cpp
@@ -418,6 +419,7 @@ set(LASTUDIO_HEADERS
     src/subtitles/SrtTimelineParser.h
     src/subtitles/SubtitleOcrPipeline.h
     src/subtitles/SubtitleOcrRuntimeLocator.h
+    src/subtitles/SubtitleOcrRuntimeService.h
     src/controllers/subtitles/SubtitleOcrController.h
     src/tts/SubtitleSmartFitPlanner.h
     src/tts/TimedSpeechPipeline.h

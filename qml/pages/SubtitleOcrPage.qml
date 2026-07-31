@@ -8,6 +8,7 @@ import LAStudio
 Page {
     id: root
     readonly property var ocr: AppController.subtitleOcr
+    readonly property var runtime: AppController.subtitleOcrRuntime
     property real previewPositionMs: player.position
     readonly property real displayedWidth: {
         if (ocr.sourceWidth <= 0 || ocr.sourceHeight <= 0 || videoCanvas.width <= 0 || videoCanvas.height <= 0)
@@ -148,27 +149,73 @@ Page {
 
         Rectangle {
             Layout.fillWidth: true
-            visible: !ocr.runtimeAvailable
-            color: Qt.rgba(1.0, 0.65, 0.15, 0.12)
-            border.color: Theme.warning
+            color: runtime.runtimeAvailable ? Qt.rgba(0.20, 0.85, 0.45, 0.08) : Qt.rgba(1.0, 0.65, 0.15, 0.12)
+            border.color: runtime.runtimeAvailable ? Theme.success : Theme.warning
             radius: Theme.radiusSmall
-            implicitHeight: runtimeNotice.implicitHeight + Theme.paddingMedium * 2
-            Text {
-                id: runtimeNotice
+            implicitHeight: runtimeSetup.implicitHeight + Theme.paddingMedium * 2
+            ColumnLayout {
+                id: runtimeSetup
                 anchors.fill: parent
                 anchors.margins: Theme.paddingMedium
-                wrapMode: Text.Wrap
-                color: Theme.textPrimary
-                text: qsTr("Subtitle OCR runtime is not installed. Install Tesseract and language data explicitly; LA Studio will never download OCR models automatically.")
+                spacing: Theme.paddingSmall
+                RowLayout {
+                    Layout.fillWidth: true
+                    Text { text: qsTr("OCR runtime setup"); color: Theme.textPrimary; font.bold: true }
+                    Item { Layout.fillWidth: true }
+                    Text { text: runtime.stateName; color: runtime.runtimeAvailable ? Theme.success : Theme.warning; font.bold: true }
+                    Button { text: qsTr("Refresh"); enabled: !runtime.busy; onClicked: runtime.refresh() }
+                }
+                Text {
+                    Layout.fillWidth: true
+                    color: Theme.textSecondary
+                    wrapMode: Text.Wrap
+                    text: runtime.runtimeAvailable
+                        ? qsTr("Using %1 runtime: %2").arg(runtime.runtimeSource).arg(runtime.runtimePath)
+                        : qsTr("Install the app-managed CPU runtime before running OCR. Installation starts only after you click the button; it is verified with a pinned SHA-256 and needs no administrator permission.")
+                }
+                Text {
+                    Layout.fillWidth: true
+                    visible: runtime.runtimeSource === "environment"
+                    color: Theme.warning
+                    wrapMode: Text.Wrap
+                    text: qsTr("Advanced override LASTUDIO_TESSERACT is active. LA Studio will not modify that external runtime; managed language packs require the app-owned runtime.")
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Button {
+                        text: runtime.runtimeSource === "managed" ? qsTr("Reinstall app-managed runtime") : qsTr("Install app-managed runtime")
+                        enabled: !runtime.busy
+                        onClicked: runtime.installRuntime()
+                    }
+                    Button { text: qsTr("Retry"); visible: runtime.stateName === "Failed"; enabled: !runtime.busy; onClicked: runtime.retryInstallation() }
+                    Button { text: qsTr("Cancel installation"); visible: runtime.busy; onClicked: runtime.cancelInstallation() }
+                    Text {
+                        Layout.fillWidth: true
+                        color: Theme.textSecondary
+                        text: qsTr("Tesseract %1 · Apache-2.0 · CPU only").arg(runtime.runtimeVersion === "" ? "5.5.3" : runtime.runtimeVersion)
+                    }
+                }
+                ProgressBar {
+                    Layout.fillWidth: true
+                    visible: runtime.progressAvailable
+                    from: 0
+                    to: runtime.bytesTotal
+                    value: runtime.bytesReceived
+                }
+                Text {
+                    Layout.fillWidth: true
+                    visible: runtime.progressAvailable
+                    color: Theme.textSecondary
+                    text: qsTr("Downloaded %1 / %2 MiB").arg((runtime.bytesReceived / 1048576).toFixed(1)).arg((runtime.bytesTotal / 1048576).toFixed(1))
+                }
+                Text {
+                    Layout.fillWidth: true
+                    visible: runtime.error !== ""
+                    color: Theme.danger
+                    wrapMode: Text.Wrap
+                    text: runtime.error
+                }
             }
-        }
-
-        Text {
-            Layout.fillWidth: true
-            visible: ocr.runtimeAvailable
-            text: qsTr("OCR runtime: %1. The selected language is verified before frame extraction.").arg(ocr.runtimePath)
-            color: Theme.textSecondary
-            elide: Text.ElideMiddle
         }
 
         RowLayout {
@@ -287,14 +334,36 @@ Page {
                         ComboBox {
                             id: languageSelector
                             Layout.fillWidth: true
-                            model: [ { label: "English (eng)", code: "eng" }, { label: "Vietnamese (vie)", code: "vie" },
-                                     { label: "Chinese Simplified (chi_sim)", code: "chi_sim" }, { label: "Japanese (jpn)", code: "jpn" },
-                                     { label: "Korean (kor)", code: "kor" } ]
+                            model: runtime.languagePacks
                             textRole: "label"
-                            Component.onCompleted: {
-                                for (var i = 0; i < model.length; ++i) if (model[i].code === ocr.ocrLanguage) currentIndex = i
+                            valueRole: "code"
+                            function selectOcrLanguage() {
+                                for (var i = 0; i < model.length; ++i) {
+                                    if (model[i].code === ocr.ocrLanguage) {
+                                        currentIndex = i
+                                        return
+                                    }
+                                }
                             }
-                            onActivated: ocr.setOcrLanguage(model[currentIndex].code)
+                            Component.onCompleted: {
+                                selectOcrLanguage()
+                            }
+                            onModelChanged: selectOcrLanguage()
+                            onActivated: ocr.setOcrLanguage(currentValue)
+                        }
+                        Repeater {
+                            model: runtime.languagePacks
+                            delegate: RowLayout {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                Text { text: modelData.label + " (" + modelData.code + ")"; color: Theme.textSecondary; Layout.fillWidth: true; elide: Text.ElideRight }
+                                Text { text: modelData.state; color: modelData.installed ? Theme.success : Theme.warning }
+                                Button {
+                                    text: modelData.installed ? qsTr("Verified") : qsTr("Install")
+                                    enabled: !runtime.busy && !modelData.installed && runtime.runtimeSource === "managed"
+                                    onClicked: runtime.installLanguage(modelData.code)
+                                }
+                            }
                         }
                         Label { text: qsTr("Sample interval (ms)") }
                         SpinBox { id: intervalInput; from: 100; to: 30000; stepSize: 100; value: ocr.sampleIntervalMs; Layout.fillWidth: true; onValueModified: ocr.setSampleIntervalMs(value) }

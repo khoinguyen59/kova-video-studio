@@ -29,6 +29,7 @@ set(TEST_SOURCES
     test_SubtitleVoice.cpp
     test_SubtitleOcrPipeline.cpp
     test_SubtitleOcrController.cpp
+    test_SubtitleOcrRuntimeService.cpp
     test_TtsTextPreprocessor.cpp
     test_TtsRequestValidator.cpp
     test_LlmChatEngine.cpp
@@ -56,6 +57,7 @@ set(TEST_SOURCES
     test_SubtitleVoice.h
     test_SubtitleOcrPipeline.h
     test_SubtitleOcrController.h
+    test_SubtitleOcrRuntimeService.h
 
     ../src/api/ApiServerService.cpp
 
@@ -115,6 +117,7 @@ set(TEST_SOURCES
     ../src/subtitles/SrtTimelineParser.cpp
     ../src/subtitles/SubtitleOcrPipeline.cpp
     ../src/subtitles/SubtitleOcrRuntimeLocator.cpp
+    ../src/subtitles/SubtitleOcrRuntimeService.cpp
     ../src/tts/SubtitleSmartFitPlanner.cpp
     ../src/tts/TextNormalizationPolicy.cpp
     ../src/tts/TtsTextPreprocessor.cpp
@@ -213,6 +216,7 @@ set(TEST_SOURCES
     ../src/core/MediaRuntimeLocator.h
     ../src/subtitles/SubtitleOcrPipeline.h
     ../src/subtitles/SubtitleOcrRuntimeLocator.h
+    ../src/subtitles/SubtitleOcrRuntimeService.h
     ../src/controllers/subtitles/SubtitleOcrController.h
     ../src/api/ApiServerService.h
     ../src/stt/SttEngine.h
@@ -395,6 +399,7 @@ set(LASTUDIO_TEST_SUITES
     TestSubtitleVoice
     TestSubtitleOcrPipeline
     TestSubtitleOcrController
+    TestSubtitleOcrRuntimeService
     TestRuntimeHostProtocol
     TestMediaIngestService
     TestMediaToolService

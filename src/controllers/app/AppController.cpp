@@ -113,7 +113,9 @@ AppController::AppController(QObject *parent)
     m_sttSession = new SttSessionController(this);
     m_subtitleVoice = new SubtitleVoiceController(m_tts, m_player, m_history, this);
     m_dubbing = new DubbingController(m_sttSession, m_tts, m_translationEngine, m_models, m_runtimes, this);
+    m_subtitleOcrRuntime = new SubtitleOcrRuntimeService(m_downloads, this);
     m_subtitleOcr = new SubtitleOcrController(m_subtitleVoice, m_dubbing, this);
+    m_subtitleOcr->setRuntimeService(m_subtitleOcrRuntime);
     // Dubbing owns a project-level selection, while the preset service owns
     // the durable reference media.  Inject the service instead of reading the
     // library indirectly from QML so every run is validated by the controller.
@@ -137,6 +139,11 @@ AppController::AppController(QObject *parent)
     connect(m_subtitleOcr, &SubtitleOcrController::errorChanged, this, [this]() {
         if (m_subtitleOcr && !m_subtitleOcr->error().isEmpty())
             enqueueError(m_subtitleOcr->error(), QStringLiteral("Subtitle OCR"));
+    });
+    connect(m_subtitleOcrRuntime, &SubtitleOcrRuntimeService::errorChanged, this, [this]() {
+        if (m_subtitleOcrRuntime && !m_subtitleOcrRuntime->error().isEmpty()) {
+            enqueueError(m_subtitleOcrRuntime->error(), QStringLiteral("Subtitle OCR runtime"));
+        }
     });
     connect(m_colabAlignment, &ColabAlignmentController::failed, this, &AppController::onError);
     connect(m_colabVoiceIsolator, &ColabVoiceIsolatorController::errorOccurred, this, &AppController::onError);
