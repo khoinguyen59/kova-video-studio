@@ -47,20 +47,73 @@ Item {
         controlsVisible = false
     }
 
-    // State-only regression hook for the offscreen route smoke. The Timer's
-    // real interval remains fixed above; this verifies every cancellation
-    // gate without sleeping for two seconds in each page test.
+    // State-machine regression hook for the offscreen route smoke. It drives
+    // this real component's schedule/reveal/expiry paths without shortening
+    // the production timer, so the test covers leave, re-enter, drag, menu,
+    // keyboard focus and pause guards without sleeping for two seconds on
+    // every route.
     function qmlSmokeStateCheck() {
-        function keeps(playingState, pointerInside, dragging, menuVisible, focused) {
-            return !playingState || pointerInside || dragging || menuVisible || focused
+        var saved = {
+            playing: playing,
+            pointerInsideSurface: pointerInsideSurface,
+            interactionActive: interactionActive,
+            menuOpen: menuOpen,
+            controlsFocused: controlsFocused,
+            controlsVisible: controlsVisible
         }
-        return delayMs === 2000
-            && !keeps(true, false, false, false, false)
-            && keeps(true, true, false, false, false)
-            && keeps(true, false, true, false, false)
-            && keeps(true, false, false, true, false)
-            && keeps(true, false, false, false, true)
-            && keeps(false, false, false, false, false)
+        var passed = delayMs === 2000
+
+        playing = true
+        pointerInsideSurface = false
+        interactionActive = false
+        menuOpen = false
+        controlsFocused = false
+        controlsVisible = true
+        scheduleHide()
+        // The bar remains available for the entire two-second grace period.
+        passed = passed && controlsVisible
+        applyHideDecision()
+        passed = passed && !controlsVisible
+
+        // Entering before an old timer would expire cancels the hide; even an
+        // explicit expiry check must leave the controls visible (no flicker).
+        pointerInsideSurface = true
+        applyHideDecision()
+        passed = passed && controlsVisible
+        pointerInsideSurface = false
+        scheduleHide()
+        pointerInsideSurface = true
+        applyHideDecision()
+        passed = passed && controlsVisible
+
+        pointerInsideSurface = false
+        interactionActive = true
+        applyHideDecision()
+        passed = passed && controlsVisible
+        interactionActive = false
+        menuOpen = true
+        applyHideDecision()
+        passed = passed && controlsVisible
+        menuOpen = false
+        controlsFocused = true
+        applyHideDecision()
+        passed = passed && controlsVisible
+        controlsFocused = false
+        playing = false
+        applyHideDecision()
+        passed = passed && controlsVisible
+
+        // The smoke is invoked during app startup. Restore the component
+        // exactly and stop the test-created timer before the real route runs.
+        hideTimer.stop()
+        playing = saved.playing
+        pointerInsideSurface = saved.pointerInsideSurface
+        interactionActive = saved.interactionActive
+        menuOpen = saved.menuOpen
+        controlsFocused = saved.controlsFocused
+        controlsVisible = saved.controlsVisible
+        hideTimer.stop()
+        return passed
     }
 
     onPlayingChanged: scheduleHide()
