@@ -1,104 +1,102 @@
-# Báo cáo thực hiện — LA Studio 0.0.2.6
+# Báo cáo thực hiện — LA Studio 0.0.2.7
 
 Ngày kiểm chứng: 2026-08-01
-Phạm vi: các mục B–F trong `docs/AI_AGENT_REQUEST.md`.
+Phạm vi: hoàn tất các mục A–G của `docs/AI_AGENT_REQUEST.md`, dựa trên baseline 0.0.2.6.
 
-## Git và phạm vi thay đổi
+## Commit và phạm vi
 
-- Làm trực tiếp trên `main`; source, regression và version đã được commit/push lên `origin/main` tại `e439b14` (`feat: add managed subtitle OCR runtime`).
-- Đã giữ nguyên và không stage/commit các file ngoài phạm vi: `docs/AI_AGENT_REQUEST.md`, `docs/AI_AGENT_HANDOFF_2026-07-30.md`, `qml/components/shared/VoiceLibraryDialog.qml`, `.agents/`, Graphify, `out/` và log test tạm.
-- Version nguồn, EXE và package mới đều là `0.0.2.6`; không ghi đè package `0.0.2.5`.
-- Graphify đã cập nhật sau source edit. Dữ liệu graph là generated/local, không được commit.
+- Source, regression và version đã được commit/push trực tiếp lên `origin/main`: `7bb6b0b` — `fix: complete responsive subtitle OCR workflow`.
+- Báo cáo này được commit/push riêng sau source commit.
+- Không stage/commit: `docs/AI_AGENT_REQUEST.md`, `docs/AI_AGENT_HANDOFF_2026-07-30.md`, `qml/components/shared/VoiceLibraryDialog.qml`, `.agents/`, Graphify, `out/`, log test hoặc dữ liệu nhạy cảm.
+- Source/package mới là `0.0.2.7`; không đè hoặc tái dùng `0.0.2.6`.
 
-## B–C. Runtime và language pack cho Subtitle OCR
+## Root cause và sửa layout Subtitle OCR
 
-`SubtitleOcrRuntimeService` được thêm vào luồng controller/QML. Tesseract không còn phụ thuộc PATH mặc định, không tự tải nền và không yêu cầu quyền admin.
+Nguyên nhân của giao diện chồng/cắt là trang cũ ghép `anchors.fill` với layout của cùng vùng, dùng `RowLayout` kéo chiều cao và card có sizing ngầm không phù hợp. Không có một viewport scroll có ownership rõ ràng, nên preview, runtime, language list và action có thể tranh cùng không gian.
 
-- Người dùng phải bấm **Install runtime** trong Subtitle OCR. UI hiển thị `Missing`, `Downloading`, `Installing`, `Installed`, `Invalid` hoặc `Failed`, nguồn runtime, path đang dùng, byte progress khi server báo content length, lỗi, retry và cancel.
-- Runtime installer được pin tại Tesseract `5.5.3.20260724`, URL/version/size/SHA-256 được đóng trong manifest; checksum phải đúng trước khi cài. Cài đặt dùng staging app-owned và promote atomic, nên download/cài thất bại không phá runtime đang có.
-- Vị trí managed sau khi cài là app data `subtitle-ocr/runtime/tesseract.exe`; lần mở sau tự phát hiện bằng manifest. `LASTUDIO_TESSERACT` vẫn là advanced override rõ ràng trên UI và không bị ghi đè.
-- Sáu gói `tessdata_fast` có thể cài độc lập: `eng`, `vie`, `chi_sim`, `chi_tra`, `jpn`, `kor`. Mỗi gói pin commit/URL/size/SHA-256, kiểm tra trước khi atomic replace. Gói lỗi hoặc bị hủy giữ nguyên file hợp lệ cũ.
-- Trước khi OCR, controller kiểm tra runtime và language được chọn; thiếu dependency bị chặn với thông báo/luồng cài rõ ràng, không fallback sang PATH hoặc tải ngầm.
-- Portable package chỉ mang `subtitle-ocr/runtime-manifest.json` và `licenses/tesseract/RUNTIME-NOTICE.md`; không bundle Tesseract binary/traineddata. Manifest quy định Apache-2.0 và explicit user download.
+`SubtitleOcrPage.qml` được tổ chức lại thành:
 
-Cách dùng sau khi người dùng tự mở app:
+1. Source media: chọn local, kéo-thả, hoặc nhập URL.
+2. Preview video và ROI.
+3. Runtime OCR và language packs có vùng cuộn riêng.
+4. Settings/action.
+5. Reviewed transcript/export.
 
-1. Mở **Subtitle OCR**.
-2. Bấm **Install runtime**, chờ checksum và cài hoàn tất.
-3. Bấm **Install** cho ngôn ngữ cần dùng, ví dụ `vie` hoặc `chi_sim`.
-4. Chọn language, xác định ROI và chạy OCR. Nếu dùng `LASTUDIO_TESSERACT`, UI sẽ báo đây là override; language pack managed không được cài lẫn vào runtime bên ngoài.
+Trang dùng `ScrollView` + `ColumnLayout` + `GridLayout`, hai cột khi rộng và một cột khi hẹp; không trộn anchor với `Layout` trên cùng item. Card có `implicitHeight`/geometry rõ ràng, System Logs không phủ nội dung. ROI giữ mapping normalized theo vùng ảnh (không theo letterbox), tám handle, kéo di chuyển, preset lower region, reset và crop preview đều nằm trong preview.
 
-## D. UI, route và ROI
+QML route smoke kiểm tra geometry/no-overlap, content scroll, controls source vẫn usable khi runtime `Missing`, tám ROI handles và layout tại 1024×720, 1280×800, 1600×900. Smoke cũng kiểm tra Home có chính xác 10 card, card 09/10, route và vùng card không giao nhau.
 
-- Route sidebar `subtitle-ocr` thực sự nạp `SubtitleOcrPage` qua registry/main loader.
-- ROI giữ mapping normalized tới source frame, gồm letterbox/resize/HiDPI; có drag move, tám handle resize cạnh/góc, preset lower region, reset và preview crop.
-- ROI rỗng hoặc ngoài biên bị chặn trước khi pipeline chạy.
-- Regression mới kiểm tra QML route/source, wiring runtime UI, dynamic language pack, mapping crop/preview/reset và đúng tám ROI handles; không chỉ kiểm README.
+## Source media và shared public-media backend
 
-## E. Ma trận public-media dùng chung
+- **Choose video**, local drag/drop và **Import link** dùng controller/file access hiện có.
+- URL dùng `DubbingController`/`RemoteMediaImportService` dùng chung; không tạo downloader thứ hai, không persist URL/query, không cookie/login/DRM.
+- Direct media, YouTube, TikTok và Douyin đi qua adapter public-media hiện có. Progress là byte thực hoặc indeterminate; có cancel, error và retry.
+- Kết quả staged được `SubtitleOcrController` nhận trực tiếp, không tải lần hai. Probe/import fail giữ source OCR cũ.
+- Download tab có **Use in Subtitle OCR**, handoff staged file không redownload và chuyển route sang Subtitle OCR.
+- Runtime `Missing` chỉ khóa run/language install phụ thuộc runtime; không khóa source picker, drag/drop, link input, preview, timeline hoặc ROI.
 
-`RemoteMediaImportService` là backend chung của tab Download và Dubbing. Handoff dùng staged result đã sở hữu, không tải lần hai.
+Regression mới bao phủ shared-link success, active-transfer cancel/retry, probe failure giữ source cũ và handoff không redownload. Fixture public-video vẫn là adapter/loopback contract; không kết luận live download từ các nền tảng công khai.
 
-| Mục | Backend/kiểm tra source-loopback | Trạng thái live |
-| --- | --- | --- |
-| Direct HTTPS media | staging app-owned, byte progress, cancel dọn partial, giới hạn 2 GiB | BLOCKED — không gọi site thực |
-| YouTube URL | managed `yt-dlp`, một video `--no-playlist`, URL là positional arg sau `--` | BLOCKED — fixture/loopback chỉ kiểm contract |
-| TikTok URL | cùng managed adapter và contract an toàn | BLOCKED — fixture/loopback chỉ kiểm contract |
-| Douyin URL chuẩn | cùng managed adapter và contract an toàn | BLOCKED — fixture/loopback chỉ kiểm contract |
-| Douyin short link (`v.douyin.com`) | resolver contract có regression riêng | BLOCKED — fixture/loopback chỉ kiểm contract |
-| Redirect/private address | scheme, user-info, DNS/literal private address và redirect unsafe bị từ chối trước staging | PASS source/loopback |
-| Playlist/injection/cookie | `--no-playlist`, không cookie/login, không shell concatenation, URL độc hại vẫn là positional arg | PASS source/loopback |
-| Probe/handoff | ffprobe/normalize trước commit project; fail giữ project cũ; shared staged media không redownload | Một phần BLOCKED vì FFmpeg/FFprobe managed runtime không có trong CLI test environment |
+## Home
 
-Không có cookie, profile, login hay website công khai thực nào được dùng. Do đó không đánh đồng fixture với việc tải thật từ YouTube/TikTok/Douyin.
+Home lấy card từ `StudioRouteRegistry.homeFeatureCards`, cùng nguồn với route/sidebar:
 
-## Kiểm thử đã chạy
+- **09 Download** → `media-download`
+- **10 Subtitle OCR** → `subtitle-ocr`
 
-Targeted suite:
+Hai card dùng cùng component/style/repeater, số thứ tự, accent, category, title, description, Open và click toàn card như 01–08. Heading/count đã cập nhật 10 feature cards.
+
+## Kiểm chứng tự động
+
+Đã chạy QML lint, targeted OCR/media/QML smoke và full CTest. Media integration được chạy với FFmpeg/FFprobe staged thật tại `out/ffmpeg-runtime-validation/bin/media-tools`; ba ca trước đây SKIP đều PASS:
+
+- direct-link probe/normalize chỉ commit sau thành công;
+- standalone staged download handoff không redownload;
+- probe failure giữ project/source cũ.
+
+Kết quả full: **38/38 CTest PASS, 0 failed** (47.41 giây). Test runner Windows cũng được sửa để CTest hiển thị PASS/FAIL/SKIP chi tiết thay vì chỉ trả một kết quả xanh không có bằng chứng.
+
+Lệnh chính:
 
 ```powershell
-ctest --test-dir out\build\windows-msvc-tests -R '^(TestSubtitleOcrRuntimeService|TestSubtitleOcrController|TestSubtitleOcrPipeline|TestMediaIngestService)$' --output-on-failure
+$runtime = (Resolve-Path out\ffmpeg-runtime-validation\bin\media-tools).Path
+$env:LASTUDIO_FFMPEG = Join-Path $runtime 'ffmpeg.exe'
+$env:LASTUDIO_FFPROBE = Join-Path $runtime 'ffprobe.exe'
+ctest --test-dir out\build\windows-msvc-tests --output-on-failure
 ```
 
-Kết quả: **4/4 test executables passed**.
+Graphify đã được cập nhật sau source edit; graph là generated local và không commit.
 
-Full suite:
+## Portable package nội bộ
 
-```powershell
-ctest --test-dir out\build\windows-msvc-tests --parallel 4 --output-on-failure
-```
-
-Kết quả: **38/38 test executables passed, 0 failed** (13.22 giây).
-
-`TestSubtitleOcrRuntimeService` có 7 regression: pin manifest/checksum/sáu gói language, replace atomic, checksum-failure preservation, runtime promotion/reopen, cancel/error/retry state, QML/route/ROI wiring. `TestSubtitleOcrController` và `TestSubtitleOcrPipeline` đều pass 8 ca.
-
-Trong `TestMediaIngestService`, 15 ca pass và 3 ca bị **SKIP có điều kiện**: controller FFprobe/normalize, handoff no-redownload và probe-failure preservation cần managed FFmpeg/FFprobe mà môi trường CLI không cài qua `LASTUDIO_FFMPEG`/`LASTUDIO_FFPROBE`. CTest vẫn pass; ba ca đó không được báo là live/integration PASS.
-
-## Package portable nội bộ
-
-Lệnh đóng gói CLI (không mở EXE/browser/GUI):
+Lệnh build/stage CLI, không mở EXE/browser/GUI:
 
 ```powershell
-.\scripts\package.ps1 -Preset windows-msvc-release -QtRoot .tools\Qt\6.9.3 -VcpkgRoot .deps\vcpkg -LlamaCppSourceDir .deps\llama.cpp -Version 0.0.2.6 -SkipInstaller -PortableInternalLayout -AllowUnsignedEspeakForInternalBuild
+.\scripts\package.ps1 -Preset windows-msvc-release -QtRoot .tools\Qt\6.9.3 -VcpkgRoot .deps\vcpkg -LlamaCppSourceDir .deps\llama.cpp -Version 0.0.2.7 -SkipInstaller -PortableInternalLayout -AllowUnsignedEspeakForInternalBuild
 ```
 
 | Hạng mục | Kết quả |
 | --- | --- |
-| Artifact | `out/LA-Studio-0.0.2.6/LA-Studio-0.0.2.6.exe` |
-| File/Product version | `0.0.2.6` |
-| SHA-256 | `AC9D59BFD83BD70A8AD49B2E866E8F623AB8D33B8F81B75DB51C60C1ED65125C` |
-| Staging manifest | script xác minh 19 artifact bắt buộc |
+| Artifact | `out/LA-Studio-0.0.2.7/LA-Studio-0.0.2.7.exe` |
+| File/Product/Original version | `0.0.2.7` |
+| SHA-256 | `A400D25F68ECBD7FDCD84AF5DA7CF9A79369DCE94471A022528779773FEC6EA5` |
+| Package manifest | script xác minh 19 artifact bắt buộc |
 | License manifest | script xác minh 18 artifact bắt buộc |
-| OCR manifest/notice | có `subtitle-ocr/runtime-manifest.json`, `subtitle-ocr/README.txt`, `licenses/tesseract/RUNTIME-NOTICE.md` |
-| Runtime media | staged FFmpeg/FFprobe và yt-dlp managed |
+| Media runtime | managed FFmpeg/FFprobe + yt-dlp đã stage |
+| OCR manifest | `subtitle-ocr/runtime-manifest.json`, explicit user download, runtime/language hash pinned |
 
-Package này là **internal-only**: script đã cảnh báo eSpeak NG MSI SHA-256 hợp lệ nhưng không ký số. Không dùng artifact này làm bản public distribution.
+Đây là internal-only package: script cảnh báo eSpeak NG MSI hash hợp lệ nhưng unsigned; không coi là artifact public distribution.
 
-## Giới hạn còn BLOCKED
+## Checklist manual cần người dùng xác nhận
 
-- Không chạy live OCR trên video của người dùng, không tải/cài Tesseract/traineddata thật và không mở EXE; hành vi đã kiểm qua source, mock/loopback và package inspection.
-- Không chạy live Colab GPU/notebook/token; không kết luận inference hoặc chất lượng model thật.
-- Không truy cập public YouTube/TikTok/Douyin; contract adapter được kiểm fixture/loopback, live-site là BLOCKED.
-- Ba media integration test cần managed FFmpeg/FFprobe đang SKIP trong môi trường CLI như mô tả ở trên.
+Không có GUI PASS trong báo cáo này vì agent không mở EXE hay điều khiển máy. Hãy mở đúng:
 
-Automation 30 phút trùng trước đó đã được gỡ theo request; automation theo giờ đã có vẫn được giữ nguyên. Không tạo automation mới trong vòng này.
+`out/LA-Studio-0.0.2.7/LA-Studio-0.0.2.7.exe`
+
+1. Resize cửa sổ khoảng 1024×720, 1280×800, 1600×900; mở Subtitle OCR và xác nhận không chồng/cắt/đơ.
+2. Khi runtime Missing, thử Choose video, kéo-thả file, nhập URL, xem preview và chỉnh ROI; chỉ Run/language install phụ thuộc runtime bị khóa.
+3. Thử link hợp lệ, cancel khi đang tải, Retry, và link/media lỗi; source cũ phải còn nguyên.
+4. Ở Download, sau khi staged xong bấm **Use in Subtitle OCR**; phải chuyển sang OCR mà không tải lại.
+5. Kiểm tra Home card 09 Download và 10 Subtitle OCR mở đúng route.
+
+Các live service YouTube/TikTok/Douyin, cài runtime/language thật và OCR trên video của người dùng vẫn cần nghiệm thu thủ công; chúng không được tuyên bố PASS chỉ từ fixture/loopback.
