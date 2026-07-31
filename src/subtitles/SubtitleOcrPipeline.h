@@ -4,6 +4,8 @@
 #include <QStringList>
 #include <QVector>
 
+#include <QByteArray>
+
 namespace LAStudio {
 
 struct SubtitleOcrRoi {
@@ -42,6 +44,7 @@ public:
     static QVector<qint64> sampleTimes(qint64 durationMs, qint64 intervalMs);
     static QVector<SubtitleOcrSegment> mergeObservations(const QVector<SubtitleOcrObservation> &observations,
                                                           qint64 intervalMs, double minimumConfidence);
+    static SubtitleOcrObservation parseTesseractTsv(const QByteArray &tsv, qint64 timestampMs);
     static QString toSrt(const QVector<SubtitleOcrSegment> &segments);
 };
 

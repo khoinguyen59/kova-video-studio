@@ -37,6 +37,7 @@
 #include "VoiceDesignPresetService.h"
 #include "SttSessionController.h"
 #include "SubtitleVoiceController.h"
+#include "controllers/subtitles/SubtitleOcrController.h"
 #include "controllers/tts/GatewayTtsController.h"
 #include "controllers/tts/ColabTtsController.h"
 #include "controllers/tts/ColabVoiceCloneController.h"
@@ -101,6 +102,7 @@ class AppController : public QObject {
     Q_PROPERTY(ColabVoiceCloneController* colabVoiceClone READ colabVoiceClone CONSTANT)
     Q_PROPERTY(ColabVoiceDesignController* colabVoiceDesign READ colabVoiceDesign CONSTANT)
     Q_PROPERTY(SubtitleVoiceController* subtitleVoice READ subtitleVoice CONSTANT)
+    Q_PROPERTY(SubtitleOcrController* subtitleOcr READ subtitleOcr CONSTANT)
     Q_PROPERTY(DubbingController* dubbing READ dubbing CONSTANT)
     Q_PROPERTY(VoiceIsolatorController* voiceIsolator READ voiceIsolator CONSTANT)
     Q_PROPERTY(ColabVoiceIsolatorController* colabVoiceIsolator READ colabVoiceIsolator CONSTANT)
@@ -168,6 +170,7 @@ public:
     ColabVoiceCloneController* colabVoiceClone() const { return m_colabVoiceClone; }
     ColabVoiceDesignController* colabVoiceDesign() const { return m_colabVoiceDesign; }
     SubtitleVoiceController* subtitleVoice() const { return m_subtitleVoice; }
+    SubtitleOcrController* subtitleOcr() const { return m_subtitleOcr; }
     DubbingController* dubbing() const { return m_dubbing; }
     VoiceIsolatorController* voiceIsolator() const { return m_voiceIsolator; }
     ColabVoiceIsolatorController* colabVoiceIsolator() const { return m_colabVoiceIsolator; }
@@ -249,6 +252,7 @@ private:
     ColabVoiceCloneController* m_colabVoiceClone = nullptr;
     ColabVoiceDesignController* m_colabVoiceDesign = nullptr;
     SubtitleVoiceController* m_subtitleVoice = nullptr;
+    SubtitleOcrController* m_subtitleOcr = nullptr;
     DubbingController* m_dubbing = nullptr;
     VoiceIsolatorController* m_voiceIsolator = nullptr;
     ColabVoiceIsolatorController* m_colabVoiceIsolator = nullptr;

@@ -3493,6 +3493,54 @@ bool DubbingController::renderPreview(const QString &path)
     return m_runner->renderPreview(m_project.segments, m_project.projectPath, path);
 }
 
+bool DubbingController::replaceTranscriptSegments(const QVariantList &ocrSegments)
+{
+    if (processing()) {
+        setError(QStringLiteral("Wait for the current Dubbing operation before replacing its transcript."));
+        return false;
+    }
+    if (!hasProject()) {
+        setError(QStringLiteral("Open a Dubbing project before importing reviewed Subtitle OCR results."));
+        return false;
+    }
+    if (ocrSegments.isEmpty()) {
+        setError(QStringLiteral("Subtitle OCR did not provide any reviewed transcript segments."));
+        return false;
+    }
+
+    QVariantList replacement;
+    replacement.reserve(ocrSegments.size());
+    for (const QVariant &entry : ocrSegments) {
+        const QVariantMap ocr = entry.toMap();
+        const qint64 startMs = ocr.value(QStringLiteral("startMs")).toLongLong();
+        const qint64 endMs = ocr.value(QStringLiteral("endMs")).toLongLong();
+        const QString sourceText = ocr.value(QStringLiteral("text")).toString().trimmed();
+        if (startMs < 0 || endMs <= startMs || sourceText.isEmpty()) {
+            setError(QStringLiteral("Subtitle OCR contains an invalid reviewed segment."));
+            return false;
+        }
+        QVariantMap segment;
+        segment.insert(QStringLiteral("id"), QUuid::createUuid().toString(QUuid::WithoutBraces));
+        segment.insert(QStringLiteral("startMs"), startMs);
+        segment.insert(QStringLiteral("endMs"), endMs);
+        segment.insert(QStringLiteral("sourceText"), sourceText);
+        segment.insert(QStringLiteral("targetText"), QString());
+        segment.insert(QStringLiteral("speakerId"), QStringLiteral("speaker-1"));
+        segment.insert(QStringLiteral("state"), QStringLiteral("draft"));
+        segment.insert(QStringLiteral("timingSource"), QStringLiteral("subtitle-ocr"));
+        segment.insert(QStringLiteral("alignmentStatus"), QStringLiteral("pending"));
+        segment.insert(QStringLiteral("ocrConfidence"), ocr.value(QStringLiteral("confidence")));
+        replacement.append(segment);
+    }
+
+    m_project.segments = replacement;
+    clearError();
+    emit segmentsChanged();
+    emit workflowChanged();
+    persistAfterEdit();
+    return true;
+}
+
 void DubbingController::addSegment(qint64 startMs, qint64 endMs, const QString &sourceText)
 {
     if (endMs <= startMs) {

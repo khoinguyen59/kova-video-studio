@@ -225,6 +225,9 @@ public:
     Q_INVOKABLE bool exportSubtitles(const QString &path, bool useTargetText = true);
     Q_INVOKABLE bool exportPackage(const QString &directoryPath);
     Q_INVOKABLE bool exportCapCutDraft(const QString &directoryPath);
+    // Imports reviewed OCR results only after an existing Dubbing project is
+    // open. The source media/project is left unchanged on validation failure.
+    Q_INVOKABLE bool replaceTranscriptSegments(const QVariantList &ocrSegments);
     Q_INVOKABLE void addSegment(qint64 startMs, qint64 endMs, const QString &sourceText = QString());
     Q_INVOKABLE void updateSegment(int index, const QVariantMap &patch);
     Q_INVOKABLE void removeSegment(int index);

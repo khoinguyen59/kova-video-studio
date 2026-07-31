@@ -21,6 +21,7 @@ QtObject {
         "developer": 12,
         "settings": 13,
         "media-download": 14,
+        "subtitle-ocr": 15,
         "tools-alignment": 6
     }
 
@@ -40,7 +41,8 @@ QtObject {
         { id: "my-models", label: qsTr("My Models"), iconName: "folder" },
         { id: "developer", label: qsTr("Developer"), iconName: "code" },
         { id: "settings", label: qsTr("Settings"), iconName: "settings" },
-        { id: "media-download", label: qsTr("Download"), iconName: "download" }
+        { id: "media-download", label: qsTr("Download"), iconName: "download" },
+        { id: "subtitle-ocr", label: qsTr("Subtitle OCR"), iconName: "scan" }
     ]
 
     readonly property var capabilityRouteMap: {

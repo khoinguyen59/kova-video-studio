@@ -607,6 +607,46 @@ function Stage-ThirdPartyLicenseTexts {
     }
 }
 
+function Stage-SubtitleOcrRuntimeManifest {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $RepositoryRoot,
+        [Parameter(Mandatory = $true)]
+        [string] $DeployRoot,
+        [Parameter(Mandatory = $true)]
+        [string] $StageRoot
+    )
+
+    # Tesseract is deliberately not fetched by either the packager or the
+    # app. The release payload instead makes the local-only resolution and
+    # license/provenance obligation explicit beside the optional runtime path.
+    $noticeSource = Join-Path $RepositoryRoot "resources\SUBTITLE-OCR-RUNTIME.md"
+    if (-not (Test-Path -LiteralPath $noticeSource -PathType Leaf)) {
+        throw "Subtitle OCR runtime manifest source was not found: $noticeSource"
+    }
+    $runtimeRoot = Join-Path $DeployRoot "subtitle-ocr"
+    New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
+    Copy-Item -LiteralPath $noticeSource -Destination (Join-Path $runtimeRoot "README.txt") -Force
+    $manifest = [ordered]@{
+        schemaVersion = 1
+        component = "Tesseract OCR"
+        executable = "tesseract.exe"
+        bundled = $false
+        localOnly = $true
+        automaticDownload = $false
+        resolutionOrder = @("subtitle-ocr/tesseract.exe", "LASTUDIO_TESSERACT", "PATH")
+        languageVerification = "tesseract --list-langs"
+        license = "Apache-2.0"
+        source = "https://github.com/tesseract-ocr/tesseract"
+        languageDataSource = "https://github.com/tesseract-ocr/tessdata"
+    }
+    $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $runtimeRoot "runtime-manifest.json") -Encoding UTF8
+    $licenseRoot = Join-Path $StageRoot "licenses\tesseract"
+    New-Item -ItemType Directory -Path $licenseRoot -Force | Out-Null
+    Copy-Item -LiteralPath $noticeSource -Destination (Join-Path $licenseRoot "RUNTIME-NOTICE.md") -Force
+    Write-Host ">> Staged Subtitle OCR runtime manifest (external runtime; no automatic download)" -ForegroundColor Green
+}
+
 function Copy-VcpkgRuntimeLibraries {
     param(
         [string] $BuildDirectory,
@@ -783,6 +823,7 @@ $sevenZipSource = Ensure-ArchiveExtractor -DeployRoot $deployRoot -VcpkgRoot $Vc
 Ensure-Bsdtar -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir -BuildDirectory $buildDir -Triplet $vcpkgTriplet
 Ensure-FfmpegRuntime -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir
 Ensure-YtDlpRuntime -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir
+Stage-SubtitleOcrRuntimeManifest -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir
 Stage-ThirdPartyLicenseTexts -RepositoryRoot $RepoRoot -StageRoot $stageDir -BuildDirectory $buildDir -Triplet $vcpkgTriplet -QtRoot $QtRoot -SevenZipSource $sevenZipSource
 if ($AllowUnsignedEspeakForInternalBuild) {
     Write-Warning "INTERNAL BUILD ONLY: permitting the SHA-256-verified but unsigned eSpeak NG MSI. Do not distribute this package or promote it to a release."

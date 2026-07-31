@@ -20,6 +20,12 @@ notice does not replace those terms.
 | yt-dlp | 2026.07.04 standalone executable, SHA-256-pinned and staged only for public video-page resolution | Unlicense | [yt-dlp releases](https://github.com/yt-dlp/yt-dlp/releases) |
 | VietNorm text normalization | Port of `vietnormalizer` 0.2.3 commit `dd38778731d6ca4e9e670a19abb2df1c901a1852` and `nghitts` material | MIT and Apache-2.0 | `src/textnorm/UPSTREAM.md`, `licenses/vietnorm/NOTICE` |
 
+## External, user-supplied runtime
+
+| Component | Delivery and verification | License | Source / notice |
+|---|---|---|---|
+| Tesseract OCR and trained language data | Not bundled and never downloaded by LA Studio. The staged `subtitle-ocr/runtime-manifest.json` and `subtitle-ocr/README.txt` document the local deployment paths; the app runs `tesseract --list-langs` before work begins. | Apache-2.0 | [Tesseract OCR](https://github.com/tesseract-ocr/tesseract), [language data](https://github.com/tesseract-ocr/tessdata) |
+
 ## Installer-staged runtime
 
 | Component | Version / provenance | License | Source / notice |

@@ -1,5 +1,6 @@
 #include "subtitles/SubtitleOcrPipeline.h"
 
+#include <QHash>
 #include <QtMath>
 
 namespace LAStudio {
@@ -52,6 +53,54 @@ QVector<SubtitleOcrSegment> SubtitleOcrPipeline::mergeObservations(
         result.append({observation.timestampMs, observation.timestampMs + intervalMs, text, observation.confidence});
     }
     return result;
+}
+
+SubtitleOcrObservation SubtitleOcrPipeline::parseTesseractTsv(const QByteArray &tsv,
+                                                               qint64 timestampMs)
+{
+    struct Line {
+        QStringList words;
+        double confidenceTotal = 0.0;
+        int confidenceCount = 0;
+    };
+
+    QVector<Line> lines;
+    QHash<QString, int> lineIndexes;
+    const QList<QByteArray> rows = tsv.split('\n');
+    for (const QByteArray &rawRow : rows) {
+        const QStringList columns = QString::fromUtf8(rawRow).trimmed().split(QLatin1Char('\t'));
+        // Tesseract TSV has 12 columns. Its first row is the header and the
+        // final text field can contain a tab, hence rejoin columns after it.
+        if (columns.size() < 12 || columns.constFirst() == QStringLiteral("level")) continue;
+        bool confidenceOk = false;
+        const double confidence = columns.at(10).toDouble(&confidenceOk);
+        const QString word = columns.mid(11).join(QLatin1Char('\t')).trimmed();
+        if (!confidenceOk || confidence < 0.0 || word.isEmpty()) continue;
+
+        const QString key = columns.at(2) + QLatin1Char(':') + columns.at(3)
+            + QLatin1Char(':') + columns.at(4);
+        int index = lineIndexes.value(key, -1);
+        if (index < 0) {
+            index = lines.size();
+            lineIndexes.insert(key, index);
+            lines.append(Line{});
+        }
+        lines[index].words.append(word);
+        lines[index].confidenceTotal += confidence / 100.0;
+        ++lines[index].confidenceCount;
+    }
+
+    QStringList textLines;
+    double confidenceTotal = 0.0;
+    int confidenceCount = 0;
+    for (const Line &line : lines) {
+        if (line.words.isEmpty() || line.confidenceCount <= 0) continue;
+        textLines.append(line.words.join(QLatin1Char(' ')));
+        confidenceTotal += line.confidenceTotal / line.confidenceCount;
+        ++confidenceCount;
+    }
+    return {timestampMs, textLines.join(QLatin1Char('\n')),
+            confidenceCount > 0 ? confidenceTotal / confidenceCount : 0.0};
 }
 
 static QString timestamp(qint64 value)

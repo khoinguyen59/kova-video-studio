@@ -12,6 +12,7 @@ private slots:
     void buildsPortableFfmpegCropArguments();
     void samplesDurationWithoutDuplicatingTheFinalFrame();
     void mergesRepeatedTextAndSkipsLowConfidenceObservations();
+    void parsesMultilineUnicodeTesseractTsv();
     void exportsStableSrtTiming();
 };
 

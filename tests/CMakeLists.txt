@@ -28,6 +28,7 @@ set(TEST_SOURCES
     test_ColabChatRunner.h
     test_SubtitleVoice.cpp
     test_SubtitleOcrPipeline.cpp
+    test_SubtitleOcrController.cpp
     test_TtsTextPreprocessor.cpp
     test_TtsRequestValidator.cpp
     test_LlmChatEngine.cpp
@@ -54,6 +55,7 @@ set(TEST_SOURCES
     mocks/AppController.cpp
     test_SubtitleVoice.h
     test_SubtitleOcrPipeline.h
+    test_SubtitleOcrController.h
 
     ../src/api/ApiServerService.cpp
 
@@ -109,8 +111,10 @@ set(TEST_SOURCES
     ../src/controllers/tts/ColabVoiceCloneController.cpp
     ../src/controllers/tts/ColabVoiceDesignController.cpp
     ../src/controllers/tts/SubtitleVoiceController.cpp
+    ../src/controllers/subtitles/SubtitleOcrController.cpp
     ../src/subtitles/SrtTimelineParser.cpp
     ../src/subtitles/SubtitleOcrPipeline.cpp
+    ../src/subtitles/SubtitleOcrRuntimeLocator.cpp
     ../src/tts/SubtitleSmartFitPlanner.cpp
     ../src/tts/TextNormalizationPolicy.cpp
     ../src/tts/TtsTextPreprocessor.cpp
@@ -208,6 +212,8 @@ set(TEST_SOURCES
     ../src/core/DownloadManager.h
     ../src/core/MediaRuntimeLocator.h
     ../src/subtitles/SubtitleOcrPipeline.h
+    ../src/subtitles/SubtitleOcrRuntimeLocator.h
+    ../src/controllers/subtitles/SubtitleOcrController.h
     ../src/api/ApiServerService.h
     ../src/stt/SttEngine.h
     ../src/stt/SttEngineInstance.h
@@ -388,6 +394,7 @@ set(LASTUDIO_TEST_SUITES
     TestSourceSeparation
     TestSubtitleVoice
     TestSubtitleOcrPipeline
+    TestSubtitleOcrController
     TestRuntimeHostProtocol
     TestMediaIngestService
     TestMediaToolService

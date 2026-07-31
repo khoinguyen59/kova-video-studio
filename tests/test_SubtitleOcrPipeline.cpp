@@ -51,6 +51,19 @@ void TestSubtitleOcrPipeline::mergesRepeatedTextAndSkipsLowConfidenceObservation
     QCOMPARE(segments.at(1).endMs, qint64(4000));
 }
 
+void TestSubtitleOcrPipeline::parsesMultilineUnicodeTesseractTsv()
+{
+    const QByteArray tsv = QByteArrayLiteral("level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n")
+        + QString::fromUtf8("5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t96\tXin\n"
+                            "5\t1\t1\t1\t1\t2\t10\t0\t10\t10\t94\tchào\n"
+                            "5\t1\t1\t1\t2\t1\t0\t10\t10\t10\t92\t中文 日本語 한국어\n")
+              .toUtf8();
+    const SubtitleOcrObservation observation = SubtitleOcrPipeline::parseTesseractTsv(tsv, 1250);
+    QCOMPARE(observation.timestampMs, qint64(1250));
+    QCOMPARE(observation.text, QString::fromUtf8("Xin chào\n中文 日本語 한국어"));
+    QVERIFY(observation.confidence > 0.90 && observation.confidence < 0.95);
+}
+
 void TestSubtitleOcrPipeline::exportsStableSrtTiming()
 {
     const QString srt = SubtitleOcrPipeline::toSrt({

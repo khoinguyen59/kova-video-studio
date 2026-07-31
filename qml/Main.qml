@@ -196,6 +196,7 @@ ApplicationWindow {
         case 12: return developerLoader.status === Loader.Ready
         case 13: return settingsLoader.status === Loader.Ready
         case 14: return mediaDownloadLoader.status === Loader.Ready
+        case 15: return subtitleOcrLoader.status === Loader.Ready
         default: return false
         }
     }
@@ -671,6 +672,13 @@ ApplicationWindow {
                             stack.currentIndex = StudioRouteRegistry.getIndex("studio-dubbing")
                         }
                     }
+                }
+                Loader {
+                    id: subtitleOcrLoader
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    active: stack.currentIndex === 15
+                    sourceComponent: SubtitleOcrPage {}
                 }
                 }
 

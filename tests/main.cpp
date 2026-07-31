@@ -23,6 +23,7 @@
 #include "test_HardwareManager.h"
 #include "test_SubtitleVoice.h"
 #include "test_SubtitleOcrPipeline.h"
+#include "test_SubtitleOcrController.h"
 #include "test_TtsTextPreprocessor.h"
 #include "test_TtsRequestValidator.h"
 #include "test_LlmChatEngine.h"
@@ -170,6 +171,11 @@ int main(int argc, char *argv[])
     {
         LAStudio::TestSubtitleOcrPipeline suite;
         runSuite(&suite, "TestSubtitleOcrPipeline");
+    }
+
+    {
+        LAStudio::TestSubtitleOcrController suite;
+        runSuite(&suite, "TestSubtitleOcrController");
     }
 
     {
