@@ -2748,6 +2748,19 @@ void TestDubbingProject::resolvesGlobalTimingConflictsWithRippleAndUndo()
     QCOMPARE(analysis.value(QStringLiteral("blockingConflictCount")).toInt(), 2);
     QCOMPARE(analysis.value(QStringLiteral("conflicts")).toList().size(), 2);
 
+    const QVariantList exactBoundary{
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("boundary-a")},
+                    {QStringLiteral("startMs"), 0}, {QStringLiteral("endMs"), 1000},
+                    {QStringLiteral("durationMs"), 1000}},
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("boundary-b")},
+                    {QStringLiteral("startMs"), 1100}, {QStringLiteral("endMs"), 2100},
+                    {QStringLiteral("durationMs"), 1000}}
+    };
+    const QVariantMap boundaryAnalysis =
+        DubbingTimingService::analyzeSpeechOverlaps(exactBoundary, 100);
+    QCOMPARE(boundaryAnalysis.value(QStringLiteral("blockingConflictCount")).toInt(), 0);
+    QVERIFY(boundaryAnalysis.value(QStringLiteral("conflicts")).toList().isEmpty());
+
     QVariantMap rippleReport;
     QString error;
     const QVariantList rippled = DubbingTimingService::rippleForward(segments, 100, &rippleReport, &error);
@@ -2771,11 +2784,31 @@ void TestDubbingProject::resolvesGlobalTimingConflictsWithRippleAndUndo()
     controller.addSegment(600, 1200, QStringLiteral("Second"));
     controller.updateSegment(0, {{QStringLiteral("durationMs"), 1000}});
     controller.updateSegment(1, {{QStringLiteral("durationMs"), 900}});
+    DubbingJobRunner *runner = controller.findChild<DubbingJobRunner *>();
+    QVERIFY(runner);
+    runner->setPreviewPath(QStringLiteral("stale-preview.wav"));
+    runner->setExportPath(QStringLiteral("stale-export.mp4"));
+    const QVariantMap staleMixOutput{{QStringLiteral("audio"),
+                                      QStringLiteral("stale-preview.wav")}};
+    const QVariantMap staleExportOutput{{QStringLiteral("video"),
+                                         QStringLiteral("stale-export.mp4")}};
+    QVERIFY(QMetaObject::invokeMethod(runner, "stageCompleted", Qt::DirectConnection,
+                                      Q_ARG(QString, QStringLiteral("mix")),
+                                      Q_ARG(QVariantMap, staleMixOutput)));
+    QVERIFY(QMetaObject::invokeMethod(runner, "stageCompleted", Qt::DirectConnection,
+                                      Q_ARG(QString, QStringLiteral("export")),
+                                      Q_ARG(QVariantMap, staleExportOutput)));
+    QVERIFY(!controller.stepOutput(QStringLiteral("mix")).isEmpty());
+    QVERIFY(!controller.stepOutput(QStringLiteral("export")).isEmpty());
     QVERIFY(!controller.timingConflicts().isEmpty());
     const QVariantMap preview = controller.previewTimingResolution(QStringLiteral("ripple"), 100);
     QVERIFY(!preview.isEmpty());
     QVERIFY(controller.applyTimingResolution(QStringLiteral("ripple"), 100));
     QCOMPARE(controller.segments().at(1).toMap().value(QStringLiteral("startMs")).toLongLong(), qint64(1100));
+    QVERIFY(controller.stepOutput(QStringLiteral("mix")).isEmpty());
+    QVERIFY(controller.stepOutput(QStringLiteral("export")).isEmpty());
+    QVERIFY(controller.previewPath().isEmpty());
+    QVERIFY(controller.exportPath().isEmpty());
     QVERIFY(controller.timingUndoAvailable());
     QVERIFY(controller.undoTimingResolution());
     QCOMPARE(controller.segments().at(1).toMap().value(QStringLiteral("startMs")).toLongLong(), qint64(600));
