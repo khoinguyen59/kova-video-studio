@@ -246,6 +246,10 @@ void TestSubtitleOcrRuntimeService::responsiveLayoutSharedMediaAndHomeCardsAreWi
     QFile welcome(sourceRoot.filePath(QStringLiteral("qml/pages/WelcomePage.qml")));
     QFile routes(sourceRoot.filePath(QStringLiteral("qml/components/shared/StudioRouteRegistry.qml")));
     QFile main(sourceRoot.filePath(QStringLiteral("qml/Main.qml")));
+    QFile mediaControls(sourceRoot.filePath(
+        QStringLiteral("qml/components/shared/MediaControlsAutoHide.qml")));
+    QFile dubbingSource(sourceRoot.filePath(
+        QStringLiteral("qml/components/dubbing/DubbingSourceMediaPanel.qml")));
     QFile controller(sourceRoot.filePath(
         QStringLiteral("src/controllers/subtitles/SubtitleOcrController.cpp")));
     QVERIFY(page.open(QIODevice::ReadOnly));
@@ -253,6 +257,8 @@ void TestSubtitleOcrRuntimeService::responsiveLayoutSharedMediaAndHomeCardsAreWi
     QVERIFY(welcome.open(QIODevice::ReadOnly));
     QVERIFY(routes.open(QIODevice::ReadOnly));
     QVERIFY(main.open(QIODevice::ReadOnly));
+    QVERIFY(mediaControls.open(QIODevice::ReadOnly));
+    QVERIFY(dubbingSource.open(QIODevice::ReadOnly));
     QVERIFY(controller.open(QIODevice::ReadOnly));
 
     const QString pageSource = QString::fromUtf8(page.readAll());
@@ -260,6 +266,8 @@ void TestSubtitleOcrRuntimeService::responsiveLayoutSharedMediaAndHomeCardsAreWi
     const QString welcomeSource = QString::fromUtf8(welcome.readAll());
     const QString routeSource = QString::fromUtf8(routes.readAll());
     const QString mainSource = QString::fromUtf8(main.readAll());
+    const QString mediaControlsSource = QString::fromUtf8(mediaControls.readAll());
+    const QString dubbingSourceText = QString::fromUtf8(dubbingSource.readAll());
     const QString controllerSource = QString::fromUtf8(controller.readAll());
 
     QVERIFY(pageSource.contains(QStringLiteral("id: subtitleOcrScroll")));
@@ -276,6 +284,18 @@ void TestSubtitleOcrRuntimeService::responsiveLayoutSharedMediaAndHomeCardsAreWi
     QVERIFY(pageSource.contains(QStringLiteral("ocr.runtimeAvailable && root.selectedLanguageReady")));
     QCOMPARE(pageSource.count(QStringLiteral("subtitleOcrRoiHandle")), 8);
     QVERIFY(pageSource.contains(QStringLiteral("qmlSmokeLayoutCheck")));
+    QVERIFY(pageSource.contains(QStringLiteral("MediaControlsAutoHide")));
+    QVERIFY(pageSource.contains(QStringLiteral("subtitleOcrSharedMediaControls")));
+    QVERIFY(pageSource.contains(QStringLiteral("qmlSmokeMediaControlsCheck")));
+    QVERIFY(mediaControlsSource.contains(QStringLiteral("property int delayMs: 2000")));
+    QVERIFY(mediaControlsSource.contains(QStringLiteral("interactionActive")));
+    QVERIFY(mediaControlsSource.contains(QStringLiteral("menuOpen")));
+    QVERIFY(mediaControlsSource.contains(QStringLiteral("controlsFocused")));
+    QVERIFY(mediaControlsSource.contains(QStringLiteral("applyHideDecision")));
+    QVERIFY(dubbingSourceText.contains(QStringLiteral("MediaControlsAutoHide")));
+    QVERIFY(dubbingSourceText.contains(QStringLiteral("dubbingSharedMediaControls")));
+    QVERIFY(dubbingSourceText.contains(QStringLiteral("qmlSmokeMediaControlsCheck")));
+    QVERIFY(!dubbingSourceText.contains(QStringLiteral("interval: 2500")));
 
     QVERIFY(controllerSource.contains(QStringLiteral("m_dubbing->downloadMediaFromLink")));
     QVERIFY(controllerSource.contains(QStringLiteral("m_dubbing->downloadedMediaPath")));

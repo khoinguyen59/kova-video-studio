@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
 import QtMultimedia
+import "../components/shared"
 import LAStudio
 
 Page {
@@ -74,6 +75,11 @@ Page {
             && a.y < b.y + b.height - 1 && a.y + a.height > b.y + 1
     }
 
+    function qmlSmokeMediaControlsCheck() {
+        return subtitleControlsAutoHide.qmlSmokeStateCheck()
+                && subtitleControlsAutoHide.delayMs === 2000
+    }
+
     // Used by the offscreen QML route smoke. It verifies the responsive card
     // contract, child reachability and disabled-runtime behavior rather than
     // assuming a fixed window height or z-order.
@@ -106,6 +112,7 @@ Page {
             return false
         if (!runtime.runtimeAvailable && (languageSelector.enabled || runOcrButton.enabled))
             return false
+        if (!qmlSmokeMediaControlsCheck()) return false
         var transcriptRect = itemRectInContent(transcriptCard)
         if (subtitleOcrScroll.contentHeight < transcriptRect.y + transcriptRect.height - 1)
             return false
@@ -175,6 +182,12 @@ Page {
         source: ocr.sourceUrl
         audioOutput: AudioOutput {}
         videoOutput: videoPreviewOutput
+    }
+
+    MediaControlsAutoHide {
+        id: subtitleControlsAutoHide
+        playing: player.playbackState === MediaPlayer.PlayingState
+        controlsFocused: subtitlePlayButton.activeFocus || subtitleSeekSlider.activeFocus
     }
 
     ScrollView {
@@ -393,6 +406,7 @@ Page {
                                 color: Qt.rgba(0.45, 0.20, 1.0, 0.16)
                                 border.color: Theme.primary
                                 border.width: 2
+                                z: 3
                                 MouseArea {
                                     anchors.fill: parent
                                     drag.target: roiOverlay
@@ -412,12 +426,75 @@ Page {
                                 RoiHandle { objectName: "subtitleOcrRoiHandleT"; mode: "t"; x: parent.width / 2 - width / 2; y: -height / 2 }
                                 RoiHandle { objectName: "subtitleOcrRoiHandleB"; mode: "b"; x: parent.width / 2 - width / 2; y: parent.height - height / 2 }
                             }
-                        }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            Button { text: player.playbackState === MediaPlayer.PlayingState ? qsTr("Pause") : qsTr("Play"); enabled: ocr.sourcePath !== ""; onClicked: player.playbackState === MediaPlayer.PlayingState ? player.pause() : player.play() }
-                            Slider { Layout.fillWidth: true; from: 0; to: Math.max(1, ocr.durationMs); value: root.previewPositionMs; enabled: ocr.durationMs > 0; onMoved: player.position = value }
-                            Text { text: Math.round(player.position / 1000) + "s / " + Math.round(ocr.durationMs / 1000) + "s"; color: Theme.textSecondary }
+                            HoverHandler {
+                                id: subtitlePreviewHoverHandler
+                                enabled: ocr.sourcePath !== ""
+                                onHoveredChanged: subtitleControlsAutoHide.pointerInsideSurface = hovered
+                            }
+                            Rectangle {
+                                id: subtitleSharedMediaControls
+                                objectName: "subtitleOcrSharedMediaControls"
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+                                height: 48
+                                z: 5
+                                visible: ocr.sourcePath !== "" && (opacity > 0 || subtitleControlsAutoHide.controlsVisible)
+                                opacity: subtitleControlsAutoHide.controlsVisible ? 1 : 0
+                                Behavior on opacity { NumberAnimation { duration: 250 } }
+                                gradient: Gradient {
+                                    GradientStop { position: 0; color: "transparent" }
+                                    GradientStop { position: 1; color: Qt.rgba(0.06, 0.06, 0.09, 0.92) }
+                                }
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: Theme.paddingMedium
+                                    anchors.rightMargin: Theme.paddingMedium
+                                    spacing: Theme.paddingSmall
+                                    Button {
+                                        id: subtitlePlayButton
+                                        implicitWidth: 30
+                                        implicitHeight: 30
+                                        flat: true
+                                        contentItem: LineIcon {
+                                            anchors.centerIn: parent
+                                            name: player.playbackState === MediaPlayer.PlayingState ? "pause" : "play"
+                                            color: Theme.textPrimary
+                                            width: 15
+                                            height: 15
+                                        }
+                                        onClicked: {
+                                            player.playbackState === MediaPlayer.PlayingState ? player.pause() : player.play()
+                                            subtitleControlsAutoHide.noteInteraction()
+                                        }
+                                    }
+                                    Slider {
+                                        id: subtitleSeekSlider
+                                        Layout.fillWidth: true
+                                        from: 0
+                                        to: Math.max(1, ocr.durationMs)
+                                        value: root.previewPositionMs
+                                        enabled: ocr.durationMs > 0
+                                        onPressedChanged: {
+                                            subtitleControlsAutoHide.interactionActive = pressed
+                                            if (!pressed) {
+                                                player.position = value
+                                                subtitleControlsAutoHide.noteInteraction()
+                                            }
+                                        }
+                                        onMoved: {
+                                            player.position = value
+                                            subtitleControlsAutoHide.noteInteraction()
+                                        }
+                                    }
+                                    Text {
+                                        text: Math.round(player.position / 1000) + "s / "
+                                              + Math.round(ocr.durationMs / 1000) + "s"
+                                        color: Theme.textSecondary
+                                        font.pixelSize: Theme.fontSmall
+                                    }
+                                }
+                            }
                         }
                         Flow {
                             Layout.fillWidth: true

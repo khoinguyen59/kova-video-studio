@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtMultimedia
 import "../base"
+import "../shared"
 import "../shared/settings"
 import LAStudio
 
@@ -108,6 +109,17 @@ Rectangle {
     function seekToSegment(index) {
         if (mediaPlayer.seekable && index >= 0 && index < root.dubbing.segments.length)
             seekAll(root.dubbing.segments[index].startMs)
+    }
+
+    function qmlSmokeMediaControlsCheck() {
+        return controlsAutoHide.qmlSmokeStateCheck()
+                && controlsAutoHide.delayMs === 2000
+    }
+
+    MediaControlsAutoHide {
+        id: controlsAutoHide
+        playing: mediaPlayer.playbackState === MediaPlayer.PlayingState
+        controlsFocused: previewPlayButton.activeFocus || previewMuteButton.activeFocus
     }
 
     MediaPlayer {
@@ -333,20 +345,18 @@ Rectangle {
             }
             MouseArea { anchors.fill: parent; enabled: root.dubbing.sourceMediaPath.length === 0 && !root.dubbing.linkImporting; cursorShape: Qt.PointingHandCursor; onClicked: root.browseRequested() }
 
-            MouseArea {
-                id: hoverArea
-                anchors.fill: parent
-                visible: root.dubbing.sourceMediaPath.length > 0
-                hoverEnabled: true
-                preventStealing: true
-                onPositionChanged: controlsTimer.restart()
+            HoverHandler {
+                id: previewHoverHandler
+                enabled: root.dubbing.sourceMediaPath.length > 0
+                onHoveredChanged: controlsAutoHide.pointerInsideSurface = hovered
             }
-            Timer { id: controlsTimer; interval: 2500; running: mediaPlayer.playbackState === MediaPlayer.PlayingState }
             Rectangle {
+                id: previewControls
+                objectName: "dubbingSharedMediaControls"
                 anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
                 height: 44
-                visible: opacity > 0
-                opacity: (hoverArea.containsMouse || seekArea.pressed || !controlsTimer.running || mediaPlayer.playbackState !== MediaPlayer.PlayingState) ? 1 : 0
+                visible: root.dubbing.sourceMediaPath.length > 0 && (opacity > 0 || controlsAutoHide.controlsVisible)
+                opacity: controlsAutoHide.controlsVisible ? 1 : 0
                 Behavior on opacity { NumberAnimation { duration: 250 } }
                 gradient: Gradient {
                     GradientStop { position: 0; color: "transparent" }
@@ -372,9 +382,22 @@ Rectangle {
                         anchors.fill: parent
                         property bool wasPlaying: false
                         function updatePosition(x) { if (mediaPlayer.duration > 0) root.seekAll(Math.max(0, Math.min(1, x / width)) * mediaPlayer.duration) }
-                        onPressed: { wasPlaying = mediaPlayer.playbackState === MediaPlayer.PlayingState; if (wasPlaying) mediaPlayer.pause(); updatePosition(mouseX) }
-                        onPositionChanged: if (pressed) updatePosition(mouseX)
-                        onReleased: if (wasPlaying) root.playAll()
+                        onPressed: {
+                            controlsAutoHide.interactionActive = true
+                            controlsAutoHide.noteInteraction()
+                            wasPlaying = mediaPlayer.playbackState === MediaPlayer.PlayingState
+                            if (wasPlaying) mediaPlayer.pause()
+                            updatePosition(mouseX)
+                        }
+                        onPositionChanged: if (pressed) {
+                            updatePosition(mouseX)
+                            controlsAutoHide.noteInteraction()
+                        }
+                        onReleased: {
+                            if (wasPlaying) root.playAll()
+                            controlsAutoHide.interactionActive = false
+                            controlsAutoHide.noteInteraction()
+                        }
                     }
                 }
                 RowLayout {
@@ -383,16 +406,24 @@ Rectangle {
                     height: 36
                     spacing: Theme.paddingMedium
                     Button {
+                        id: previewPlayButton
                         implicitWidth: 28; implicitHeight: 28
                         flat: true
                         contentItem: LineIcon { anchors.centerIn: parent; name: mediaPlayer.playbackState === MediaPlayer.PlayingState ? "pause" : "play"; color: Theme.textPrimary; width: 14; height: 14 }
-                        onClicked: mediaPlayer.playbackState === MediaPlayer.PlayingState ? root.pauseAll() : root.playAll()
+                        onClicked: {
+                            mediaPlayer.playbackState === MediaPlayer.PlayingState ? root.pauseAll() : root.playAll()
+                            controlsAutoHide.noteInteraction()
+                        }
                     }
                     Button {
+                        id: previewMuteButton
                         implicitWidth: 28; implicitHeight: 28
                         flat: true
                         contentItem: LineIcon { anchors.centerIn: parent; name: "volume"; color: root.previewMuted ? Theme.textSecondary : Theme.textPrimary; width: 14; height: 14 }
-                        onClicked: root.previewMuted = !root.previewMuted
+                        onClicked: {
+                            root.previewMuted = !root.previewMuted
+                            controlsAutoHide.noteInteraction()
+                        }
                     }
                     Item { Layout.fillWidth: true }
                     Text { text: "%1 / %2".arg(root.formatTime(mediaPlayer.position)).arg(root.formatTime(mediaPlayer.duration)); color: Theme.textSecondary; font.pixelSize: 11; font.family: "Monospace" }

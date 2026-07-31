@@ -555,6 +555,7 @@ qt_add_qml_module(LAStudio
         qml/components/dubbing/DubbingVoiceClipReview.qml
         qml/components/shared/WorkflowPipelineDialog.qml
         qml/components/shared/WorkflowNodeModelDialog.qml
+        qml/components/shared/MediaControlsAutoHide.qml
         qml/components/voicecloning/VoiceSettingsPanel.qml
         qml/components/voicecloning/VoiceCloningStudioView.qml
         qml/components/voicecloning/ReferenceInputBox.qml

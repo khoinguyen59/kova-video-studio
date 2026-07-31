@@ -173,6 +173,7 @@ Item {
         return dubbingTranscriptSourceMode.model[0].id === "stt"
             && dubbingTranscriptSourceMode.model[1].id === "ocr"
             && dubbingTranscriptSourceMode.model[2].id === "stt+ocr"
+            && sourceMediaPanel.qmlSmokeMediaControlsCheck()
     }
 
     function runStep(stepId) {
