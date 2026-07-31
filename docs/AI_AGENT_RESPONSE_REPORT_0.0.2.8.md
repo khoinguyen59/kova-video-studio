@@ -1,6 +1,6 @@
 # Báo cáo nghiệm thu kỹ thuật — LA Studio 0.0.2.8
 
-Ngày: 2026-08-01  
+Ngày: 2026-08-01
 Phạm vi: đối chiếu lại toàn bộ A–M trong `docs/AI_AGENT_REQUEST.md`, sửa các
 khoảng trống phát hiện được, chạy regression không tương tác GUI và stage bản
 portable nội bộ 0.0.2.8.
@@ -97,4 +97,3 @@ Mở đúng `out/LA-Studio-0.0.2.8/LA-Studio-0.0.2.8.exe` và xác nhận:
    CapCut import là PASS trước bước này.
 6. Với các route GPU, chạy worker Colab exact-model thật và kiểm health,
    capabilities, CUDA, URL/token, wrong-model rejection và output thật.
-
