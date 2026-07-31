@@ -110,7 +110,9 @@ Page {
                 || languageSelector.width < languageSelector.implicitWidth
                 || runOcrButton.width < runOcrButton.implicitWidth)
             return false
-        if (!runtime.runtimeAvailable && (languageSelector.enabled || runOcrButton.enabled))
+        // A missing runtime only blocks execution/install. Selecting the
+        // desired language remains useful before the runtime is installed.
+        if (!runtime.runtimeAvailable && (!languageSelector.enabled || runOcrButton.enabled))
             return false
         if (!qmlSmokeMediaControlsCheck()) return false
         var transcriptRect = itemRectInContent(transcriptCard)
@@ -597,7 +599,7 @@ Page {
                             model: runtime.languagePacks
                             textRole: "label"
                             valueRole: "code"
-                            enabled: runtime.runtimeAvailable
+                            enabled: !ocr.processing
                             function selectOcrLanguage() {
                                 for (var i = 0; i < model.length; ++i) if (model[i].code === ocr.ocrLanguage) { currentIndex = i; return }
                             }

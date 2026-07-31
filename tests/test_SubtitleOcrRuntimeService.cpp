@@ -284,6 +284,9 @@ void TestSubtitleOcrRuntimeService::responsiveLayoutSharedMediaAndHomeCardsAreWi
     QVERIFY(pageSource.contains(QStringLiteral("ocr.cancelSourceImport")));
     QVERIFY(pageSource.contains(QStringLiteral("ocr.retrySourceImport")));
     QVERIFY(pageSource.contains(QStringLiteral("ocr.runtimeAvailable && root.selectedLanguageReady")));
+    QVERIFY(pageSource.contains(QStringLiteral("id: languageSelector")));
+    QVERIFY(pageSource.contains(QStringLiteral("enabled: !ocr.processing")));
+    QVERIFY(pageSource.contains(QStringLiteral("runtime.runtimeAvailable && !runtime.busy")));
     QCOMPARE(pageSource.count(QStringLiteral("subtitleOcrRoiHandle")), 8);
     QVERIFY(pageSource.contains(QStringLiteral("qmlSmokeLayoutCheck")));
     QVERIFY(pageSource.contains(QStringLiteral("MediaControlsAutoHide")));
