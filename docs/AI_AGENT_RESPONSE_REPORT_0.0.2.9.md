@@ -1,6 +1,6 @@
 # Báo cáo đối chiếu A–M và package — LA Studio 0.0.2.9
 
-Ngày: 2026-08-01  
+Ngày: 2026-08-01
 Phạm vi: thực hiện lại đối chiếu A–G theo yêu cầu mới của người dùng, bổ sung
 regression đường chạy thật cho H/I/J, và tạo package portable nội bộ mới. Không
 mở EXE/browser hay điều khiển GUI người dùng.
