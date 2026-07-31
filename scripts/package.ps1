@@ -507,7 +507,8 @@ function Ensure-YtDlpRuntime {
     # Pinned standalone adapter: no browser profile, cookies, or Python runtime
     # is shipped. The application invokes it only with an argument list.
     $version = "2026.07.04"
-    $expectedSha256 = "2f732ab09f59d96847ec8f73d29655a276b873b9f7a5ff18e88f5c8b80dcf29b"
+    # Verified against the upstream 2026.07.04 SHA2-256SUMS release asset.
+    $expectedSha256 = "52fe3c26dcf71fbdc85b528589020bb0b8e383155cfa81b64dd447bbe35e24b8"
     $cachePath = Join-Path $RepositoryRoot ".deps\yt-dlp-$version.exe"
     $target = Join-Path $DeployRoot "yt-dlp.exe"
     New-Item -ItemType Directory -Path (Split-Path -Parent $cachePath) -Force | Out-Null
