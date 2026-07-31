@@ -81,6 +81,9 @@ private slots:
     void exposesConflictEvidenceWithoutSilentChoice();
     void preservesFusionAndTranscriptSettingsAcrossProjectReload();
     void ocrOnlyTranscriptUsesTheSharedSubtitleOcrController();
+    void sttOnlyTranscriptDoesNotRequireOcrRuntime();
+    void combinedTranscriptRunsSttAndSharedOcrWithoutFallback();
+    void combinedTranscriptReportsOcrFailureWithoutSttFallback();
     void reviewerMustResolveFusionConflictExplicitly();
 };
 

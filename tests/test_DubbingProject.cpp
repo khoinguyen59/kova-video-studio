@@ -87,18 +87,13 @@ bool writeFixtureFile(const QString &path, const QByteArray &contents)
 class DubbingSttWorkerMock final : public QObject
 {
 public:
-    DubbingSttWorkerMock()
+    explicit DubbingSttWorkerMock(bool completeTranscription = false)
+        : m_completeTranscription(completeTranscription)
     {
         connect(&m_server, &QTcpServer::newConnection, this, [this] {
             while (QTcpSocket *socket = m_server.nextPendingConnection()) {
                 connect(socket, &QTcpSocket::readyRead, this, [this, socket] {
-                    QByteArray &pending = m_pending[socket];
-                    pending += socket->readAll();
-                    if (!m_request.isEmpty() || !pending.contains("\r\n\r\n")) return;
-                    m_request = pending;
-                    socket->write("HTTP/1.1 503 Service Unavailable\r\n"
-                                  "Content-Length: 0\r\nConnection: close\r\n\r\n");
-                    socket->disconnectFromHost();
+                    consume(socket);
                 });
                 connect(socket, &QTcpSocket::disconnected, this, [this, socket] {
                     m_pending.remove(socket);
@@ -129,11 +124,73 @@ public:
         return QStringLiteral("http://127.0.0.1:%1").arg(m_server.serverPort());
     }
     QByteArray request() const { return m_request; }
+    QByteArray requests() const { return m_requests; }
 
 private:
+    static QByteArray jsonResponse(const QByteArray &status, const QByteArray &payload)
+    {
+        return QByteArrayLiteral("HTTP/1.1 ") + status
+            + QByteArrayLiteral("\r\nContent-Type: application/json\r\nContent-Length: ")
+            + QByteArray::number(payload.size())
+            + QByteArrayLiteral("\r\nConnection: close\r\n\r\n") + payload;
+    }
+
+    void consume(QTcpSocket *socket)
+    {
+        if (!socket) return;
+        QByteArray &pending = m_pending[socket];
+        pending += socket->readAll();
+        const int headerEnd = pending.indexOf("\r\n\r\n");
+        if (headerEnd < 0) return;
+        const QRegularExpressionMatch contentLength = QRegularExpression(
+            QStringLiteral("Content-Length: (\\d+)"),
+            QRegularExpression::CaseInsensitiveOption).match(
+                QString::fromLatin1(pending.left(headerEnd)));
+        const int bodyLength = contentLength.hasMatch() ? contentLength.captured(1).toInt() : 0;
+        const int requestLength = headerEnd + 4 + bodyLength;
+        if (pending.size() < requestLength) return;
+
+        const QByteArray request = pending.left(requestLength);
+        pending.remove(0, requestLength);
+        if (m_request.isEmpty()) m_request = request;
+        m_requests += request;
+
+        if (!m_completeTranscription) {
+            socket->write("HTTP/1.1 503 Service Unavailable\r\n"
+                          "Content-Length: 0\r\nConnection: close\r\n\r\n");
+            socket->disconnectFromHost();
+            return;
+        }
+
+        QByteArray response;
+        if (request.startsWith("POST /v2/uploads/stt HTTP/1.1")) {
+            response = jsonResponse(QByteArrayLiteral("201 Created"),
+                QByteArrayLiteral("{\"upload_id\":\"dubbing-stt-upload\",\"chunk_bytes\":2097152}"));
+        } else if (request.startsWith("PUT /v2/uploads/stt/dubbing-stt-upload/chunks/0 HTTP/1.1")) {
+            response = jsonResponse(QByteArrayLiteral("200 OK"),
+                QByteArrayLiteral("{\"received_bytes\":") + QByteArray::number(bodyLength)
+                    + QByteArrayLiteral(",\"next_chunk\":1}"));
+        } else if (request.startsWith("POST /v2/uploads/stt/dubbing-stt-upload/commit HTTP/1.1")) {
+            response = jsonResponse(QByteArrayLiteral("202 Accepted"),
+                QByteArrayLiteral("{\"job_id\":\"dubbing-stt-job\",\"status\":\"queued\",\"progress\":5}"));
+        } else if (request.startsWith("GET /v2/jobs/transcriptions/dubbing-stt-job HTTP/1.1")) {
+            response = jsonResponse(QByteArrayLiteral("200 OK"), QByteArrayLiteral(
+                "{\"job_id\":\"dubbing-stt-job\",\"status\":\"succeeded\",\"progress\":100,"
+                "\"result\":{\"text\":\"Shared OCR\",\"segments\":[{\"id\":0,\"start\":0.0,"
+                "\"end\":1.5,\"text\":\"Shared OCR\"}]}}"));
+        } else {
+            response = jsonResponse(QByteArrayLiteral("404 Not Found"),
+                QByteArrayLiteral("{\"detail\":\"Unexpected test endpoint\"}"));
+        }
+        socket->write(response);
+        socket->disconnectFromHost();
+    }
+
     QTcpServer m_server;
     QHash<QTcpSocket *, QByteArray> m_pending;
     QByteArray m_request;
+    QByteArray m_requests;
+    bool m_completeTranscription = false;
 };
 
 class ExactRouteWorkerMock final : public QObject
@@ -3014,6 +3071,165 @@ void TestDubbingProject::ocrOnlyTranscriptUsesTheSharedSubtitleOcrController()
     QCOMPARE(segment.value(QStringLiteral("timingSource")).toString(), QStringLiteral("subtitle-ocr"));
     QCOMPARE(segment.value(QStringLiteral("transcriptProvenance")).toList().constFirst().toMap()
                  .value(QStringLiteral("source")).toString(), QStringLiteral("ocr"));
+    QVERIFY(!runner.processing());
+}
+
+void TestDubbingProject::sttOnlyTranscriptDoesNotRequireOcrRuntime()
+{
+    DubbingSttWorkerMock worker(true);
+    QVERIFY(worker.start());
+
+    AppController *app = AppController::instance();
+    QVERIFY(app != nullptr);
+    ColabSession *session = app->colabSttSession();
+    SttSessionController *stt = app->sttSession();
+    QVERIFY(session != nullptr);
+    QVERIFY(stt != nullptr);
+    ColabSessionReset resetSession(session);
+    QString sessionError;
+    QVERIFY2(session->setSession(worker.workerUrl(), QStringLiteral("stt-only-token"),
+                                 &sessionError, true), qPrintable(sessionError));
+
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString audioPath = directory.filePath(QStringLiteral("source.wav"));
+    const QVector<float> samples(16000, 0.1F);
+    QVERIFY(WavIO::saveFloat(audioPath, samples.constData(), samples.size(), 16000));
+
+    // No SubtitleOcrController is injected: the STT-only route must still
+    // complete, proving it does not gate on an OCR runtime or language pack.
+    DubbingJobRunner runner(stt, nullptr, static_cast<ModelManager *>(nullptr),
+                            static_cast<RuntimeManager *>(nullptr));
+    QSignalSpy completed(&runner, &DubbingJobRunner::segmentsUpdated);
+    QSignalSpy failed(&runner, &DubbingJobRunner::errorOccurred);
+    runner.startTranscription(QStringLiteral("en"), audioPath, {}, {
+        {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+        {QStringLiteral("modelId"), QStringLiteral("whisper.cpp")},
+        {QStringLiteral("parameters"), QVariantMap{
+            {QStringLiteral("transcriptSource"), QStringLiteral("stt")}}}
+    });
+
+    QTRY_COMPARE_WITH_TIMEOUT(completed.count(), 1, 10000);
+    QCOMPARE(failed.count(), 0);
+    const QVariantList transcript = completed.constFirst().constFirst().toList();
+    QCOMPARE(transcript.size(), 1);
+    QCOMPARE(transcript.constFirst().toMap().value(QStringLiteral("sourceText")).toString(),
+             QStringLiteral("Shared OCR"));
+    QVERIFY(worker.requests().contains("POST /v2/uploads/stt HTTP/1.1\r\n"));
+    QVERIFY(!runner.processing());
+}
+
+void TestDubbingProject::combinedTranscriptRunsSttAndSharedOcrWithoutFallback()
+{
+    DubbingSttWorkerMock worker(true);
+    QVERIFY(worker.start());
+
+    AppController *app = AppController::instance();
+    QVERIFY(app != nullptr);
+    ColabSession *session = app->colabSttSession();
+    SttSessionController *stt = app->sttSession();
+    QVERIFY(session != nullptr);
+    QVERIFY(stt != nullptr);
+    ColabSessionReset resetSession(session);
+    QString sessionError;
+    QVERIFY2(session->setSession(worker.workerUrl(), QStringLiteral("combined-stt-token"),
+                                 &sessionError, true), qPrintable(sessionError));
+
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString audioPath = directory.filePath(QStringLiteral("source.wav"));
+    const QVector<float> samples(16000, 0.1F);
+    QVERIFY(WavIO::saveFloat(audioPath, samples.constData(), samples.size(), 16000));
+    const QString videoPath = directory.filePath(QStringLiteral("source video.mp4"));
+    const QString ffprobe = directory.filePath(QStringLiteral("ffprobe.cmd"));
+    const QString ffmpeg = directory.filePath(QStringLiteral("ffmpeg.cmd"));
+    const QString tesseract = directory.filePath(QStringLiteral("tesseract.cmd"));
+    QVERIFY(writeFixtureFile(videoPath, QByteArrayLiteral("video fixture")));
+    QVERIFY(writeFixtureFile(ffprobe, QByteArrayLiteral(
+        "@echo off\r\necho {\"streams\":[{\"width\":1920,\"height\":1080}],\"format\":{\"duration\":\"4.0\"}}\r\n")));
+    QVERIFY(writeFixtureFile(ffmpeg, QByteArrayLiteral(
+        "@echo off\r\nset \"last=\"\r\n:next\r\nif \"%~1\"==\"\" goto done\r\nset \"last=%~1\"\r\nshift\r\ngoto next\r\n:done\r\n> \"%last%\" echo OCR frame\r\n")));
+    QVERIFY(writeFixtureFile(tesseract, QByteArrayLiteral(
+        "@echo off\r\nif /I \"%~1\"==\"--list-langs\" (\r\n  echo List of available languages ^(1^):\r\n  echo eng\r\n  exit /b 0\r\n)\r\necho level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\r\necho 5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t96\tShared\r\necho 5\t1\t1\t1\t1\t2\t10\t0\t10\t10\t94\tOCR\r\n")));
+    ScopedEnvironmentValue ffmpegEnvironment("LASTUDIO_FFMPEG", ffmpeg.toUtf8());
+    ScopedEnvironmentValue ffprobeEnvironment("LASTUDIO_FFPROBE", ffprobe.toUtf8());
+    ScopedEnvironmentValue tesseractEnvironment("LASTUDIO_TESSERACT", tesseract.toUtf8());
+
+    SubtitleOcrController ocr(nullptr, nullptr);
+    DubbingJobRunner runner(stt, nullptr, static_cast<ModelManager *>(nullptr),
+                            static_cast<RuntimeManager *>(nullptr));
+    runner.setSubtitleOcrController(&ocr);
+    QSignalSpy completed(&runner, &DubbingJobRunner::segmentsUpdated);
+    QSignalSpy failed(&runner, &DubbingJobRunner::errorOccurred);
+    const QVariantMap configuration{
+        {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+        {QStringLiteral("modelId"), QStringLiteral("whisper.cpp")},
+        {QStringLiteral("parameters"), QVariantMap{
+            {QStringLiteral("transcriptSource"), QStringLiteral("stt+ocr")},
+            {QStringLiteral("ocrSourceMedia"), videoPath},
+            {QStringLiteral("ocrLanguage"), QStringLiteral("eng")},
+            {QStringLiteral("ocrSampleIntervalMs"), 1000},
+            {QStringLiteral("ocrMinimumConfidence"), 0.90}}}
+    };
+    runner.startTranscription(QStringLiteral("en"), audioPath, {}, configuration);
+
+    QTRY_COMPARE_WITH_TIMEOUT(completed.count(), 1, 15000);
+    QCOMPARE(failed.count(), 0);
+    const QVariantList transcript = completed.constFirst().constFirst().toList();
+    QCOMPARE(transcript.size(), 1);
+    const QVariantMap segment = transcript.constFirst().toMap();
+    QCOMPARE(segment.value(QStringLiteral("sourceText")).toString(), QStringLiteral("Shared OCR"));
+    QCOMPARE(segment.value(QStringLiteral("fusionStatus")).toString(), QStringLiteral("matched"));
+    QCOMPARE(segment.value(QStringLiteral("timingSource")).toString(),
+             QStringLiteral("asr-with-ocr-text"));
+    QCOMPARE(segment.value(QStringLiteral("transcriptProvenance")).toList().size(), 2);
+    QVERIFY(worker.requests().contains("POST /v2/uploads/stt HTTP/1.1\r\n"));
+    QVERIFY(worker.requests().contains("POST /v2/uploads/stt/dubbing-stt-upload/commit HTTP/1.1\r\n"));
+    QVERIFY(worker.requests().contains("GET /v2/jobs/transcriptions/dubbing-stt-job HTTP/1.1\r\n"));
+    QVERIFY(!runner.processing());
+}
+
+void TestDubbingProject::combinedTranscriptReportsOcrFailureWithoutSttFallback()
+{
+    DubbingSttWorkerMock worker(true);
+    QVERIFY(worker.start());
+
+    AppController *app = AppController::instance();
+    QVERIFY(app != nullptr);
+    ColabSession *session = app->colabSttSession();
+    SttSessionController *stt = app->sttSession();
+    QVERIFY(session != nullptr);
+    QVERIFY(stt != nullptr);
+    ColabSessionReset resetSession(session);
+    QString sessionError;
+    QVERIFY2(session->setSession(worker.workerUrl(), QStringLiteral("combined-error-token"),
+                                 &sessionError, true), qPrintable(sessionError));
+
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString audioPath = directory.filePath(QStringLiteral("source.wav"));
+    const QVector<float> samples(16000, 0.1F);
+    QVERIFY(WavIO::saveFloat(audioPath, samples.constData(), samples.size(), 16000));
+
+    // Deliberately do not inject SubtitleOcrController. The combined route
+    // must name the OCR failure and stop; it may not silently publish STT.
+    DubbingJobRunner runner(stt, nullptr, static_cast<ModelManager *>(nullptr),
+                            static_cast<RuntimeManager *>(nullptr));
+    QSignalSpy completed(&runner, &DubbingJobRunner::segmentsUpdated);
+    QSignalSpy failed(&runner, &DubbingJobRunner::errorOccurred);
+    runner.startTranscription(QStringLiteral("en"), audioPath, {}, {
+        {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+        {QStringLiteral("modelId"), QStringLiteral("whisper.cpp")},
+        {QStringLiteral("parameters"), QVariantMap{
+            {QStringLiteral("transcriptSource"), QStringLiteral("stt+ocr")},
+            {QStringLiteral("ocrSourceMedia"), directory.filePath(QStringLiteral("source.mp4"))}}}
+    });
+
+    QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 5000);
+    QCOMPARE(completed.count(), 0);
+    const QString error = failed.constFirst().constFirst().toString();
+    QVERIFY(error.contains(QStringLiteral("OCR transcript failed")));
+    QVERIFY(error.contains(QStringLiteral("Subtitle OCR controller is unavailable")));
     QVERIFY(!runner.processing());
 }
 
