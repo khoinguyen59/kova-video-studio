@@ -96,6 +96,7 @@ public:
     Q_INVOKABLE bool retry();
     Q_INVOKABLE void cancel();
     Q_INVOKABLE bool setRoi(double x, double y, double width, double height);
+    Q_INVOKABLE void setLowerRegionPreset();
     Q_INVOKABLE void resetRoi();
     Q_INVOKABLE bool setOcrLanguage(const QString &language);
     Q_INVOKABLE bool setSampleIntervalMs(qint64 intervalMs);

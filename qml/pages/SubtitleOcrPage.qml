@@ -499,7 +499,7 @@ Page {
                         Flow {
                             Layout.fillWidth: true
                             spacing: Theme.paddingSmall
-                            Button { text: qsTr("Preset lower region"); enabled: !ocr.processing && ocr.sourcePath !== ""; onClicked: ocr.resetRoi() }
+                            Button { text: qsTr("Preset lower region"); enabled: !ocr.processing && ocr.sourcePath !== ""; onClicked: ocr.setLowerRegionPreset() }
                             Button { text: qsTr("Reset region"); enabled: !ocr.processing && ocr.sourcePath !== ""; onClicked: ocr.resetRoi() }
                             Button { text: qsTr("Preview crop"); enabled: !ocr.processing && ocr.sourcePath !== ""; onClicked: ocr.requestCropPreview(player.position) }
                             Text { text: qsTr("ROI: x %1, y %2, w %3, h %4").arg(ocr.roiX.toFixed(3)).arg(ocr.roiY.toFixed(3)).arg(ocr.roiWidth.toFixed(3)).arg(ocr.roiHeight.toFixed(3)); color: Theme.textSecondary; topPadding: 7 }

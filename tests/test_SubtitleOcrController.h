@@ -12,6 +12,7 @@ private slots:
     void blocksMissingManagedRuntimeWithoutSilentDownload();
     void rejectsInvalidVideoProbeWithoutReplacingCurrentSource();
     void blocksMissingSelectedLanguageBeforeFrameExtraction();
+    void keepsLowerRegionPresetSeparateFromFullFrameReset();
     void runsManagedAdapterPersistsReviewedSegmentsAndExports();
     void transfersReviewedSegmentsToSubtitleVoiceAndDubbing();
     void cancelsAndRetriesWithoutLeavingOcrStaging();

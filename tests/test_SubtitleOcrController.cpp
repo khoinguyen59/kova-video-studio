@@ -181,6 +181,24 @@ void TestSubtitleOcrController::blocksMissingSelectedLanguageBeforeFrameExtracti
     QVERIFY(controller.error().contains(QStringLiteral("language data"), Qt::CaseInsensitive));
 }
 
+void TestSubtitleOcrController::keepsLowerRegionPresetSeparateFromFullFrameReset()
+{
+    SubtitleOcrController controller(nullptr, nullptr);
+
+    QVERIFY(controller.setRoi(0.25, 0.25, 0.50, 0.50));
+    controller.setLowerRegionPreset();
+    QCOMPARE(controller.roiX(), 0.10);
+    QCOMPARE(controller.roiY(), 0.72);
+    QCOMPARE(controller.roiWidth(), 0.80);
+    QCOMPARE(controller.roiHeight(), 0.22);
+
+    controller.resetRoi();
+    QCOMPARE(controller.roiX(), 0.0);
+    QCOMPARE(controller.roiY(), 0.0);
+    QCOMPARE(controller.roiWidth(), 1.0);
+    QCOMPARE(controller.roiHeight(), 1.0);
+}
+
 void TestSubtitleOcrController::runsManagedAdapterPersistsReviewedSegmentsAndExports()
 {
     QTemporaryDir directory;

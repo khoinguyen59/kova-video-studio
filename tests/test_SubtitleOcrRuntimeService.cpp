@@ -231,6 +231,8 @@ void TestSubtitleOcrRuntimeService::qmlRouteRoiAndManagedRuntimeControlsAreWired
     QVERIFY(pageSource.contains(QStringLiteral("displayedWidth")));
     QVERIFY(pageSource.contains(QStringLiteral("displayedHeight")));
     QVERIFY(pageSource.contains(QStringLiteral("ocr.setRoi")));
+    QVERIFY(pageSource.contains(QStringLiteral("ocr.setLowerRegionPreset()")));
+    QVERIFY(pageSource.contains(QStringLiteral("ocr.resetRoi()")));
     QVERIFY(pageSource.contains(QStringLiteral("Preview crop")));
     QVERIFY(pageSource.contains(QStringLiteral("Reset region")));
     QCOMPARE(pageSource.count(QStringLiteral("RoiHandle { objectName:")), 8);

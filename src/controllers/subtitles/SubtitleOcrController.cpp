@@ -366,6 +366,15 @@ bool SubtitleOcrController::setRoi(double x, double y, double width, double heig
 
 void SubtitleOcrController::resetRoi()
 {
+    // Reset means remove the crop and return to the complete source frame.
+    // The subtitle-oriented crop is a separate, explicit preset so the two
+    // visible actions never silently do the same thing.
+    m_roi = SubtitleOcrRoi{0.0, 0.0, 1.0, 1.0};
+    emit roiChanged();
+}
+
+void SubtitleOcrController::setLowerRegionPreset()
+{
     m_roi = SubtitleOcrRoi{};
     emit roiChanged();
 }
