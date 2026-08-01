@@ -1,5 +1,96 @@
 # Điều phối báo cáo hiện hành — bắt buộc đọc trước khi làm tiếp
 
+## Cập nhật mới nhất — Retry language sau Refresh và package 0.0.2.12 (2026-08-01)
+
+### Commit đã push trực tiếp `main`
+
+- `fa64c7e` — `fix(ocr): harden bundled runtime readiness`
+- `0b9cd64` — `fix(ocr): preserve language retry after refresh`
+- Đã push thẳng `origin/main`, không tạo branch hay PR trung gian. Chỉ commit
+  `CMakeLists.txt`, `SubtitleOcrRuntimeService`, `SubtitleOcrPage.qml` và
+  regression OCR; request, handoff, `VoiceLibraryDialog.qml`, Graphify, `out/`
+  và log tạm vẫn nằm ngoài commit.
+
+### Lỗi logic tìm được và đã sửa
+
+1. Trạng thái enum nội bộ `Installed` từng hiển thị thành **Installed** trên
+   card/runtime language pack, trái với contract UX đã yêu cầu là **Ready**.
+   Enum không đổi để tránh phá ABI/logic; chỉ trạng thái công khai đã được đổi
+   thành `Ready` sau khi manifest/hash hợp lệ.
+2. `refresh()` từng để lại lỗi manifest/runtime cũ sau khi binary và manifest
+   được sửa đúng. Nay Refresh chỉ xoá lỗi runtime đã được giải quyết (Invalid,
+   hoặc runtime Failed do action runtime); lỗi download language vẫn còn để
+   người dùng biết Retry cần thiết.
+3. Flow bundle trước đó vẫn ghi URL/SHA installer cũ vào manifest app-data mỗi
+   khi cài language. Đã bỏ descriptor installer ngoài public path. Legacy
+   app-data manifest nay schema 2, có delivery `legacy-app-data`, đường dẫn
+   binary và SHA-256 binary; bản legacy không có hash không còn được tin cậy.
+   Khi runtime nguồn là bundle, cài language chỉ ghi tessdata atomically và
+   không tạo legacy runtime manifest thiếu executable.
+4. CTA/warning trong Subtitle OCR nay ghi **Repair the package runtime**, đúng
+   với thực tế package đã bundle engine thay vì hứa một installer ngoài.
+5. Sau language-download failure, bấm Refresh trước đây đưa state runtime về
+   Ready nhưng làm điều kiện nút Retry (dựa vào state Failed) biến mất. Nút nay
+   dựa vào lỗi language còn tồn tại + runtime Ready + không busy, nên Retry vẫn
+   reachable và gọi lại đúng action language.
+
+Regression `runtimeActivationIsAtomicAndRestartDiscoveryUsesAppOwnedPath` nay
+xác minh manifest schema/hash mới, không có `runtimeInstallerUrl`, state
+`Ready`, và lỗi ban đầu được xoá sau Refresh. Regression QML/source cũng chặn
+việc đổi lại CTA/state/installer metadata cũ.
+
+### Kiểm chứng tự động sau `fa64c7e`
+
+| Hạng mục | Bằng chứng | Trạng thái |
+| --- | --- | --- |
+| Unit test console | `LAStudioUnitTests.exe -v1`, gồm `TestSubtitleOcrRuntimeService` và `TestSubtitleOcrController` | PASS, status 0 |
+| QML offscreen | `PrepareQmlRouteSmokeRuntime`, `QmlRouteSmoke` | **2/2 PASS** (9.33 s) |
+| Full suite | `ctest --test-dir out\\build\\windows-msvc-tests --output-on-failure -j 1` | **38/38 PASS, 0 FAIL** (47.91 s) |
+| Graph | `graphify update .` sau source change | PASS; generated output vẫn untracked/không commit |
+
+Một lượt build test ban đầu bị shell timeout, để lại build con và làm lần build
+sau báo MSVC `C1041` do hai compiler cùng ghi PDB. Đó là cạnh tranh build,
+không phải lỗi code OCR: đã không chạy thêm build chồng lên; sau khi job cũ kết
+thúc, build `LAStudio` tuần tự và toàn bộ test ở bảng trên đều PASS.
+
+### Package portable nội bộ 0.0.2.12
+
+Package được tạo từ commit `0b9cd64`, với default source/package/File/Product
+version đều là `0.0.2.12`. Candidate `0.0.2.11` được giữ nguyên nhưng bị thay
+thế trước manual gate vì còn lỗi Retry sau Refresh:
+
+| Hạng mục | Giá trị xác minh độc lập |
+| --- | --- |
+| Artifact | `out/LA-Studio-0.0.2.12/LA-Studio-0.0.2.12.exe` |
+| FileVersion / ProductVersion | `0.0.2.12` / `0.0.2.12` |
+| EXE SHA-256 | `D70EFD21103F7A9706B8FCF32CECD89318F73ED22067FCBDCC8BBC557AAEE0B1` |
+| Stage inventory | 1,981 files, 134 directories, 32 license files |
+| OCR runtime | Tesseract `5.5.1`, `bundled-vcpkg`, `binarySha256` `8c3c6cc32409ff7799ee3090704f223db2230096ae8be8146c64ac90deeb81f0` |
+| OCR health | package manifest `healthCheckPassed=true`, `healthCheckOutput=tesseract 5.5.1`; CLI độc lập `tesseract --version` exit 0, cùng hash manifest |
+| Runtime/license layout | `subtitle-ocr/tesseract.exe`, `runtime-manifest.json`, `README.txt`, `licenses/tesseract/LICENSE`, `RUNTIME-NOTICE.md`, Qt platform plugin, Qt Multimedia, FFmpeg/FFprobe đều có |
+
+Package script PASS 19 runtime artifact và 19 license artifact. Đây vẫn là
+**internal build only**: eSpeak MSI SHA-verified nhưng `NotSigned`; không được
+coi là distributable release. Agent không mở EXE/browser/GUI; `tesseract
+--version` là health check CLI của runtime, không phải nghiệm thu desktop UI.
+
+### Manual gate bắt buộc cho 0.0.2.12
+
+1. Người dùng tự mở đúng
+   `out/LA-Studio-0.0.2.12/LA-Studio-0.0.2.12.exe`, vào Subtitle OCR. Không có
+   mạng vẫn phải thấy route **Local CPU**, **No GPU or Colab required**, state
+   **Ready** và không có yêu cầu tải/install engine ngoài.
+2. Cài English/Vietnamese/Chinese từ card, kiểm tra từng pack chuyển sang
+   **Ready** ngay không cần restart; sau restart/Refresh vẫn nhận. Nếu download
+   language fail, dữ liệu/source/ROI cũ phải giữ nguyên; bấm Refresh và xác
+   nhận **Retry language install** vẫn thấy/click được.
+3. Đổi/tamper package runtime để kiểm tra CTA **Repair the package runtime** có
+   báo lỗi manifest/hash cụ thể; khôi phục package rồi Refresh phải chuyển lại
+   Ready và xoá lỗi runtime cũ. Không có fallback installer cũ.
+4. Chọn video thật, ROI và language Ready rồi chạy OCR thật. Đây, UI visual,
+   picker/drag-drop và chất lượng OCR vẫn là manual pending; không được suy ra
+   PASS chỉ từ CTest/CLI/offscreen.
+
 ## Cập nhật mới nhất — OCR runtime bundle và độ tin cậy QML smoke (2026-08-01)
 
 ### Commit đã push trực tiếp `main`
