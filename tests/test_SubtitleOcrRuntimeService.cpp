@@ -308,6 +308,7 @@ void TestSubtitleOcrRuntimeService::qmlRouteRoiAndManagedRuntimeControlsAreWired
     QVERIFY(runtimeServiceSource.contains(QStringLiteral("beginRuntimeHealthCheck")));
     QVERIFY(runtimeServiceSource.contains(QStringLiteral("processError=")));
     QVERIFY(runtimeServiceSource.contains(QStringLiteral("signatureDiagnostic")));
+    QVERIFY(runtimeServiceSource.contains(QStringLiteral("PathUtils::toNativeShortPath")));
     QVERIFY(pageSource.contains(QStringLiteral("displayedWidth")));
     QVERIFY(pageSource.contains(QStringLiteral("displayedHeight")));
     QVERIFY(pageSource.contains(QStringLiteral("ocr.setRoi")));

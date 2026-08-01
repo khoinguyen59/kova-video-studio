@@ -747,11 +747,20 @@ void SubtitleOcrRuntimeService::beginInstaller(const QString &installerPath)
     setInstallState(Installing);
     m_runtimeProcessPhase = RuntimeProcessPhase::Installer;
     m_failedDownloadPath = absoluteInstallerPath;
-    m_installer.setWorkingDirectory(installerInfo.absolutePath());
-    m_installer.setProgram(absoluteInstallerPath);
+    // The installer is downloaded under the user's app cache, whose normal
+    // Windows path can contain both spaces and non-ASCII characters. Use the
+    // short-path form when NTFS provides it, while retaining the canonical
+    // long path for verification, cleanup and diagnostics. If 8.3 aliases
+    // are disabled this helper deliberately returns the original Unicode path.
+    const QString launchProgram = PathUtils::toNativeShortPath(absoluteInstallerPath);
+    const QString launchWorkingDirectory = PathUtils::toNativeShortPath(installerInfo.absolutePath());
+    const QString launchStagingPath = PathUtils::toNativeShortPath(m_stagingPath);
+    m_installer.setWorkingDirectory(launchWorkingDirectory);
+    m_installer.setProgram(launchProgram);
     // NSIS accepts /S and a final absolute /D= path.  The destination is
     // app-owned, so the installation never requests administrator privileges.
-    m_installer.setArguments({QStringLiteral("/S"), QStringLiteral("/D=") + QDir::toNativeSeparators(m_stagingPath)});
+    m_installer.setArguments({QStringLiteral("/S"), QStringLiteral("/D=")
+                              + QDir::toNativeSeparators(launchStagingPath)});
     appendDiagnostics(QStringLiteral("installer-start"), processDiagnostics(
         QStringLiteral("installer"), QProcess::UnknownError));
     m_installer.start();
@@ -836,8 +845,8 @@ void SubtitleOcrRuntimeService::beginRuntimeHealthCheck()
 #endif
     );
     m_runtimeProcessPhase = RuntimeProcessPhase::HealthCheck;
-    m_installer.setWorkingDirectory(m_stagingPath);
-    m_installer.setProgram(executable);
+    m_installer.setWorkingDirectory(PathUtils::toNativeShortPath(m_stagingPath));
+    m_installer.setProgram(PathUtils::toNativeShortPath(executable));
     m_installer.setArguments({QStringLiteral("--version")});
     appendDiagnostics(QStringLiteral("health-check-start"), processDiagnostics(
         QStringLiteral("health-check"), QProcess::UnknownError));
