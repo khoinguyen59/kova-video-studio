@@ -1,0 +1,4 @@
+interface:
+  display_name: "LA Studio Delivery"
+  short_description: "Ship LA Studio changes with evidence"
+  default_prompt: "Use $la-studio-delivery to implement and verify the current LA Studio request."
