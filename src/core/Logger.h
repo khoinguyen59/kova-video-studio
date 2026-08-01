@@ -19,8 +19,15 @@ Q_DECLARE_LOGGING_CATEGORY(logUI)
 class Logger {
 public:
     enum Level { Debug, Info, Warning, Error };
+    using MessageObserver = void (*)(QtMsgType, const QMessageLogContext &, const QString &);
 
     static void init();
+    // Keep the application's logger as Qt's sole message handler while allowing
+    // constrained modes (for example the offscreen QML smoke executable) to
+    // observe messages.  Replacing Qt's handler directly would silently drop
+    // normal file logging and caused QML warnings to be reported as a passing
+    // smoke run.
+    static void setMessageObserver(MessageObserver observer);
     static void clear();
     static qint64 sessionStartOffset();
     static QString sanitizeDiagnostics(const QString &text);

@@ -4,6 +4,7 @@
   "dependencies": [
     "bzip2",
     "curl",
+    "tesseract",
     "zlib"
   ]
 }

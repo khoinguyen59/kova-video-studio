@@ -10,6 +10,8 @@
 #include <QCoreApplication>
 #include <QRegularExpression>
 
+#include <atomic>
+
 #ifdef Q_OS_WIN
 #include <windows.h>
 #endif
@@ -27,6 +29,7 @@ Q_LOGGING_CATEGORY(logUI, "lastudio.ui")
 static QFile *s_logFile = nullptr;
 static QMutex s_logMutex;
 static qint64 s_sessionStartOffset = 0;
+static std::atomic<Logger::MessageObserver> s_messageObserver{nullptr};
 
 QString Logger::sanitizeDiagnostics(const QString &text)
 {
@@ -59,6 +62,10 @@ QString Logger::sanitizeDiagnostics(const QString &text)
 
 void messageHandler(QtMsgType type, const QMessageLogContext &context, const QString &msg)
 {
+    if (const auto observer = s_messageObserver.load(std::memory_order_acquire)) {
+        observer(type, context, msg);
+    }
+
     // Skip noisy DirectWrite warnings about legacy fonts on Windows
     if (msg.startsWith(QLatin1String("DirectWrite: CreateFontFaceFromHDC() failed"))) {
         return;
@@ -200,6 +207,11 @@ void Logger::init()
     qCInfo(logCore) << "OS Version:    " << QSysInfo::prettyProductName();
     qCInfo(logCore) << "Architecture:  " << QSysInfo::currentCpuArchitecture();
     qCInfo(logCore) << "==================================================";
+}
+
+void Logger::setMessageObserver(MessageObserver observer)
+{
+    s_messageObserver.store(observer, std::memory_order_release);
 }
 
 qint64 Logger::sessionStartOffset()

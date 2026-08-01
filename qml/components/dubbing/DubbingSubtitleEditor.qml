@@ -151,11 +151,16 @@ Dialog {
     }
 
     component Field: ColumnLayout {
+        id: fieldRoot
         required property string label
         required property Item field
         Layout.fillWidth: true
         spacing: 3
-        Text { text: parent.label; color: Theme.textSecondary; font.pixelSize: 10; font.bold: true }
+        // `data: field` reparents the supplied control.  Its visual children can
+        // consequently be constructed before their `parent` is stable, so a
+        // parent lookup here can intermittently dereference null.  Bind to the
+        // named component root instead.
+        Text { text: fieldRoot.label; color: Theme.textSecondary; font.pixelSize: 10; font.bold: true }
         data: field
     }
 }

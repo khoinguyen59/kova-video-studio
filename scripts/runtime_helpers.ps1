@@ -377,6 +377,7 @@ function Assert-StagedLicenseManifest {
         "licenses\curl\LICENSE",
         "licenses\zlib\LICENSE",
         "licenses\bzip2\LICENSE",
+        "licenses\tesseract\LICENSE",
         "licenses\7-Zip\License.txt",
         "licenses\ffmpeg\LICENSE.txt",
         "licenses\ffmpeg\NOTICE.txt",

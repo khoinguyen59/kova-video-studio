@@ -6,6 +6,7 @@
 #include "subtitles/SubtitleOcrRuntimeLocator.h"
 
 #include <QCryptographicHash>
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -27,7 +28,11 @@
 namespace LAStudio {
 namespace {
 
-const QString kTesseractVersion = QStringLiteral("5.5.3.20260724");
+// The portable package builds this pinned CPU runtime from source through
+// vcpkg.  It deliberately does not execute the current upstream Windows
+// installer: that installer is hash-pinned but its Authenticode certificate
+// cannot be validated on supported current Windows systems.
+const QString kTesseractVersion = QStringLiteral("5.5.1");
 const QString kTessdataCommit = QStringLiteral("87416418657359cb625c412a48b6e1d6d41c29bd");
 #ifdef Q_OS_WIN
 GUID kWintrustActionGenericVerifyV2 = WINTRUST_ACTION_GENERIC_VERIFY_V2;
@@ -49,6 +54,12 @@ QString processErrorName(QProcess::ProcessError error)
     case QProcess::UnknownError:
     default: return QStringLiteral("UnknownError");
     }
+}
+
+QString bundledRuntimeManifestPath(const QString &applicationDirectory)
+{
+    return QDir(applicationDirectory).filePath(
+        QStringLiteral("subtitle-ocr/runtime-manifest.json"));
 }
 
 QString signatureDiagnostic(const QString &path)
@@ -161,15 +172,13 @@ QList<SubtitleOcrRuntimeService::Asset> SubtitleOcrRuntimeService::languageAsset
 
 QVariantMap SubtitleOcrRuntimeService::runtimeDescriptor()
 {
-    const Asset asset = runtimeAsset();
     return {
-        {QStringLiteral("id"), asset.code},
-        {QStringLiteral("label"), asset.label},
+        {QStringLiteral("id"), QStringLiteral("tesseract-runtime")},
+        {QStringLiteral("label"), QStringLiteral("Bundled Tesseract OCR for Windows (x64)")},
         {QStringLiteral("version"), kTesseractVersion},
-        {QStringLiteral("fileName"), asset.fileName},
-        {QStringLiteral("url"), asset.url},
-        {QStringLiteral("sha256"), asset.sha256},
-        {QStringLiteral("bytes"), asset.bytes},
+        {QStringLiteral("delivery"), QStringLiteral("bundled-vcpkg")},
+        {QStringLiteral("fileName"), QStringLiteral("tesseract.exe")},
+        {QStringLiteral("userDownloadRequired"), false},
         {QStringLiteral("license"), QStringLiteral("Apache-2.0")},
         {QStringLiteral("licenseUrl"), QStringLiteral("https://www.apache.org/licenses/LICENSE-2.0")},
         {QStringLiteral("source"), QStringLiteral("https://github.com/tesseract-ocr/tesseract")},
@@ -325,6 +334,50 @@ bool SubtitleOcrRuntimeService::hasValidManagedRuntime(QString *errorMessage) co
     return true;
 }
 
+bool SubtitleOcrRuntimeService::hasValidBundledRuntime(const QString &applicationDirectory,
+                                                        QString *errorMessage)
+{
+    const QString executable = QDir(applicationDirectory).filePath(
+        QStringLiteral("subtitle-ocr/tesseract.exe"));
+    if (!QFileInfo(executable).isFile()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Bundled Tesseract executable is missing.");
+        return false;
+    }
+    QFile manifestFile(bundledRuntimeManifestPath(applicationDirectory));
+    if (!manifestFile.open(QIODevice::ReadOnly)) {
+        if (errorMessage) *errorMessage = QStringLiteral("Bundled Tesseract runtime manifest is missing.");
+        return false;
+    }
+    const QJsonDocument document = QJsonDocument::fromJson(manifestFile.readAll());
+    const QJsonObject manifest = document.object();
+    const QJsonObject runtime = manifest.value(QStringLiteral("runtime")).toObject();
+    if (!document.isObject() || manifest.value(QStringLiteral("schemaVersion")).toInt() != 2 ||
+        runtime.value(QStringLiteral("delivery")).toString() != QStringLiteral("bundled-vcpkg") ||
+        runtime.value(QStringLiteral("version")).toString() != kTesseractVersion ||
+        runtime.value(QStringLiteral("healthCheckPassed")).toBool() != true) {
+        if (errorMessage) *errorMessage = QStringLiteral("Bundled Tesseract runtime manifest is invalid.");
+        return false;
+    }
+    const QString expectedHash = normalizedSha(runtime.value(QStringLiteral("binarySha256")).toString());
+    if (expectedHash.size() != 64 || normalizedSha(sha256File(executable)) != expectedHash) {
+        if (errorMessage) *errorMessage = QStringLiteral("Bundled Tesseract executable does not match its package manifest.");
+        return false;
+    }
+    return true;
+}
+
+bool SubtitleOcrRuntimeService::hasUsablePackagedRuntime(QString *errorMessage) const
+{
+    if (m_runtimeSource == QStringLiteral("managed")) return hasValidManagedRuntime(errorMessage);
+    if (m_runtimeSource == QStringLiteral("bundled")) {
+        return hasValidBundledRuntime(QCoreApplication::applicationDirPath(), errorMessage);
+    }
+    if (errorMessage) {
+        *errorMessage = QStringLiteral("Install a package-provisioned Tesseract runtime before adding language packs.");
+    }
+    return false;
+}
+
 bool SubtitleOcrRuntimeService::writeInstallationManifest(const QString &installationRoot,
                                                           QString *errorMessage) const
 {
@@ -380,7 +433,10 @@ SubtitleOcrRuntimeService::Asset SubtitleOcrRuntimeService::languageAsset(const 
 bool SubtitleOcrRuntimeService::isLanguageInstalled(const QString &languageCode) const
 {
     const Asset asset = languageAsset(languageCode);
-    if (asset.code.isEmpty() || m_runtimeSource != QStringLiteral("managed")) return false;
+    if (asset.code.isEmpty() ||
+        (m_runtimeSource != QStringLiteral("managed") && m_runtimeSource != QStringLiteral("bundled"))) {
+        return false;
+    }
     return normalizedSha(sha256File(languagePath(asset.code))) == normalizedSha(asset.sha256);
 }
 
@@ -453,7 +509,8 @@ QString SubtitleOcrRuntimeService::processDiagnostics(const QString &phase,
 void SubtitleOcrRuntimeService::rebuildLanguagePacks()
 {
     QVariantList packs;
-    const bool managed = m_runtimeSource == QStringLiteral("managed");
+    const bool managed = m_runtimeSource == QStringLiteral("managed") ||
+        m_runtimeSource == QStringLiteral("bundled");
     for (const Asset &asset : languageAssets()) {
         const QString path = languagePath(asset.code);
         const bool exists = QFileInfo(path).isFile();
@@ -495,6 +552,15 @@ void SubtitleOcrRuntimeService::refresh()
                 detectedState = Invalid;
                 setError(manifestError);
             }
+        } else if (resolution.source == QStringLiteral("bundled")) {
+            QString manifestError;
+            if (hasValidBundledRuntime(QCoreApplication::applicationDirPath(), &manifestError)) {
+                detectedState = Installed;
+                version = kTesseractVersion;
+            } else {
+                detectedState = Invalid;
+                setError(manifestError);
+            }
         } else {
             detectedState = Installed;
             version = QStringLiteral("external");
@@ -514,6 +580,10 @@ void SubtitleOcrRuntimeService::refresh()
 
 bool SubtitleOcrRuntimeService::beginDownload(PendingKind kind, const Asset &asset)
 {
+    if (kind != PendingKind::Language) {
+        fail(QStringLiteral("Runtime installers are not supported. Install only a verified package-provisioned OCR runtime."));
+        return false;
+    }
     if (!m_downloads) {
         fail(QStringLiteral("The managed download service is unavailable."));
         return false;
@@ -573,7 +643,13 @@ bool SubtitleOcrRuntimeService::installRuntime()
 {
     m_lastAction = QStringLiteral("runtime");
     m_lastLanguage.clear();
-    return beginDownload(PendingKind::Runtime, runtimeAsset());
+    refresh();
+    if (m_runtimeValid) return true;
+    appendDiagnostics(QStringLiteral("runtime-package"),
+                      QStringLiteral("No integrity-verified bundled Tesseract runtime was found. "
+                                     "This application never executes the deprecated upstream installer."));
+    fail(QStringLiteral("This package is missing a verified bundled Tesseract runtime. Repair or replace the package; no external installer was started."));
+    return false;
 }
 
 bool SubtitleOcrRuntimeService::installLanguage(const QString &languageCode)
@@ -585,8 +661,10 @@ bool SubtitleOcrRuntimeService::installLanguage(const QString &languageCode)
     }
     m_lastAction = QStringLiteral("language");
     m_lastLanguage = asset.code;
-    if (m_runtimeSource != QStringLiteral("managed") || !hasValidManagedRuntime()) {
-        setError(QStringLiteral("Install the app-managed Tesseract runtime before adding language packs. LASTUDIO_TESSERACT is an advanced external override and is not modified."));
+    QString runtimeError;
+    if (!hasUsablePackagedRuntime(&runtimeError)) {
+        setError(QStringLiteral("Install a verified package-provisioned Tesseract runtime before adding language packs. LASTUDIO_TESSERACT is an advanced external override and is not modified. %1")
+                 .arg(runtimeError));
         return false;
     }
     if (isLanguageInstalled(asset.code)) return true;
@@ -679,7 +757,8 @@ void SubtitleOcrRuntimeService::onDownloadFinished(const QString &identifier, co
         return;
     }
     if (m_pendingKind == PendingKind::Runtime) {
-        beginInstaller(localPath);
+        QFile::remove(localPath);
+        fail(QStringLiteral("Runtime installers are not supported. Install only a verified package-provisioned OCR runtime."));
         return;
     }
 
@@ -711,59 +790,13 @@ void SubtitleOcrRuntimeService::onDownloadError(const QString &identifier, const
 
 void SubtitleOcrRuntimeService::beginInstaller(const QString &installerPath)
 {
-    const QFileInfo installerInfo(installerPath);
-    const QString absoluteInstallerPath = QDir::cleanPath(installerInfo.absoluteFilePath());
-    if (!installerInfo.isFile()) {
-        fail(QStringLiteral("Verified Tesseract installer file is missing before it could be started."));
-        appendDiagnostics(QStringLiteral("installer-preflight"),
-                          QStringLiteral("program=%1; exists=false; expectedBytes=%2; expectedSha256=%3")
-                              .arg(absoluteInstallerPath)
-                              .arg(m_pendingAsset.bytes)
-                              .arg(m_pendingAsset.sha256));
-        return;
-    }
-    if (installerInfo.size() != m_pendingAsset.bytes ||
-        normalizedSha(sha256File(absoluteInstallerPath)) != normalizedSha(m_pendingAsset.sha256)) {
-        QFile::remove(absoluteInstallerPath);
-        fail(QStringLiteral("Verified Tesseract installer changed before launch; download it again."));
-        appendDiagnostics(QStringLiteral("installer-preflight"),
-                          QStringLiteral("program=%1; bytes=%2; expectedBytes=%3; sha256=%4; expectedSha256=%5")
-                              .arg(absoluteInstallerPath)
-                              .arg(installerInfo.size())
-                              .arg(m_pendingAsset.bytes)
-                              .arg(sha256File(absoluteInstallerPath), m_pendingAsset.sha256));
-        return;
-    }
-    const QString parentRoot = QFileInfo(runtimeRoot()).dir().absolutePath();
-    m_stagingPath = QDir(parentRoot).filePath(QStringLiteral("runtime.staging-")
-        + QUuid::createUuid().toString(QUuid::WithoutBraces));
-    if (!QDir().mkpath(m_stagingPath)) {
-        fail(QStringLiteral("Cannot create staging storage for the verified OCR runtime."));
-        appendDiagnostics(QStringLiteral("installer-preflight"),
-                          QStringLiteral("program=%1; staging=%2; parentWritable=false")
-                              .arg(absoluteInstallerPath, m_stagingPath));
-        return;
-    }
-    setInstallState(Installing);
-    m_runtimeProcessPhase = RuntimeProcessPhase::Installer;
-    m_failedDownloadPath = absoluteInstallerPath;
-    // The installer is downloaded under the user's app cache, whose normal
-    // Windows path can contain both spaces and non-ASCII characters. Use the
-    // short-path form when NTFS provides it, while retaining the canonical
-    // long path for verification, cleanup and diagnostics. If 8.3 aliases
-    // are disabled this helper deliberately returns the original Unicode path.
-    const QString launchProgram = PathUtils::toNativeShortPath(absoluteInstallerPath);
-    const QString launchWorkingDirectory = PathUtils::toNativeShortPath(installerInfo.absolutePath());
-    const QString launchStagingPath = PathUtils::toNativeShortPath(m_stagingPath);
-    m_installer.setWorkingDirectory(launchWorkingDirectory);
-    m_installer.setProgram(launchProgram);
-    // NSIS accepts /S and a final absolute /D= path.  The destination is
-    // app-owned, so the installation never requests administrator privileges.
-    m_installer.setArguments({QStringLiteral("/S"), QStringLiteral("/D=")
-                              + QDir::toNativeSeparators(launchStagingPath)});
-    appendDiagnostics(QStringLiteral("installer-start"), processDiagnostics(
-        QStringLiteral("installer"), QProcess::UnknownError));
-    m_installer.start();
+    Q_UNUSED(installerPath);
+    // Defence in depth: no public flow calls this legacy helper, but retain a
+    // hard stop here so a future internal caller cannot re-enable execution of
+    // the invalidly signed upstream installer by accident.
+    appendDiagnostics(QStringLiteral("installer-disabled"),
+                      QStringLiteral("Deprecated upstream Tesseract installer execution is disabled."));
+    fail(QStringLiteral("Runtime installers are not supported. Install only a verified package-provisioned OCR runtime."));
 }
 
 void SubtitleOcrRuntimeService::onInstallerFinished(int exitCode, QProcess::ExitStatus exitStatus)

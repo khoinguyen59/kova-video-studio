@@ -24,6 +24,8 @@ Dialog {
     property string targetLanguageName: ""
     property string capCutDraftPath: ""
     property string capCutDraftWarning: ""
+    property int qmlSmokeExportRoutePhase: 0
+    property string qmlSmokeExportRoutesFailure: ""
 
     signal videoExportRequested()
     signal audioExportRequested(string stem)
@@ -31,13 +33,42 @@ Dialog {
     signal packageExportRequested()
     signal capCutDraftExportRequested()
 
+    function beginQmlSmokeExportRoutesCheck() {
+        qmlSmokeExportRoutePhase = 0
+        qmlSmokeExportRoutesFailure = ""
+    }
+
+    // StackLayout gives geometry only to its active tab.  Exercise both export
+    // routes over separate event-loop turns rather than asserting geometry for
+    // a deliberately hidden pane.
     function qmlSmokeExportRoutesCheck() {
-        return renderedVideoExportPane.width > 0
-            && renderedVideoExportPane.height > 0
-            && editableCapCutDraftPane.width > 0
-            && editableCapCutDraftPane.height > 0
-            && renderedVideoExportPane.primaryActionButton.width > 0
-            && editableCapCutDraftPane.primaryActionButton.width > 0
+        if (!visible) {
+            qmlSmokeExportRoutesFailure = "export dialog is not visible"
+            return -1
+        }
+        if (qmlSmokeExportRoutePhase === 0) {
+            selectedTab = 0
+            qmlSmokeExportRoutePhase = 1
+            return 0
+        }
+        if (qmlSmokeExportRoutePhase === 1) {
+            if (renderedVideoExportPane.width <= 0
+                    || renderedVideoExportPane.height <= 0
+                    || renderedVideoExportPane.primaryActionButton.width <= 0) {
+                qmlSmokeExportRoutesFailure = "rendered-video export tab has no usable geometry"
+                return -1
+            }
+            selectedTab = 3
+            qmlSmokeExportRoutePhase = 2
+            return 0
+        }
+        if (editableCapCutDraftPane.width <= 0
+                || editableCapCutDraftPane.height <= 0
+                || editableCapCutDraftPane.primaryActionButton.width <= 0) {
+            qmlSmokeExportRoutesFailure = "editable-draft export tab has no usable geometry"
+            return -1
+        }
+        return 1
     }
 
     function compactProjectName(path) {

@@ -9,11 +9,13 @@ class TestSubtitleOcrRuntimeService final : public QObject
     Q_OBJECT
 
 private slots:
-    void manifestPinsRuntimeAndAllRequiredLanguagePacks();
+    void manifestDescribesBundledRuntimeAndAllRequiredLanguagePacks();
+    void bundledRuntimeManifestMustMatchBinary();
+    void bundledRuntimeWinsOverLegacyManagedExecutable();
     void verifiedLanguageReplacementIsAtomicAndChecksumProtected();
     void runtimeActivationIsAtomicAndRestartDiscoveryUsesAppOwnedPath();
-    void cancelAndRetryKeepExistingRuntimeUntouched();
-    void installerPreflightAndProcessFailureExposeActionableDiagnostics();
+    void cancelAndRetryKeepExistingLanguageDataUntouched();
+    void missingPackageRuntimeFailsWithoutStartingAnInstaller();
     void healthCheckFailureDoesNotActivateStagingRuntime();
     void failedInstallerCacheRequiresExplicitCleanup();
     void qmlRouteRoiAndManagedRuntimeControlsAreWired();

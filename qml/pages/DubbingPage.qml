@@ -25,6 +25,12 @@ Item {
     property string playingVoiceClipPath: ""
     property bool isHistoryOpen: true
     property bool isNodeInspectorOpen: true
+    // The QML smoke route exercises the transcript selector, then two dialogs
+    // whose geometry is only valid on the following event-loop turn.  Keep the
+    // phases explicit so the test observes the real rendered state instead of
+    // treating a deferred layout as a failed configuration contract.
+    property int qmlSmokeTranscriptSourcePhase: 0
+    property string qmlSmokeTranscriptSourceFailure: ""
     property string pendingHistoryDeleteId: ""
     readonly property var languageCatalog: AppController.catalog.languageSet("default")
 
@@ -162,27 +168,85 @@ Item {
         return true
     }
 
+    function beginQmlSmokeTranscriptSourceCheck() {
+        qmlSmokeTranscriptSourcePhase = 0
+        qmlSmokeTranscriptSourceFailure = ""
+    }
+
+    // Return 0 while QML is settling, 1 for a verified route, and -1 for a
+    // concrete contract failure.  Main.qml deliberately preserves this
+    // tri-state result instead of converting a pending layout into `false`.
     function qmlSmokeTranscriptSourceCheck() {
-        reviewStepId = "transcribe"
-        if (!dubbingTranscriptSourcePanel.visible
-                || !dubbingTranscriptSourceMode.visible
-                || dubbingTranscriptSourceMode.count !== 3
-                || dubbingTranscriptSourcePanel.width <= 0
-                || dubbingTranscriptSourceMode.width <= 0
-                || dubbingWorkspaceScroller.contentWidth < dubbingWorkspaceRow.width
-                || (dubbingWorkspaceRow.width > dubbingWorkspaceScroller.width
-                    && !dubbingWorkspaceHorizontalScrollBar.visible))
-            return false
-        subtitleEditorDialog.open()
-        exportOptionsDialog.open()
-        reviewStepId = "synthesize"
-        return dubbingTranscriptSourceMode.model[0].id === "stt"
-            && dubbingTranscriptSourceMode.model[1].id === "ocr"
-            && dubbingTranscriptSourceMode.model[2].id === "stt+ocr"
-            && sourceMediaPanel.qmlSmokeMediaControlsCheck()
-            && subtitleEditorDialog.qmlSmokeLayoutCheck()
-            && dubbingVoiceClipReview.qmlSmokeTimingResolutionCheck()
-            && exportOptionsDialog.qmlSmokeExportRoutesCheck()
+        if (qmlSmokeTranscriptSourcePhase === 0) {
+            reviewStepId = "transcribe"
+            qmlSmokeTranscriptSourcePhase = 1
+            return 0
+        }
+        if (qmlSmokeTranscriptSourcePhase === 1) {
+            if (!dubbingTranscriptSourcePanel.visible) {
+                qmlSmokeTranscriptSourceFailure = "transcript source panel is not visible (displayed="
+                        + displayedStepId + ", review=" + reviewStepId
+                        + ", processing=" + dubbing.processing
+                        + ", error=" + (dubbing.lastError || "none") + ")"
+                return -1
+            }
+            if (!dubbingTranscriptSourceMode.visible) {
+                qmlSmokeTranscriptSourceFailure = "transcript source selector is not visible"
+                return -1
+            }
+            if (dubbingTranscriptSourceMode.count !== 3) {
+                qmlSmokeTranscriptSourceFailure = "transcript source selector count is "
+                        + dubbingTranscriptSourceMode.count + ", expected 3"
+                return -1
+            }
+            if (dubbingTranscriptSourcePanel.width <= 0
+                    || dubbingTranscriptSourceMode.width <= 0) {
+                qmlSmokeTranscriptSourceFailure = "transcript source layout has non-positive width"
+                return -1
+            }
+            if (dubbingWorkspaceScroller.contentWidth < dubbingWorkspaceRow.width) {
+                qmlSmokeTranscriptSourceFailure = "workspace content width is smaller than its row"
+                return -1
+            }
+            if (dubbingWorkspaceRow.width > dubbingWorkspaceScroller.width
+                    && !dubbingWorkspaceHorizontalScrollBar.visible) {
+                qmlSmokeTranscriptSourceFailure = "horizontal workspace overflow has no visible scrollbar"
+                return -1
+            }
+            subtitleEditorDialog.open()
+            exportOptionsDialog.beginQmlSmokeExportRoutesCheck()
+            exportOptionsDialog.open()
+            reviewStepId = "synthesize"
+            qmlSmokeTranscriptSourcePhase = 2
+            return 0
+        }
+        if (dubbingTranscriptSourceMode.model[0].id !== "stt"
+                || dubbingTranscriptSourceMode.model[1].id !== "ocr"
+                || dubbingTranscriptSourceMode.model[2].id !== "stt+ocr") {
+            qmlSmokeTranscriptSourceFailure = "transcript source model order changed"
+            return -1
+        }
+        if (!sourceMediaPanel.qmlSmokeMediaControlsCheck()) {
+            qmlSmokeTranscriptSourceFailure = "source-media controls smoke contract failed"
+            return -1
+        }
+        if (!subtitleEditorDialog.qmlSmokeLayoutCheck()) {
+            qmlSmokeTranscriptSourceFailure = "subtitle editor dialog smoke contract failed"
+            return -1
+        }
+        if (!dubbingVoiceClipReview.qmlSmokeTimingResolutionCheck()) {
+            qmlSmokeTranscriptSourceFailure = "voice clip timing smoke contract failed"
+            return -1
+        }
+        var exportRoutesCheck = exportOptionsDialog.qmlSmokeExportRoutesCheck()
+        if (exportRoutesCheck === 0)
+            return 0
+        if (exportRoutesCheck < 0) {
+            qmlSmokeTranscriptSourceFailure = "export options dialog smoke contract failed: "
+                    + exportOptionsDialog.qmlSmokeExportRoutesFailure
+            return -1
+        }
+        return 1
     }
 
     function runStep(stepId) {

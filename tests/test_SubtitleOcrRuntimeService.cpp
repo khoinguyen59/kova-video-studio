@@ -59,12 +59,12 @@ bool validSha256(const QString &value)
 
 } // namespace
 
-void TestSubtitleOcrRuntimeService::manifestPinsRuntimeAndAllRequiredLanguagePacks()
+void TestSubtitleOcrRuntimeService::manifestDescribesBundledRuntimeAndAllRequiredLanguagePacks()
 {
     const QVariantMap runtime = SubtitleOcrRuntimeService::runtimeDescriptor();
-    QVERIFY(runtime.value(QStringLiteral("url")).toString().startsWith(QStringLiteral("https://")));
-    QVERIFY(validSha256(runtime.value(QStringLiteral("sha256")).toString()));
-    QVERIFY(runtime.value(QStringLiteral("bytes")).toLongLong() > 20 * 1024 * 1024);
+    QCOMPARE(runtime.value(QStringLiteral("delivery")).toString(), QStringLiteral("bundled-vcpkg"));
+    QCOMPARE(runtime.value(QStringLiteral("fileName")).toString(), QStringLiteral("tesseract.exe"));
+    QCOMPARE(runtime.value(QStringLiteral("userDownloadRequired")).toBool(), false);
     QCOMPARE(runtime.value(QStringLiteral("license")).toString(), QStringLiteral("Apache-2.0"));
 
     const QVariantList packs = SubtitleOcrRuntimeService::languageDescriptors();
@@ -86,11 +86,16 @@ void TestSubtitleOcrRuntimeService::manifestPinsRuntimeAndAllRequiredLanguagePac
         QStringLiteral("resources/subtitle-ocr-runtime-manifest.json")));
     QVERIFY(packagedManifest.open(QIODevice::ReadOnly));
     const QJsonObject manifest = QJsonDocument::fromJson(packagedManifest.readAll()).object();
+    QCOMPARE(manifest.value(QStringLiteral("schemaVersion")).toInt(), 2);
     QCOMPARE(manifest.value(QStringLiteral("automaticDownload")).toBool(), false);
-    QCOMPARE(manifest.value(QStringLiteral("userInitiatedDownload")).toBool(), true);
+    QCOMPARE(manifest.value(QStringLiteral("userInitiatedDownload")).toBool(), false);
     const QJsonObject packagedRuntime = manifest.value(QStringLiteral("runtime")).toObject();
-    QCOMPARE(packagedRuntime.value(QStringLiteral("url")).toString(), runtime.value(QStringLiteral("url")).toString());
-    QCOMPARE(packagedRuntime.value(QStringLiteral("sha256")).toString(), runtime.value(QStringLiteral("sha256")).toString());
+    QCOMPARE(packagedRuntime.value(QStringLiteral("delivery")).toString(),
+             runtime.value(QStringLiteral("delivery")).toString());
+    QCOMPARE(packagedRuntime.value(QStringLiteral("version")).toString(),
+             runtime.value(QStringLiteral("version")).toString());
+    QCOMPARE(packagedRuntime.value(QStringLiteral("binaryRelativePath")).toString(),
+             runtime.value(QStringLiteral("fileName")).toString());
     const QJsonArray packagedPacks = manifest.value(QStringLiteral("languageData")).toObject()
         .value(QStringLiteral("packages")).toArray();
     QCOMPARE(packagedPacks.size(), packs.size());
@@ -106,6 +111,52 @@ void TestSubtitleOcrRuntimeService::manifestPinsRuntimeAndAllRequiredLanguagePac
         }
         QVERIFY(found);
     }
+}
+
+void TestSubtitleOcrRuntimeService::bundledRuntimeManifestMustMatchBinary()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString runtimeDirectory = directory.filePath(QStringLiteral("subtitle-ocr"));
+    const QString executable = QDir(runtimeDirectory).filePath(QStringLiteral("tesseract.exe"));
+    QVERIFY(writeFile(executable, QByteArrayLiteral("package-provisioned tesseract fixture")));
+    const QString hash = SubtitleOcrRuntimeService::sha256File(executable);
+    const QJsonObject runtime{
+        {QStringLiteral("delivery"), QStringLiteral("bundled-vcpkg")},
+        {QStringLiteral("version"), SubtitleOcrRuntimeService::runtimeDescriptor()
+             .value(QStringLiteral("version")).toString()},
+        {QStringLiteral("binarySha256"), hash},
+        {QStringLiteral("healthCheckPassed"), true},
+    };
+    QVERIFY(writeFile(QDir(runtimeDirectory).filePath(QStringLiteral("runtime-manifest.json")),
+                      QJsonDocument(QJsonObject{{QStringLiteral("schemaVersion"), 2},
+                                                  {QStringLiteral("runtime"), runtime}}).toJson()));
+
+    QString error;
+    QVERIFY(SubtitleOcrRuntimeService::hasValidBundledRuntime(directory.path(), &error));
+    QVERIFY(writeFile(executable, QByteArrayLiteral("tampered runtime fixture")));
+    QVERIFY(!SubtitleOcrRuntimeService::hasValidBundledRuntime(directory.path(), &error));
+    QVERIFY(error.contains(QStringLiteral("does not match"), Qt::CaseInsensitive));
+}
+
+void TestSubtitleOcrRuntimeService::bundledRuntimeWinsOverLegacyManagedExecutable()
+{
+    QTemporaryDir dataDirectory;
+    QTemporaryDir applicationDirectory;
+    QVERIFY(dataDirectory.isValid());
+    QVERIFY(applicationDirectory.isValid());
+    EnvironmentScope environment(dataDirectory.path());
+
+    const QString legacyExecutable = SubtitleOcrRuntimeLocator::managedTesseractPath();
+    const QString bundledExecutable = QDir(applicationDirectory.path()).filePath(
+        QStringLiteral("subtitle-ocr/tesseract.exe"));
+    QVERIFY(writeFile(legacyExecutable, QByteArrayLiteral("legacy runtime fixture")));
+    QVERIFY(writeFile(bundledExecutable, QByteArrayLiteral("bundled runtime fixture")));
+
+    const SubtitleOcrRuntimeResolution resolution =
+        SubtitleOcrRuntimeLocator::resolveForApplicationDirectoryWithSource(applicationDirectory.path());
+    QCOMPARE(resolution.source, QStringLiteral("bundled"));
+    QCOMPARE(QDir::cleanPath(resolution.path), QDir::cleanPath(bundledExecutable));
 }
 
 void TestSubtitleOcrRuntimeService::verifiedLanguageReplacementIsAtomicAndChecksumProtected()
@@ -169,7 +220,7 @@ void TestSubtitleOcrRuntimeService::runtimeActivationIsAtomicAndRestartDiscovery
     QCOMPARE(reopened.runtimePath(), initial.runtimePath());
 }
 
-void TestSubtitleOcrRuntimeService::cancelAndRetryKeepExistingRuntimeUntouched()
+void TestSubtitleOcrRuntimeService::cancelAndRetryKeepExistingLanguageDataUntouched()
 {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
@@ -177,30 +228,38 @@ void TestSubtitleOcrRuntimeService::cancelAndRetryKeepExistingRuntimeUntouched()
     HFHubClient hub;
     DownloadManager downloads(&hub);
     SubtitleOcrRuntimeService service(&downloads);
-    const QVariantMap runtime = SubtitleOcrRuntimeService::runtimeDescriptor();
+    const QString runtimeRoot = SubtitleOcrRuntimeLocator::managedRuntimeRoot();
+    QVERIFY(writeFile(QDir(runtimeRoot).filePath(QStringLiteral("tesseract.exe")),
+                      QByteArrayLiteral("managed runtime fixture")));
+    QString manifestError;
+    QVERIFY(service.writeInstallationManifest(runtimeRoot, &manifestError));
+    service.refresh();
+    QCOMPARE(service.installState(), SubtitleOcrRuntimeService::Installed);
+    const QVariantMap language = SubtitleOcrRuntimeService::languageDescriptors().first().toMap();
 
-    QVERIFY(service.installRuntime());
+    QVERIFY(service.installLanguage(language.value(QStringLiteral("code")).toString()));
     QCOMPARE(service.installState(), SubtitleOcrRuntimeService::Downloading);
     QVERIFY(service.busy());
     QVERIFY(service.cancelInstallation());
-    emit downloads.error(runtime.value(QStringLiteral("url")).toString(),
-                         runtime.value(QStringLiteral("fileName")).toString(),
-                         QStringLiteral("Download cancelled."));
+    emit downloads.error(language.value(QStringLiteral("url")).toString(),
+                          language.value(QStringLiteral("fileName")).toString(),
+                          QStringLiteral("Download cancelled."));
     QVERIFY(!service.busy());
-    QCOMPARE(service.installState(), SubtitleOcrRuntimeService::Missing);
-    QVERIFY(!service.runtimeAvailable());
+    QCOMPARE(service.installState(), SubtitleOcrRuntimeService::Installed);
+    QVERIFY(service.runtimeAvailable());
+    QVERIFY(!service.isLanguageInstalled(language.value(QStringLiteral("code")).toString()));
 
-    QVERIFY(service.installRuntime());
-    emit downloads.error(runtime.value(QStringLiteral("url")).toString(),
-                         runtime.value(QStringLiteral("fileName")).toString(),
-                         QStringLiteral("network unavailable"));
+    QVERIFY(service.installLanguage(language.value(QStringLiteral("code")).toString()));
+    emit downloads.error(language.value(QStringLiteral("url")).toString(),
+                          language.value(QStringLiteral("fileName")).toString(),
+                          QStringLiteral("network unavailable"));
     QCOMPARE(service.installState(), SubtitleOcrRuntimeService::Failed);
-    QVERIFY(!service.runtimeAvailable());
+    QVERIFY(service.runtimeAvailable());
     QVERIFY(service.retryInstallation());
     QCOMPARE(service.installState(), SubtitleOcrRuntimeService::Downloading);
 }
 
-void TestSubtitleOcrRuntimeService::installerPreflightAndProcessFailureExposeActionableDiagnostics()
+void TestSubtitleOcrRuntimeService::missingPackageRuntimeFailsWithoutStartingAnInstaller()
 {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
@@ -209,26 +268,11 @@ void TestSubtitleOcrRuntimeService::installerPreflightAndProcessFailureExposeAct
     DownloadManager downloads(&hub);
     SubtitleOcrRuntimeService service(&downloads);
 
-    service.m_pendingKind = SubtitleOcrRuntimeService::PendingKind::Runtime;
-    service.m_pendingAsset = SubtitleOcrRuntimeService::runtimeAsset();
-    service.beginInstaller(directory.filePath(QStringLiteral("missing installer.exe")));
+    QVERIFY(!service.installRuntime());
     QCOMPARE(service.installState(), SubtitleOcrRuntimeService::Failed);
-    QVERIFY(service.error().contains(QStringLiteral("missing"), Qt::CaseInsensitive));
-    QVERIFY(service.diagnostics().contains(QStringLiteral("exists=false")));
-
-    const QString invalidInstaller = QDir(service.downloadRoot()).filePath(
-        QStringLiteral("installer with spaces ü.exe"));
-    QVERIFY(writeFile(invalidInstaller, QByteArrayLiteral("not a Windows executable")));
-    service.m_pendingKind = SubtitleOcrRuntimeService::PendingKind::Runtime;
-    service.m_pendingAsset = SubtitleOcrRuntimeService::runtimeAsset();
-    service.m_pendingAsset.bytes = QFileInfo(invalidInstaller).size();
-    service.m_pendingAsset.sha256 = SubtitleOcrRuntimeService::sha256File(invalidInstaller);
-    service.beginInstaller(invalidInstaller);
-    QTRY_COMPARE_WITH_TIMEOUT(service.installState(), SubtitleOcrRuntimeService::Failed, 5000);
-    QVERIFY(service.error().contains(QStringLiteral("could not be started"), Qt::CaseInsensitive));
-    QVERIFY(service.diagnostics().contains(QStringLiteral("processError=FailedToStart")));
-    QVERIFY(service.diagnostics().contains(QStringLiteral("workingDirectory=")));
-    QVERIFY(service.canCleanFailedDownload());
+    QVERIFY(service.error().contains(QStringLiteral("missing a verified bundled"), Qt::CaseInsensitive));
+    QVERIFY(service.diagnostics().contains(QStringLiteral("never executes the deprecated upstream installer")));
+    QCOMPARE(service.m_installer.state(), QProcess::NotRunning);
 }
 
 void TestSubtitleOcrRuntimeService::healthCheckFailureDoesNotActivateStagingRuntime()
@@ -303,12 +347,14 @@ void TestSubtitleOcrRuntimeService::qmlRouteRoiAndManagedRuntimeControlsAreWired
     QVERIFY(pageSource.contains(QStringLiteral("subtitleOcrOpenRuntimeDiagnosticsButton")));
     QVERIFY(pageSource.contains(QStringLiteral("subtitleOcrCleanFailedRuntimeDownloadButton")));
     QVERIFY(pageSource.contains(QStringLiteral("No GPU or Colab required")));
+    QVERIFY(pageSource.contains(QStringLiteral("The engine is bundled")));
+    QVERIFY(pageSource.contains(QStringLiteral("Repair package runtime")));
     QVERIFY(pageSource.contains(QStringLiteral("runtime.managedRuntimePath")));
     QVERIFY(runtimeServiceSource.contains(QStringLiteral("chi_tra")));
-    QVERIFY(runtimeServiceSource.contains(QStringLiteral("beginRuntimeHealthCheck")));
-    QVERIFY(runtimeServiceSource.contains(QStringLiteral("processError=")));
-    QVERIFY(runtimeServiceSource.contains(QStringLiteral("signatureDiagnostic")));
-    QVERIFY(runtimeServiceSource.contains(QStringLiteral("PathUtils::toNativeShortPath")));
+    QVERIFY(runtimeServiceSource.contains(QStringLiteral("bundled-vcpkg")));
+    QVERIFY(runtimeServiceSource.contains(QStringLiteral("hasValidBundledRuntime")));
+    QVERIFY(runtimeServiceSource.contains(QStringLiteral("never executes the deprecated upstream installer")));
+    QVERIFY(controllerSource.contains(QStringLiteral("TESSDATA_PREFIX")));
     QVERIFY(pageSource.contains(QStringLiteral("displayedWidth")));
     QVERIFY(pageSource.contains(QStringLiteral("displayedHeight")));
     QVERIFY(pageSource.contains(QStringLiteral("ocr.setRoi")));

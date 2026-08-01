@@ -37,8 +37,8 @@
 namespace {
 std::atomic_bool s_qmlSmokeWarning{false};
 
-void qmlSmokeMessageHandler(QtMsgType type, const QMessageLogContext &context,
-                            const QString &message)
+void qmlSmokeMessageObserver(QtMsgType type, const QMessageLogContext &context,
+                             const QString &message)
 {
     const QString category = QString::fromLatin1(context.category ? context.category : "");
     const QString file = QString::fromLatin1(context.file ? context.file : "");
@@ -47,7 +47,6 @@ void qmlSmokeMessageHandler(QtMsgType type, const QMessageLogContext &context,
             || file.endsWith(QStringLiteral(".qml"), Qt::CaseInsensitive))) {
         s_qmlSmokeWarning.store(true, std::memory_order_relaxed);
     }
-    std::fprintf(stderr, "%s\n", qPrintable(message));
 }
 
 bool configureHardenedDllSearch()
@@ -74,7 +73,6 @@ int main(int argc, char *argv[])
     QGuiApplication app(argc, argv);
     const bool qmlSmokeMode = qEnvironmentVariableIntValue("LASTUDIO_QML_SMOKE") == 1;
     if (qmlSmokeMode) {
-        qInstallMessageHandler(qmlSmokeMessageHandler);
         QTimer::singleShot(60000, &app, [] { QCoreApplication::exit(3); });
     }
     LAStudio::CrashHandler::initialize();
@@ -90,6 +88,11 @@ int main(int argc, char *argv[])
     app.setWindowIcon(QIcon(QStringLiteral(":/LAStudio/icons/app_icon.ico")));
 
     LAStudio::Logger::init();
+    if (qmlSmokeMode) {
+        // Logger::init installs the production Qt handler.  Observe through it
+        // instead of replacing it so QML warnings make the smoke process fail.
+        LAStudio::Logger::setMessageObserver(qmlSmokeMessageObserver);
+    }
     LAStudio::Logger::info("App", "Application starting...");
 
     // Establish the hardware singleton on the GUI thread before QML or worker

@@ -113,6 +113,8 @@ private:
     static Asset runtimeAsset();
     static QList<Asset> languageAssets();
     static QString sha256File(const QString &path);
+    static bool hasValidBundledRuntime(const QString &applicationDirectory,
+                                       QString *errorMessage = nullptr);
     static bool replaceFileAtomically(const QString &sourcePath, const QString &destinationPath,
                                       const QString &expectedSha256, QString *errorMessage);
     static bool replaceRuntimeAtomically(const QString &stagingPath, const QString &runtimeRoot,
@@ -123,6 +125,7 @@ private:
     QString manifestPath() const;
     QString languagePath(const QString &languageCode) const;
     bool hasValidManagedRuntime(QString *errorMessage = nullptr) const;
+    bool hasUsablePackagedRuntime(QString *errorMessage = nullptr) const;
     bool writeInstallationManifest(const QString &installationRoot, QString *errorMessage) const;
     bool beginDownload(PendingKind kind, const Asset &asset);
     void beginInstaller(const QString &installerPath);

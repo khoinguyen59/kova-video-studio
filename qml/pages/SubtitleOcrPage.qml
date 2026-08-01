@@ -563,14 +563,14 @@ Page {
                         }
                         Text {
                             Layout.fillWidth: true
-                            text: runtime.runtimeAvailable ? qsTr("Using %1 runtime: %2").arg(runtime.runtimeSource).arg(runtime.runtimePath)
-                                                           : qsTr("The app-managed CPU runtime is required only to run OCR. You can still choose/import video and set the region now. Managed location: %1").arg(runtime.managedRuntimePath)
+                            text: runtime.runtimeAvailable ? qsTr("Using %1 Tesseract runtime: %2").arg(runtime.runtimeSource).arg(runtime.runtimePath)
+                                                           : qsTr("The package-provisioned CPU runtime is required only to run OCR. You can still choose/import video and set the region now. Language data location: %1").arg(runtime.managedRuntimePath)
                             color: Theme.textSecondary
                             wrapMode: Text.WordWrap
                         }
                         Text {
                             Layout.fillWidth: true
-                            text: qsTr("Execution route: Local CPU · No GPU or Colab required · Internet is used only for an explicit first-time verified download.")
+                            text: qsTr("Execution route: Local CPU · No GPU or Colab required · The engine is bundled; internet is used only when you explicitly install a verified language pack.")
                             color: Theme.textSecondary
                             wrapMode: Text.WordWrap
                         }
@@ -578,12 +578,12 @@ Page {
                         Flow {
                             Layout.fillWidth: true
                             spacing: Theme.paddingSmall
-                            Button { text: runtime.runtimeSource === "managed" ? qsTr("Reinstall runtime") : qsTr("Install runtime"); enabled: !runtime.busy; onClicked: runtime.installRuntime() }
-                            Button { text: qsTr("Retry install"); visible: runtime.stateName === "Failed"; enabled: !runtime.busy; onClicked: runtime.retryInstallation() }
+                            Button { text: qsTr("Repair package runtime"); visible: !runtime.runtimeAvailable; enabled: !runtime.busy; onClicked: runtime.installRuntime() }
+                            Button { text: qsTr("Retry language install"); visible: runtime.stateName === "Failed" && runtime.runtimeAvailable; enabled: !runtime.busy; onClicked: runtime.retryInstallation() }
                             Button { text: qsTr("Cancel install"); visible: runtime.busy; onClicked: runtime.cancelInstallation() }
                             Button { id: openRuntimeDiagnosticsButton; objectName: "subtitleOcrOpenRuntimeDiagnosticsButton"; text: qsTr("Open diagnostics"); visible: runtime.diagnostics !== ""; onClicked: runtimeDiagnosticsDialog.open() }
                             Button { id: cleanFailedRuntimeDownloadButton; objectName: "subtitleOcrCleanFailedRuntimeDownloadButton"; text: qsTr("Clean failed download"); visible: runtime.stateName === "Failed" && runtime.canCleanFailedDownload; enabled: !runtime.busy; onClicked: runtime.cleanFailedDownload() }
-                            Text { text: qsTr("Tesseract %1 · Apache-2.0 · CPU").arg(runtime.runtimeVersion === "" ? "5.5.3" : runtime.runtimeVersion); color: Theme.textSecondary; topPadding: 7 }
+                            Text { text: qsTr("Tesseract %1 · Apache-2.0 · CPU").arg(runtime.runtimeVersion === "" ? "5.5.1" : runtime.runtimeVersion); color: Theme.textSecondary; topPadding: 7 }
                         }
                         ProgressBar { Layout.fillWidth: true; visible: runtime.progressAvailable; from: 0; to: runtime.bytesTotal; value: runtime.bytesReceived }
                         Text { Layout.fillWidth: true; visible: runtime.progressAvailable; text: qsTr("Downloaded %1 / %2 MiB").arg((runtime.bytesReceived / 1048576).toFixed(1)).arg((runtime.bytesTotal / 1048576).toFixed(1)); color: Theme.textSecondary }
@@ -607,7 +607,7 @@ Page {
                                         Layout.fillWidth: true
                                         Text { text: modelData.label + " (" + modelData.code + ")"; color: Theme.textSecondary; Layout.fillWidth: true; elide: Text.ElideRight }
                                         Text { text: modelData.state; color: modelData.installed ? Theme.success : Theme.warning }
-                                        Button { text: modelData.installed ? qsTr("Verified") : qsTr("Install"); enabled: runtime.runtimeAvailable && !runtime.busy && !modelData.installed && runtime.runtimeSource === "managed"; onClicked: runtime.installLanguage(modelData.code) }
+                                        Button { text: modelData.installed ? qsTr("Verified") : qsTr("Install"); enabled: runtime.runtimeAvailable && !runtime.busy && !modelData.installed && runtime.runtimeSource !== "environment"; onClicked: runtime.installLanguage(modelData.code) }
                                     }
                                 }
                             }

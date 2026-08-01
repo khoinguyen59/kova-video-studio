@@ -550,10 +550,16 @@ function Stage-ThirdPartyLicenseTexts {
     New-Item -ItemType Directory -Path $licensesRoot -Force | Out-Null
 
     $vcpkgPrefix = Join-Path $BuildDirectory "vcpkg_installed\$Triplet"
+    # Every dynamic vcpkg library is copied into the portable layout. Stage
+    # the matching port copyright text rather than keeping a hand-maintained,
+    # incomplete list when the bundled OCR runtime brings dependencies.
     $vcpkgLicenses = @(
-        @{ Name = "curl"; Source = Join-Path $vcpkgPrefix "share\curl\copyright" },
-        @{ Name = "zlib"; Source = Join-Path $vcpkgPrefix "share\zlib\copyright" },
-        @{ Name = "bzip2"; Source = Join-Path $vcpkgPrefix "share\bzip2\copyright" }
+        Get-ChildItem -LiteralPath (Join-Path $vcpkgPrefix "share") -Directory | ForEach-Object {
+            $copyright = Join-Path $_.FullName "copyright"
+            if (Test-Path -LiteralPath $copyright -PathType Leaf) {
+                @{ Name = $_.Name; Source = $copyright }
+            }
+        }
     )
     foreach ($entry in $vcpkgLicenses) {
         if (-not (Test-Path -LiteralPath $entry.Source -PathType Leaf)) {
@@ -615,7 +621,11 @@ function Stage-SubtitleOcrRuntimeManifest {
         [Parameter(Mandatory = $true)]
         [string] $DeployRoot,
         [Parameter(Mandatory = $true)]
-        [string] $StageRoot
+        [string] $StageRoot,
+        [Parameter(Mandatory = $true)]
+        [string] $BuildDirectory,
+        [Parameter(Mandatory = $true)]
+        [string] $Triplet
     )
 
     $noticeSource = Join-Path $RepositoryRoot "resources\SUBTITLE-OCR-RUNTIME.md"
@@ -631,18 +641,41 @@ function Stage-SubtitleOcrRuntimeManifest {
     } catch {
         throw "Subtitle OCR runtime manifest is invalid JSON: $($_.Exception.Message)"
     }
-    if ($manifest.automaticDownload -ne $false -or $manifest.userInitiatedDownload -ne $true -or
-        [string]::IsNullOrWhiteSpace($manifest.runtime.sha256) -or $manifest.languageData.packages.Count -lt 6) {
-        throw "Subtitle OCR runtime manifest is missing explicit-install, checksum, or language-pack metadata"
+    if ($manifest.schemaVersion -ne 2 -or $manifest.automaticDownload -ne $false -or
+        $manifest.userInitiatedDownload -ne $false -or $manifest.runtime.delivery -ne "bundled-vcpkg" -or
+        $manifest.runtime.version -ne "5.5.1" -or $manifest.languageData.packages.Count -lt 6) {
+        throw "Subtitle OCR runtime manifest is missing bundled-runtime or language-pack metadata"
     }
     $runtimeRoot = Join-Path $DeployRoot "subtitle-ocr"
     New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
+    $vcpkgPrefix = Join-Path $BuildDirectory "vcpkg_installed\$Triplet"
+    $tesseractSource = Join-Path $vcpkgPrefix "tools\tesseract\tesseract.exe"
+    if (-not (Test-Path -LiteralPath $tesseractSource -PathType Leaf)) {
+        throw "Pinned vcpkg Tesseract executable was not found: $tesseractSource"
+    }
+    $tesseractTarget = Join-Path $runtimeRoot "tesseract.exe"
+    Copy-Item -LiteralPath $tesseractSource -Destination $tesseractTarget -Force
+    $vcpkgBinDirectory = Join-Path $vcpkgPrefix "bin"
+    $runtimeLibraries = Get-ChildItem -LiteralPath $vcpkgBinDirectory -Filter "*.dll" -File
+    if ($runtimeLibraries.Count -eq 0) {
+        throw "No vcpkg runtime DLLs were found for bundled Tesseract: $vcpkgBinDirectory"
+    }
+    foreach ($library in $runtimeLibraries) {
+        Copy-Item -LiteralPath $library.FullName -Destination (Join-Path $runtimeRoot $library.Name) -Force
+    }
+    $healthOutput = & $tesseractTarget --version 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0 -or $healthOutput -notmatch '(?i)tesseract') {
+        throw "Bundled Tesseract did not pass its package health check. Exit=$LASTEXITCODE Output=$healthOutput"
+    }
+    $manifest.runtime.binarySha256 = (Get-FileHash -LiteralPath $tesseractTarget -Algorithm SHA256).Hash.ToLowerInvariant()
+    $manifest.runtime.healthCheckPassed = $true
+    $manifest.runtime.healthCheckOutput = (($healthOutput -split "`r?`n")[0]).Trim()
     Copy-Item -LiteralPath $noticeSource -Destination (Join-Path $runtimeRoot "README.txt") -Force
-    Copy-Item -LiteralPath $manifestSource -Destination (Join-Path $runtimeRoot "runtime-manifest.json") -Force
+    $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $runtimeRoot "runtime-manifest.json") -Encoding UTF8
     $licenseRoot = Join-Path $StageRoot "licenses\tesseract"
     New-Item -ItemType Directory -Path $licenseRoot -Force | Out-Null
     Copy-Item -LiteralPath $noticeSource -Destination (Join-Path $licenseRoot "RUNTIME-NOTICE.md") -Force
-    Write-Host ">> Staged Subtitle OCR managed-runtime manifest (explicit user download only)" -ForegroundColor Green
+    Write-Host ">> Staged health-checked bundled Subtitle OCR runtime (no external installer)" -ForegroundColor Green
 }
 
 function Copy-VcpkgRuntimeLibraries {
@@ -821,7 +854,7 @@ $sevenZipSource = Ensure-ArchiveExtractor -DeployRoot $deployRoot -VcpkgRoot $Vc
 Ensure-Bsdtar -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir -BuildDirectory $buildDir -Triplet $vcpkgTriplet
 Ensure-FfmpegRuntime -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir
 Ensure-YtDlpRuntime -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir
-Stage-SubtitleOcrRuntimeManifest -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir
+Stage-SubtitleOcrRuntimeManifest -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir -BuildDirectory $buildDir -Triplet $vcpkgTriplet
 Stage-ThirdPartyLicenseTexts -RepositoryRoot $RepoRoot -StageRoot $stageDir -BuildDirectory $buildDir -Triplet $vcpkgTriplet -QtRoot $QtRoot -SevenZipSource $sevenZipSource
 if ($AllowUnsignedEspeakForInternalBuild) {
     Write-Warning "INTERNAL BUILD ONLY: permitting the SHA-256-verified but unsigned eSpeak NG MSI. Do not distribute this package or promote it to a release."

@@ -10,9 +10,10 @@ struct SubtitleOcrRuntimeResolution {
     QString source;
 };
 
-// Tesseract is an optional offline runtime.  The managed copy always lives in
-// app-owned data storage; PATH is deliberately not a discovery source because
-// an arbitrary system executable would make the selected runtime ambiguous.
+// Tesseract is an optional offline runtime. A package-provisioned executable
+// is the default; a legacy managed copy in app data is only a fallback. PATH
+// is deliberately not a discovery source because an arbitrary system
+// executable would make the selected runtime ambiguous.
 class SubtitleOcrRuntimeLocator final
 {
 public:

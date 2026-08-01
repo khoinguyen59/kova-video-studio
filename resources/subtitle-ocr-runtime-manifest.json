@@ -1,23 +1,25 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "component": "Tesseract OCR",
   "automaticDownload": false,
-  "userInitiatedDownload": true,
+  "userInitiatedDownload": false,
   "managedInstallRoot": "app-data/subtitle-ocr/runtime",
   "resolutionOrder": [
     "LASTUDIO_TESSERACT (advanced override)",
-    "app-owned subtitle-ocr/runtime/tesseract.exe",
-    "subtitle-ocr/tesseract.exe beside the application"
+    "integrity-verified subtitle-ocr/tesseract.exe beside the application",
+    "legacy app-owned subtitle-ocr/runtime/tesseract.exe fallback"
   ],
   "license": "Apache-2.0",
   "licenseUrl": "https://www.apache.org/licenses/LICENSE-2.0",
   "runtime": {
-    "version": "5.5.3.20260724",
+    "delivery": "bundled-vcpkg",
+    "source": "vcpkg:tesseract",
+    "version": "5.5.1",
     "architecture": "windows-x64",
-    "fileName": "tesseract-ocr-w64-setup-5.5.3.20260724.exe",
-    "url": "https://github.com/tesseract-ocr/tesseract/releases/download/5.5.3/tesseract-ocr-w64-setup-5.5.3.20260724.exe",
-    "sha256": "bee9e3434bd94fd65387d9be28cd467a41f61b1275383b55b0f59a1331270ae4",
-    "bytes": 26573224
+    "binaryRelativePath": "tesseract.exe",
+    "binarySha256": "package-generated",
+    "healthCheck": "tesseract --version",
+    "healthCheckPassed": false
   },
   "languageData": {
     "repository": "https://github.com/tesseract-ocr/tessdata_fast",

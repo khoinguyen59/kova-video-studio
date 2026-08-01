@@ -245,13 +245,18 @@ ApplicationWindow {
                 { width: 1600, height: 900 }
             ]
             if (qmlSmokeDubbingLayoutResizePending) {
+                var dubbingCheckResult = dubbingLoader.item.qmlSmokeTranscriptSourceCheck()
+                if (dubbingCheckResult === 0)
+                    return 0
                 qmlSmokeDubbingLayoutResizePending = false
-                return dubbingLoader.item.qmlSmokeTranscriptSourceCheck() ? 0 : -1
+                return dubbingCheckResult > 0 ? 0 : -1
             }
             if (qmlSmokeDubbingLayoutSizeIndex < dubbingSizes.length) {
                 var dubbingSize = dubbingSizes[qmlSmokeDubbingLayoutSizeIndex++]
                 root.width = dubbingSize.width
                 root.height = dubbingSize.height
+                if (dubbingLoader.item.beginQmlSmokeTranscriptSourceCheck)
+                    dubbingLoader.item.beginQmlSmokeTranscriptSourceCheck()
                 qmlSmokeDubbingLayoutResizePending = true
                 return 0
             }
@@ -319,8 +324,13 @@ ApplicationWindow {
                     return
                 }
                 if (exerciseResult < 0) {
-                    console.warn("Pending model selection escaped the configuration dialog for route "
-                                 + route.id)
+                    var failedContract = routeIndex === 1
+                        ? "Pending model selection escaped the configuration dialog for route "
+                        : "Route-specific QML smoke contract failed for route "
+                    var failureDetail = routeIndex === 8 && dubbingLoader.item
+                            ? dubbingLoader.item.qmlSmokeTranscriptSourceFailure : ""
+                    console.warn(failedContract + route.id
+                                 + (failureDetail ? ": " + failureDetail : ""))
                     running = false
                     Qt.quit()
                     return
