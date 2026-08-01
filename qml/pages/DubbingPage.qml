@@ -168,7 +168,10 @@ Item {
                 || !dubbingTranscriptSourceMode.visible
                 || dubbingTranscriptSourceMode.count !== 3
                 || dubbingTranscriptSourcePanel.width <= 0
-                || dubbingTranscriptSourceMode.width <= 0)
+                || dubbingTranscriptSourceMode.width <= 0
+                || dubbingWorkspaceScroller.contentWidth < dubbingWorkspaceRow.width
+                || (dubbingWorkspaceRow.width > dubbingWorkspaceScroller.width
+                    && !dubbingWorkspaceHorizontalScrollBar.visible))
             return false
         subtitleEditorDialog.open()
         exportOptionsDialog.open()
@@ -461,10 +464,34 @@ Item {
             }
         }
 
-        RowLayout {
-            enabled: !dubbing.settingsLocked
-            Layout.fillWidth: true; Layout.fillHeight: true
-            Layout.margins: Theme.paddingMedium; spacing: Theme.paddingMedium
+        Flickable {
+            id: dubbingWorkspaceScroller
+            objectName: "dubbingWorkspaceScroller"
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.margins: Theme.paddingMedium
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.HorizontalFlick
+            contentWidth: Math.max(width, dubbingWorkspaceRow.implicitWidth + Theme.paddingMedium * 2)
+            contentHeight: height
+
+            ScrollBar.horizontal: ScrollBar {
+                id: dubbingWorkspaceHorizontalScrollBar
+                objectName: "dubbingWorkspaceHorizontalScrollBar"
+                policy: dubbingWorkspaceScroller.contentWidth > dubbingWorkspaceScroller.width
+                        ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+            }
+
+            RowLayout {
+                id: dubbingWorkspaceRow
+                x: Theme.paddingMedium
+                y: 0
+                width: Math.max(dubbingWorkspaceScroller.width - Theme.paddingMedium * 2,
+                                implicitWidth)
+                height: dubbingWorkspaceScroller.height
+                enabled: !dubbing.settingsLocked
+                spacing: Theme.paddingMedium
 
             DubbingHistoryPanel {
                 id: historyPanel
@@ -870,17 +897,17 @@ Item {
                 }
             }
 
-            DubbingNodeInspector {
-                dubbing: root.dubbing
-                nodeId: root.displayedStepId
-                node: root.workflowNode(root.displayedStepId)
-                nodeTitle: root.stepTitle(root.displayedStepId)
-                visible: root.isNodeInspectorOpen
-                         && node && node.configurable === true
-                onCloseRequested: root.isNodeInspectorOpen = false
-                onRewriteSetupRequested: qualityDialog.openForMode("custom")
+                DubbingNodeInspector {
+                    dubbing: root.dubbing
+                    nodeId: root.displayedStepId
+                    node: root.workflowNode(root.displayedStepId)
+                    nodeTitle: root.stepTitle(root.displayedStepId)
+                    visible: root.isNodeInspectorOpen
+                             && node && node.configurable === true
+                    onCloseRequested: root.isNodeInspectorOpen = false
+                    onRewriteSetupRequested: qualityDialog.openForMode("custom")
+                }
             }
-
         }
 
         DubbingProjectStatusPanel {
