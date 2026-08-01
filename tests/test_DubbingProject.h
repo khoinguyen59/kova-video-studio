@@ -46,6 +46,7 @@ private slots:
     void dubbingTimingUiWiresPreviewApplyAndUndo();
     void dubbingExportUiSeparatesMp4AndEditableCapCutDraft();
     void exportsSelfContainedCapCutDraftWithUnverifiedImportStatus();
+    void capCutExportDoesNotMislabelUnseparatedAnalysisAudioAsVocals();
     void segmentNormalizerSplitsLongAsrTranscript();
     void segmentNormalizerUsesAlignedWordBoundaries();
     void segmentNormalizerRebuildsAcrossAsrBoundaries();

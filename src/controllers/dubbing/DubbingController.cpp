@@ -3811,11 +3811,20 @@ bool DubbingController::exportCapCutDraft(const QString &directoryPath)
     }
     QString draftPath;
     QString warning;
+    // analysisAudioPath is the normalized mono analysis input immediately
+    // after ingest. It becomes a genuine vocals stem only after the source
+    // separation node has produced its companion background stem. Do not
+    // label the analysis input as editable source vocals in a CapCut draft.
+    const bool hasSeparatedStems = !m_project.analysisAudioPath.trimmed().isEmpty()
+        && QFileInfo(m_project.analysisAudioPath).isFile()
+        && !m_project.backgroundAudioPath.trimmed().isEmpty()
+        && QFileInfo(m_project.backgroundAudioPath).isFile();
+    const QString vocalsStemPath = hasSeparatedStems ? m_project.analysisAudioPath : QString();
     if (!CapCutDraftExporter::exportDraft(
             outputDirectory, QFileInfo(m_project.projectPath).completeBaseName(),
             m_project.sourceMediaPath, m_project.masterAudioPath, m_project.backgroundAudioPath,
             previewPath(), m_project.sourceIsVideo, m_project.sourceDurationMs,
-            m_project.segments, m_project.analysisAudioPath, subtitleConfiguration(),
+            m_project.segments, vocalsStemPath, subtitleConfiguration(),
             timingConfiguration(), &draftPath, &warning, &error)) {
         setError(error);
         return false;

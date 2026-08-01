@@ -2237,6 +2237,58 @@ void TestDubbingProject::exportsSelfContainedCapCutDraftWithUnverifiedImportStat
     QVERIFY(error.contains(QStringLiteral("valid generated audio clip")));
 }
 
+void TestDubbingProject::capCutExportDoesNotMislabelUnseparatedAnalysisAudioAsVocals()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    constexpr int sampleRate = 24000;
+    QVector<float> samples(sampleRate, 0.02F);
+    const QString sourcePath = dir.filePath(QStringLiteral("original.mp4"));
+    const QString masterPath = dir.filePath(QStringLiteral("master.wav"));
+    const QString analysisPath = dir.filePath(QStringLiteral("analysis-mono.wav"));
+    const QString clipPath = dir.filePath(QStringLiteral("voice-01.wav"));
+    const QString previewPath = dir.filePath(QStringLiteral("preview.wav"));
+    for (const QString &path : {sourcePath, masterPath, analysisPath, clipPath, previewPath})
+        QVERIFY(WavIO::saveFloat(path, samples.constData(), samples.size(), sampleRate));
+
+    DubbingProject project;
+    project.projectPath = dir.filePath(QStringLiteral("unseparated.ladub.json"));
+    project.sourceMediaPath = sourcePath;
+    project.masterAudioPath = masterPath;
+    project.analysisAudioPath = analysisPath;
+    project.sourceDurationMs = 1000;
+    project.sourceSampleRate = sampleRate;
+    project.sourceChannels = 1;
+    project.sourceIsVideo = true;
+    project.subtitleConfiguration = {{QStringLiteral("source"), QStringLiteral("segments")},
+                                     {QStringLiteral("style"), DubbingSubtitleService::defaultStyle()}};
+    project.segments = {QVariantMap{{QStringLiteral("id"), QStringLiteral("segment-01")},
+                                    {QStringLiteral("startMs"), 0},
+                                    {QStringLiteral("endMs"), 1000},
+                                    {QStringLiteral("sourceText"), QStringLiteral("Original")},
+                                    {QStringLiteral("targetText"), QStringLiteral("Translated")},
+                                    {QStringLiteral("clipPath"), clipPath}}};
+    QString error;
+    QVERIFY2(project.save(&error), qPrintable(error));
+
+    DubbingController controller(nullptr, nullptr);
+    QVERIFY2(controller.openProject(project.projectPath), qPrintable(controller.lastError()));
+    QVERIFY2(controller.exportCapCutDraft(dir.path()), qPrintable(controller.lastError()));
+    const QString draftPath = controller.capCutDraftPath();
+    QVERIFY(QFileInfo(draftPath).isDir());
+
+    QFile manifestFile(QDir(draftPath).filePath(QStringLiteral("LA_STUDIO_EDITABLE_MANIFEST.json")));
+    QVERIFY(manifestFile.open(QIODevice::ReadOnly));
+    const QJsonObject manifest = QJsonDocument::fromJson(manifestFile.readAll()).object();
+    QVERIFY(manifest.value(QStringLiteral("assets")).toObject()
+                .value(QStringLiteral("sourceVocals")).toString().isEmpty());
+    const QJsonArray tracks = manifest.value(QStringLiteral("tracks")).toArray();
+    QVERIFY(std::none_of(tracks.cbegin(), tracks.cend(), [](const QJsonValue &entry) {
+        return entry.toObject().value(QStringLiteral("role")).toString()
+            == QStringLiteral("source-vocals");
+    }));
+}
+
 void TestDubbingProject::audioMixRunsAsynchronously()
 {
     QTemporaryDir dir;
