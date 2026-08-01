@@ -448,6 +448,10 @@ void TestSubtitleOcrRuntimeService::responsiveLayoutSharedMediaAndHomeCardsAreWi
     QVERIFY(pageSource.contains(QStringLiteral("runtime.runtimeAvailable && !runtime.busy")));
     QCOMPARE(pageSource.count(QStringLiteral("subtitleOcrRoiHandle")), 8);
     QVERIFY(pageSource.contains(QStringLiteral("qmlSmokeLayoutCheck")));
+    QVERIFY(pageSource.contains(QStringLiteral("itemIsScrollReachable")));
+    QVERIFY(pageSource.contains(QStringLiteral("validLinkEnablesImport")));
+    QVERIFY(pageSource.contains(QStringLiteral("sourceLinkCanReceiveFocus")));
+    QVERIFY(pageSource.contains(QStringLiteral("var requiredControls = [sourceDropZone")));
     QVERIFY(pageSource.contains(QStringLiteral("MediaControlsAutoHide")));
     QVERIFY(pageSource.contains(QStringLiteral("subtitleOcrSharedMediaControls")));
     QVERIFY(pageSource.contains(QStringLiteral("qmlSmokeMediaControlsCheck")));

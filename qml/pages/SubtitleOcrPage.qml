@@ -75,6 +75,19 @@ Page {
             && a.y < b.y + b.height - 1 && a.y + a.height > b.y + 1
     }
 
+    // A child may be below the current viewport, but it must remain within the
+    // page width and inside the ScrollView's reachable content. Checking this
+    // explicitly catches the layout regressions where a card was present but
+    // its controls were clipped below a fixed-height parent.
+    function itemIsScrollReachable(item) {
+        if (!item || !item.visible || item.width <= 0 || item.height <= 0)
+            return false
+        var rect = itemRectInContent(item)
+        return rect.x >= -1 && rect.y >= -1
+                && rect.x + rect.width <= pageContent.width + 1
+                && subtitleOcrScroll.contentHeight >= rect.y + rect.height - 1
+    }
+
     function qmlSmokeMediaControlsCheck() {
         return subtitleControlsAutoHide.qmlSmokeStateCheck()
                 && subtitleControlsAutoHide.delayMs === 2000
@@ -87,10 +100,7 @@ Page {
         var cards = [sourceMediaCard, previewCard, runtimeCard, settingsCard, transcriptCard]
         for (var i = 0; i < cards.length; ++i) {
             var card = cards[i]
-            var rect = itemRectInContent(card)
-            if (!card.visible || card.width <= 0 || card.height <= 0
-                    || rect.x < -1 || rect.y < -1
-                    || rect.x + rect.width > pageContent.width + 1) return false
+            if (!itemIsScrollReachable(card)) return false
             for (var j = i + 1; j < cards.length; ++j)
                 if (rectanglesOverlap(card, cards[j])) return false
         }
@@ -105,11 +115,22 @@ Page {
                 || importLinkButton.width < importLinkButton.implicitWidth
                 || sourceLinkInput.width <= 0 || sourceDropZone.height <= 0)
             return false
-        if (videoCanvas.width <= 0 || videoCanvas.height <= 0
-                || languagePackScroll.width <= 0 || languagePackScroll.height <= 0
-                || languageSelector.width < languageSelector.implicitWidth
+        var requiredControls = [sourceDropZone, chooseVideoButton, sourceLinkInput,
+                                importLinkButton, videoCanvas, languagePackScroll,
+                                languageSelector, intervalInput, confidenceInput,
+                                runOcrButton, segmentView]
+        for (var k = 0; k < requiredControls.length; ++k)
+            if (!itemIsScrollReachable(requiredControls[k])) return false
+        if (languageSelector.width < languageSelector.implicitWidth
                 || runOcrButton.width < runOcrButton.implicitWidth)
             return false
+        var savedSourceLink = sourceLinkInput.text
+        sourceLinkInput.text = "https://example.invalid/subtitle-ocr-fixture.mp4"
+        var validLinkEnablesImport = importLinkButton.enabled
+        sourceLinkInput.forceActiveFocus()
+        var sourceLinkCanReceiveFocus = sourceLinkInput.activeFocus
+        sourceLinkInput.text = savedSourceLink
+        if (!validLinkEnablesImport || !sourceLinkCanReceiveFocus) return false
         // A missing runtime only blocks execution/install. Selecting the
         // desired language remains useful before the runtime is installed.
         if (!runtime.runtimeAvailable && (!languageSelector.enabled || runOcrButton.enabled))
