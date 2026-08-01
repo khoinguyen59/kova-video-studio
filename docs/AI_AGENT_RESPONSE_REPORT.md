@@ -19,7 +19,7 @@ Hai report version là báo cáo bằng chứng chi tiết, không được bỏ
 
 ## Trạng thái sau report 0.0.2.9 (2026-08-01)
 
-Ba commit sau đã được push thẳng lên `origin/main`, chưa tạo package mới vì full audit/chạy full regression chưa kết thúc:
+Các commit sau đã được push thẳng lên `origin/main`; chưa tạo package mới vì full audit/chạy full regression chưa kết thúc:
 
 - `04bc435` — import Subtitle OCR không có `Content-Length` có BusyIndicator indeterminate; smoke Home chạy 1024×720, 1280×800, 1600×900 và kiểm tra card 09/10 + scroll.
 - `0641650` — CapCut draft chỉ gán stem “source vocals” sau khi source separation tạo cả vocals và background; không gán nhãn sai analysis mono.
@@ -29,6 +29,7 @@ Ba commit sau đã được push thẳng lên `origin/main`, chưa tạo package
 - `7c1544d` — Rendered MP4 tôn trọng lựa chọn source reviewed (STT/OCR/import) hoặc translated target text, và `maxWidth` được map thành ASS horizontal margins. CapCut vẫn giữ cả original/dubbed sidecar và target→source fallback cho editable text.
 - `865898f` — Rendered burn-in thực thi `lineSpacing`: text được Qt bọc theo `maxWidth`, mỗi visual line thành dialogue ASS có `pos`/bước dọc riêng; MP4 burn-in dùng encoder `mpeg4` có trong FFmpeg staged thay vì `libx264` không có trong runtime internal.
 - `b6ed4ad` — Dubbing workspace không còn cố nhét History/source/review/inspector vào chiều rộng ngắn: viewport ngang có scrollbar khi cần, và smoke buộc chứng minh panel ngoài viewport còn reachable.
+- `ad9decb` — CapCut editable draft copy custom subtitle font vào `assets/fonts/`, thay tham chiếu font cục bộ bằng asset trong draft và validator chặn media/font material trỏ ra ngoài draft. Đồng thời các thao tác bị từ chối khi Dubbing đang chạy dùng non-fatal busy diagnostic: không được hủy worker, reset stage hay làm mất tiến độ.
 
 Regression đã chạy cho các thay đổi trên: `TestSubtitleOcrController`, `TestSubtitleOcrRuntimeService`, `TestDubbingProject`, `TestMediaToolService`, `PrepareQmlRouteSmokeRuntime`, `QmlRouteSmoke` đều PASS ở lượt chăm sóc tương ứng. Đây **không** thay cho full CTest/package, không được gọi là release hoàn tất, và không được gọi live GUI/Colab/CapCut PASS.
 
@@ -36,11 +37,20 @@ Sau `865898f`, full CTest với FFmpeg/FFprobe staged chạy **38/38 CTest targe
 
 Sau `b6ed4ad`, `PrepareQmlRouteSmokeRuntime` và `QmlRouteSmoke` PASS offscreen ở 1024×720, 1280×800, 1600×900. Đây chứng minh route load/resize/binding không warning và scrollbar reachability contract, nhưng visual/pointer acceptance vẫn manual.
 
+Sau `ad9decb`, `TestDubbingProject` PASS riêng sau build Debug và full CTest chạy **38/38 CTest target PASS, 0 CTest FAIL** (44.39 giây). Regression mới tạo một draft có font tùy chỉnh, xác nhận font được copy vào `assets/fonts/subtitle-font.ttf`, cả `draft_content.json` lẫn manifest không còn giữ path font gốc; đồng thời mô phỏng worker đang ở `translation`, 42% để xác nhận Preview/Apply timing bị từ chối mà worker vẫn giữ stage/progress. CTest/offscreen không phải bằng chứng CapCut import, visual UI, hay Colab live PASS.
+
+Audit source tiếp theo đã hoàn thành cho H/I, J, L và M ở mức code + regression hiện có:
+
+- H/I: `DubbingPage.qml` lưu đúng ba mode `stt`, `ocr`, `stt+ocr`; `DubbingController` persist configuration/OCR parameter; `DubbingJobRunner` dùng shared `SubtitleOcrController`. Combined mode fail nếu một nguồn fail, không fallback im lặng. `DubbingTranscriptFusionService` giữ provenance, conflict/evidence và bắt reviewer chọn STT/OCR. Các ca `normalizesOcrOnly…`, `sttOnly…`, `combined…WithoutFallback`, `combined…FailureWithoutSttFallback`, `reviewerMustResolveFusionConflictExplicitly` là regression logic; không thay cho OCR/STT live.
+- J: `MediaControlsAutoHide.qml` có delay 2000 ms, trạng thái playback/pointer/focus/menu/seek và được dùng bởi Dubbing source media + Subtitle OCR. QML route smoke xác nhận instantiate/binding; hover, keyboard và hide/reappear thật vẫn là manual acceptance.
+- L: `DubbingTimingService` dùng duration đã đo, shift word timestamps khi ripple, giữ intentional overlap, controller invalidate mix/export preview cũ, persist và undo. `resolvesGlobalTimingConflictsWithRippleAndUndo` xác nhận các contract này; `ad9decb` bổ sung guard backend để UI lock không phải lớp bảo vệ duy nhất.
+- M: UI tách `Rendered Video (MP4)` và `Editable CapCut Draft`. `CapCutDraftExporter` copy original media/audio, stems chỉ khi valid, generated clips, text track và SRT sidecars; nó validate JSON/material/track trước atomic publish. Trạng thái vẫn đúng là `structurally-validated-manual-import-pending`; chưa được nói là CapCut import đã PASS.
+
 Riêng `149a689`/`67063f3` đã chạy lại `TestSubtitleOcrRuntimeService`, `TestSubtitleOcrController`, `TestMediaIngestService`, `PrepareQmlRouteSmokeRuntime` và `QmlRouteSmoke` PASS. `7c1544d` đã chạy `TestDubbingProject`, `TestMediaToolService`, `PrepareQmlRouteSmokeRuntime` và `QmlRouteSmoke` PASS. `865898f` chạy lại bốn target trên; `TestDubbingProject::preservesConfiguredLineSpacingInBurnInAss` xác nhận khoảng cách dòng tăng theo cấu hình, còn `TestMediaToolService::rendersLineSpacedAssWithStagedFfmpeg` tạo video/audio ngắn, render ASS hai dòng qua FFmpeg staged/libass và xác minh MP4 kết quả. Lỗi Windows gốc trước đó không có QProcess diagnostic trong log và đã xóa installer đã hash-verify, nên không thể kết luận hồi tố là lỗi mạng hay quyền. Cần user chạy bản package kế tiếp để xác nhận process-launch thật; không gọi gate đó PASS trước bằng chứng mới.
 
 Audit K đã đóng khoảng trống kỹ thuật về line spacing trong `865898f`: không gán nhầm vào ASS `Spacing` (character spacing), mà mỗi line ASS được đặt theo bước dọc proportional sau khi app Qt bọc theo `maxWidth`; custom font được đăng ký để phép đo/wrap dùng đúng family khi app GUI hoạt động. Test headless chỉ dùng newline tác giả nhập để không truy cập font database khi không có `QGuiApplication`; kiểm thử FFmpeg staged xác minh libass render được file ASS phát sinh. Đây là **regression/CLI render PASS**, không phải visual acceptance: người dùng vẫn cần xác nhận trên package mới về typography, wrap HiDPI, màu/position và CapCut import thật.
 
-Sau khi đọc, AI tiếp theo phải tiếp tục audit H–M (K đã có regression/render follow-up nhưng chưa có manual visual acceptance) và báo cáo requirement → source location → test cụ thể → PASS/FAIL/SKIP/manual. Đồng thời giữ N ở trạng thái manual pending cho đến khi có launch/install thật ở package mới. Nếu phát hiện A–G có regression mới thì sửa kèm test; không được chỉ nói “baseline đã xong” để bỏ qua.
+Sau khi đọc, AI tiếp theo phải tiếp tục audit các requirement còn chưa có evidence phù hợp hoặc manual acceptance, không lặp lại code audit H/I/J/L/M đã ghi ở trên. Giữ N ở trạng thái manual pending cho đến khi có launch/install thật ở package mới; giữ K/M ở manual pending cho visual typography và CapCut import. Nếu phát hiện A–G có regression mới thì sửa kèm test; không được chỉ nói “baseline đã xong” để bỏ qua. Package baseline vẫn là `0.0.2.9`; không đóng gói chỉ vì CTest xanh.
 
 ---
 
