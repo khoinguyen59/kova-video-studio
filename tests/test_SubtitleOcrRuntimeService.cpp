@@ -96,6 +96,10 @@ void TestSubtitleOcrRuntimeService::manifestDescribesBundledRuntimeAndAllRequire
              runtime.value(QStringLiteral("version")).toString());
     QCOMPARE(packagedRuntime.value(QStringLiteral("binaryRelativePath")).toString(),
              runtime.value(QStringLiteral("fileName")).toString());
+    QCOMPARE(packagedRuntime.value(QStringLiteral("healthCheck")).toString(),
+             QStringLiteral("tesseract --version"));
+    QCOMPARE(packagedRuntime.value(QStringLiteral("healthCheckPassed")).toBool(), false);
+    QCOMPARE(packagedRuntime.value(QStringLiteral("healthCheckOutput")).toString(), QString());
     const QJsonArray packagedPacks = manifest.value(QStringLiteral("languageData")).toObject()
         .value(QStringLiteral("packages")).toArray();
     QCOMPARE(packagedPacks.size(), packs.size());

@@ -643,7 +643,10 @@ function Stage-SubtitleOcrRuntimeManifest {
     }
     if ($manifest.schemaVersion -ne 2 -or $manifest.automaticDownload -ne $false -or
         $manifest.userInitiatedDownload -ne $false -or $manifest.runtime.delivery -ne "bundled-vcpkg" -or
-        $manifest.runtime.version -ne "5.5.1" -or $manifest.languageData.packages.Count -lt 6) {
+        $manifest.runtime.version -ne "5.5.1" -or $manifest.runtime.healthCheck -ne "tesseract --version" -or
+        $manifest.runtime.healthCheckPassed -ne $false -or
+        $null -eq $manifest.runtime.PSObject.Properties["healthCheckOutput"] -or
+        $manifest.languageData.packages.Count -lt 6) {
         throw "Subtitle OCR runtime manifest is missing bundled-runtime or language-pack metadata"
     }
     $runtimeRoot = Join-Path $DeployRoot "subtitle-ocr"

@@ -19,7 +19,8 @@
     "binaryRelativePath": "tesseract.exe",
     "binarySha256": "package-generated",
     "healthCheck": "tesseract --version",
-    "healthCheckPassed": false
+    "healthCheckPassed": false,
+    "healthCheckOutput": ""
   },
   "languageData": {
     "repository": "https://github.com/tesseract-ocr/tessdata_fast",
