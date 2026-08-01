@@ -14,6 +14,7 @@ private slots:
     void rejectsNormalizedRegionsThatRoundToZeroPixels();
     void mergesRepeatedTextAndSkipsLowConfidenceObservations();
     void parsesMultilineUnicodeTesseractTsv();
+    void rejectsUnpublishableOrNonHanChineseSegments();
     void exportsStableSrtTiming();
 };
 

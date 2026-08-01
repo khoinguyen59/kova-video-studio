@@ -2,10 +2,16 @@
 
 #include <QObject>
 #include <QProcess>
+#include <QElapsedTimer>
+#include <QFutureWatcher>
+#include <QHash>
+#include <QQueue>
+#include <QSharedPointer>
 #include <QThread>
 #include <QTimer>
 #include <QUrl>
 #include <QVariantList>
+#include <QVariantMap>
 #include <QtQml/qqml.h>
 
 #include "subtitles/SubtitleOcrPipeline.h"
@@ -38,16 +44,21 @@ class SubtitleOcrController final : public QObject
     Q_PROPERTY(double roiHeight READ roiHeight NOTIFY roiChanged)
     Q_PROPERTY(QString ocrLanguage READ ocrLanguage NOTIFY settingsChanged)
     Q_PROPERTY(QString executionRoute READ executionRoute NOTIFY settingsChanged)
+    Q_PROPERTY(QString localEngineId READ localEngineId NOTIFY settingsChanged)
+    Q_PROPERTY(QString localEngineVersion READ localEngineVersion NOTIFY settingsChanged)
     Q_PROPERTY(QString colabModelId READ colabModelId NOTIFY settingsChanged)
     Q_PROPERTY(bool colabRouteReady READ colabRouteReady NOTIFY colabRouteChanged)
     Q_PROPERTY(QString colabRouteStatus READ colabRouteStatus NOTIFY colabRouteChanged)
     Q_PROPERTY(QString colabNotebookFile READ colabNotebookFile CONSTANT)
     Q_PROPERTY(qint64 sampleIntervalMs READ sampleIntervalMs NOTIFY settingsChanged)
     Q_PROPERTY(double minimumConfidence READ minimumConfidence NOTIFY settingsChanged)
+    Q_PROPERTY(int maxConcurrentWorkers READ maxConcurrentWorkers NOTIFY settingsChanged)
     Q_PROPERTY(bool processing READ processing NOTIFY processingChanged)
     Q_PROPERTY(int progress READ progress NOTIFY progressChanged)
     Q_PROPERTY(bool progressAvailable READ progressAvailable NOTIFY progressChanged)
     Q_PROPERTY(QString phase READ phase NOTIFY phaseChanged)
+    Q_PROPERTY(QString resultStatus READ resultStatus NOTIFY resultChanged)
+    Q_PROPERTY(QVariantMap runStatistics READ runStatistics NOTIFY runStatisticsChanged)
     Q_PROPERTY(QString error READ error NOTIFY errorChanged)
     Q_PROPERTY(QString diagnostics READ diagnostics NOTIFY diagnosticsChanged)
     Q_PROPERTY(bool canRetryFrameExtraction READ canRetryFrameExtraction NOTIFY frameRetryChanged)
@@ -78,16 +89,21 @@ public:
     double roiHeight() const { return m_roi.height; }
     QString ocrLanguage() const { return m_ocrLanguage; }
     QString executionRoute() const { return m_executionRoute; }
+    QString localEngineId() const { return m_localEngineId; }
+    QString localEngineVersion() const;
     QString colabModelId() const { return m_colabModelId; }
     bool colabRouteReady() const;
     QString colabRouteStatus() const;
     QString colabNotebookFile() const;
     qint64 sampleIntervalMs() const { return m_sampleIntervalMs; }
     double minimumConfidence() const { return m_minimumConfidence; }
+    int maxConcurrentWorkers() const { return m_maxConcurrentWorkers; }
     bool processing() const { return m_processing; }
     int progress() const { return m_progress; }
     bool progressAvailable() const { return m_progressAvailable; }
     QString phase() const { return m_phase; }
+    QString resultStatus() const { return m_resultStatus; }
+    QVariantMap runStatistics() const;
     QString error() const { return m_error; }
     QString diagnostics() const { return m_diagnostics; }
     bool canRetryFrameExtraction() const;
@@ -96,6 +112,9 @@ public:
     QUrl cropPreviewUrl() const;
     bool runtimeAvailable() const;
     QString runtimePath() const;
+    // Headless acceptance diagnostics only.  A completed OCR run must not
+    // retain an FFmpeg or recognition worker child process.
+    int activeChildProcessCount() const;
     bool sourceImporting() const { return m_sourceImporting; }
     QString sourceImportStatus() const { return m_sourceImportStatus; }
     qint64 sourceImportReceivedBytes() const { return m_sourceImportReceivedBytes; }
@@ -120,15 +139,21 @@ public:
     Q_INVOKABLE void resetRoi();
     Q_INVOKABLE bool setOcrLanguage(const QString &language);
     Q_INVOKABLE bool setExecutionRoute(const QString &route);
+    Q_INVOKABLE bool setLocalEngine(const QString &engineId);
     Q_INVOKABLE bool setColabModelId(const QString &modelId);
     Q_INVOKABLE bool setSampleIntervalMs(qint64 intervalMs);
     Q_INVOKABLE bool setMinimumConfidence(double confidence);
+    Q_INVOKABLE bool setMaxConcurrentWorkers(int workers);
+    // Headless benchmark support.  The normal desktop route always leaves this
+    // at zero and processes the whole source; the value is part of the cache
+    // key so a benchmark artifact can never satisfy a full production run.
+    bool setBenchmarkSampleLimit(int limit);
     Q_INVOKABLE void updateSegment(int index, const QVariantMap &patch);
     Q_INVOKABLE void removeSegment(int index);
     Q_INVOKABLE bool saveProject(const QString &path = QString());
     Q_INVOKABLE bool openProject(const QString &path);
-    Q_INVOKABLE bool exportSrt(const QString &path) const;
-    Q_INVOKABLE bool exportText(const QString &path) const;
+    Q_INVOKABLE bool exportSrt(const QString &path);
+    Q_INVOKABLE bool exportText(const QString &path);
     Q_INVOKABLE bool sendToSubtitleVoice();
     Q_INVOKABLE bool sendToDubbing();
     Q_INVOKABLE void refreshRuntime();
@@ -142,6 +167,8 @@ signals:
     void processingChanged();
     void progressChanged();
     void phaseChanged();
+    void resultChanged();
+    void runStatisticsChanged();
     void errorChanged();
     void diagnosticsChanged();
     void frameRetryChanged();
@@ -167,8 +194,11 @@ private:
         Probe,
         CropPreview,
         VerifyLanguage,
+        VerifyPaddleRuntime,
         ExtractFrame,
+        ExtractChunk,
         RecognizeFrame,
+        RecognizePaddleChunk,
         RecognizeColabFrame,
     };
 
@@ -177,26 +207,62 @@ private:
     void startProcess(Operation operation, const QString &program, const QStringList &arguments);
     void beginOcrSamples();
     void beginNextSample();
+    void beginCacheLookup();
+    void onSourceFingerprintReady();
+    void beginNextChunk();
+    void queueChunkFrames();
+    void pumpRecognitionQueue();
+    bool beginPaddleRecognitionChunk();
+    void onRecognitionFinished(QProcess *process, int exitCode, QProcess::ExitStatus status);
+    void onRecognitionError(QProcess *process, QProcess::ProcessError error);
+    void releaseRecognitionWorkers();
+    void updateForwardProgress();
+    void checkForwardProgress();
+    void releaseActiveCacheKey();
+    bool loadCachedResult();
+    bool storeCachedResult();
+    QString cacheFilePath() const;
+    QString cacheKeyMaterial() const;
     void beginRecognition();
     void completeProbe(const QByteArray &output);
     void completeRun();
     void completeCancellation();
-    void fail(const QString &message, Operation failedOperation = Operation::None);
+    void fail(const QString &message, Operation failedOperation = Operation::None,
+              const QString &resultStatus = QStringLiteral("failed"));
     void setError(const QString &message);
     void clearDiagnostics();
     void appendDiagnostic(const QString &event, const QString &detail);
     void recordFrameExtractionStart(const MediaRuntimePaths &media, qint64 timestampMs,
                                     const SubtitleOcrRect &crop);
     bool validateCurrentFrame(QByteArray *hash, QString *errorMessage);
+    bool validateFrame(const QString &path, QByteArray *hash, QString *errorMessage);
     void setPhase(const QString &phase);
+    void setResultStatus(const QString &status);
     void setProcessing(bool processing);
     void setProgress(int value, bool available);
+    void resetRunStatistics();
+    void appendObservation(const SubtitleOcrObservation &observation);
     void setSourceImportState(bool importing, const QString &status = QString(),
                               const QString &error = QString());
+    bool usesPaddleLocalEngine() const;
+    bool usesTesseractLocalEngine() const;
     bool applyProject(const QVariantMap &project, const QString &absoluteProjectPath);
     static QVariantList segmentsToVariant(const QVector<SubtitleOcrSegment> &segments);
     static QVector<SubtitleOcrSegment> segmentsFromVariant(const QVariantList &segments, QString *error);
     static bool writeTextFile(const QString &path, const QString &content);
+
+    struct RecognitionItem {
+        QByteArray frameHash;
+        QString framePath;
+        QVector<int> sampleIndexes;
+        bool completed = false;
+        QString recognizedText;
+        double recognizedConfidence = 0.0;
+    };
+    struct RecognitionWorker {
+        QProcess *process = nullptr;
+        QSharedPointer<RecognitionItem> item;
+    };
 
     SubtitleVoiceController *m_subtitleVoice = nullptr;
     DubbingController *m_dubbing = nullptr;
@@ -206,6 +272,9 @@ private:
     QThread m_colabThread;
     QProcess m_process;
     QTimer m_frameExtractionTimeout;
+    QTimer m_forwardProgressTimer;
+    QElapsedTimer m_runElapsed;
+    QFutureWatcher<QString> m_sourceFingerprintWatcher;
     Operation m_operation = Operation::None;
     bool m_processing = false;
     bool m_cancelRequested = false;
@@ -223,12 +292,16 @@ private:
     SubtitleOcrRoi m_roi;
     QString m_ocrLanguage = QStringLiteral("eng");
     QString m_executionRoute = QStringLiteral("local-cpu");
+    QString m_localEngineId = QStringLiteral("paddleocr-ppocrv6-tiny");
     QString m_colabModelId = QStringLiteral("pp-ocrv5-multilingual-3.1");
     qint64 m_sampleIntervalMs = 800;
     double m_minimumConfidence = 0.50;
+    int m_maxConcurrentWorkers = 1;
+    int m_benchmarkSampleLimit = 0;
     int m_progress = 0;
     bool m_progressAvailable = false;
     QString m_phase = QStringLiteral("idle");
+    QString m_resultStatus = QStringLiteral("idle");
     QString m_error;
     QString m_diagnostics;
     QVariantList m_segments;
@@ -245,6 +318,37 @@ private:
     qint64 m_sourceImportTotalBytes = -1;
     QVector<qint64> m_samples;
     QVector<SubtitleOcrObservation> m_observations;
+    int m_scheduledSampleCount = 0;
+    int m_readableCropCount = 0;
+    int m_ocrAttemptCount = 0;
+    int m_ocrSuccessCount = 0;
+    int m_nonEmptyRawResultCount = 0;
+    int m_filterCandidateCount = 0;
+    int m_publishedSegmentCount = 0;
+    int m_exportedSegmentCount = 0;
+    int m_extractedFrameCount = 0;
+    int m_deduplicatedFrameCount = 0;
+    int m_recognizedFrameCount = 0;
+    int m_ffmpegProcessCount = 0;
+    int m_tesseractProcessCount = 0;
+    int m_paddleProcessCount = 0;
+    double m_paddleCpuSeconds = 0.0;
+    qint64 m_paddlePeakWorkingSetBytes = 0;
+    int m_completedSampleCount = 0;
+    qint64 m_lastForwardProgressMs = 0;
+    bool m_cacheReused = false;
+    bool m_cacheKeyActive = false;
+    QString m_sourceFingerprint;
+    QString m_cacheKey;
+    int m_chunkStartIndex = 0;
+    int m_chunkEndIndex = 0;
+
+    QVector<RecognitionWorker> m_recognitionWorkers;
+    QQueue<QSharedPointer<RecognitionItem>> m_recognitionQueue;
+    QHash<QByteArray, QSharedPointer<RecognitionItem>> m_uniqueFrames;
+    QVector<QSharedPointer<RecognitionItem>> m_paddleChunkItems;
+    QString m_paddleRequestPath;
+    QString m_paddleResponsePath;
     int m_sampleIndex = 0;
     Operation m_lastFailedOperation = Operation::None;
     QString m_currentFramePath;

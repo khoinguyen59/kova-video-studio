@@ -43,12 +43,21 @@
 #include "test_ColabTranslationRunner.h"
 #include "test_ColabSubtitleOcrRunner.h"
 #include "test_ColabChatRunner.h"
+#include "OcrE2ERunner.h"
 
 #include <QFile>
 #include <QTextStream>
 
 int main(int argc, char *argv[])
 {
+    // This route intentionally bypasses the QtTest child-wrapper: it is a
+    // production, headless E2E acceptance runner and its final stdout line is
+    // a machine-readable result JSON rather than a QtTest report.
+    if (LAStudio::isOcrE2EArtifactReportInvocation(argc, argv))
+        return LAStudio::runOcrE2EArtifactReport(argc, argv);
+    if (LAStudio::isOcrE2EInvocation(argc, argv))
+        return LAStudio::runOcrE2E(argc, argv);
+
     // QtTest keeps a Windows output handle open until the process terminates.
     // Run the actual suite in a child so this outer runner can print the
     // completed report for CTest, including PASS, FAIL and SKIP evidence.
@@ -68,7 +77,14 @@ int main(int argc, char *argv[])
         child.setProcessEnvironment(childEnvironment);
         child.setProcessChannelMode(QProcess::ForwardedChannels);
         child.setWorkingDirectory(QDir::currentPath());
-        child.start(QFileInfo(QString::fromLocal8Bit(argv[0])).absoluteFilePath());
+        // Keep an explicitly requested QtTest function when this wrapper
+        // starts the isolated child.  Besides making a focused regression
+        // reproducible, this avoids having to run an entire slow suite merely
+        // to diagnose one process-lifecycle failure.
+        QStringList childArguments;
+        for (int index = 1; index < argc; ++index)
+            childArguments.append(QString::fromLocal8Bit(argv[index]));
+        child.start(QFileInfo(QString::fromLocal8Bit(argv[0])).absoluteFilePath(), childArguments);
         if (!child.waitForStarted()) {
             std::cerr << "Failed to start the isolated QtTest runner.\n";
             return 1;
@@ -119,7 +135,8 @@ int main(int argc, char *argv[])
     int status = 0;
     const QString requestedSuite = qEnvironmentVariable("LASTUDIO_TEST_SUITE").trimmed();
 
-    auto runSuite = [&status, &requestedSuite](QObject* testObj, const char* name) {
+    const QStringList requestedTestArguments = QCoreApplication::arguments().mid(1);
+    auto runSuite = [&status, &requestedSuite, &requestedTestArguments](QObject* testObj, const char* name) {
         if (!requestedSuite.isEmpty() && requestedSuite != QString::fromLatin1(name)) {
             return;
         }
@@ -128,19 +145,21 @@ int main(int argc, char *argv[])
         std::cout << "==================================================\n";
 
         const QString filename = QStringLiteral("%1_results.txt").arg(QString::fromLatin1(name));
-        QByteArray filenameBytes = filename.toLocal8Bit();
-        char *fileArg = filenameBytes.data();
-        char* localArgv[] = {
-            const_cast<char*>("LAStudioUnitTests"),
-            const_cast<char*>("-o"),
-            fileArg,
-            nullptr
-        };
+        QList<QByteArray> localArguments;
+        localArguments.append(QByteArrayLiteral("LAStudioUnitTests"));
+        for (const QString &argument : requestedTestArguments)
+            localArguments.append(argument.toLocal8Bit());
+        localArguments.append(QByteArrayLiteral("-o"));
+        localArguments.append(filename.toLocal8Bit());
+        QVector<char *> localArgv;
+        localArgv.reserve(localArguments.size() + 1);
+        for (QByteArray &argument : localArguments) localArgv.append(argument.data());
+        localArgv.append(nullptr);
         // The parent process reads this report after this child exits; QtTest
         // has then released its Windows file handle.
-        int localArgc = 3;
+        const int localArgc = localArguments.size();
 
-        int suiteStatus = QTest::qExec(testObj, localArgc, localArgv);
+        int suiteStatus = QTest::qExec(testObj, localArgc, localArgv.data());
         status |= suiteStatus;
     };
 

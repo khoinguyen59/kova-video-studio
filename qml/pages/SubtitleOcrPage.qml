@@ -13,10 +13,12 @@ Page {
     readonly property var ocr: AppController.subtitleOcr
     readonly property var runtime: AppController.subtitleOcrRuntime
     readonly property bool wideLayout: width >= 1180
-    readonly property bool selectedLanguageReady: runtime.runtimeSource === "environment"
+    readonly property bool usingColabRoute: ocr.executionRoute === "colab-gpu"
+    readonly property bool usingPaddleLocalEngine: !usingColabRoute
+                                                   && ocr.localEngineId === "paddleocr-ppocrv6-tiny"
+    readonly property bool selectedLanguageReady: usingPaddleLocalEngine || runtime.runtimeSource === "environment"
                                                  ? ocr.ocrLanguage !== ""
                                                  : runtime.isLanguageInstalled(ocr.ocrLanguage)
-    readonly property bool usingColabRoute: ocr.executionRoute === "colab-gpu"
     property real previewPositionMs: player.position
     readonly property real displayedWidth: {
         if (ocr.sourceWidth <= 0 || ocr.sourceHeight <= 0 || videoCanvas.width <= 0 || videoCanvas.height <= 0)
@@ -225,7 +227,7 @@ Page {
         if (!validLinkEnablesImport || !sourceLinkCanReceiveFocus) return false
         // A missing runtime only blocks execution/install. Selecting the
         // desired language remains useful before the runtime is installed.
-        if (!runtime.runtimeAvailable && (!languageSelector.enabled || runOcrButton.enabled))
+        if (!ocr.runtimeAvailable && (!languageSelector.enabled || runOcrButton.enabled))
             return false
         if (!qmlSmokeMediaControlsCheck()) return false
         if (!qmlSmokeRoiInteractionCheck()) return false
@@ -772,8 +774,8 @@ Page {
                     Layout.fillWidth: true
                     implicitHeight: runtimeLayout.implicitHeight + Theme.paddingLarge * 2
                     radius: Theme.radiusMedium
-                    color: runtime.runtimeAvailable ? Theme.surface : Qt.rgba(1.0, 0.65, 0.15, 0.09)
-                    border.color: runtime.runtimeAvailable ? Theme.border : Theme.warning
+                    color: ocr.runtimeAvailable || root.usingColabRoute ? Theme.surface : Qt.rgba(1.0, 0.65, 0.15, 0.09)
+                    border.color: ocr.runtimeAvailable || root.usingColabRoute ? Theme.border : Theme.warning
                     border.width: 1
 
                     ColumnLayout {
@@ -784,27 +786,33 @@ Page {
                         RowLayout {
                             Layout.fillWidth: true
                             Text { text: qsTr("3. Local CPU runtime and language packs"); color: Theme.textPrimary; font.pixelSize: Theme.fontLarge; font.bold: true; Layout.fillWidth: true }
-                            Text { text: runtime.stateName; color: runtime.runtimeAvailable ? Theme.success : Theme.warning; font.bold: true }
+                            Text { text: root.usingPaddleLocalEngine ? (ocr.runtimeAvailable ? qsTr("PaddleOCR ready") : qsTr("PaddleOCR unavailable")) : runtime.stateName; color: ocr.runtimeAvailable || root.usingColabRoute ? Theme.success : Theme.warning; font.bold: true }
                             Button { text: qsTr("Refresh"); enabled: !runtime.busy; onClicked: runtime.refresh() }
                         }
                         Text {
                             Layout.fillWidth: true
-                            text: runtime.runtimeAvailable ? qsTr("Using %1 Tesseract runtime: %2").arg(runtime.runtimeSource).arg(runtime.runtimePath)
-                                                           : qsTr("The package-provisioned CPU runtime is required only to run OCR. You can still choose/import video and set the region now. Language data location: %1").arg(runtime.managedRuntimePath)
+                            text: root.usingPaddleLocalEngine
+                                  ? (ocr.runtimeAvailable
+                                     ? qsTr("Using bundled PaddleOCR PP-OCRv6 tiny %1. The isolated runtime and verified model cache run offline; no global Python is used.").arg(ocr.localEngineVersion)
+                                     : qsTr("PaddleOCR PP-OCRv6 tiny is the default local engine but its package runtime or verified model cache is missing. Repair the package; LA Studio will not fall back silently."))
+                                  : (runtime.runtimeAvailable ? qsTr("Using %1 Tesseract baseline runtime: %2").arg(runtime.runtimeSource).arg(runtime.runtimePath)
+                                                             : qsTr("The package-provisioned Tesseract baseline is required only when that engine is selected. Language data location: %1").arg(runtime.managedRuntimePath))
                             color: Theme.textSecondary
                             wrapMode: Text.WordWrap
                         }
                         Text {
                             Layout.fillWidth: true
                             visible: !root.usingColabRoute
-                            text: qsTr("Execution route: Local CPU · The bundled engine works offline; internet is used only when you explicitly install a verified language pack.")
+                            text: root.usingPaddleLocalEngine
+                                  ? qsTr("Execution route: Local CPU · PaddleOCR uses offline PP-OCRv6 tiny batch recognition. Tesseract is available only as an explicit compatibility baseline.")
+                                  : qsTr("Execution route: Local CPU · Tesseract baseline works offline; internet is used only when you explicitly install a verified language pack.")
                             color: Theme.textSecondary
                             wrapMode: Text.WordWrap
                         }
                         Text {
                             Layout.fillWidth: true
                             visible: root.usingColabRoute
-                            text: qsTr("Execution route: Colab GPU. Local Tesseract is not started or used for this run; only cropped sample frames are uploaded after the Colab worker is checked.")
+                            text: qsTr("Execution route: Colab GPU. No local OCR engine is started or used for this run; only cropped sample frames are uploaded after the Colab worker is checked.")
                             color: Theme.textSecondary
                             wrapMode: Text.WordWrap
                         }
@@ -812,20 +820,21 @@ Page {
                         Flow {
                             Layout.fillWidth: true
                             spacing: Theme.paddingSmall
-                            Button { text: qsTr("Repair the package runtime"); visible: !runtime.runtimeAvailable; enabled: !runtime.busy; onClicked: runtime.installRuntime() }
-                            Button { text: qsTr("Retry language install"); visible: runtime.error !== "" && runtime.runtimeAvailable && !runtime.busy; onClicked: runtime.retryInstallation() }
-                            Button { text: qsTr("Cancel install"); visible: runtime.busy; onClicked: runtime.cancelInstallation() }
-                            Button { id: openRuntimeDiagnosticsButton; objectName: "subtitleOcrOpenRuntimeDiagnosticsButton"; text: qsTr("Open diagnostics"); visible: runtime.diagnostics !== ""; onClicked: runtimeDiagnosticsDialog.open() }
-                            Button { id: cleanFailedRuntimeDownloadButton; objectName: "subtitleOcrCleanFailedRuntimeDownloadButton"; text: qsTr("Clean failed download"); visible: runtime.stateName === "Failed" && runtime.canCleanFailedDownload; enabled: !runtime.busy; onClicked: runtime.cleanFailedDownload() }
-                            Text { text: qsTr("Tesseract %1 · Apache-2.0 · CPU").arg(runtime.runtimeVersion === "" ? "5.5.1" : runtime.runtimeVersion); color: Theme.textSecondary; topPadding: 7 }
+                            Button { text: qsTr("Repair the package runtime"); visible: !root.usingPaddleLocalEngine && !runtime.runtimeAvailable; enabled: !runtime.busy; onClicked: runtime.installRuntime() }
+                            Button { text: qsTr("Retry language install"); visible: !root.usingPaddleLocalEngine && runtime.error !== "" && runtime.runtimeAvailable && !runtime.busy; onClicked: runtime.retryInstallation() }
+                            Button { text: qsTr("Cancel install"); visible: !root.usingPaddleLocalEngine && runtime.busy; onClicked: runtime.cancelInstallation() }
+                            Button { id: openRuntimeDiagnosticsButton; objectName: "subtitleOcrOpenRuntimeDiagnosticsButton"; text: qsTr("Open diagnostics"); visible: !root.usingPaddleLocalEngine && runtime.diagnostics !== ""; onClicked: runtimeDiagnosticsDialog.open() }
+                            Button { id: cleanFailedRuntimeDownloadButton; objectName: "subtitleOcrCleanFailedRuntimeDownloadButton"; text: qsTr("Clean failed download"); visible: !root.usingPaddleLocalEngine && runtime.stateName === "Failed" && runtime.canCleanFailedDownload; enabled: !runtime.busy; onClicked: runtime.cleanFailedDownload() }
+                            Text { text: root.usingPaddleLocalEngine ? qsTr("PaddleOCR %1 · PP-OCRv6 tiny · Apache-2.0 · CPU").arg(ocr.localEngineVersion) : qsTr("Tesseract %1 · Apache-2.0 · CPU baseline").arg(runtime.runtimeVersion === "" ? "5.5.1" : runtime.runtimeVersion); color: Theme.textSecondary; topPadding: 7 }
                         }
                         ProgressBar { Layout.fillWidth: true; visible: runtime.progressAvailable; from: 0; to: runtime.bytesTotal; value: runtime.bytesReceived }
                         Text { Layout.fillWidth: true; visible: runtime.progressAvailable; text: qsTr("Downloaded %1 / %2 MiB").arg((runtime.bytesReceived / 1048576).toFixed(1)).arg((runtime.bytesTotal / 1048576).toFixed(1)); color: Theme.textSecondary }
                         Text { Layout.fillWidth: true; visible: runtime.error !== ""; text: runtime.error; color: Theme.danger; wrapMode: Text.WordWrap }
-                        Text { text: qsTr("Language data"); color: Theme.textPrimary; font.bold: true; topPadding: Theme.paddingSmall }
+                        Text { visible: !root.usingPaddleLocalEngine; text: qsTr("Tesseract baseline language data"); color: Theme.textPrimary; font.bold: true; topPadding: Theme.paddingSmall }
                         ScrollView {
                             id: languagePackScroll
                             objectName: "subtitleOcrLanguagePackScroll"
+                            visible: !root.usingPaddleLocalEngine
                             Layout.fillWidth: true
                             Layout.preferredHeight: Math.min(190, languagePackColumn.implicitHeight)
                             clip: true
@@ -886,7 +895,7 @@ Page {
                                 Layout.fillWidth: true
                                 textRole: "label"
                                 model: [
-                                    { "id": "local-cpu", "label": qsTr("Local CPU · Tesseract 5.5.1") },
+                                    { "id": "local-cpu", "label": qsTr("Local CPU · selected OCR engine") },
                                     { "id": "colab-gpu", "label": qsTr("Colab GPU · PP-OCRv5 Multilingual 3.1") }
                                 ]
                                 currentIndex: ocr.executionRoute === "colab-gpu" ? 1 : 0
@@ -900,6 +909,24 @@ Page {
                                 text: qsTr("Configure / check Colab")
                                 enabled: !ocr.processing
                                 onClicked: subtitleOcrColabDialog.open()
+                            }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: !root.usingColabRoute
+                            Text { text: qsTr("Local OCR engine"); color: Theme.textSecondary; Layout.preferredWidth: 115 }
+                            ComboBox {
+                                id: subtitleOcrLocalEngine
+                                objectName: "subtitleOcrLocalEngine"
+                                Layout.fillWidth: true
+                                textRole: "label"
+                                model: [
+                                    { "id": "paddleocr-ppocrv6-tiny", "label": qsTr("PaddleOCR PP-OCRv6 tiny 3.7.0 · default") },
+                                    { "id": "tesseract-baseline", "label": qsTr("Tesseract 5.5.1 · compatibility baseline") }
+                                ]
+                                currentIndex: ocr.localEngineId === "tesseract-baseline" ? 1 : 0
+                                enabled: !ocr.processing
+                                onActivated: ocr.setLocalEngine(model[index].id)
                             }
                         }
                         Text {
@@ -990,8 +1017,12 @@ Page {
                         }
                         Text {
                             Layout.fillWidth: true
-                            visible: !root.usingColabRoute && (!runtime.runtimeAvailable || !root.selectedLanguageReady)
-                            text: !runtime.runtimeAvailable ? qsTr("Repair the package runtime to enable Local CPU Subtitle OCR.") : qsTr("Install the selected language pack to enable Local CPU Subtitle OCR.")
+                            visible: !root.usingColabRoute && (!ocr.runtimeAvailable || !root.selectedLanguageReady)
+                            text: !ocr.runtimeAvailable
+                                  ? (root.usingPaddleLocalEngine
+                                     ? qsTr("Repair the package to restore the bundled PaddleOCR runtime and verified model cache.")
+                                     : qsTr("Repair the package runtime to enable the Tesseract baseline."))
+                                  : qsTr("Install the selected language pack to enable the Tesseract baseline.")
                             color: Theme.warning
                             wrapMode: Text.WordWrap
                         }

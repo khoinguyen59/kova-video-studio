@@ -374,11 +374,16 @@ void TestSubtitleOcrRuntimeService::qmlRouteRoiAndManagedRuntimeControlsAreWired
     QVERIFY(pageSource.contains(QStringLiteral("subtitleOcrDiagnosticsDialog")));
     QVERIFY(pageSource.contains(QStringLiteral("subtitleOcrCleanFailedRuntimeDownloadButton")));
     QVERIFY(pageSource.contains(QStringLiteral("Execution route: Colab GPU")));
-    QVERIFY(pageSource.contains(QStringLiteral("Local Tesseract is not started or used for this run")));
+    QVERIFY(pageSource.contains(QStringLiteral("usingPaddleLocalEngine")));
+    QVERIFY(pageSource.contains(QStringLiteral("PaddleOCR PP-OCRv6 tiny 3.7.0 · default")));
+    QVERIFY(pageSource.contains(QStringLiteral("Tesseract 5.5.1 · compatibility baseline")));
+    QVERIFY(pageSource.contains(QStringLiteral("ocr.setLocalEngine(model[index].id)")));
+    QVERIFY(pageSource.contains(QStringLiteral("PaddleOCR uses offline PP-OCRv6 tiny batch recognition")));
+    QVERIFY(pageSource.contains(QStringLiteral("will not fall back silently")));
     QVERIFY(pageSource.contains(QStringLiteral("PP-OCRv5 Multilingual 3.1")));
     QVERIFY(pageSource.contains(QStringLiteral("Connect and check Colab")));
     QVERIFY(pageSource.contains(QStringLiteral("Repair the package runtime")));
-    QVERIFY(pageSource.contains(QStringLiteral("visible: runtime.error !== \"\" && runtime.runtimeAvailable && !runtime.busy")));
+    QVERIFY(pageSource.contains(QStringLiteral("visible: !root.usingPaddleLocalEngine && runtime.error !== \"\" && runtime.runtimeAvailable && !runtime.busy")));
     QVERIFY(pageSource.contains(QStringLiteral("runtime.managedRuntimePath")));
     QVERIFY(runtimeServiceSource.contains(QStringLiteral("chi_tra")));
     QVERIFY(runtimeServiceSource.contains(QStringLiteral("bundled-vcpkg")));
@@ -416,7 +421,8 @@ void TestSubtitleOcrRuntimeService::qmlRouteRoiAndManagedRuntimeControlsAreWired
     QVERIFY(pageSource.contains(QStringLiteral("Reset region")));
     QCOMPARE(pageSource.count(QStringLiteral("RoiHandle { objectName:")), 8);
     QVERIFY(controllerSource.contains(QStringLiteral("setRuntimeService")));
-    QVERIFY(controllerSource.contains(QStringLiteral("Install runtime in Subtitle OCR")));
+    QVERIFY(controllerSource.contains(QStringLiteral("package-provisioned PaddleOCR PP-OCRv6 tiny runtime is unavailable")));
+    QVERIFY(controllerSource.contains(QStringLiteral("will not fall back silently to Tesseract")));
 }
 
 void TestSubtitleOcrRuntimeService::responsiveLayoutSharedMediaAndHomeCardsAreWired()

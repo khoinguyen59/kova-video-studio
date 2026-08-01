@@ -6,6 +6,7 @@
 #include "core/PathUtils.h"
 #include "remote/ColabSession.h"
 #include "subtitles/ColabSubtitleOcrRunner.h"
+#include "subtitles/PaddleOcrRuntimeLocator.h"
 #include "subtitles/SubtitleOcrRuntimeLocator.h"
 #include "subtitles/SubtitleOcrRuntimeService.h"
 
@@ -24,16 +25,24 @@
 #include <QSaveFile>
 #include <QTemporaryFile>
 #include <QUuid>
+#include <QtConcurrent/QtConcurrentRun>
+
+#include <algorithm>
+#include <cmath>
 
 namespace LAStudio {
 namespace {
 
-constexpr int kSubtitleOcrProjectVersion = 1;
+constexpr int kSubtitleOcrProjectVersion = 2;
 const QString kColabSubtitleOcrCapability = QStringLiteral("subtitle-ocr");
 const QString kColabSubtitleOcrModel = QStringLiteral("pp-ocrv5-multilingual-3.1");
 const QString kColabSubtitleOcrNotebook = QStringLiteral("LA_STUDIO_SUBTITLE_OCR_PP_OCRV5_GPU.ipynb");
 constexpr qsizetype kMaxDiagnosticCharacters = 16000;
 constexpr int kFrameExtractionTimeoutMs = 30000;
+constexpr int kForwardProgressTimeoutMs = 60000;
+constexpr int kChunkSampleCount = 48;
+constexpr int kSubtitleOcrCacheVersion = 2;
+QSet<QString> s_activeOcrCacheKeys;
 
 QString ffmpegTime(qint64 timestampMs)
 {
@@ -99,18 +108,72 @@ int frameExtractionTimeoutMs()
     return kFrameExtractionTimeoutMs;
 }
 
+QString sha256File(const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) return {};
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    while (!file.atEnd()) {
+        const QByteArray bytes = file.read(1024 * 1024);
+        if (bytes.isEmpty() && file.error() != QFile::NoError) return {};
+        hash.addData(bytes);
+    }
+    return QString::fromLatin1(hash.result().toHex());
+}
+
+int defaultOcrWorkerCount()
+{
+    return qBound(1, QThread::idealThreadCount(), 4);
+}
+
+QString normalizedLocalEngineId(const QString &value)
+{
+    const QString normalized = value.trimmed().toLower();
+    if (normalized == QStringLiteral("tesseract-baseline")) return normalized;
+    if (normalized == QString::fromLatin1(PaddleOcrRuntimeLocator::engineId())) return normalized;
+    return {};
+}
+
+bool parsePaddleHealth(const QByteArray &output, QString *error)
+{
+    const QJsonDocument document = QJsonDocument::fromJson(output);
+    const QJsonObject root = document.object();
+    if (!document.isObject() || !root.value(QStringLiteral("ok")).toBool()
+        || root.value(QStringLiteral("engineId")).toString()
+               != QString::fromLatin1(PaddleOcrRuntimeLocator::engineId())
+        || root.value(QStringLiteral("engineVersion")).toString()
+               != QString::fromLatin1(PaddleOcrRuntimeLocator::engineVersion())
+        || !root.value(QStringLiteral("manifestVerified")).toBool()) {
+        if (error) {
+            *error = root.value(QStringLiteral("error")).toString().trimmed();
+            if (error->isEmpty()) *error = QStringLiteral("PaddleOCR health response is invalid.");
+        }
+        return false;
+    }
+    return true;
+}
+
 } // namespace
 
 SubtitleOcrController::SubtitleOcrController(SubtitleVoiceController *subtitleVoice,
                                              DubbingController *dubbing, QObject *parent)
     : QObject(parent), m_subtitleVoice(subtitleVoice), m_dubbing(dubbing)
 {
+    m_maxConcurrentWorkers = defaultOcrWorkerCount();
+    const QString configuredEngine = normalizedLocalEngineId(
+        qEnvironmentVariable("LASTUDIO_SUBTITLE_OCR_ENGINE"));
+    if (!configuredEngine.isEmpty()) m_localEngineId = configuredEngine;
     connect(&m_process, qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
             this, &SubtitleOcrController::onProcessFinished);
     connect(&m_process, &QProcess::errorOccurred, this, &SubtitleOcrController::onProcessError);
     m_frameExtractionTimeout.setSingleShot(true);
     connect(&m_frameExtractionTimeout, &QTimer::timeout,
             this, &SubtitleOcrController::onFrameExtractionTimeout);
+    m_forwardProgressTimer.setInterval(1000);
+    connect(&m_forwardProgressTimer, &QTimer::timeout,
+            this, &SubtitleOcrController::checkForwardProgress);
+    connect(&m_sourceFingerprintWatcher, &QFutureWatcher<QString>::finished,
+            this, &SubtitleOcrController::onSourceFingerprintReady);
     if (m_dubbing) {
         connect(m_dubbing, &DubbingController::linkImportChanged,
                 this, &SubtitleOcrController::onSharedMediaImportChanged);
@@ -130,7 +193,11 @@ SubtitleOcrController::SubtitleOcrController(SubtitleVoiceController *subtitleVo
 SubtitleOcrController::~SubtitleOcrController()
 {
     m_frameExtractionTimeout.stop();
+    m_forwardProgressTimer.stop();
+    if (m_sourceFingerprintWatcher.isRunning()) m_sourceFingerprintWatcher.cancel();
     if (m_process.state() != QProcess::NotRunning) m_process.kill();
+    releaseRecognitionWorkers();
+    releaseActiveCacheKey();
     if (m_colabRunner && m_colabThread.isRunning()) {
         QMetaObject::invokeMethod(m_colabRunner, "cancel", Qt::QueuedConnection);
         m_colabThread.quit();
@@ -151,19 +218,46 @@ QUrl SubtitleOcrController::cropPreviewUrl() const
 
 bool SubtitleOcrController::runtimeAvailable() const
 {
+    if (usesPaddleLocalEngine()) return PaddleOcrRuntimeLocator::resolve().isUsable();
     if (m_runtimeService) return m_runtimeService->runtimeAvailable();
     return !SubtitleOcrRuntimeLocator::resolveTesseract().isEmpty();
 }
 
 QString SubtitleOcrController::runtimePath() const
 {
+    if (usesPaddleLocalEngine()) return PaddleOcrRuntimeLocator::resolve().pythonPath;
     if (m_runtimeService) return m_runtimeService->runtimePath();
     return SubtitleOcrRuntimeLocator::resolveTesseract();
 }
 
+int SubtitleOcrController::activeChildProcessCount() const
+{
+    int active = m_process.state() == QProcess::NotRunning ? 0 : 1;
+    for (const RecognitionWorker &worker : m_recognitionWorkers) {
+        if (worker.process && worker.process->state() != QProcess::NotRunning) ++active;
+    }
+    return active;
+}
+
+QString SubtitleOcrController::localEngineVersion() const
+{
+    return usesPaddleLocalEngine() ? QString::fromLatin1(PaddleOcrRuntimeLocator::engineVersion())
+                                   : QStringLiteral("5.5.1");
+}
+
+bool SubtitleOcrController::usesPaddleLocalEngine() const
+{
+    return m_localEngineId == QString::fromLatin1(PaddleOcrRuntimeLocator::engineId());
+}
+
+bool SubtitleOcrController::usesTesseractLocalEngine() const
+{
+    return m_localEngineId == QStringLiteral("tesseract-baseline");
+}
+
 void SubtitleOcrController::refreshRuntime()
 {
-    if (m_runtimeService) m_runtimeService->refresh();
+    if (usesTesseractLocalEngine() && m_runtimeService) m_runtimeService->refresh();
     emit runtimeChanged();
 }
 
@@ -205,6 +299,34 @@ QString SubtitleOcrController::colabNotebookFile() const
     return kColabSubtitleOcrNotebook;
 }
 
+QVariantMap SubtitleOcrController::runStatistics() const
+{
+    return {{QStringLiteral("scheduledSamples"), m_scheduledSampleCount},
+            {QStringLiteral("extractedFrames"), m_extractedFrameCount},
+            {QStringLiteral("readableCrops"), m_readableCropCount},
+            {QStringLiteral("deduplicatedFrames"), m_deduplicatedFrameCount},
+            {QStringLiteral("recognizedFrames"), m_recognizedFrameCount},
+            {QStringLiteral("ocrAttempts"), m_ocrAttemptCount},
+            {QStringLiteral("ocrSuccesses"), m_ocrSuccessCount},
+            {QStringLiteral("nonEmptyRawResults"), m_nonEmptyRawResultCount},
+            {QStringLiteral("filterCandidates"), m_filterCandidateCount},
+            {QStringLiteral("publishedSegments"), m_publishedSegmentCount},
+            {QStringLiteral("exportedSegments"), m_exportedSegmentCount},
+            {QStringLiteral("ffmpegProcessCount"), m_ffmpegProcessCount},
+            {QStringLiteral("tesseractProcessCount"), m_tesseractProcessCount},
+            {QStringLiteral("paddleProcessCount"), m_paddleProcessCount},
+            {QStringLiteral("ocrWorkerCpuSeconds"), m_paddleCpuSeconds},
+            {QStringLiteral("ocrWorkerPeakWorkingSetBytes"), m_paddlePeakWorkingSetBytes},
+            {QStringLiteral("ocrEngineId"), m_executionRoute == QStringLiteral("local-cpu")
+                ? m_localEngineId : m_colabModelId},
+            {QStringLiteral("ocrEngineVersion"), m_executionRoute == QStringLiteral("local-cpu")
+                ? localEngineVersion() : QStringLiteral("colab-contract-v1")},
+            {QStringLiteral("completedSamples"), m_completedSampleCount},
+            {QStringLiteral("elapsedMs"), m_runElapsed.isValid() ? m_runElapsed.elapsed() : 0},
+            {QStringLiteral("cacheReused"), m_cacheReused},
+            {QStringLiteral("resultStatus"), m_resultStatus}};
+}
+
 void SubtitleOcrController::setColabSession(ColabSession *session)
 {
     if (m_colabSession == session) return;
@@ -229,7 +351,8 @@ void SubtitleOcrController::setError(const QString &message)
 bool SubtitleOcrController::canRetryFrameExtraction() const
 {
     return !m_processing && m_phase == QStringLiteral("error")
-        && m_lastFailedOperation == Operation::ExtractFrame
+        && (m_lastFailedOperation == Operation::ExtractFrame
+            || m_lastFailedOperation == Operation::ExtractChunk)
         && !m_sourcePath.isEmpty() && m_frameWidth > 0 && m_frameHeight > 0
         && m_sampleIndex >= 0 && m_sampleIndex < m_samples.size();
 }
@@ -260,6 +383,14 @@ void SubtitleOcrController::setPhase(const QString &phase)
     emit phaseChanged();
 }
 
+void SubtitleOcrController::setResultStatus(const QString &status)
+{
+    if (m_resultStatus == status) return;
+    m_resultStatus = status;
+    emit resultChanged();
+    emit runStatisticsChanged();
+}
+
 void SubtitleOcrController::setProcessing(bool processing)
 {
     if (m_processing == processing) return;
@@ -274,6 +405,41 @@ void SubtitleOcrController::setProgress(int value, bool available)
     m_progress = value;
     m_progressAvailable = available;
     emit progressChanged();
+}
+
+void SubtitleOcrController::resetRunStatistics()
+{
+    m_scheduledSampleCount = 0;
+    m_readableCropCount = 0;
+    m_ocrAttemptCount = 0;
+    m_ocrSuccessCount = 0;
+    m_nonEmptyRawResultCount = 0;
+    m_filterCandidateCount = 0;
+    m_publishedSegmentCount = 0;
+    m_exportedSegmentCount = 0;
+    m_extractedFrameCount = 0;
+    m_deduplicatedFrameCount = 0;
+    m_recognizedFrameCount = 0;
+    m_ffmpegProcessCount = 0;
+    m_tesseractProcessCount = 0;
+    m_paddleProcessCount = 0;
+    m_paddleCpuSeconds = 0.0;
+    m_paddlePeakWorkingSetBytes = 0;
+    m_completedSampleCount = 0;
+    m_lastForwardProgressMs = 0;
+    m_cacheReused = false;
+    emit runStatisticsChanged();
+}
+
+void SubtitleOcrController::appendObservation(const SubtitleOcrObservation &observation)
+{
+    m_observations.append(observation);
+    if (!observation.text.trimmed().isEmpty()) ++m_nonEmptyRawResultCount;
+    if (!observation.text.trimmed().isEmpty()
+        && observation.confidence >= m_minimumConfidence) {
+        ++m_filterCandidateCount;
+    }
+    emit runStatisticsChanged();
 }
 
 bool SubtitleOcrController::ensureWorkspace()
@@ -337,9 +503,10 @@ void SubtitleOcrController::startProcess(Operation operation, const QString &pro
     }
     m_process.setArguments(processArguments);
     m_process.setProcessEnvironment(environment);
-    if (operation == Operation::ExtractFrame) m_frameExtractionTimedOut = false;
+    if (operation == Operation::ExtractFrame || operation == Operation::ExtractChunk)
+        m_frameExtractionTimedOut = false;
     m_process.start();
-    if (operation == Operation::ExtractFrame) {
+    if (operation == Operation::ExtractFrame || operation == Operation::ExtractChunk) {
         m_frameExtractionTimeout.start(frameExtractionTimeoutMs());
     }
 }
@@ -359,7 +526,12 @@ void SubtitleOcrController::recordFrameExtractionStart(const MediaRuntimePaths &
 
 bool SubtitleOcrController::validateCurrentFrame(QByteArray *hash, QString *errorMessage)
 {
-    const QFileInfo info(m_currentFramePath);
+    return validateFrame(m_currentFramePath, hash, errorMessage);
+}
+
+bool SubtitleOcrController::validateFrame(const QString &path, QByteArray *hash, QString *errorMessage)
+{
+    const QFileInfo info(path);
     const bool exists = info.isFile();
     const qint64 bytes = exists ? info.size() : 0;
     QByteArray signature;
@@ -370,7 +542,7 @@ bool SubtitleOcrController::validateCurrentFrame(QByteArray *hash, QString *erro
     } else if (bytes <= 0) {
         decodeDetail = QStringLiteral("crop file is empty");
     } else {
-        QFile frame(m_currentFramePath);
+        QFile frame(path);
         if (!frame.open(QIODevice::ReadOnly)) {
             decodeDetail = QStringLiteral("crop file cannot be opened: %1").arg(frame.errorString());
         } else {
@@ -378,7 +550,7 @@ bool SubtitleOcrController::validateCurrentFrame(QByteArray *hash, QString *erro
             if (signature != QByteArrayLiteral("\x89PNG\r\n\x1a\n")) {
                 decodeDetail = QStringLiteral("crop does not have a PNG signature");
             } else {
-                QImageReader reader(m_currentFramePath);
+                QImageReader reader(path);
                 reader.setAutoTransform(false);
                 image = reader.read();
                 if (image.isNull()) {
@@ -392,7 +564,7 @@ bool SubtitleOcrController::validateCurrentFrame(QByteArray *hash, QString *erro
     }
     appendDiagnostic(QStringLiteral("frame-extraction-output"),
                      QStringLiteral("output=%1; exists=%2; bytes=%3; signature=%4; decoded=%5x%6; result=%7")
-                         .arg(m_currentFramePath)
+                         .arg(path)
                          .arg(exists ? QStringLiteral("true") : QStringLiteral("false"))
                          .arg(bytes)
                          .arg(QString::fromLatin1(signature.toHex()))
@@ -615,6 +787,8 @@ void SubtitleOcrController::completeProbe(const QByteArray &output)
                          .arg(m_displayAspectRatio.isEmpty() ? QStringLiteral("unknown") : m_displayAspectRatio)
                          .arg(m_durationMs));
     m_segments.clear();
+    resetRunStatistics();
+    setResultStatus(QStringLiteral("ready"));
     setError({});
     setProgress(0, false);
     setProcessing(false);
@@ -658,12 +832,31 @@ bool SubtitleOcrController::setOcrLanguage(const QString &language)
 {
     const QString normalized = language.trimmed();
     if (normalized.isEmpty() || normalized.contains(QRegularExpression(QStringLiteral("[^A-Za-z0-9_+]")))) {
-        setError(QStringLiteral("Choose a valid installed Tesseract language code."));
+        setError(QStringLiteral("Choose a valid Subtitle OCR language code."));
         return false;
     }
     if (m_ocrLanguage == normalized) return true;
     m_ocrLanguage = normalized;
     emit settingsChanged();
+    return true;
+}
+
+bool SubtitleOcrController::setLocalEngine(const QString &engineId)
+{
+    if (m_processing) {
+        setError(QStringLiteral("Wait for Subtitle OCR to finish before changing the local OCR engine."));
+        return false;
+    }
+    const QString normalized = normalizedLocalEngineId(engineId);
+    if (normalized.isEmpty()) {
+        setError(QStringLiteral("Choose PaddleOCR PP-OCRv6 tiny or the explicit Tesseract baseline."));
+        return false;
+    }
+    if (m_localEngineId == normalized) return true;
+    m_localEngineId = normalized;
+    setError({});
+    emit settingsChanged();
+    emit runtimeChanged();
     return true;
 }
 
@@ -719,6 +912,29 @@ bool SubtitleOcrController::setMinimumConfidence(double confidence)
     return true;
 }
 
+bool SubtitleOcrController::setMaxConcurrentWorkers(int workers)
+{
+    if (m_processing) {
+        setError(QStringLiteral("Wait for Subtitle OCR to finish before changing the worker limit."));
+        return false;
+    }
+    if (workers < 1 || workers > 4) {
+        setError(QStringLiteral("Subtitle OCR worker limit must be between 1 and 4."));
+        return false;
+    }
+    m_maxConcurrentWorkers = workers;
+    setError({});
+    emit settingsChanged();
+    return true;
+}
+
+bool SubtitleOcrController::setBenchmarkSampleLimit(int limit)
+{
+    if (m_processing || limit < 0) return false;
+    m_benchmarkSampleLimit = limit;
+    return true;
+}
+
 bool SubtitleOcrController::requestCropPreview(qint64 positionMs)
 {
     if (m_processing || m_sourcePath.isEmpty() || m_frameWidth <= 0 || m_frameHeight <= 0) return false;
@@ -757,9 +973,12 @@ bool SubtitleOcrController::run()
         return false;
     }
     const bool useColab = m_executionRoute == QStringLiteral("colab-gpu");
+    const bool usePaddle = !useColab && usesPaddleLocalEngine();
     const QString tesseract = runtimePath();
-    if (!useColab && (tesseract.isEmpty() || !runtimeAvailable())) {
-        setError(QStringLiteral("Subtitle OCR runtime is unavailable. Use Install runtime in Subtitle OCR, then install the selected language pack before running."));
+    if (!useColab && !runtimeAvailable()) {
+        setError(usePaddle
+                     ? QStringLiteral("The package-provisioned PaddleOCR PP-OCRv6 tiny runtime is unavailable or incomplete. Repair the package; LA Studio will not fall back silently to Tesseract.")
+                     : QStringLiteral("Subtitle OCR Tesseract baseline runtime is unavailable. Install runtime or repair the package before running."));
         emit runtimeChanged();
         return false;
     }
@@ -787,28 +1006,59 @@ bool SubtitleOcrController::run()
         return false;
     }
     cleanWorkspace();
+    releaseRecognitionWorkers();
+    releaseActiveCacheKey();
     if (!ensureWorkspace()) return false;
     m_samples = SubtitleOcrPipeline::sampleTimes(m_durationMs, m_sampleIntervalMs);
+    if (m_benchmarkSampleLimit > 0 && m_samples.size() > m_benchmarkSampleLimit)
+        m_samples.resize(m_benchmarkSampleLimit);
     if (m_samples.isEmpty()) {
         fail(QStringLiteral("No Subtitle OCR sample timestamps could be created."));
         return false;
     }
     m_observations.clear();
+    resetRunStatistics();
+    if (!m_segments.isEmpty()) {
+        m_segments.clear();
+        emit segmentsChanged();
+    }
     m_sampleIndex = 0;
     m_previousFrameHash.clear();
     m_previousText.clear();
     m_previousConfidence = 0.0;
+    m_recognitionQueue.clear();
+    m_uniqueFrames.clear();
+    m_chunkStartIndex = 0;
+    m_chunkEndIndex = 0;
+    m_sourceFingerprint.clear();
+    m_cacheKey.clear();
     m_lastFailedOperation = Operation::None;
+    m_scheduledSampleCount = m_samples.size();
+    setResultStatus(QStringLiteral("running"));
+    emit runStatisticsChanged();
     emit frameRetryChanged();
     m_cancelRequested = false;
+    m_runElapsed.start();
+    m_lastForwardProgressMs = 0;
     setError({});
     setProcessing(true);
-    // Local execution must preflight the exact Tesseract worker. Colab is a
-    // separate verified route and intentionally never falls back to local.
-    setPhase(useColab ? QStringLiteral("checking-colab-route") : QStringLiteral("checking-language"));
+    // Local engine selection is explicit.  PaddleOCR gets a package health
+    // check; Tesseract remains an explicit compatibility baseline.  Colab is
+    // a separate verified route and intentionally never falls back locally.
+    setPhase(useColab ? QStringLiteral("checking-colab-route")
+                      : (usePaddle ? QStringLiteral("checking-paddleocr-runtime")
+                                   : QStringLiteral("checking-language")));
     setProgress(0, false);
     if (useColab) beginOcrSamples();
-    else startProcess(Operation::VerifyLanguage, tesseract, {QStringLiteral("--list-langs")});
+    else if (usePaddle) {
+        const PaddleOcrRuntimeResolution paddle = PaddleOcrRuntimeLocator::resolve();
+        startProcess(Operation::VerifyPaddleRuntime, paddle.pythonPath,
+                     {paddle.workerPath, QStringLiteral("--cache-root"), paddle.modelCachePath,
+                      QStringLiteral("--manifest"), paddle.manifestPath,
+                      QStringLiteral("--health")});
+    } else {
+        startProcess(Operation::VerifyLanguage, tesseract, {QStringLiteral("--list-langs")});
+    }
     return true;
 }
 
@@ -843,15 +1093,433 @@ bool SubtitleOcrController::retryFrameExtraction()
                      QStringLiteral("sample=%1/%2; source=%3; ffmpeg=%4")
                          .arg(m_sampleIndex + 1).arg(m_samples.size())
                          .arg(m_sourcePath, media.ffmpeg));
-    beginNextSample();
+    if (m_executionRoute == QStringLiteral("local-cpu")) beginNextChunk();
+    else beginNextSample();
     return true;
 }
 
 void SubtitleOcrController::beginOcrSamples()
 {
-    setPhase(QStringLiteral("extracting-frame"));
+    setPhase(m_executionRoute == QStringLiteral("local-cpu")
+                 ? QStringLiteral("fingerprinting-source")
+                 : QStringLiteral("extracting-frame"));
     setProgress(0, true);
-    beginNextSample();
+    if (m_executionRoute == QStringLiteral("local-cpu")) beginCacheLookup();
+    else beginNextSample();
+}
+
+void SubtitleOcrController::beginCacheLookup()
+{
+    if (!m_processing || m_cancelRequested) {
+        completeCancellation();
+        return;
+    }
+    setPhase(QStringLiteral("fingerprinting-source"));
+    m_sourceFingerprintWatcher.setFuture(QtConcurrent::run(sha256File, m_sourcePath));
+}
+
+QString SubtitleOcrController::cacheKeyMaterial() const
+{
+    const QFileInfo runtime(runtimePath());
+    const PaddleOcrRuntimeResolution paddle = usesPaddleLocalEngine()
+        ? PaddleOcrRuntimeLocator::resolve() : PaddleOcrRuntimeResolution{};
+    const QFileInfo paddleManifest(paddle.manifestPath);
+    const QString paddleManifestHash = paddle.manifestPath.isEmpty()
+        ? QString() : sha256File(paddle.manifestPath);
+    return QStringLiteral("schema=%1\nsource=%2\nfingerprint=%3\nsize=%4\nroi=%5\ninterval=%6\nconfidence=%7\nlanguage=%8\nroute=%9\nengine=%10\nengineVersion=%11\nruntimePath=%12\nengineSize=%13\nengineModified=%14\npaddleManifest=%15\npaddleManifestSha256=%16\npreprocess=scale3-gray-v1\nbenchmarkLimit=%17")
+        .arg(kSubtitleOcrCacheVersion)
+        .arg(QFileInfo(m_sourcePath).canonicalFilePath(), m_sourceFingerprint)
+        .arg(QFileInfo(m_sourcePath).size())
+        .arg(normalizedRoiText(m_roi))
+        .arg(m_sampleIntervalMs)
+        .arg(m_minimumConfidence, 0, 'f', 6)
+        .arg(m_ocrLanguage, m_executionRoute,
+             m_executionRoute == QStringLiteral("local-cpu") ? m_localEngineId : m_colabModelId)
+        .arg(localEngineVersion())
+        .arg(runtime.absoluteFilePath())
+        .arg(runtime.size())
+        .arg(runtime.lastModified().toUTC().toString(Qt::ISODateWithMs))
+        .arg(paddleManifest.absoluteFilePath())
+        .arg(paddleManifestHash)
+        .arg(m_benchmarkSampleLimit);
+}
+
+QString SubtitleOcrController::cacheFilePath() const
+{
+    return QDir(PathUtils::cacheDir()).filePath(
+        // Completed OCR artifacts must survive a clean staging workspace, but
+        // must not live inside it.  A cancel/retry can therefore remove every
+        // temporary crop without deleting a valid, separately keyed result.
+        QStringLiteral("subtitle-ocr-cache/results/%1.json").arg(m_cacheKey));
+}
+
+bool SubtitleOcrController::loadCachedResult()
+{
+    QFile file(cacheFilePath());
+    if (!file.open(QIODevice::ReadOnly)) return false;
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
+    const QJsonObject root = document.object();
+    if (document.isNull() || root.value(QStringLiteral("version")).toInt() != kSubtitleOcrCacheVersion
+        || root.value(QStringLiteral("key")).toString() != m_cacheKey) return false;
+    QString error;
+    const QVector<SubtitleOcrSegment> cached = segmentsFromVariant(
+        root.value(QStringLiteral("segments")).toArray().toVariantList(), &error);
+    const bool requireHan = m_ocrLanguage.compare(QStringLiteral("chi_sim"), Qt::CaseInsensitive) == 0;
+    if (!SubtitleOcrPipeline::validatePublishableSegments(cached, requireHan, &error)) return false;
+    m_segments = segmentsToVariant(cached);
+    m_publishedSegmentCount = m_segments.size();
+    m_cacheReused = true;
+    m_completedSampleCount = m_samples.size();
+    appendDiagnostic(QStringLiteral("result-cache-hit"),
+                     QStringLiteral("key=%1; segments=%2").arg(m_cacheKey).arg(m_segments.size()));
+    cleanWorkspace();
+    setProcessing(false);
+    setProgress(100, true);
+    setPhase(QStringLiteral("completed"));
+    setResultStatus(QStringLiteral("completed"));
+    setError({});
+    emit runStatisticsChanged();
+    emit segmentsChanged();
+    return true;
+}
+
+bool SubtitleOcrController::storeCachedResult()
+{
+    if (m_cacheKey.isEmpty() || m_segments.isEmpty()) return false;
+    const QFileInfo destination(cacheFilePath());
+    if (!QDir().mkpath(destination.absolutePath())) return false;
+    QJsonObject root{{QStringLiteral("version"), kSubtitleOcrCacheVersion},
+                     {QStringLiteral("key"), m_cacheKey},
+                     {QStringLiteral("sourceFingerprint"), m_sourceFingerprint},
+                     {QStringLiteral("createdUtc"), QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
+                     {QStringLiteral("segments"), QJsonArray::fromVariantList(m_segments)}};
+    QSaveFile file(destination.absoluteFilePath());
+    if (!file.open(QIODevice::WriteOnly)) return false;
+    if (file.write(QJsonDocument(root).toJson(QJsonDocument::Compact)) < 0) return false;
+    return file.commit();
+}
+
+void SubtitleOcrController::releaseActiveCacheKey()
+{
+    if (!m_cacheKeyActive) return;
+    s_activeOcrCacheKeys.remove(m_cacheKey);
+    m_cacheKeyActive = false;
+}
+
+void SubtitleOcrController::onSourceFingerprintReady()
+{
+    if (!m_processing || m_executionRoute != QStringLiteral("local-cpu")) return;
+    m_sourceFingerprint = m_sourceFingerprintWatcher.result();
+    if (m_sourceFingerprint.isEmpty()) {
+        fail(QStringLiteral("Could not fingerprint the Subtitle OCR source for a safe reusable result."));
+        return;
+    }
+    m_cacheKey = QString::fromLatin1(QCryptographicHash::hash(
+        cacheKeyMaterial().toUtf8(), QCryptographicHash::Sha256).toHex());
+    if (loadCachedResult()) return;
+    if (s_activeOcrCacheKeys.contains(m_cacheKey)) {
+        fail(QStringLiteral("An identical Subtitle OCR job is already running. Wait for that job or use its published result."),
+             Operation::None, QStringLiteral("matching_job_active"));
+        return;
+    }
+    s_activeOcrCacheKeys.insert(m_cacheKey);
+    m_cacheKeyActive = true;
+    m_lastForwardProgressMs = m_runElapsed.elapsed();
+    m_forwardProgressTimer.start();
+    beginNextChunk();
+}
+
+void SubtitleOcrController::updateForwardProgress()
+{
+    m_lastForwardProgressMs = m_runElapsed.isValid() ? m_runElapsed.elapsed() : 0;
+    setProgress(qRound(100.0 * m_completedSampleCount / qMax(1, m_samples.size())), true);
+    emit runStatisticsChanged();
+}
+
+void SubtitleOcrController::checkForwardProgress()
+{
+    if (!m_processing || m_executionRoute != QStringLiteral("local-cpu") || !m_runElapsed.isValid()) return;
+    if (m_runElapsed.elapsed() - m_lastForwardProgressMs > kForwardProgressTimeoutMs) {
+        fail(QStringLiteral("Subtitle OCR made no forward progress for 60 seconds; the job was stopped before a misleading long wait."),
+             m_operation == Operation::ExtractChunk ? Operation::ExtractChunk : Operation::RecognizeFrame);
+    }
+}
+
+void SubtitleOcrController::beginNextChunk()
+{
+    if (!m_processing || m_cancelRequested) {
+        completeCancellation();
+        return;
+    }
+    if (m_chunkStartIndex >= m_samples.size()) {
+        completeRun();
+        return;
+    }
+    const MediaRuntimePaths media = MediaRuntimeLocator::resolve();
+    const QStringList crop = SubtitleOcrPipeline::ffmpegCropArguments(m_roi, m_frameWidth, m_frameHeight);
+    const SubtitleOcrRect cropRect = SubtitleOcrPipeline::sourceRect(
+        m_roi, m_frameWidth, m_frameHeight);
+    if (!media.hasFfmpeg() || crop.size() != 2) {
+        fail(QStringLiteral("Subtitle OCR batch frame extraction is no longer configured."), Operation::ExtractChunk);
+        return;
+    }
+    m_chunkEndIndex = qMin(m_chunkStartIndex + kChunkSampleCount, m_samples.size());
+    // The final safe-end timestamp is deliberately allowed to be off the
+    // regular interval cadence.  Keep it in a one-frame trailing chunk so the
+    // fps filter cannot silently omit it (for example 0,30,60,90,109 seconds).
+    if (m_chunkEndIndex == m_samples.size() && m_chunkEndIndex - m_chunkStartIndex > 1
+        && m_samples.at(m_chunkEndIndex - 1) - m_samples.at(m_chunkEndIndex - 2)
+            != m_sampleIntervalMs) {
+        --m_chunkEndIndex;
+    }
+    const int count = m_chunkEndIndex - m_chunkStartIndex;
+    const qint64 startMs = m_samples.at(m_chunkStartIndex);
+    const QString pattern = QDir(m_workspacePath).filePath(QStringLiteral("frame-%06d.png"));
+    // A trailing safe-end sample may be a one-frame chunk.  In that case an
+    // fps cadence can wait for a future tick beyond EOF, so extract the seeked
+    // frame directly while keeping the same crop/preprocess chain.
+    const QString filter = count == 1
+        ? crop.at(1)
+        : crop.at(1) + QStringLiteral(",fps=fps=1000/%1:round=near").arg(m_sampleIntervalMs);
+    setPhase(QStringLiteral("extracting chunk %1-%2/%3")
+                 .arg(m_chunkStartIndex + 1).arg(m_chunkEndIndex).arg(m_samples.size()));
+    appendDiagnostic(QStringLiteral("batch-extraction-start"),
+                     QStringLiteral("chunk=%1-%2; samples=%3; timestampMs=%4; ffmpeg=%5; "
+                                    "normalizedRoi=%6; pixelCrop=%7")
+                         .arg(m_chunkStartIndex + 1).arg(m_chunkEndIndex).arg(count)
+                         .arg(startMs).arg(media.ffmpeg).arg(normalizedRoiText(m_roi))
+                         .arg(cropText(cropRect)));
+    ++m_ffmpegProcessCount;
+    emit runStatisticsChanged();
+    startProcess(Operation::ExtractChunk, media.ffmpeg,
+                 {QStringLiteral("-nostdin"), QStringLiteral("-hide_banner"), QStringLiteral("-loglevel"),
+                  QStringLiteral("error"), QStringLiteral("-ss"), ffmpegTime(startMs),
+                  QStringLiteral("-i"), m_sourcePath, QStringLiteral("-an"), QStringLiteral("-vf"), filter,
+                  QStringLiteral("-frames:v"), QString::number(count), QStringLiteral("-start_number"),
+                  QString::number(m_chunkStartIndex), QStringLiteral("-y"), pattern});
+}
+
+void SubtitleOcrController::queueChunkFrames()
+{
+    bool reusedCompletedRecognition = false;
+    for (int index = m_chunkStartIndex; index < m_chunkEndIndex; ++index) {
+        const QString framePath = QDir(m_workspacePath).filePath(
+            QStringLiteral("frame-%1.png").arg(index, 6, 10, QLatin1Char('0')));
+        QByteArray hash;
+        QString error;
+        ++m_extractedFrameCount;
+        if (!validateFrame(framePath, &hash, &error)) {
+            fail(QStringLiteral("Subtitle OCR batch extraction did not produce a readable PNG crop: %1").arg(error),
+                 Operation::ExtractChunk);
+            return;
+        }
+        ++m_readableCropCount;
+        const auto existing = m_uniqueFrames.constFind(hash);
+        if (existing != m_uniqueFrames.cend()) {
+            ++m_deduplicatedFrameCount;
+            QFile::remove(framePath);
+            // A later chunk can contain a frame already recognized by a
+            // completed worker.  Reuse that exact result immediately instead
+            // of queuing a worker that will never run, and count it as real
+            // forward progress.  If the worker is still active, append the
+            // sample so its completion publishes both timestamps in order.
+            if (existing.value()->completed) {
+                appendObservation({m_samples.at(index), existing.value()->recognizedText,
+                                   existing.value()->recognizedConfidence});
+                ++m_completedSampleCount;
+                reusedCompletedRecognition = true;
+            } else {
+                existing.value()->sampleIndexes.append(index);
+            }
+            continue;
+        }
+        auto item = QSharedPointer<RecognitionItem>::create();
+        item->frameHash = hash;
+        item->framePath = framePath;
+        item->sampleIndexes.append(index);
+        m_uniqueFrames.insert(hash, item);
+        m_recognitionQueue.enqueue(item);
+    }
+    if (reusedCompletedRecognition) updateForwardProgress();
+    emit runStatisticsChanged();
+    pumpRecognitionQueue();
+    if (usesPaddleLocalEngine() && m_operation == Operation::RecognizePaddleChunk) return;
+    const bool busy = std::any_of(m_recognitionWorkers.cbegin(), m_recognitionWorkers.cend(),
+                                  [](const RecognitionWorker &worker) { return worker.item; });
+    if (!busy && m_recognitionQueue.isEmpty()) {
+        m_chunkStartIndex = m_chunkEndIndex;
+        // Do not start a new FFmpeg process from inside the current process'
+        // finished signal.  Queuing preserves the event ordering and handles
+        // an all-duplicate trailing chunk without leaving the job running.
+        QTimer::singleShot(0, this, [this] {
+            if (m_processing && !m_cancelRequested) beginNextChunk();
+        });
+    }
+}
+
+void SubtitleOcrController::pumpRecognitionQueue()
+{
+    if (!m_processing || m_executionRoute != QStringLiteral("local-cpu")) return;
+    if (usesPaddleLocalEngine()) {
+        beginPaddleRecognitionChunk();
+        return;
+    }
+    if (m_recognitionWorkers.isEmpty()) {
+        for (int index = 0; index < m_maxConcurrentWorkers; ++index) {
+            RecognitionWorker worker;
+            worker.process = new QProcess(this);
+            connect(worker.process, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
+                    [this, process = worker.process](int code, QProcess::ExitStatus status) {
+                        onRecognitionFinished(process, code, status);
+                    });
+            connect(worker.process, &QProcess::errorOccurred, this,
+                    [this, process = worker.process](QProcess::ProcessError error) {
+                        onRecognitionError(process, error);
+                    });
+            m_recognitionWorkers.append(worker);
+        }
+    }
+    const QString tesseract = runtimePath();
+    if (tesseract.isEmpty()) {
+        fail(QStringLiteral("Subtitle OCR runtime became unavailable during batch recognition."));
+        return;
+    }
+    for (RecognitionWorker &worker : m_recognitionWorkers) {
+        if (m_recognitionQueue.isEmpty()) break;
+        if (worker.item || worker.process->state() != QProcess::NotRunning) continue;
+        worker.item = m_recognitionQueue.dequeue();
+        QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+        QStringList arguments{worker.item->framePath, QStringLiteral("stdout"), QStringLiteral("-l"),
+                              m_ocrLanguage, QStringLiteral("--psm"), QStringLiteral("6"), QStringLiteral("tsv")};
+        if (m_runtimeService) {
+            arguments = m_runtimeService->tesseractDataArguments() + arguments;
+            environment = m_runtimeService->tesseractProcessEnvironment();
+        }
+        ++m_ocrAttemptCount;
+        ++m_tesseractProcessCount;
+        setPhase(QStringLiteral("recognizing %1/%2 (%3 workers)")
+                     .arg(m_completedSampleCount + 1).arg(m_samples.size()).arg(m_maxConcurrentWorkers));
+        worker.process->setProgram(tesseract);
+        worker.process->setArguments(arguments);
+        worker.process->setProcessEnvironment(environment);
+        worker.process->start();
+    }
+    emit runStatisticsChanged();
+}
+
+bool SubtitleOcrController::beginPaddleRecognitionChunk()
+{
+    if (m_recognitionQueue.isEmpty()) return false;
+    const PaddleOcrRuntimeResolution paddle = PaddleOcrRuntimeLocator::resolve();
+    if (!paddle.isUsable()) {
+        fail(QStringLiteral("PaddleOCR runtime became unavailable during batch recognition."),
+             Operation::RecognizePaddleChunk);
+        return false;
+    }
+
+    m_paddleChunkItems.clear();
+    QJsonArray frames;
+    while (!m_recognitionQueue.isEmpty()) {
+        const QSharedPointer<RecognitionItem> item = m_recognitionQueue.dequeue();
+        m_paddleChunkItems.append(item);
+        frames.append(QJsonObject{{QStringLiteral("hash"), QString::fromLatin1(item->frameHash.toHex())},
+                                  {QStringLiteral("path"), item->framePath}});
+    }
+    const QString stem = QStringLiteral("paddle-chunk-%1-%2")
+        .arg(m_chunkStartIndex).arg(m_chunkEndIndex);
+    m_paddleRequestPath = QDir(m_workspacePath).filePath(stem + QStringLiteral(".request.json"));
+    m_paddleResponsePath = QDir(m_workspacePath).filePath(stem + QStringLiteral(".response.json"));
+    QSaveFile request(m_paddleRequestPath);
+    const QJsonObject payload{{QStringLiteral("schemaVersion"), 1},
+                              {QStringLiteral("engineId"), QString::fromLatin1(PaddleOcrRuntimeLocator::engineId())},
+                              {QStringLiteral("language"), m_ocrLanguage},
+                              {QStringLiteral("frames"), frames}};
+    if (!request.open(QIODevice::WriteOnly)
+        || request.write(QJsonDocument(payload).toJson(QJsonDocument::Compact)) < 0
+        || !request.commit()) {
+        fail(QStringLiteral("Cannot write the PaddleOCR batch request."), Operation::RecognizePaddleChunk);
+        return false;
+    }
+    QFile::remove(m_paddleResponsePath);
+    m_ocrAttemptCount += m_paddleChunkItems.size();
+    ++m_paddleProcessCount;
+    setPhase(QStringLiteral("recognizing PaddleOCR batch %1-%2/%3")
+                 .arg(m_chunkStartIndex + 1).arg(m_chunkEndIndex).arg(m_samples.size()));
+    emit runStatisticsChanged();
+    startProcess(Operation::RecognizePaddleChunk, paddle.pythonPath,
+                 {paddle.workerPath, QStringLiteral("--cache-root"), paddle.modelCachePath,
+                  QStringLiteral("--manifest"), paddle.manifestPath,
+                  QStringLiteral("--request"), m_paddleRequestPath,
+                  QStringLiteral("--response"), m_paddleResponsePath});
+    return true;
+}
+
+void SubtitleOcrController::onRecognitionError(QProcess *process, QProcess::ProcessError error)
+{
+    if (!m_processing || error == QProcess::Crashed) return;
+    if (error == QProcess::FailedToStart)
+        fail(QStringLiteral("Subtitle OCR worker could not be started."), Operation::RecognizeFrame);
+    Q_UNUSED(process)
+}
+
+void SubtitleOcrController::onRecognitionFinished(QProcess *process, int exitCode, QProcess::ExitStatus status)
+{
+    auto worker = std::find_if(m_recognitionWorkers.begin(), m_recognitionWorkers.end(),
+                               [process](const RecognitionWorker &candidate) { return candidate.process == process; });
+    if (worker == m_recognitionWorkers.end() || !worker->item) return;
+    const QSharedPointer<RecognitionItem> item = worker->item;
+    worker->item.reset();
+    const QByteArray output = process->readAllStandardOutput();
+    const QByteArray standardError = process->readAllStandardError();
+    if (!m_processing || m_cancelRequested) {
+        QFile::remove(item->framePath);
+        if (m_cancelRequested) completeCancellation();
+        return;
+    }
+    if (status != QProcess::NormalExit || exitCode != 0) {
+        fail(processFailure(QStringLiteral("batch Tesseract recognition"), standardError), Operation::RecognizeFrame);
+        return;
+    }
+    const SubtitleOcrObservation recognized = SubtitleOcrPipeline::parseTesseractTsv(
+        output, m_samples.at(item->sampleIndexes.constFirst()));
+    item->completed = true;
+    item->recognizedText = recognized.text;
+    item->recognizedConfidence = recognized.confidence;
+    ++m_ocrSuccessCount;
+    ++m_recognizedFrameCount;
+    for (const int index : item->sampleIndexes) {
+        appendObservation({m_samples.at(index), recognized.text, recognized.confidence});
+        ++m_completedSampleCount;
+    }
+    QFile::remove(item->framePath);
+    updateForwardProgress();
+    pumpRecognitionQueue();
+    const bool busy = std::any_of(m_recognitionWorkers.cbegin(), m_recognitionWorkers.cend(),
+                                  [](const RecognitionWorker &candidate) { return candidate.item; });
+    if (!busy && m_recognitionQueue.isEmpty()) {
+        m_chunkStartIndex = m_chunkEndIndex;
+        beginNextChunk();
+    }
+}
+
+void SubtitleOcrController::releaseRecognitionWorkers()
+{
+    for (RecognitionWorker &worker : m_recognitionWorkers) {
+        if (!worker.process) continue;
+        if (worker.process->state() != QProcess::NotRunning) {
+            worker.process->kill();
+            worker.process->waitForFinished(3000);
+        }
+        worker.process->deleteLater();
+        worker.process = nullptr;
+        worker.item.reset();
+    }
+    m_recognitionWorkers.clear();
+    m_recognitionQueue.clear();
+    m_paddleChunkItems.clear();
+    m_paddleRequestPath.clear();
+    m_paddleResponsePath.clear();
+    m_uniqueFrames.clear();
 }
 
 void SubtitleOcrController::beginNextSample()
@@ -885,6 +1553,8 @@ void SubtitleOcrController::beginNextSample()
 
 void SubtitleOcrController::beginRecognition()
 {
+    ++m_ocrAttemptCount;
+    emit runStatisticsChanged();
     if (m_executionRoute == QStringLiteral("colab-gpu")) {
         if (!m_colabRunner || !m_colabSession) {
             fail(QStringLiteral("Colab Subtitle OCR worker is unavailable."));
@@ -941,7 +1611,8 @@ void SubtitleOcrController::onColabRecognitionFinished(const QString &text, doub
                                              qBound(0.0, confidence, 1.0)};
     m_previousText = observation.text;
     m_previousConfidence = observation.confidence;
-    m_observations.append(observation);
+    ++m_ocrSuccessCount;
+    appendObservation(observation);
     ++m_sampleIndex;
     setProgress((m_sampleIndex * 100) / m_samples.size(), true);
     beginNextSample();
@@ -960,7 +1631,7 @@ void SubtitleOcrController::onColabRecognitionFailed(const QString &message)
 void SubtitleOcrController::onProcessError(QProcess::ProcessError error)
 {
     if (!m_processing || error == QProcess::Crashed) return;
-    if (m_operation == Operation::ExtractFrame) {
+    if (m_operation == Operation::ExtractFrame || m_operation == Operation::ExtractChunk) {
         appendDiagnostic(QStringLiteral("frame-extraction-process-error"),
                          QStringLiteral("ffmpeg=%1; output=%2; processError=%3; detail=%4")
                              .arg(m_process.program(), m_currentFramePath)
@@ -974,7 +1645,8 @@ void SubtitleOcrController::onProcessError(QProcess::ProcessError error)
 
 void SubtitleOcrController::onFrameExtractionTimeout()
 {
-    if (!m_processing || m_operation != Operation::ExtractFrame) return;
+    if (!m_processing || (m_operation != Operation::ExtractFrame
+                          && m_operation != Operation::ExtractChunk)) return;
     appendDiagnostic(QStringLiteral("frame-extraction-timeout"),
                      QStringLiteral("ffmpeg=%1; output=%2; timeoutMs=%3; state=%4")
                          .arg(m_process.program(), m_currentFramePath)
@@ -990,9 +1662,10 @@ void SubtitleOcrController::onProcessFinished(int exitCode, QProcess::ExitStatus
     const QByteArray output = m_process.readAllStandardOutput();
     const QByteArray standardError = m_process.readAllStandardError();
     const Operation operation = m_operation;
-    if (operation == Operation::ExtractFrame) m_frameExtractionTimeout.stop();
+    if (operation == Operation::ExtractFrame || operation == Operation::ExtractChunk)
+        m_frameExtractionTimeout.stop();
     m_operation = Operation::None;
-    if (operation == Operation::ExtractFrame) {
+    if (operation == Operation::ExtractFrame || operation == Operation::ExtractChunk) {
         appendDiagnostic(QStringLiteral("frame-extraction-exit"),
                          QStringLiteral("ffmpeg=%1; output=%2; exitCode=%3; exitStatus=%4; stderr=%5")
                              .arg(m_process.program(), m_currentFramePath).arg(exitCode)
@@ -1012,7 +1685,8 @@ void SubtitleOcrController::onProcessFinished(int exitCode, QProcess::ExitStatus
         completeCancellation();
         return;
     }
-    if (operation == Operation::ExtractFrame && m_frameExtractionTimedOut) {
+    if ((operation == Operation::ExtractFrame || operation == Operation::ExtractChunk)
+        && m_frameExtractionTimedOut) {
         m_frameExtractionTimedOut = false;
         fail(QStringLiteral("Subtitle OCR frame extraction timed out. Use Retry frame extraction or Open diagnostics."),
              operation);
@@ -1022,9 +1696,87 @@ void SubtitleOcrController::onProcessFinished(int exitCode, QProcess::ExitStatus
         const QString stage = operation == Operation::Probe ? QStringLiteral("video probe")
             : operation == Operation::CropPreview ? QStringLiteral("crop preview")
             : operation == Operation::VerifyLanguage ? QStringLiteral("Tesseract language check")
-            : operation == Operation::ExtractFrame ? QStringLiteral("frame extraction")
+            : operation == Operation::VerifyPaddleRuntime ? QStringLiteral("PaddleOCR runtime health check")
+            : (operation == Operation::ExtractFrame || operation == Operation::ExtractChunk)
+                ? QStringLiteral("frame extraction")
+            : operation == Operation::RecognizePaddleChunk ? QStringLiteral("PaddleOCR batch recognition")
             : QStringLiteral("Tesseract recognition");
         fail(processFailure(stage, standardError), operation);
+        return;
+    }
+    if (operation == Operation::VerifyPaddleRuntime) {
+        QString healthError;
+        if (!parsePaddleHealth(output, &healthError)) {
+            fail(QStringLiteral("PaddleOCR runtime health check failed: %1").arg(healthError), operation);
+            return;
+        }
+        appendDiagnostic(QStringLiteral("paddle-runtime-health"),
+                         QStringLiteral("engine=%1; version=%2; result=passed")
+                             .arg(PaddleOcrRuntimeLocator::engineId(), PaddleOcrRuntimeLocator::engineVersion()));
+        beginOcrSamples();
+        return;
+    }
+    if (operation == Operation::RecognizePaddleChunk) {
+        QFile response(m_paddleResponsePath);
+        const QJsonDocument responseDocument = response.open(QIODevice::ReadOnly)
+            ? QJsonDocument::fromJson(response.readAll()) : QJsonDocument();
+        const QJsonObject root = responseDocument.object();
+        if (!responseDocument.isObject() || root.value(QStringLiteral("schemaVersion")).toInt() != 1
+            || root.value(QStringLiteral("engineId")).toString()
+                   != QString::fromLatin1(PaddleOcrRuntimeLocator::engineId())
+            || root.value(QStringLiteral("engineVersion")).toString()
+                   != QString::fromLatin1(PaddleOcrRuntimeLocator::engineVersion())
+            || !root.value(QStringLiteral("manifestVerified")).toBool()) {
+            fail(QStringLiteral("PaddleOCR returned an invalid batch response."), operation);
+            return;
+        }
+        const QJsonObject telemetry = root.value(QStringLiteral("telemetry")).toObject();
+        const double cpuSeconds = telemetry.value(QStringLiteral("cpuSeconds")).toDouble(-1.0);
+        const qint64 peakWorkingSet = telemetry.value(QStringLiteral("peakWorkingSetBytes")).toVariant().toLongLong();
+        if (telemetry.isEmpty() || !std::isfinite(cpuSeconds) || cpuSeconds < 0.0 || peakWorkingSet < 0) {
+            fail(QStringLiteral("PaddleOCR batch response is missing valid runtime telemetry."), operation);
+            return;
+        }
+        m_paddleCpuSeconds += cpuSeconds;
+        m_paddlePeakWorkingSetBytes = qMax(m_paddlePeakWorkingSetBytes, peakWorkingSet);
+        QHash<QByteArray, SubtitleOcrObservation> results;
+        for (const QJsonValue &value : root.value(QStringLiteral("results")).toArray()) {
+            const QJsonObject item = value.toObject();
+            const QByteArray hash = QByteArray::fromHex(item.value(QStringLiteral("hash")).toString().toLatin1());
+            const QString text = item.value(QStringLiteral("text")).toString().trimmed();
+            const double confidence = item.value(QStringLiteral("confidence")).toDouble(-1.0);
+            if (hash.isEmpty() || results.contains(hash) || !std::isfinite(confidence)
+                || confidence < 0.0 || confidence > 1.0) {
+                fail(QStringLiteral("PaddleOCR returned an invalid recognition result."), operation);
+                return;
+            }
+            results.insert(hash, {0, text, confidence});
+        }
+        for (const QSharedPointer<RecognitionItem> &item : m_paddleChunkItems) {
+            const auto result = results.constFind(item->frameHash);
+            if (result == results.cend()) {
+                fail(QStringLiteral("PaddleOCR did not return every requested cropped frame."), operation);
+                return;
+            }
+            item->completed = true;
+            item->recognizedText = result->text;
+            item->recognizedConfidence = result->confidence;
+            ++m_ocrSuccessCount;
+            ++m_recognizedFrameCount;
+            for (const int index : item->sampleIndexes) {
+                appendObservation({m_samples.at(index), item->recognizedText, item->recognizedConfidence});
+                ++m_completedSampleCount;
+            }
+            QFile::remove(item->framePath);
+        }
+        appendDiagnostic(QStringLiteral("paddle-batch-complete"),
+                         QStringLiteral("frames=%1; engine=%2; version=%3")
+                             .arg(m_paddleChunkItems.size()).arg(PaddleOcrRuntimeLocator::engineId(),
+                                 PaddleOcrRuntimeLocator::engineVersion()));
+        m_paddleChunkItems.clear();
+        updateForwardProgress();
+        m_chunkStartIndex = m_chunkEndIndex;
+        beginNextChunk();
         return;
     }
     if (operation == Operation::Probe) {
@@ -1066,8 +1818,10 @@ void SubtitleOcrController::onProcessFinished(int exitCode, QProcess::ExitStatus
                      .arg(validationError), operation);
             return;
         }
+        ++m_readableCropCount;
+        emit runStatisticsChanged();
         if (!m_previousFrameHash.isEmpty() && hash == m_previousFrameHash) {
-            m_observations.append({m_samples.at(m_sampleIndex), m_previousText, m_previousConfidence});
+            appendObservation({m_samples.at(m_sampleIndex), m_previousText, m_previousConfidence});
             ++m_sampleIndex;
             setProgress(qRound(100.0 * m_sampleIndex / m_samples.size()), true);
             beginNextSample();
@@ -1077,12 +1831,18 @@ void SubtitleOcrController::onProcessFinished(int exitCode, QProcess::ExitStatus
         beginRecognition();
         return;
     }
+    if (operation == Operation::ExtractChunk) {
+        updateForwardProgress();
+        queueChunkFrames();
+        return;
+    }
     if (operation == Operation::RecognizeFrame) {
         const SubtitleOcrObservation observation = SubtitleOcrPipeline::parseTesseractTsv(
             output, m_samples.at(m_sampleIndex));
+        ++m_ocrSuccessCount;
         m_previousText = observation.text;
         m_previousConfidence = observation.confidence;
-        m_observations.append(observation);
+        appendObservation(observation);
         ++m_sampleIndex;
         setProgress(qRound(100.0 * m_sampleIndex / m_samples.size()), true);
         beginNextSample();
@@ -1091,16 +1851,46 @@ void SubtitleOcrController::onProcessFinished(int exitCode, QProcess::ExitStatus
 
 void SubtitleOcrController::completeRun()
 {
+    m_forwardProgressTimer.stop();
     QVector<SubtitleOcrSegment> merged = SubtitleOcrPipeline::mergeObservations(
         m_observations, m_sampleIntervalMs, m_minimumConfidence);
     for (SubtitleOcrSegment &segment : merged) {
         segment.endMs = qMin(segment.endMs, m_durationMs);
     }
+    QString validationError;
+    const bool requireHanText = m_ocrLanguage.compare(QStringLiteral("chi_sim"), Qt::CaseInsensitive) == 0;
+    if (!SubtitleOcrPipeline::validatePublishableSegments(merged, requireHanText, &validationError)) {
+        m_segments.clear();
+        m_publishedSegmentCount = 0;
+        m_exportedSegmentCount = 0;
+        emit segmentsChanged();
+        emit runStatisticsChanged();
+        appendDiagnostic(QStringLiteral("result-validation"),
+                         QStringLiteral("status=no_text_detected; scheduled=%1; readableCrops=%2; "
+                                        "ocrSuccesses=%3; rawNonEmpty=%4; filterCandidates=%5; "
+                                        "publishedSegments=0; detail=%6")
+                             .arg(m_scheduledSampleCount).arg(m_readableCropCount)
+                             .arg(m_ocrSuccessCount).arg(m_nonEmptyRawResultCount)
+                             .arg(m_filterCandidateCount).arg(validationError));
+        fail(QStringLiteral("no_text_detected: %1").arg(validationError),
+             Operation::RecognizeFrame, QStringLiteral("no_text_detected"));
+        return;
+    }
     m_segments = segmentsToVariant(merged);
+    m_publishedSegmentCount = m_segments.size();
+    m_exportedSegmentCount = 0;
+    emit runStatisticsChanged();
+    if (!storeCachedResult()) {
+        appendDiagnostic(QStringLiteral("result-cache-write-failed"),
+                         QStringLiteral("key=%1").arg(m_cacheKey));
+    }
+    releaseActiveCacheKey();
+    releaseRecognitionWorkers();
     cleanWorkspace();
     setProcessing(false);
     setProgress(100, true);
     setPhase(QStringLiteral("completed"));
+    setResultStatus(QStringLiteral("completed"));
     setError({});
     emit segmentsChanged();
 }
@@ -1108,34 +1898,51 @@ void SubtitleOcrController::completeRun()
 void SubtitleOcrController::completeCancellation()
 {
     m_frameExtractionTimeout.stop();
+    m_forwardProgressTimer.stop();
     m_frameExtractionTimedOut = false;
     m_cancelRequested = false;
     m_operation = Operation::None;
     m_pendingSourcePath.clear();
+    releaseRecognitionWorkers();
+    releaseActiveCacheKey();
     cleanWorkspace();
     setProcessing(false);
     setProgress(0, false);
     setPhase(QStringLiteral("canceled"));
+    setResultStatus(QStringLiteral("canceled"));
     setError({});
 }
 
-void SubtitleOcrController::fail(const QString &message, Operation failedOperation)
+void SubtitleOcrController::fail(const QString &message, Operation failedOperation,
+                                 const QString &resultStatus)
 {
     const Operation recordedOperation = failedOperation == Operation::None
         ? m_operation : failedOperation;
     m_frameExtractionTimeout.stop();
+    m_forwardProgressTimer.stop();
     m_frameExtractionTimedOut = false;
     if (m_process.state() != QProcess::NotRunning) m_process.kill();
+    releaseRecognitionWorkers();
+    releaseActiveCacheKey();
     if (m_operation == Operation::RecognizeColabFrame && m_colabRunner)
         QMetaObject::invokeMethod(m_colabRunner, "cancel", Qt::QueuedConnection);
     m_operation = Operation::None;
     m_cancelRequested = false;
     m_pendingSourcePath.clear();
     m_lastFailedOperation = recordedOperation;
-    cleanWorkspace(recordedOperation == Operation::ExtractFrame);
+    if (!m_segments.isEmpty()) {
+        m_segments.clear();
+        emit segmentsChanged();
+    }
+    m_publishedSegmentCount = 0;
+    m_exportedSegmentCount = 0;
+    emit runStatisticsChanged();
+    cleanWorkspace(recordedOperation == Operation::ExtractFrame
+                   || recordedOperation == Operation::ExtractChunk);
     setProcessing(false);
     setProgress(0, false);
     setPhase(QStringLiteral("error"));
+    setResultStatus(resultStatus);
     setError(message);
     emit frameRetryChanged();
 }
@@ -1144,8 +1951,12 @@ void SubtitleOcrController::cancel()
 {
     if (!m_processing) return;
     m_cancelRequested = true;
-    if (m_process.state() != QProcess::NotRunning) m_process.kill();
-    else if (m_operation == Operation::RecognizeColabFrame && m_colabRunner)
+    const bool primaryProcessRunning = m_process.state() != QProcess::NotRunning;
+    const Operation operation = m_operation;
+    if (primaryProcessRunning) m_process.kill();
+    releaseRecognitionWorkers();
+    if (primaryProcessRunning) return;
+    if (operation == Operation::RecognizeColabFrame && m_colabRunner)
         QMetaObject::invokeMethod(m_colabRunner, "cancel", Qt::QueuedConnection);
     else completeCancellation();
 }
@@ -1220,20 +2031,44 @@ bool SubtitleOcrController::writeTextFile(const QString &path, const QString &co
     return output.write(utf8) == utf8.size() && output.commit();
 }
 
-bool SubtitleOcrController::exportSrt(const QString &path) const
+bool SubtitleOcrController::exportSrt(const QString &path)
 {
     QString error;
     const QVector<SubtitleOcrSegment> parsed = segmentsFromVariant(m_segments, &error);
-    return !parsed.isEmpty() && writeTextFile(path, SubtitleOcrPipeline::toSrt(parsed));
+    if (m_resultStatus != QStringLiteral("completed") || parsed.isEmpty()) {
+        if (m_error.isEmpty()) {
+            setError(QStringLiteral("Subtitle OCR has no published transcript segments to export."));
+        }
+        return false;
+    }
+    if (!writeTextFile(path, SubtitleOcrPipeline::toSrt(parsed))) {
+        setError(QStringLiteral("Cannot write the Subtitle OCR SRT export."));
+        return false;
+    }
+    m_exportedSegmentCount = parsed.size();
+    emit runStatisticsChanged();
+    return true;
 }
 
-bool SubtitleOcrController::exportText(const QString &path) const
+bool SubtitleOcrController::exportText(const QString &path)
 {
     QString error;
     const QVector<SubtitleOcrSegment> parsed = segmentsFromVariant(m_segments, &error);
+    if (m_resultStatus != QStringLiteral("completed") || parsed.isEmpty()) {
+        if (m_error.isEmpty()) {
+            setError(QStringLiteral("Subtitle OCR has no published transcript segments to export."));
+        }
+        return false;
+    }
     QStringList lines;
     for (const SubtitleOcrSegment &segment : parsed) lines.append(segment.text);
-    return !lines.isEmpty() && writeTextFile(path, lines.join(QStringLiteral("\n\n")) + QLatin1Char('\n'));
+    if (lines.isEmpty() || !writeTextFile(path, lines.join(QStringLiteral("\n\n")) + QLatin1Char('\n'))) {
+        setError(QStringLiteral("Cannot write the Subtitle OCR text export."));
+        return false;
+    }
+    m_exportedSegmentCount = parsed.size();
+    emit runStatisticsChanged();
+    return true;
 }
 
 bool SubtitleOcrController::saveProject(const QString &path)
@@ -1265,6 +2100,8 @@ bool SubtitleOcrController::saveProject(const QString &path)
                                                             {QStringLiteral("height"), m_roi.height}}},
                         {QStringLiteral("ocrLanguage"), m_ocrLanguage},
                         {QStringLiteral("executionRoute"), m_executionRoute},
+                        {QStringLiteral("localEngineId"), m_localEngineId},
+                        {QStringLiteral("localEngineVersion"), localEngineVersion()},
                         {QStringLiteral("colabModelId"), m_colabModelId},
                         {QStringLiteral("sampleIntervalMs"), static_cast<double>(m_sampleIntervalMs)},
                         {QStringLiteral("minimumConfidence"), m_minimumConfidence},
@@ -1306,6 +2143,12 @@ bool SubtitleOcrController::applyProject(const QVariantMap &project, const QStri
     const QString language = project.value(QStringLiteral("ocrLanguage")).toString().trimmed();
     const QString executionRoute = project.value(QStringLiteral("executionRoute"),
         QStringLiteral("local-cpu")).toString().trimmed().toLower();
+    // Version 1 projects predate PaddleOCR.  Preserve their existing local
+    // behaviour by migrating them explicitly to the named Tesseract baseline,
+    // never by guessing a model or silently changing an old transcript route.
+    const QString localEngine = version == 1 ? QStringLiteral("tesseract-baseline")
+        : normalizedLocalEngineId(project.value(QStringLiteral("localEngineId")).toString());
+    const QString localEngineVersion = project.value(QStringLiteral("localEngineVersion")).toString().trimmed();
     const QString colabModelId = project.value(QStringLiteral("colabModelId"),
         kColabSubtitleOcrModel).toString().trimmed().toLower();
     const qint64 interval = project.value(QStringLiteral("sampleIntervalMs")).toLongLong();
@@ -1313,10 +2156,13 @@ bool SubtitleOcrController::applyProject(const QVariantMap &project, const QStri
     QString segmentsError;
     const QVector<SubtitleOcrSegment> parsed = segmentsFromVariant(
         project.value(QStringLiteral("segments")).toList(), &segmentsError);
-    if (version != kSubtitleOcrProjectVersion || source.isEmpty() || !QFileInfo(source).isFile()
+    if ((version != 1 && version != kSubtitleOcrProjectVersion) || source.isEmpty() || !QFileInfo(source).isFile()
         || width <= 0 || height <= 0 || frameWidth <= 0 || frameHeight <= 0 || duration <= 0 || !roi.isValid() || language.isEmpty()
         || interval < 100 || interval > 30000 || confidence < 0.0 || confidence > 1.0
         || (executionRoute != QStringLiteral("local-cpu") && executionRoute != QStringLiteral("colab-gpu"))
+        || localEngine.isEmpty()
+        || (version == kSubtitleOcrProjectVersion && localEngineVersion != QStringLiteral("5.5.1")
+            && localEngineVersion != QString::fromLatin1(PaddleOcrRuntimeLocator::engineVersion()))
         || colabModelId != kColabSubtitleOcrModel
         || (!project.value(QStringLiteral("segments")).toList().isEmpty() && parsed.isEmpty())) {
         setError(segmentsError.isEmpty() ? QStringLiteral("Invalid or incompatible Subtitle OCR project.") : segmentsError);
@@ -1335,6 +2181,7 @@ bool SubtitleOcrController::applyProject(const QVariantMap &project, const QStri
     m_roi = roi;
     m_ocrLanguage = language;
     m_executionRoute = executionRoute;
+    m_localEngineId = localEngine;
     m_colabModelId = colabModelId;
     m_sampleIntervalMs = interval;
     m_minimumConfidence = confidence;

@@ -228,6 +228,7 @@ set(LASTUDIO_SOURCES
     src/subtitles/SrtTimelineParser.cpp
     src/subtitles/SubtitleOcrPipeline.cpp
     src/subtitles/SubtitleOcrRuntimeLocator.cpp
+    src/subtitles/PaddleOcrRuntimeLocator.cpp
     src/subtitles/SubtitleOcrRuntimeService.cpp
     src/controllers/subtitles/SubtitleOcrController.cpp
     src/tts/SubtitleSmartFitPlanner.cpp
@@ -424,6 +425,7 @@ set(LASTUDIO_HEADERS
     src/subtitles/SrtTimelineParser.h
     src/subtitles/SubtitleOcrPipeline.h
     src/subtitles/SubtitleOcrRuntimeLocator.h
+    src/subtitles/PaddleOcrRuntimeLocator.h
     src/subtitles/SubtitleOcrRuntimeService.h
     src/controllers/subtitles/SubtitleOcrController.h
     src/tts/SubtitleSmartFitPlanner.h

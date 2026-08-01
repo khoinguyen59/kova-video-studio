@@ -7,12 +7,15 @@
 #include "core/HFHubClient.h"
 #include "core/PathUtils.h"
 #include "remote/ColabSession.h"
+#include "subtitles/PaddleOcrRuntimeLocator.h"
 #include "subtitles/SubtitleOcrRuntimeService.h"
 
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QHostAddress>
 #include <QImageReader>
+#include <QJsonDocument>
 #include <QProcess>
 #include <QScopeGuard>
 #include <QTcpServer>
@@ -35,6 +38,24 @@ bool writeFile(const QString &path, const QByteArray &contents)
         && file.write(contents) == contents.size();
 }
 
+QByteArray batchFrameFfmpegScript(bool slow = false)
+{
+    QByteArray script = QByteArrayLiteral("@echo off\r\n");
+    if (slow) script += QByteArrayLiteral("ping 127.0.0.1 -n 4 > nul\r\n");
+    script += QByteArrayLiteral(
+        "set \"last=\"\r\n"
+        ":next\r\n"
+        "if \"%~1\"==\"\" goto done\r\n"
+        "set \"last=%~1\"\r\n"
+        "shift\r\n"
+        "goto next\r\n"
+        ":done\r\n"
+        "set \"LASTUDIO_TEST_FRAME=%last%\"\r\n"
+        "for %%A in (\"%last%\") do set \"LASTUDIO_TEST_FRAME_DIR=%%~dpA\"\r\n"
+        "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"$bytes=[Convert]::FromBase64String('iVBORw0KGgoAAAANSUhEUgAAAUAAAAASCAIAAAClw5C1AAAACXBIWXMAAAABAAAAAQBPJcTWAAAAV0lEQVR4nO3TsQnAMBDAwDx4/5Gf7ODGCO4mUKOZmQ9oOrv7ugG4dF4HAPcMDGEGhjADQ5iBIczAEGZgCDMwhBkYwgwMYQaGMANDmIEhzMAQZmAIMzCE/UUWA0OS8G1mAAAAAElFTkSuQmCC'); [IO.File]::WriteAllBytes($env:LASTUDIO_TEST_FRAME, $bytes); 0..100 | ForEach-Object { [IO.File]::WriteAllBytes((Join-Path $env:LASTUDIO_TEST_FRAME_DIR ('frame-{0:d6}.png' -f $_)), $bytes) }\"\r\n");
+    return script;
+}
+
 struct OcrRuntimeEnvironment {
     QByteArray ffmpeg = qgetenv("LASTUDIO_FFMPEG");
     QByteArray ffprobe = qgetenv("LASTUDIO_FFPROBE");
@@ -42,6 +63,11 @@ struct OcrRuntimeEnvironment {
     QByteArray data = qgetenv("LASTUDIO_DATA_DIR");
     QByteArray tessdataPrefix = qgetenv("TESSDATA_PREFIX");
     QByteArray expectedTessdata = qgetenv("LASTUDIO_EXPECTED_TESSDATA");
+    QByteArray localEngine = qgetenv("LASTUDIO_SUBTITLE_OCR_ENGINE");
+    QByteArray paddlePython = qgetenv("LASTUDIO_PADDLE_PYTHON");
+    QByteArray paddleWorker = qgetenv("LASTUDIO_PADDLE_WORKER");
+    QByteArray paddleCache = qgetenv("LASTUDIO_PADDLE_CACHE");
+    QByteArray paddleManifest = qgetenv("LASTUDIO_PADDLE_MANIFEST");
     QByteArray frameTimeout = qgetenv("LASTUDIO_TEST_SUBTITLE_OCR_FRAME_TIMEOUT_MS");
     bool hadFfmpeg = qEnvironmentVariableIsSet("LASTUDIO_FFMPEG");
     bool hadFfprobe = qEnvironmentVariableIsSet("LASTUDIO_FFPROBE");
@@ -49,7 +75,20 @@ struct OcrRuntimeEnvironment {
     bool hadData = qEnvironmentVariableIsSet("LASTUDIO_DATA_DIR");
     bool hadTessdataPrefix = qEnvironmentVariableIsSet("TESSDATA_PREFIX");
     bool hadExpectedTessdata = qEnvironmentVariableIsSet("LASTUDIO_EXPECTED_TESSDATA");
+    bool hadLocalEngine = qEnvironmentVariableIsSet("LASTUDIO_SUBTITLE_OCR_ENGINE");
+    bool hadPaddlePython = qEnvironmentVariableIsSet("LASTUDIO_PADDLE_PYTHON");
+    bool hadPaddleWorker = qEnvironmentVariableIsSet("LASTUDIO_PADDLE_WORKER");
+    bool hadPaddleCache = qEnvironmentVariableIsSet("LASTUDIO_PADDLE_CACHE");
+    bool hadPaddleManifest = qEnvironmentVariableIsSet("LASTUDIO_PADDLE_MANIFEST");
     bool hadFrameTimeout = qEnvironmentVariableIsSet("LASTUDIO_TEST_SUBTITLE_OCR_FRAME_TIMEOUT_MS");
+
+    OcrRuntimeEnvironment()
+    {
+        // Fixture suites exercise the named compatibility baseline.  Paddle's
+        // real worker contract is covered separately and must be selected
+        // explicitly so a cmd fixture can never masquerade as the upstream.
+        qputenv("LASTUDIO_SUBTITLE_OCR_ENGINE", QByteArrayLiteral("tesseract-baseline"));
+    }
 
     ~OcrRuntimeEnvironment()
     {
@@ -59,6 +98,11 @@ struct OcrRuntimeEnvironment {
         if (hadData) qputenv("LASTUDIO_DATA_DIR", data); else qunsetenv("LASTUDIO_DATA_DIR");
         if (hadTessdataPrefix) qputenv("TESSDATA_PREFIX", tessdataPrefix); else qunsetenv("TESSDATA_PREFIX");
         if (hadExpectedTessdata) qputenv("LASTUDIO_EXPECTED_TESSDATA", expectedTessdata); else qunsetenv("LASTUDIO_EXPECTED_TESSDATA");
+        if (hadLocalEngine) qputenv("LASTUDIO_SUBTITLE_OCR_ENGINE", localEngine); else qunsetenv("LASTUDIO_SUBTITLE_OCR_ENGINE");
+        if (hadPaddlePython) qputenv("LASTUDIO_PADDLE_PYTHON", paddlePython); else qunsetenv("LASTUDIO_PADDLE_PYTHON");
+        if (hadPaddleWorker) qputenv("LASTUDIO_PADDLE_WORKER", paddleWorker); else qunsetenv("LASTUDIO_PADDLE_WORKER");
+        if (hadPaddleCache) qputenv("LASTUDIO_PADDLE_CACHE", paddleCache); else qunsetenv("LASTUDIO_PADDLE_CACHE");
+        if (hadPaddleManifest) qputenv("LASTUDIO_PADDLE_MANIFEST", paddleManifest); else qunsetenv("LASTUDIO_PADDLE_MANIFEST");
         if (hadFrameTimeout) qputenv("LASTUDIO_TEST_SUBTITLE_OCR_FRAME_TIMEOUT_MS", frameTimeout); else qunsetenv("LASTUDIO_TEST_SUBTITLE_OCR_FRAME_TIMEOUT_MS");
     }
 };
@@ -71,6 +115,7 @@ struct OcrFixtures {
         , slowFfmpeg(directory.filePath(QStringLiteral("slow-ffmpeg.cmd")))
         , noOutputFfmpeg(directory.filePath(QStringLiteral("no-output-ffmpeg.cmd")))
         , tesseract(directory.filePath(QStringLiteral("tesseract.cmd")))
+        , noTextTesseract(directory.filePath(QStringLiteral("no-text-tesseract.cmd")))
     {
     }
 
@@ -78,10 +123,11 @@ struct OcrFixtures {
     {
         return writeFile(source, QByteArrayLiteral("not-a-real-video-fixture"))
             && writeFile(ffprobe, QByteArrayLiteral("@echo off\r\necho {\"streams\":[{\"width\":1920,\"height\":1080}],\"format\":{\"duration\":\"4.0\"}}\r\n"))
-            && writeFile(ffmpeg, QByteArrayLiteral("@echo off\r\nset \"last=\"\r\n:next\r\nif \"%~1\"==\"\" goto done\r\nset \"last=%~1\"\r\nshift\r\ngoto next\r\n:done\r\nset \"LASTUDIO_TEST_FRAME=%last%\"\r\npowershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"$bytes=[Convert]::FromBase64String('iVBORw0KGgoAAAANSUhEUgAAAUAAAAASCAIAAAClw5C1AAAACXBIWXMAAAABAAAAAQBPJcTWAAAAV0lEQVR4nO3TsQnAMBDAwDx4/5Gf7ODGCO4mUKOZmQ9oOrv7ugG4dF4HAPcMDGEGhjADQ5iBIczAEGZgCDMwhBkYwgwMYQaGMANDmIEhzMAQZmAIMzCE/UUWA0OS8G1mAAAAAElFTkSuQmCC'); [IO.File]::WriteAllBytes($env:LASTUDIO_TEST_FRAME, $bytes)\"\r\n"))
-            && writeFile(slowFfmpeg, QByteArrayLiteral("@echo off\r\nping 127.0.0.1 -n 4 > nul\r\nset \"last=\"\r\n:next\r\nif \"%~1\"==\"\" goto done\r\nset \"last=%~1\"\r\nshift\r\ngoto next\r\n:done\r\nset \"LASTUDIO_TEST_FRAME=%last%\"\r\npowershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"$bytes=[Convert]::FromBase64String('iVBORw0KGgoAAAANSUhEUgAAAUAAAAASCAIAAAClw5C1AAAACXBIWXMAAAABAAAAAQBPJcTWAAAAV0lEQVR4nO3TsQnAMBDAwDx4/5Gf7ODGCO4mUKOZmQ9oOrv7ugG4dF4HAPcMDGEGhjADQ5iBIczAEGZgCDMwhBkYwgwMYQaGMANDmIEhzMAQZmAIMzCE/UUWA0OS8G1mAAAAAElFTkSuQmCC'); [IO.File]::WriteAllBytes($env:LASTUDIO_TEST_FRAME, $bytes)\"\r\n"))
+            && writeFile(ffmpeg, batchFrameFfmpegScript())
+            && writeFile(slowFfmpeg, batchFrameFfmpegScript(true))
             && writeFile(noOutputFfmpeg, QByteArrayLiteral("@echo off\r\nexit /b 0\r\n"))
-            && writeFile(tesseract, QByteArrayLiteral("@echo off\r\nif /I \"%~1\"==\"--list-langs\" (\r\n  echo List of available languages in C:\\fixture\\tessdata ^(2^):\r\n  echo eng\r\n  echo chi_sim\r\n  echo chi_tra\r\n  exit /b 0\r\n)\r\necho level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\r\necho 5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t96\tReviewed\r\necho 5\t1\t1\t1\t1\t2\t10\t0\t10\t10\t94\tsubtitle\r\n"));
+            && writeFile(tesseract, QByteArrayLiteral("@echo off\r\nif /I \"%~1\"==\"--list-langs\" (\r\n  echo List of available languages in C:\\fixture\\tessdata ^(2^):\r\n  echo eng\r\n  echo chi_sim\r\n  echo chi_tra\r\n  exit /b 0\r\n)\r\necho level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\r\necho 5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t96\tReviewed\r\necho 5\t1\t1\t1\t1\t2\t10\t0\t10\t10\t94\tsubtitle\r\n"))
+            && writeFile(noTextTesseract, QByteArrayLiteral("@echo off\r\nif /I \"%~1\"==\"--list-langs\" (\r\n  echo List of available languages in C:\\fixture\\tessdata ^(1^):\r\n  echo eng\r\n  exit /b 0\r\n)\r\necho level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\r\n"));
     }
 
     QString source;
@@ -90,6 +136,81 @@ struct OcrFixtures {
     QString slowFfmpeg;
     QString noOutputFfmpeg;
     QString tesseract;
+    QString noTextTesseract;
+};
+
+struct PaddleFixture {
+    explicit PaddleFixture(QTemporaryDir &directory)
+        : python(directory.filePath(QStringLiteral("paddle-python.cmd")))
+        , worker(directory.filePath(QStringLiteral("paddle worker.py")))
+        , cache(directory.filePath(QStringLiteral("paddle cache")))
+        , manifest(directory.filePath(QStringLiteral("paddle-runtime-manifest.json")))
+    {
+    }
+
+    bool create() const
+    {
+        const QString models = QDir(cache).filePath(QStringLiteral("official_models"));
+        if (!QDir().mkpath(QDir(models).filePath(QStringLiteral("PP-OCRv6_tiny_det")))
+            || !QDir().mkpath(QDir(models).filePath(QStringLiteral("PP-OCRv6_tiny_rec")))) return false;
+        const QByteArray script = QByteArrayLiteral(
+            "@echo off\r\n"
+            "set \"request=\"\r\n"
+            "set \"response=\"\r\n"
+            ":next\r\n"
+            "if \"%~1\"==\"\" goto run\r\n"
+            "if /I \"%~1\"==\"--health\" goto health\r\n"
+            "if /I \"%~1\"==\"--request\" (set \"request=%~2\" & shift & shift & goto next)\r\n"
+            "if /I \"%~1\"==\"--response\" (set \"response=%~2\" & shift & shift & goto next)\r\n"
+            "shift\r\n"
+            "goto next\r\n"
+            ":health\r\n"
+            "echo {\"ok\":true,\"engineId\":\"paddleocr-ppocrv6-tiny\",\"engineVersion\":\"3.7.0\",\"manifestVerified\":true}\r\n"
+            "exit /b 0\r\n"
+            ":run\r\n"
+            "set \"LASTUDIO_TEST_PADDLE_REQUEST=%request%\"\r\n"
+            "set \"LASTUDIO_TEST_PADDLE_RESPONSE=%response%\"\r\n"
+            "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"$request=Get-Content -Raw -LiteralPath $env:LASTUDIO_TEST_PADDLE_REQUEST | ConvertFrom-Json; $rows=@($request.frames | ForEach-Object { @{hash=$_.hash;text=(([char]0x4f60)+([char]0x597d));confidence=0.95} }); $output=@{schemaVersion=1;engineId='paddleocr-ppocrv6-tiny';engineVersion='3.7.0';manifestVerified=$true;results=$rows;telemetry=@{elapsedMs=25;cpuSeconds=0.1;peakWorkingSetBytes=1048576}} | ConvertTo-Json -Depth 5 -Compress; [IO.File]::WriteAllText($env:LASTUDIO_TEST_PADDLE_RESPONSE,$output,[Text.UTF8Encoding]::new($false))\"\r\n"
+            "exit /b %ERRORLEVEL%\r\n");
+        if (!(writeFile(worker, QByteArrayLiteral("# fixture worker\n"))
+              && writeFile(QDir(models).filePath(QStringLiteral("PP-OCRv6_tiny_det/inference.yml")), QByteArrayLiteral("fixture\n"))
+              && writeFile(QDir(models).filePath(QStringLiteral("PP-OCRv6_tiny_det/inference.pdiparams")), QByteArrayLiteral("fixture\n"))
+              && writeFile(QDir(models).filePath(QStringLiteral("PP-OCRv6_tiny_rec/inference.yml")), QByteArrayLiteral("fixture\n"))
+              && writeFile(QDir(models).filePath(QStringLiteral("PP-OCRv6_tiny_rec/inference.pdiparams")), QByteArrayLiteral("fixture\n"))
+              && writeFile(python, script))) return false;
+        const QJsonObject manifestObject{
+            {QStringLiteral("schemaVersion"), 1},
+            {QStringLiteral("engine"), QJsonObject{
+                {QStringLiteral("id"), QStringLiteral("paddleocr-ppocrv6-tiny")},
+                {QStringLiteral("version"), QStringLiteral("3.7.0")},
+                {QStringLiteral("upstreamRepository"), QStringLiteral("https://github.com/PaddlePaddle/PaddleOCR")},
+                {QStringLiteral("upstreamCommit"), QStringLiteral("2661c7c0ef5c613e8f93c6e93b2e052399f0f854")},
+                {QStringLiteral("license"), QStringLiteral("Apache-2.0")},
+            }},
+            {QStringLiteral("models"), QJsonObject{
+                {QStringLiteral("detection"), QStringLiteral("PP-OCRv6_tiny_det")},
+                {QStringLiteral("recognition"), QStringLiteral("PP-OCRv6_tiny_rec")},
+                {QStringLiteral("cacheLayout"), QStringLiteral("paddle cache/official_models")},
+                {QStringLiteral("treeSha256"), PaddleOcrRuntimeLocator::modelTreeSha256(cache)},
+            }},
+            {QStringLiteral("runtime"), QJsonObject{
+                {QStringLiteral("delivery"), QStringLiteral("bundled-isolated-python")},
+                {QStringLiteral("automaticDownload"), false},
+                {QStringLiteral("pythonRelativePath"), QStringLiteral("paddle-python.cmd")},
+                {QStringLiteral("pythonSha256"), PaddleOcrRuntimeLocator::sha256File(python)},
+            }},
+            {QStringLiteral("worker"), QJsonObject{
+                {QStringLiteral("relativePath"), QStringLiteral("paddle_ocr_worker.py")},
+                {QStringLiteral("sha256"), PaddleOcrRuntimeLocator::sha256File(worker)},
+            }},
+        };
+        return writeFile(manifest, QJsonDocument(manifestObject).toJson(QJsonDocument::Compact));
+    }
+
+    QString python;
+    QString worker;
+    QString cache;
+    QString manifest;
 };
 
 class SharedMediaServer final : public QObject
@@ -139,6 +260,10 @@ private:
 
 void configure(const OcrFixtures &fixtures, bool includeTesseract = true)
 {
+    // Existing fixture rows exercise the explicit compatibility baseline.
+    // Production defaults to PaddleOCR and is covered through the real worker
+    // contract/E2E path rather than pretending this cmd fixture is Paddle.
+    qputenv("LASTUDIO_SUBTITLE_OCR_ENGINE", QByteArrayLiteral("tesseract-baseline"));
     qputenv("LASTUDIO_FFMPEG", fixtures.ffmpeg.toUtf8());
     qputenv("LASTUDIO_FFPROBE", fixtures.ffprobe.toUtf8());
     if (includeTesseract) qputenv("LASTUDIO_TESSERACT", fixtures.tesseract.toUtf8());
@@ -346,11 +471,83 @@ void TestSubtitleOcrController::usesExactManagedTessdataForLanguagePreflightAndR
     loadFixture(controller, fixtures.source);
     QVERIFY(controller.setOcrLanguage(QStringLiteral("eng+chi_sim")));
     QVERIFY(controller.run());
-    QTRY_VERIFY_WITH_TIMEOUT(!controller.processing(), 10000);
+    QElapsedTimer completionTimer;
+    completionTimer.start();
+    while (controller.processing() && completionTimer.elapsed() < 10000) QTest::qWait(20);
+    QVERIFY2(!controller.processing(), qPrintable(
+        QStringLiteral("phase=%1; status=%2; statistics=%3; diagnostics=%4")
+            .arg(controller.phase(), controller.resultStatus(),
+                 QString::fromUtf8(QJsonDocument::fromVariant(controller.runStatistics()).toJson(
+                     QJsonDocument::Compact)), controller.diagnostics())));
     QVERIFY2(controller.phase() == QStringLiteral("completed"), qPrintable(controller.error()));
     QCOMPARE(controller.segments().size(), 1);
     QCOMPARE(controller.segments().constFirst().toMap().value(QStringLiteral("text")).toString(),
              QStringLiteral("Managed language"));
+}
+
+void TestSubtitleOcrController::rejectsIncompletePaddleOcrRuntimeManifest()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    OcrRuntimeEnvironment environment;
+    PaddleFixture paddle(directory);
+    QVERIFY(paddle.create());
+    qputenv("LASTUDIO_SUBTITLE_OCR_ENGINE", QByteArrayLiteral("paddleocr-ppocrv6-tiny"));
+    qputenv("LASTUDIO_PADDLE_PYTHON", paddle.python.toUtf8());
+    qputenv("LASTUDIO_PADDLE_WORKER", paddle.worker.toUtf8());
+    qputenv("LASTUDIO_PADDLE_CACHE", paddle.cache.toUtf8());
+    qputenv("LASTUDIO_PADDLE_MANIFEST", paddle.manifest.toUtf8());
+
+    SubtitleOcrController controller(nullptr, nullptr);
+    QVERIFY(controller.runtimeAvailable());
+    QFile manifestFile(paddle.manifest);
+    QVERIFY(manifestFile.open(QIODevice::ReadOnly));
+    QJsonObject manifest = QJsonDocument::fromJson(manifestFile.readAll()).object();
+    manifestFile.close();
+    QJsonObject models = manifest.value(QStringLiteral("models")).toObject();
+    models.insert(QStringLiteral("treeSha256"), QStringLiteral("invalid"));
+    manifest.insert(QStringLiteral("models"), models);
+    QVERIFY(writeFile(paddle.manifest, QJsonDocument(manifest).toJson(QJsonDocument::Compact)));
+    QVERIFY(!controller.runtimeAvailable());
+}
+
+void TestSubtitleOcrController::runsPaddleOcrBatchAdapterWithoutTesseractFallback()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    OcrRuntimeEnvironment environment;
+    OcrFixtures fixtures(directory);
+    PaddleFixture paddle(directory);
+    QVERIFY(fixtures.create());
+    QVERIFY(paddle.create());
+    configure(fixtures, false);
+    qputenv("LASTUDIO_SUBTITLE_OCR_ENGINE", QByteArrayLiteral("paddleocr-ppocrv6-tiny"));
+    qputenv("LASTUDIO_PADDLE_PYTHON", paddle.python.toUtf8());
+    qputenv("LASTUDIO_PADDLE_WORKER", paddle.worker.toUtf8());
+    qputenv("LASTUDIO_PADDLE_CACHE", paddle.cache.toUtf8());
+    qputenv("LASTUDIO_PADDLE_MANIFEST", paddle.manifest.toUtf8());
+
+    SubtitleOcrController controller(nullptr, nullptr);
+    loadFixture(controller, fixtures.source);
+    QVERIFY(controller.runtimeAvailable());
+    QCOMPARE(controller.localEngineId(), QStringLiteral("paddleocr-ppocrv6-tiny"));
+    QCOMPARE(controller.localEngineVersion(), QStringLiteral("3.7.0"));
+    QVERIFY(controller.setOcrLanguage(QStringLiteral("chi_sim")));
+    QVERIFY(controller.run());
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.processing(), 10000);
+    QVERIFY2(controller.phase() == QStringLiteral("completed"),
+             qPrintable(controller.error() + QStringLiteral("\n") + controller.diagnostics()));
+    QCOMPARE(controller.resultStatus(), QStringLiteral("completed"));
+    QCOMPARE(controller.segments().size(), 1);
+    QCOMPARE(controller.segments().constFirst().toMap().value(QStringLiteral("text")).toString(),
+             QString::fromUtf8("\xE4\xBD\xA0\xE5\xA5\xBD"));
+    const QVariantMap statistics = controller.runStatistics();
+    QCOMPARE(statistics.value(QStringLiteral("ocrEngineId")).toString(),
+             QStringLiteral("paddleocr-ppocrv6-tiny"));
+    QCOMPARE(statistics.value(QStringLiteral("paddleProcessCount")).toInt(), 1);
+    QCOMPARE(statistics.value(QStringLiteral("tesseractProcessCount")).toInt(), 0);
+    QVERIFY(statistics.value(QStringLiteral("ocrWorkerCpuSeconds")).toDouble() > 0.0);
+    QVERIFY(statistics.value(QStringLiteral("ocrWorkerPeakWorkingSetBytes")).toLongLong() > 0);
 }
 
 void TestSubtitleOcrController::keepsLowerRegionPresetSeparateFromFullFrameReset()
@@ -536,6 +733,36 @@ void TestSubtitleOcrController::timesOutFrameExtractionAndKeepsDiagnosticsForRet
     QCOMPARE(controller.phase(), QStringLiteral("completed"));
 }
 
+void TestSubtitleOcrController::rejectsNoTextCompletionClearsStaleSegmentsAndBlocksExport()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    OcrRuntimeEnvironment environment;
+    OcrFixtures fixtures(directory);
+    QVERIFY(fixtures.create());
+    configure(fixtures);
+
+    SubtitleOcrController controller(nullptr, nullptr);
+    loadFixture(controller, fixtures.source);
+    QVERIFY(controller.run());
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.processing(), 10000);
+    QCOMPARE(controller.resultStatus(), QStringLiteral("completed"));
+    QVERIFY(!controller.segments().isEmpty());
+
+    qputenv("LASTUDIO_TESSERACT", fixtures.noTextTesseract.toUtf8());
+    QVERIFY(controller.retry());
+    QVERIFY(controller.segments().isEmpty());
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.processing(), 10000);
+    QCOMPARE(controller.phase(), QStringLiteral("error"));
+    QCOMPARE(controller.resultStatus(), QStringLiteral("no_text_detected"));
+    QVERIFY(controller.error().startsWith(QStringLiteral("no_text_detected:")));
+    QCOMPARE(controller.segments().size(), 0);
+    QCOMPARE(controller.runStatistics().value(QStringLiteral("publishedSegments")).toInt(), 0);
+    QVERIFY(controller.runStatistics().value(QStringLiteral("ocrSuccesses")).toInt() > 0);
+    QVERIFY(controller.diagnostics().contains(QStringLiteral("result-validation")));
+    QVERIFY(!controller.exportSrt(directory.filePath(QStringLiteral("must-not-exist.srt"))));
+}
+
 void TestSubtitleOcrController::extractsBottomRoiWithTheStagedPackagedFfmpegRuntime()
 {
     QTemporaryDir directory;
@@ -574,15 +801,17 @@ void TestSubtitleOcrController::extractsBottomRoiWithTheStagedPackagedFfmpegRunt
     QCOMPARE(controller.sourceWidth(), 320);
     QCOMPARE(controller.sourceHeight(), 180);
     QVERIFY(controller.durationMs() >= 109000);
-    QVERIFY(controller.setOcrLanguage(QStringLiteral("chi_sim")));
+    QVERIFY(controller.setOcrLanguage(QStringLiteral("eng")));
     QVERIFY(controller.setRoi(0.0, 0.883, 1.0, 0.105));
     QVERIFY(controller.requestCropPreview(108000));
     QTRY_VERIFY_WITH_TIMEOUT(!controller.processing(), 10000);
     QImageReader preview(controller.cropPreviewUrl().toLocalFile());
     const QImage previewImage = preview.read();
     QVERIFY2(!previewImage.isNull(), qPrintable(preview.errorString()));
-    QCOMPARE(previewImage.width(), 320);
-    QCOMPARE(previewImage.height(), 19);
+    // The source ROI remains 320x19; the production OCR filter enlarges the
+    // cropped strip before Tesseract so small hard subtitles remain readable.
+    QCOMPARE(previewImage.width(), 960);
+    QCOMPARE(previewImage.height(), 57);
 
     QVERIFY(controller.setSampleIntervalMs(30000));
     QVERIFY(controller.run());
@@ -603,8 +832,8 @@ void TestSubtitleOcrController::extractsBottomRoiWithTheStagedPackagedFfmpegRunt
     QImageReader smallPreview(controller.cropPreviewUrl().toLocalFile());
     const QImage smallImage = smallPreview.read();
     QVERIFY2(!smallImage.isNull(), qPrintable(smallPreview.errorString()));
-    QCOMPARE(smallImage.width(), 3);
-    QCOMPARE(smallImage.height(), 2);
+    QCOMPARE(smallImage.width(), 9);
+    QCOMPARE(smallImage.height(), 6);
 
     const QString rotatedSource = directory.filePath(QStringLiteral("portrait rotated subtitle.mp4"));
     QProcess rotate;
@@ -628,8 +857,8 @@ void TestSubtitleOcrController::extractsBottomRoiWithTheStagedPackagedFfmpegRunt
     QImageReader rotatedPreview(rotatedController.cropPreviewUrl().toLocalFile());
     const QImage rotatedImage = rotatedPreview.read();
     QVERIFY2(!rotatedImage.isNull(), qPrintable(rotatedPreview.errorString()));
-    QCOMPARE(rotatedImage.width(), 180);
-    QCOMPARE(rotatedImage.height(), 34);
+    QCOMPARE(rotatedImage.width(), 540);
+    QCOMPARE(rotatedImage.height(), 102);
     QVERIFY(rotatedController.diagnostics().contains(QStringLiteral("rotation=90")));
 }
 

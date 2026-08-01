@@ -341,6 +341,12 @@ void DubbingJobRunner::startOcrTranscript(const QVariantMap &parameters)
         failTranscriptSource(QStringLiteral("OCR"), m_subtitleOcr->error());
         return;
     }
+    if (parameters.contains(QStringLiteral("ocrLocalEngineId"))
+        && !m_subtitleOcr->setLocalEngine(
+            parameters.value(QStringLiteral("ocrLocalEngineId")).toString())) {
+        failTranscriptSource(QStringLiteral("OCR"), m_subtitleOcr->error());
+        return;
+    }
     if (parameters.contains(QStringLiteral("ocrExecutionRoute"))
         && !m_subtitleOcr->setExecutionRoute(
             parameters.value(QStringLiteral("ocrExecutionRoute")).toString())) {

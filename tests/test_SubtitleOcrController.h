@@ -15,12 +15,15 @@ private slots:
     void blocksColabRouteWithoutAnExactVerifiedProfile();
     void projectNeverPersistsTemporaryColabCredentials();
     void usesExactManagedTessdataForLanguagePreflightAndRecognition();
+    void rejectsIncompletePaddleOcrRuntimeManifest();
+    void runsPaddleOcrBatchAdapterWithoutTesseractFallback();
     void keepsLowerRegionPresetSeparateFromFullFrameReset();
     void runsManagedAdapterPersistsReviewedSegmentsAndExports();
     void transfersReviewedSegmentsToSubtitleVoiceAndDubbing();
     void cancelsAndRetriesWithoutLeavingOcrStaging();
     void rejectsUnreadableFrameAndRetriesTheSameSample();
     void timesOutFrameExtractionAndKeepsDiagnosticsForRetry();
+    void rejectsNoTextCompletionClearsStaleSegmentsAndBlocksExport();
     void extractsBottomRoiWithTheStagedPackagedFfmpegRuntime();
     void importsSharedStagedMediaWithoutRedownloadAndPreservesSourceOnProbeFailure();
     void importsSharedMediaWithAnUnknownContentLength();

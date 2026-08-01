@@ -23,7 +23,9 @@ void TestSubtitleOcrPipeline::buildsPortableFfmpegCropArguments()
 {
     const QStringList arguments = SubtitleOcrPipeline::ffmpegCropArguments(
         SubtitleOcrRoi{0.25, 0.50, 0.50, 0.25}, 1280, 720);
-    QCOMPARE(arguments, QStringList({QStringLiteral("-vf"), QStringLiteral("crop=640:180:320:360:exact=1")}));
+    QCOMPARE(arguments, QStringList({
+        QStringLiteral("-vf"),
+        QStringLiteral("crop=640:180:320:360:exact=1,scale=iw*3:ih*3:flags=lanczos,format=gray")}));
 }
 
 void TestSubtitleOcrPipeline::samplesDurationWithoutDuplicatingTheFinalFrame()
@@ -33,6 +35,11 @@ void TestSubtitleOcrPipeline::samplesDurationWithoutDuplicatingTheFinalFrame()
     QCOMPARE(SubtitleOcrPipeline::lastDecodableTimestamp(1), qint64(0));
     QCOMPARE(SubtitleOcrPipeline::lastDecodableTimestamp(110000), qint64(109000));
     QVERIFY(SubtitleOcrPipeline::sampleTimes(1000, 0).isEmpty());
+    const QVector<qint64> nearEnd = SubtitleOcrPipeline::sampleTimes(899841, 800);
+    QVERIFY(!nearEnd.isEmpty());
+    QCOMPARE(nearEnd.constLast(), qint64(898841));
+    for (int index = 1; index < nearEnd.size(); ++index)
+        QVERIFY(nearEnd.at(index) > nearEnd.at(index - 1));
 }
 
 void TestSubtitleOcrPipeline::rejectsNormalizedRegionsThatRoundToZeroPixels()
@@ -74,6 +81,27 @@ void TestSubtitleOcrPipeline::parsesMultilineUnicodeTesseractTsv()
     QCOMPARE(observation.timestampMs, qint64(1250));
     QCOMPARE(observation.text, QString::fromUtf8("Xin chào\n中文 日本語 한국어"));
     QVERIFY(observation.confidence > 0.90 && observation.confidence < 0.95);
+}
+
+void TestSubtitleOcrPipeline::rejectsUnpublishableOrNonHanChineseSegments()
+{
+    QString error;
+    QVERIFY(!SubtitleOcrPipeline::validatePublishableSegments({}, false, &error));
+    QVERIFY(error.contains(QStringLiteral("No OCR observations")));
+
+    const QVector<SubtitleOcrSegment> invalidTiming{{1000, 1800, QString::fromUtf8("有效"), 0.9},
+                                                     {1000, 2000, QString::fromUtf8("字幕"), 0.9}};
+    QVERIFY(!SubtitleOcrPipeline::validatePublishableSegments(invalidTiming, true, &error));
+    QVERIFY(error.contains(QStringLiteral("non-increasing")));
+
+    const QVector<SubtitleOcrSegment> latin{{0, 800, QStringLiteral("subtitle"), 0.9}};
+    QVERIFY(!SubtitleOcrPipeline::validatePublishableSegments(latin, true, &error));
+    QVERIFY(error.contains(QStringLiteral("Unicode Han")));
+
+    const QVector<SubtitleOcrSegment> chinese{{0, 800, QString::fromUtf8("中文字幕"), 0.9},
+                                               {800, 1600, QString::fromUtf8("第二行"), 0.9}};
+    QVERIFY(SubtitleOcrPipeline::containsHanText(chinese.constFirst().text));
+    QVERIFY(SubtitleOcrPipeline::validatePublishableSegments(chinese, true, &error));
 }
 
 void TestSubtitleOcrPipeline::exportsStableSrtTiming()

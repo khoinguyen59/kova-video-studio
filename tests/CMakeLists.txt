@@ -3,6 +3,8 @@ find_package(CURL CONFIG REQUIRED)
 
 set(TEST_SOURCES
     main.cpp
+    OcrE2ERunner.cpp
+    OcrE2ERunner.h
     test_FileAccessService.cpp
     test_ModelsPathMigration.cpp
     test_History.cpp
@@ -120,6 +122,7 @@ set(TEST_SOURCES
     ../src/subtitles/SrtTimelineParser.cpp
     ../src/subtitles/SubtitleOcrPipeline.cpp
     ../src/subtitles/SubtitleOcrRuntimeLocator.cpp
+    ../src/subtitles/PaddleOcrRuntimeLocator.cpp
     ../src/subtitles/SubtitleOcrRuntimeService.cpp
     ../src/tts/SubtitleSmartFitPlanner.cpp
     ../src/tts/TextNormalizationPolicy.cpp
@@ -222,6 +225,7 @@ set(TEST_SOURCES
     ../src/core/MediaRuntimeLocator.h
     ../src/subtitles/SubtitleOcrPipeline.h
     ../src/subtitles/SubtitleOcrRuntimeLocator.h
+    ../src/subtitles/PaddleOcrRuntimeLocator.h
     ../src/subtitles/SubtitleOcrRuntimeService.h
     ../src/controllers/subtitles/SubtitleOcrController.h
     ../src/api/ApiServerService.h

@@ -1081,6 +1081,9 @@ void DubbingController::applyStoredSubtitleOcrConfiguration()
         QStringLiteral("ocrExecutionRoute")).toString().trimmed().toLower();
     if (route == QStringLiteral("local-cpu") || route == QStringLiteral("colab-gpu"))
         m_subtitleOcr->setExecutionRoute(route);
+    const QString localEngine = m_project.transcriptConfiguration.value(
+        QStringLiteral("ocrLocalEngineId")).toString().trimmed().toLower();
+    if (!localEngine.isEmpty()) m_subtitleOcr->setLocalEngine(localEngine);
     const QString model = m_project.transcriptConfiguration.value(
         QStringLiteral("ocrColabModelId")).toString().trimmed().toLower();
     if (!model.isEmpty()) m_subtitleOcr->setColabModelId(model);
@@ -1106,6 +1109,8 @@ QVariantMap DubbingController::effectiveTranscriptConfiguration(bool captureOcrS
                               {QStringLiteral("height"), m_subtitleOcr->roiHeight()}};
         parameters.insert(QStringLiteral("ocrLanguage"), m_subtitleOcr->ocrLanguage());
         parameters.insert(QStringLiteral("ocrExecutionRoute"), m_subtitleOcr->executionRoute());
+        parameters.insert(QStringLiteral("ocrLocalEngineId"), m_subtitleOcr->localEngineId());
+        parameters.insert(QStringLiteral("ocrLocalEngineVersion"), m_subtitleOcr->localEngineVersion());
         parameters.insert(QStringLiteral("ocrColabModelId"), m_subtitleOcr->colabModelId());
         parameters.insert(QStringLiteral("ocrRoi"), roi);
         parameters.insert(QStringLiteral("ocrSampleIntervalMs"), m_subtitleOcr->sampleIntervalMs());
@@ -1115,6 +1120,8 @@ QVariantMap DubbingController::effectiveTranscriptConfiguration(bool captureOcrS
         {QStringLiteral("transcriptSource"), parameters.value(QStringLiteral("transcriptSource"))},
         {QStringLiteral("ocrLanguage"), parameters.value(QStringLiteral("ocrLanguage"))},
         {QStringLiteral("ocrExecutionRoute"), parameters.value(QStringLiteral("ocrExecutionRoute"))},
+        {QStringLiteral("ocrLocalEngineId"), parameters.value(QStringLiteral("ocrLocalEngineId"))},
+        {QStringLiteral("ocrLocalEngineVersion"), parameters.value(QStringLiteral("ocrLocalEngineVersion"))},
         {QStringLiteral("ocrColabModelId"), parameters.value(QStringLiteral("ocrColabModelId"))},
         {QStringLiteral("ocrRoi"), parameters.value(QStringLiteral("ocrRoi"))},
         {QStringLiteral("ocrSampleIntervalMs"), parameters.value(QStringLiteral("ocrSampleIntervalMs"))},

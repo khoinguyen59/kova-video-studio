@@ -703,7 +703,10 @@ Item {
                                 text: dubbing.transcriptConfiguration.ocrExecutionRoute === "colab-gpu"
                                       ? qsTr("OCR route: Colab GPU · %1 · configure and check it in Subtitle OCR before this Dubbing run.")
                                             .arg(dubbing.transcriptConfiguration.ocrColabModelId || "pp-ocrv5-multilingual-3.1")
-                                      : qsTr("OCR route: Local CPU · Tesseract runtime and selected language pack are required.")
+                                      : qsTr("OCR route: Local CPU · %1 · uses the same versioned Subtitle OCR engine and cache key.")
+                                            .arg(dubbing.transcriptConfiguration.ocrLocalEngineId === "tesseract-baseline"
+                                                 ? "Tesseract 5.5.1 baseline"
+                                                 : "PaddleOCR PP-OCRv6 tiny 3.7.0")
                                 color: Theme.textSecondary
                                 font.pixelSize: Theme.fontSmall
                                 wrapMode: Text.WordWrap

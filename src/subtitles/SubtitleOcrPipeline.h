@@ -46,6 +46,9 @@ public:
     static QVector<SubtitleOcrSegment> mergeObservations(const QVector<SubtitleOcrObservation> &observations,
                                                           qint64 intervalMs, double minimumConfidence);
     static SubtitleOcrObservation parseTesseractTsv(const QByteArray &tsv, qint64 timestampMs);
+    static bool containsHanText(const QString &text);
+    static bool validatePublishableSegments(const QVector<SubtitleOcrSegment> &segments,
+                                            bool requireHanText, QString *errorMessage = nullptr);
     static QString toSrt(const QVector<SubtitleOcrSegment> &segments);
 };
 

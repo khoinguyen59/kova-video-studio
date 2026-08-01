@@ -84,6 +84,22 @@ bool writeFixtureFile(const QString &path, const QByteArray &contents)
         && file.write(contents) == contents.size();
 }
 
+QByteArray batchSubtitleOcrFfmpegScript()
+{
+    return QByteArrayLiteral(
+        "@echo off\r\n"
+        "set \"last=\"\r\n"
+        ":next\r\n"
+        "if \"%~1\"==\"\" goto done\r\n"
+        "set \"last=%~1\"\r\n"
+        "shift\r\n"
+        "goto next\r\n"
+        ":done\r\n"
+        "set \"LASTUDIO_TEST_FRAME=%last%\"\r\n"
+        "for %%A in (\"%last%\") do set \"LASTUDIO_TEST_FRAME_DIR=%%~dpA\"\r\n"
+        "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"$bytes=[Convert]::FromBase64String('iVBORw0KGgoAAAANSUhEUgAAAUAAAAASCAIAAAClw5C1AAAACXBIWXMAAAABAAAAAQBPJcTWAAAAV0lEQVR4nO3TsQnAMBDAwDx4/5Gf7ODGCO4mUKOZmQ9oOrv7ugG4dF4HAPcMDGEGhjADQ5iBIczAEGZgCDMwhBkYwgwMYQaGMANDmIEhzMAQZmAIMzCE/UUWA0OS8G1mAAAAAElFTkSuQmCC'); 0..100 | ForEach-Object { [IO.File]::WriteAllBytes((Join-Path $env:LASTUDIO_TEST_FRAME_DIR ('frame-{0:d6}.png' -f $_)), $bytes) }\"\r\n");
+}
+
 class DubbingSttWorkerMock final : public QObject
 {
 public:
@@ -3134,6 +3150,8 @@ void TestDubbingProject::preservesFusionAndTranscriptSettingsAcrossProjectReload
         {QStringLiteral("transcriptSource"), QStringLiteral("stt+ocr")},
         {QStringLiteral("ocrLanguage"), QStringLiteral("chi_sim")},
         {QStringLiteral("ocrExecutionRoute"), QStringLiteral("colab-gpu")},
+        {QStringLiteral("ocrLocalEngineId"), QStringLiteral("paddleocr-ppocrv6-tiny")},
+        {QStringLiteral("ocrLocalEngineVersion"), QStringLiteral("3.7.0")},
         {QStringLiteral("ocrColabModelId"), QStringLiteral("pp-ocrv5-multilingual-3.1")},
         {QStringLiteral("ocrRoi"), QVariantMap{{QStringLiteral("x"), 0.1},
                                                  {QStringLiteral("y"), 0.70},
@@ -3160,6 +3178,8 @@ void TestDubbingProject::preservesFusionAndTranscriptSettingsAcrossProjectReload
                  .value(QStringLiteral("y")).toDouble(), 0.70);
     QCOMPARE(restored.transcriptConfiguration.value(QStringLiteral("ocrExecutionRoute")).toString(),
              QStringLiteral("colab-gpu"));
+    QCOMPARE(restored.transcriptConfiguration.value(QStringLiteral("ocrLocalEngineId")).toString(),
+             QStringLiteral("paddleocr-ppocrv6-tiny"));
     QCOMPARE(restored.segments.constFirst().toMap().value(QStringLiteral("fusionStatus")).toString(),
              QStringLiteral("conflict"));
     QCOMPARE(restored.segments.constFirst().toMap().value(QStringLiteral("fusionOcrText")).toString(),
@@ -3170,6 +3190,8 @@ void TestDubbingProject::preservesFusionAndTranscriptSettingsAcrossProjectReload
     controller.setSubtitleOcrController(&subtitleOcr);
     QVERIFY2(controller.openProject(project.projectPath), qPrintable(controller.lastError()));
     QCOMPARE(subtitleOcr.executionRoute(), QStringLiteral("colab-gpu"));
+    QCOMPARE(subtitleOcr.localEngineId(), QStringLiteral("paddleocr-ppocrv6-tiny"));
+    QCOMPARE(subtitleOcr.localEngineVersion(), QStringLiteral("3.7.0"));
     QCOMPARE(subtitleOcr.colabModelId(), QStringLiteral("pp-ocrv5-multilingual-3.1"));
     QVERIFY(!controller.customReady());
     QVERIFY(controller.customStatusText().contains(QStringLiteral("Connect and check")));
@@ -3186,14 +3208,15 @@ void TestDubbingProject::ocrOnlyTranscriptUsesTheSharedSubtitleOcrController()
     QVERIFY(writeFixtureFile(source, QByteArrayLiteral("video fixture")));
     QVERIFY(writeFixtureFile(ffprobe, QByteArrayLiteral(
         "@echo off\r\necho {\"streams\":[{\"width\":1920,\"height\":1080}],\"format\":{\"duration\":\"4.0\"}}\r\n")));
-    QVERIFY(writeFixtureFile(ffmpeg, QByteArrayLiteral(
-        "@echo off\r\nset \"last=\"\r\n:next\r\nif \"%~1\"==\"\" goto done\r\nset \"last=%~1\"\r\nshift\r\ngoto next\r\n:done\r\nset \"LASTUDIO_TEST_FRAME=%last%\"\r\npowershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"$bytes=[Convert]::FromBase64String('iVBORw0KGgoAAAANSUhEUgAAAUAAAAASCAIAAAClw5C1AAAACXBIWXMAAAABAAAAAQBPJcTWAAAAV0lEQVR4nO3TsQnAMBDAwDx4/5Gf7ODGCO4mUKOZmQ9oOrv7ugG4dF4HAPcMDGEGhjADQ5iBIczAEGZgCDMwhBkYwgwMYQaGMANDmIEhzMAQZmAIMzCE/UUWA0OS8G1mAAAAAElFTkSuQmCC'); [IO.File]::WriteAllBytes($env:LASTUDIO_TEST_FRAME, $bytes)\"\r\n")));
+    QVERIFY(writeFixtureFile(ffmpeg, batchSubtitleOcrFfmpegScript()));
     QVERIFY(writeFixtureFile(tesseract, QByteArrayLiteral(
         "@echo off\r\nif /I \"%~1\"==\"--list-langs\" (\r\n  echo List of available languages ^(1^):\r\n  echo eng\r\n  exit /b 0\r\n)\r\necho level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\r\necho 5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t96\tShared\r\necho 5\t1\t1\t1\t1\t2\t10\t0\t10\t10\t94\tOCR\r\n")));
 
     ScopedEnvironmentValue ffmpegEnvironment("LASTUDIO_FFMPEG", ffmpeg.toUtf8());
     ScopedEnvironmentValue ffprobeEnvironment("LASTUDIO_FFPROBE", ffprobe.toUtf8());
     ScopedEnvironmentValue tesseractEnvironment("LASTUDIO_TESSERACT", tesseract.toUtf8());
+    ScopedEnvironmentValue localEngineEnvironment("LASTUDIO_SUBTITLE_OCR_ENGINE",
+                                                  QByteArrayLiteral("tesseract-baseline"));
     SubtitleOcrController ocr(nullptr, nullptr);
     DubbingJobRunner runner(nullptr, nullptr, static_cast<ModelManager *>(nullptr),
                             static_cast<RuntimeManager *>(nullptr));
@@ -3293,13 +3316,14 @@ void TestDubbingProject::combinedTranscriptRunsSttAndSharedOcrWithoutFallback()
     QVERIFY(writeFixtureFile(videoPath, QByteArrayLiteral("video fixture")));
     QVERIFY(writeFixtureFile(ffprobe, QByteArrayLiteral(
         "@echo off\r\necho {\"streams\":[{\"width\":1920,\"height\":1080}],\"format\":{\"duration\":\"4.0\"}}\r\n")));
-    QVERIFY(writeFixtureFile(ffmpeg, QByteArrayLiteral(
-        "@echo off\r\nset \"last=\"\r\n:next\r\nif \"%~1\"==\"\" goto done\r\nset \"last=%~1\"\r\nshift\r\ngoto next\r\n:done\r\nset \"LASTUDIO_TEST_FRAME=%last%\"\r\npowershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"$bytes=[Convert]::FromBase64String('iVBORw0KGgoAAAANSUhEUgAAAUAAAAASCAIAAAClw5C1AAAACXBIWXMAAAABAAAAAQBPJcTWAAAAV0lEQVR4nO3TsQnAMBDAwDx4/5Gf7ODGCO4mUKOZmQ9oOrv7ugG4dF4HAPcMDGEGhjADQ5iBIczAEGZgCDMwhBkYwgwMYQaGMANDmIEhzMAQZmAIMzCE/UUWA0OS8G1mAAAAAElFTkSuQmCC'); [IO.File]::WriteAllBytes($env:LASTUDIO_TEST_FRAME, $bytes)\"\r\n")));
+    QVERIFY(writeFixtureFile(ffmpeg, batchSubtitleOcrFfmpegScript()));
     QVERIFY(writeFixtureFile(tesseract, QByteArrayLiteral(
         "@echo off\r\nif /I \"%~1\"==\"--list-langs\" (\r\n  echo List of available languages ^(1^):\r\n  echo eng\r\n  exit /b 0\r\n)\r\necho level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\r\necho 5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t96\tShared\r\necho 5\t1\t1\t1\t1\t2\t10\t0\t10\t10\t94\tOCR\r\n")));
     ScopedEnvironmentValue ffmpegEnvironment("LASTUDIO_FFMPEG", ffmpeg.toUtf8());
     ScopedEnvironmentValue ffprobeEnvironment("LASTUDIO_FFPROBE", ffprobe.toUtf8());
     ScopedEnvironmentValue tesseractEnvironment("LASTUDIO_TESSERACT", tesseract.toUtf8());
+    ScopedEnvironmentValue localEngineEnvironment("LASTUDIO_SUBTITLE_OCR_ENGINE",
+                                                  QByteArrayLiteral("tesseract-baseline"));
 
     SubtitleOcrController ocr(nullptr, nullptr);
     DubbingJobRunner runner(stt, nullptr, static_cast<ModelManager *>(nullptr),

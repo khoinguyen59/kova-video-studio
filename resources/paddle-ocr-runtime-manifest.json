@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "engine": {
+    "id": "paddleocr-ppocrv6-tiny",
+    "version": "3.7.0",
+    "upstreamRepository": "https://github.com/PaddlePaddle/PaddleOCR",
+    "upstreamCommit": "2661c7c0ef5c613e8f93c6e93b2e052399f0f854",
+    "upstreamRelease": "v3.7.0",
+    "license": "Apache-2.0"
+  },
+  "models": {
+    "detection": "PP-OCRv6_tiny_det",
+    "recognition": "PP-OCRv6_tiny_rec",
+    "cacheLayout": "model-cache/official_models",
+    "treeSha256": ""
+  },
+  "runtime": {
+    "delivery": "bundled-isolated-python",
+    "automaticDownload": false,
+    "pythonRelativePath": "runtime/python.exe",
+    "pythonSha256": "",
+    "healthCheck": "python paddle_ocr_worker.py --health",
+    "healthCheckPassed": false,
+    "healthCheckOutput": ""
+  },
+  "worker": {
+    "relativePath": "paddle_ocr_worker.py",
+    "sha256": ""
+  }
+}

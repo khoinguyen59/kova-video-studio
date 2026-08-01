@@ -3,6 +3,8 @@
 #include <QHash>
 #include <QtMath>
 
+#include <algorithm>
+
 namespace LAStudio {
 
 bool SubtitleOcrRoi::isValid() const
@@ -32,10 +34,16 @@ QStringList SubtitleOcrPipeline::ffmpegCropArguments(const SubtitleOcrRoi &roi, 
     const SubtitleOcrRect rect = sourceRect(roi, sourceWidth, sourceHeight);
     if (rect.width <= 0 || rect.height <= 0) return {};
     // exact=1 stops the crop filter silently aligning an odd-height subtitle
-    // strip down for chroma subsampling. The PNG handed to OCR then matches
-    // the normalized pixel rectangle shown in diagnostics.
-    return {QStringLiteral("-vf"), QStringLiteral("crop=%1:%2:%3:%4:exact=1")
-        .arg(rect.width).arg(rect.height).arg(rect.x).arg(rect.y)};
+    // strip down for chroma subsampling.  The crop coordinates therefore
+    // remain exactly the normalized source rectangle.  Hard subtitles are
+    // commonly only a few dozen pixels high, however, and Tesseract 5 can
+    // return an otherwise-successful empty TSV for that input.  Upscale only
+    // the already-cropped strip, then convert it to grayscale; this retains
+    // the selected video pixels while giving the OCR engine a usable glyph
+    // height and avoids any full-frame/fallback recognition path.
+    return {QStringLiteral("-vf"),
+            QStringLiteral("crop=%1:%2:%3:%4:exact=1,scale=iw*3:ih*3:flags=lanczos,format=gray")
+                .arg(rect.width).arg(rect.height).arg(rect.x).arg(rect.y)};
 }
 
 QVector<qint64> SubtitleOcrPipeline::sampleTimes(qint64 durationMs, qint64 intervalMs)
@@ -43,7 +51,10 @@ QVector<qint64> SubtitleOcrPipeline::sampleTimes(qint64 durationMs, qint64 inter
     QVector<qint64> result;
     if (durationMs <= 0 || intervalMs <= 0) return result;
     const qint64 finalTimestamp = lastDecodableTimestamp(durationMs);
-    for (qint64 value = 0; value < durationMs; value += intervalMs) result.append(value);
+    // Do not append a safe-end sample behind a later regular sample. The
+    // resulting observations are exported as timestamped transcript cues, so
+    // their scheduling order must be strictly monotonic as well as decodable.
+    for (qint64 value = 0; value <= finalTimestamp; value += intervalMs) result.append(value);
     if (result.isEmpty() || result.constLast() != finalTimestamp) result.append(finalTimestamp);
     return result;
 }
@@ -62,8 +73,15 @@ qint64 SubtitleOcrPipeline::lastDecodableTimestamp(qint64 durationMs)
 QVector<SubtitleOcrSegment> SubtitleOcrPipeline::mergeObservations(
     const QVector<SubtitleOcrObservation> &observations, qint64 intervalMs, double minimumConfidence)
 {
+    // Bounded local OCR workers complete out of order.  The persisted/exported
+    // timeline must still be deterministic and strictly timestamp ordered.
+    QVector<SubtitleOcrObservation> ordered = observations;
+    std::sort(ordered.begin(), ordered.end(), [](const SubtitleOcrObservation &left,
+                                                 const SubtitleOcrObservation &right) {
+        return left.timestampMs < right.timestampMs;
+    });
     QVector<SubtitleOcrSegment> result;
-    for (const auto &observation : observations) {
+    for (const auto &observation : ordered) {
         const QString text = observation.text.trimmed();
         if (text.isEmpty() || observation.confidence < minimumConfidence || observation.timestampMs < 0) continue;
         if (!result.isEmpty() && result.last().text == text
@@ -123,6 +141,46 @@ SubtitleOcrObservation SubtitleOcrPipeline::parseTesseractTsv(const QByteArray &
     }
     return {timestampMs, textLines.join(QLatin1Char('\n')),
             confidenceCount > 0 ? confidenceTotal / confidenceCount : 0.0};
+}
+
+bool SubtitleOcrPipeline::containsHanText(const QString &text)
+{
+    for (const uint codePoint : text.toUcs4()) {
+        if ((codePoint >= 0x3400 && codePoint <= 0x4DBF)
+            || (codePoint >= 0x4E00 && codePoint <= 0x9FFF)
+            || (codePoint >= 0xF900 && codePoint <= 0xFAFF)
+            || (codePoint >= 0x20000 && codePoint <= 0x2EBEF)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool SubtitleOcrPipeline::validatePublishableSegments(const QVector<SubtitleOcrSegment> &segments,
+                                                       bool requireHanText,
+                                                       QString *errorMessage)
+{
+    if (segments.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("No OCR observations passed the text and confidence filters.");
+        return false;
+    }
+
+    qint64 previousStartMs = -1;
+    bool hasHan = false;
+    for (const SubtitleOcrSegment &segment : segments) {
+        if (segment.startMs < 0 || segment.endMs <= segment.startMs
+            || segment.startMs <= previousStartMs || segment.text.trimmed().isEmpty()) {
+            if (errorMessage) *errorMessage = QStringLiteral("OCR produced an invalid or non-increasing timestamped segment.");
+            return false;
+        }
+        previousStartMs = segment.startMs;
+        hasHan = hasHan || containsHanText(segment.text);
+    }
+    if (requireHanText && !hasHan) {
+        if (errorMessage) *errorMessage = QStringLiteral("The chi_sim transcript does not contain a Unicode Han character.");
+        return false;
+    }
+    return true;
 }
 
 static QString timestamp(qint64 value)

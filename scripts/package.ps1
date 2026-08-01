@@ -20,6 +20,7 @@ param(
     [int] $MaxParallelJobs = 4,
     [string] $ReleaseSuffix,
     [string] $StageDir,
+    [string] $PaddleRuntimeRoot,
     [switch] $SkipInstaller,
     [switch] $PortableInternalLayout,
     [switch] $AllowUnsignedEspeakForInternalBuild
@@ -679,6 +680,136 @@ function Stage-SubtitleOcrRuntimeManifest {
     New-Item -ItemType Directory -Path $licenseRoot -Force | Out-Null
     Copy-Item -LiteralPath $noticeSource -Destination (Join-Path $licenseRoot "RUNTIME-NOTICE.md") -Force
     Write-Host ">> Staged health-checked bundled Subtitle OCR runtime (no external installer)" -ForegroundColor Green
+}
+
+function Stage-PaddleOcrRuntime {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $RepositoryRoot,
+        [Parameter(Mandatory = $true)]
+        [string] $DeployRoot,
+        [Parameter(Mandatory = $true)]
+        [string] $StageRoot,
+        [Parameter(Mandatory = $true)]
+        [string] $PaddleRuntimeRoot
+    )
+
+    if ([string]::IsNullOrWhiteSpace($PaddleRuntimeRoot) -or
+        -not (Test-Path -LiteralPath $PaddleRuntimeRoot -PathType Container)) {
+        throw "PaddleOCR packaging requires -PaddleRuntimeRoot produced by the controlled isolated-runtime preparation step."
+    }
+    $adapterSource = Join-Path $RepositoryRoot "resources\paddle_ocr_worker.py"
+    $noticeSource = Join-Path $RepositoryRoot "resources\PADDLE-OCR-RUNTIME.md"
+    $runtimeSource = Join-Path $PaddleRuntimeRoot "runtime"
+    $workerSource = Join-Path $PaddleRuntimeRoot "paddle_ocr_worker.py"
+    $modelsSource = Join-Path $PaddleRuntimeRoot "model-cache"
+    $manifestSource = Join-Path $PaddleRuntimeRoot "runtime-manifest.json"
+    foreach ($required in @($adapterSource, $noticeSource, $runtimeSource, $workerSource, $modelsSource, $manifestSource)) {
+        if (-not (Test-Path -LiteralPath $required)) {
+            throw "PaddleOCR runtime preparation is incomplete: $required"
+        }
+    }
+    if ((Get-FileHash -LiteralPath $adapterSource -Algorithm SHA256).Hash.ToLowerInvariant() -ne
+        (Get-FileHash -LiteralPath $workerSource -Algorithm SHA256).Hash.ToLowerInvariant()) {
+        throw "Prepared PaddleOCR worker differs from the reviewed source adapter."
+    }
+    try {
+        $manifest = Get-Content -LiteralPath $manifestSource -Raw -Encoding UTF8 | ConvertFrom-Json
+    } catch {
+        throw "Prepared PaddleOCR manifest is invalid JSON: $($_.Exception.Message)"
+    }
+    $safeRelativePath = {
+        param([string] $Value)
+        return -not [string]::IsNullOrWhiteSpace($Value) -and
+            -not [IO.Path]::IsPathRooted($Value) -and
+            $Value -notmatch '(^|[\\/])\.\.([\\/]|$)'
+    }
+    $validSha = { param([string] $Value) return $Value -match '^[a-f0-9]{64}$' }
+    if ($manifest.schemaVersion -ne 1 -or
+        $manifest.engine.id -ne "paddleocr-ppocrv6-tiny" -or
+        $manifest.engine.version -ne "3.7.0" -or
+        $manifest.engine.upstreamRepository -ne "https://github.com/PaddlePaddle/PaddleOCR" -or
+        $manifest.engine.upstreamCommit -ne "2661c7c0ef5c613e8f93c6e93b2e052399f0f854" -or
+        $manifest.engine.license -ne "Apache-2.0" -or
+        $manifest.models.detection -ne "PP-OCRv6_tiny_det" -or
+        $manifest.models.recognition -ne "PP-OCRv6_tiny_rec" -or
+        -not (& $safeRelativePath $manifest.models.cacheLayout) -or
+        -not (& $safeRelativePath $manifest.runtime.pythonRelativePath) -or
+        -not (& $safeRelativePath $manifest.worker.relativePath) -or
+        $manifest.worker.relativePath -ne "paddle_ocr_worker.py" -or
+        $manifest.runtime.delivery -ne "bundled-isolated-python" -or
+        $manifest.runtime.automaticDownload -ne $false -or
+        -not (& $validSha $manifest.models.treeSha256) -or
+        -not (& $validSha $manifest.runtime.pythonSha256) -or
+        -not (& $validSha $manifest.worker.sha256)) {
+        throw "Prepared PaddleOCR manifest is invalid, incompatible, or missing required SHA-256 values."
+    }
+
+    $targetRoot = Join-Path $DeployRoot "subtitle-ocr\paddle"
+    New-Item -ItemType Directory -Path $targetRoot -Force | Out-Null
+    $runtimeTarget = Join-Path $targetRoot "runtime"
+    $modelsTarget = Join-Path $targetRoot "model-cache"
+    Copy-Item -LiteralPath $runtimeSource -Destination $runtimeTarget -Recurse -Force
+    Copy-Item -LiteralPath $modelsSource -Destination $modelsTarget -Recurse -Force
+    Copy-Item -LiteralPath $workerSource -Destination (Join-Path $targetRoot "paddle_ocr_worker.py") -Force
+    Copy-Item -LiteralPath $manifestSource -Destination (Join-Path $targetRoot "runtime-manifest.json") -Force
+    Copy-Item -LiteralPath $noticeSource -Destination (Join-Path $targetRoot "README.txt") -Force
+
+    $pythonTarget = Join-Path $targetRoot $manifest.runtime.pythonRelativePath
+    $workerTarget = Join-Path $targetRoot $manifest.worker.relativePath
+    $manifestTarget = Join-Path $targetRoot "runtime-manifest.json"
+    $expectedModels = Join-Path $targetRoot $manifest.models.cacheLayout
+    if (-not (Test-Path -LiteralPath $pythonTarget -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $workerTarget -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $expectedModels -PathType Container)) {
+        throw "PaddleOCR package layout does not match its prepared manifest."
+    }
+    $healthOutput = & $pythonTarget $workerTarget --cache-root $modelsTarget --manifest $manifestTarget --health 2>&1 | Out-String
+    $healthExitCode = $LASTEXITCODE
+    $health = $null
+    foreach ($line in @($healthOutput -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Reverse)) {
+        try {
+            $candidate = $line | ConvertFrom-Json -ErrorAction Stop
+            if ($null -ne $candidate.ok) { $health = $candidate; break }
+        } catch { }
+    }
+    if ($healthExitCode -ne 0 -or $null -eq $health -or $health.ok -ne $true -or
+        $health.engineId -ne "paddleocr-ppocrv6-tiny" -or $health.engineVersion -ne "3.7.0" -or
+        $health.manifestVerified -ne $true) {
+        throw "Bundled PaddleOCR did not pass manifest and runtime health verification. Exit=$healthExitCode Output=$healthOutput"
+    }
+    $manifest.runtime.healthCheckPassed = $true
+    $manifest.runtime.healthCheckOutput = (($health | ConvertTo-Json -Compress).Trim())
+    $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifestTarget -Encoding UTF8
+
+    $licenseRoot = Join-Path $StageRoot "licenses\paddle-ocr-python"
+    New-Item -ItemType Directory -Path $licenseRoot -Force | Out-Null
+    Copy-Item -LiteralPath $noticeSource -Destination (Join-Path $licenseRoot "RUNTIME-NOTICE.md") -Force
+    $sitePackages = Join-Path $runtimeTarget "Lib\site-packages"
+    if (-not (Test-Path -LiteralPath $sitePackages -PathType Container)) {
+        throw "Prepared PaddleOCR isolated runtime has no Lib\\site-packages directory."
+    }
+    foreach ($distribution in (Get-ChildItem -LiteralPath $sitePackages -Directory -Filter "*.dist-info")) {
+        $distributionTarget = Join-Path $licenseRoot $distribution.Name
+        $legalFiles = Get-ChildItem -LiteralPath $distribution.FullName -Recurse -File |
+            Where-Object { $_.Name -match '^(LICENSE|NOTICE|COPYING|METADATA)' }
+        if ($legalFiles.Count -eq 0) {
+            throw "Prepared PaddleOCR distribution has no license metadata: $($distribution.Name)"
+        }
+        New-Item -ItemType Directory -Path $distributionTarget -Force | Out-Null
+        foreach ($legalFile in $legalFiles) {
+            $relative = $legalFile.FullName.Substring($distribution.FullName.Length).TrimStart('\\', '/')
+            $destination = Join-Path $distributionTarget $relative
+            New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
+            Copy-Item -LiteralPath $legalFile.FullName -Destination $destination -Force
+        }
+    }
+    foreach ($requiredDistribution in @("paddleocr-3.7.0.dist-info", "paddlepaddle-3.3.0.dist-info", "paddlex-3.7.2.dist-info")) {
+        if (-not (Test-Path -LiteralPath (Join-Path $licenseRoot $requiredDistribution))) {
+            throw "Required PaddleOCR distribution license metadata was not staged: $requiredDistribution"
+        }
+    }
+    Write-Host ">> Staged health-checked isolated PaddleOCR CPU runtime" -ForegroundColor Green
 }
 
 function Copy-VcpkgRuntimeLibraries {
