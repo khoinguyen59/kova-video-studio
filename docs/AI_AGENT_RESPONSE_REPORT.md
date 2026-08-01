@@ -1,5 +1,71 @@
 # Điều phối báo cáo hiện hành — bắt buộc đọc trước khi làm tiếp
 
+## Cập nhật mới nhất — tăng độ chặt route smoke OCR và package 0.0.2.13 (2026-08-01)
+
+### Commit đã push trực tiếp `main`
+
+- `4158358` — `test(ocr): strengthen responsive route smoke`
+- Đã push thẳng `origin/main`; không tạo branch/PR. Commit chỉ gồm
+  `CMakeLists.txt`, `qml/pages/SubtitleOcrPage.qml` và
+  `tests/test_SubtitleOcrRuntimeService.cpp`. Request, handoff,
+  `VoiceLibraryDialog.qml`, Graphify và `out/` vẫn không được commit.
+
+### Khoảng trống regression đã xử lý
+
+Route smoke trước đó có resize đúng trang Subtitle OCR ở 1024×720, 1280×800
+và 1600×900, nhưng contract chỉ xác minh các card cấp cao. Vì vậy một control
+bên trong card vẫn có thể bị đặt ngoài vùng cuộn mà test không phát hiện.
+
+`SubtitleOcrPage.qml` nay có `itemIsScrollReachable()`: kiểm tra control
+visible, kích thước dương, không vượt bề ngang nội dung và có đáy nằm trong
+`subtitleOcrScroll.contentHeight`. Hợp đồng smoke dùng nó cho drop zone,
+Choose video, URL field, Import link, canvas preview, danh sách language,
+language selector, sample interval, confidence, Run OCR và transcript list.
+Nó còn điền URL fixture cục bộ vào ô (không gửi request) để xác minh Import
+link chuyển sang enabled, đồng thời ép/kiểm tra keyboard focus của URL field.
+Điều này là kiểm tra non-interactive/offscreen trên **đúng route/page**, không
+phải tuyên bố rằng drag/picker hoặc thẩm mỹ desktop đã được manual nghiệm thu.
+
+### Kiểm chứng tự động
+
+| Hạng mục | Bằng chứng | Kết quả |
+| --- | --- | --- |
+| OCR targeted | `TestSubtitleOcrRuntimeService` | PASS, 0.31 s |
+| QML route | `PrepareQmlRouteSmokeRuntime` + `QmlRouteSmoke` | **2/2 PASS**, 9.42 s; chạy đủ ba kích thước trên |
+| Full CTest | `ctest --test-dir out\\build\\windows-msvc-tests --output-on-failure -j 1` | **38/38 PASS, 0 FAIL**, 50.00 s |
+| Graph | `graphify update .` sau source change | PASS; output generated vẫn untracked |
+
+Lần build test đầu dùng shell chưa có MSVC `INCLUDE` nên compiler báo thiếu
+`type_traits` trước khi chạy test. Đây là lỗi môi trường build, không phải QML;
+sau khi nạp Developer Command Prompt Build Tools, compile và cả ba tầng test
+trên đều PASS. Package ban đầu cũng làm CMake tái tạo cache vì compiler cache
+cũ khác đường dẫn; chạy lại trên cùng compiler đã hoàn tất, không cần sửa code
+hay bỏ qua kiểm thử.
+
+### Package portable nội bộ 0.0.2.13
+
+Package được tạo từ commit `4158358`, không ghi đè candidate trước:
+
+| Hạng mục | Giá trị xác minh độc lập |
+| --- | --- |
+| Artifact | `out/LA-Studio-0.0.2.13/LA-Studio-0.0.2.13.exe` |
+| FileVersion / ProductVersion | `0.0.2.13` / `0.0.2.13` |
+| EXE SHA-256 | `79852670E6ED1DE36C9D49926F0D1C1FDED16FEB91CBB1545C021A13FD58808C` |
+| Stage inventory | 1,981 files, 134 directories, 32 license files |
+| Artifact/runtime/license | 14 required items, gồm `qwindows`, Qt Core/GUI/QML/Quick/Multimedia, FFmpeg/FFprobe, OCR runtime manifest/README và Tesseract license/notice, đều có |
+| OCR runtime | `subtitle-ocr/tesseract.exe`, Tesseract `5.5.1`, delivery `bundled-vcpkg` |
+| OCR integrity/health | Manifest schema 2: SHA-256 `8c3c6cc32409ff7799ee3090704f223db2230096ae8be8146c64ac90deeb81f0` khớp binary; `healthCheckPassed=true`; CLI `tesseract --version` exit 0 |
+
+Đây vẫn là **internal build only** vì eSpeak MSI SHA-verified nhưng không ký.
+Agent không mở EXE/browser/GUI. Các manual gate chưa thay đổi: người dùng vẫn
+cần tự mở đúng EXE 0.0.2.13, cài/Refresh language pack, chạy OCR thật với video
+và ROI, đồng thời nghiệm thu drag/drop, picker, visual/HiDPI. Không được suy ra
+manual PASS từ CTest, offscreen hoặc CLI.
+
+Theo lệnh mới nhất của người dùng, heartbeat 30 phút
+`i-u-ph-i-ai-qua-markdown` đã chuyển sang **PAUSED**. Không còn tự đọc MD,
+build/test, package hay tiếp tục công việc theo lịch sau cập nhật này.
+
 ## Cập nhật mới nhất — Retry language sau Refresh và package 0.0.2.12 (2026-08-01)
 
 ### Commit đã push trực tiếp `main`
