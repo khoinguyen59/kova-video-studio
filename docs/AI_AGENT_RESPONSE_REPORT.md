@@ -1,5 +1,86 @@
 # Điều phối báo cáo hiện hành — bắt buộc đọc trước khi làm tiếp
 
+## Cập nhật mới nhất — OCR runtime bundle và độ tin cậy QML smoke (2026-08-01)
+
+### Commit đã push trực tiếp `main`
+
+- `bcc7cfc` — `fix(ocr): bundle verified Tesseract runtime`
+- Remote đã xác minh: `origin/main` chứa commit này. Không có branch/PR trung gian.
+- Chưa tạo package `0.0.2.10` trong cập nhật này. Vì vậy chưa có đường dẫn EXE,
+  File/Product version hoặc SHA-256 mới để báo cáo; không được gọi OCR runtime
+  manual gate là PASS trước khi package đó được tạo và người dùng nghiệm thu.
+
+### Điều tra lỗi thật trên package 0.0.2.9
+
+Ảnh người dùng xác nhận đường cũ đã tải/verify tới bước launch, sau đó lỗi
+`Verified Tesseract installer could not be started`. Log của 0.0.2.9 chưa ghi
+đủ dữ liệu create-process để quy hồi tố một nguyên nhân Windows duy nhất. Kiểm
+tra cache cho thấy installer còn có hash khớp bản pin; không có
+`Zone.Identifier`, nhưng chữ ký upstream University Mannheim không còn được
+xác thực tại thời điểm kiểm tra. Vì thiếu diagnostic launch của lượt lỗi cũ,
+không được gọi đó là bằng chứng chắc chắn của SmartScreen, quyền hay mạng.
+
+Thay vì tiếp tục phụ thuộc một installer ngoài, sửa mới loại bỏ đường launch đó:
+
+- `vcpkg.json`, `scripts/package.ps1`, `scripts/runtime_helpers.ps1` provision
+  Tesseract `5.5.1` từ `vcpkg:tesseract` trong portable package, bao gồm binary,
+  DLL phụ thuộc và giấy phép.
+- `resources/subtitle-ocr-runtime-manifest.json` chuyển sang schema 2, delivery
+  `bundled-vcpkg`; package tạo SHA-256 thực của binary và health-check
+  `tesseract --version` trước khi publish manifest.
+- `SubtitleOcrRuntimeService` không còn khởi chạy installer trong flow public.
+  Refresh/health check xác minh manifest, hash và executable bundled; yêu cầu
+  install/repair khi package hỏng báo lỗi repair rõ ràng, không yêu cầu quyền
+  admin hay tắt bảo mật.
+- `SubtitleOcrRuntimeLocator` ưu tiên runtime bundled đã verify hơn executable
+  managed cũ; biến môi trường test/explicit vẫn là ngoại lệ có chủ ý. Regression
+  xác nhận bản bundled thắng legacy executable, tránh chọn nhầm state cũ.
+- Tessdata/language pack vẫn app-managed; `TESSDATA_PREFIX` chỉ được truyền vào
+  OCR worker process, không ghi biến môi trường hệ thống.
+- Card `SubtitleOcrPage.qml` mô tả rõ engine, route **Local CPU**, không cần GPU
+  hoặc Colab, bundle status và repair runtime; language action chỉ mở khi runtime
+  bundled sẵn sàng.
+
+### Sửa kèm tính toàn vẹn regression UI
+
+Trong khi chạy smoke thật, hai lỗi vốn bị che đã được phát hiện và sửa:
+
+1. `DubbingSubtitleEditor.qml` dùng `parent.label` sau khi item bị reparent trong
+   `data`, gây `TypeError: Cannot read property 'label' of null`; nay dùng owner
+   `fieldRoot` ổn định.
+2. `QmlRouteSmoke` cũ kiểm hai pane ẩn của `StackLayout` cùng lúc nên tạo kết
+   quả mơ hồ; test nay kiểm từng tab sau event-loop turn. `Logger::init()` từng
+   ghi đè message handler của smoke, khiến warning QML không làm test fail; nay
+   logger có observer và warning/binding error route thật làm smoke đỏ.
+
+### Kiểm chứng đã chạy
+
+| Hạng mục | Bằng chứng | Trạng thái |
+| --- | --- | --- |
+| Tesseract package source | Build vcpkg cô lập `tesseract 5.5.1`; `tesseract --version` thực thi thành công | PASS CLI, không mở desktop GUI |
+| OCR locator/service/controller | `TestSubtitleOcrRuntimeService`, `TestSubtitleOcrController` | PASS |
+| QML route | `PrepareQmlRouteSmokeRuntime`, `QmlRouteSmoke`, gồm regression warning và Dubbing tab | PASS offscreen, không thay cho visual/manual |
+| Full suite | `ctest --test-dir out\\build\\windows-msvc-tests --output-on-failure -j 1` | **38/38 PASS, 0 FAIL** (47.57 s) |
+| Graph | `graphify update .` sau source change | Đã chạy; output generated vẫn untracked/không commit |
+
+Các kiểm thử trên là source/CLI/offscreen. Chúng **không** chứng minh package
+desktop mới, OCR video thật, video picker/drag-drop thật hay chất lượng visual.
+
+### Gate tiếp theo bắt buộc cho package 0.0.2.10
+
+1. Đọc lại `docs/AI_AGENT_REQUEST.md` ngay trước packaging để bảo đảm không có
+   lệnh mới; build portable với `-Version 0.0.2.10`, không đụng package 0.0.2.9.
+2. Xác minh manifest bundle trong stage: `tesseract.exe`, SHA khớp manifest,
+   health-check, DLL phụ thuộc và `licenses/tesseract/LICENSE`; kiểm version và
+   SHA-256 EXE rồi ghi chính xác vào report này.
+3. Người dùng tự mở đúng EXE mới (agent không điều khiển GUI), vào Subtitle OCR
+   và xác nhận card ghi Local CPU/No GPU or Colab required, runtime **Ready**,
+   language English/Vietnamese/Chinese cài/refresh qua app-data và OCR một video
+   thật. Nếu package/binary thiếu, ghi FAIL cụ thể; không fallback installer cũ.
+
+Các file request/handoff, `VoiceLibraryDialog.qml`, `.agents/`, Graphify,
+`out/` và temporary logs không thuộc commit `bcc7cfc`.
+
 Tài liệu này là **điểm vào duy nhất** cho AI agent tiếp theo. Không được coi phần báo cáo 0.0.2.7 bên dưới là trạng thái mới nhất.
 
 ## Thứ tự đọc bắt buộc cho AI tiếp theo
