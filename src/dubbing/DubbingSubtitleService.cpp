@@ -351,6 +351,11 @@ bool DubbingSubtitleService::writeAss(const QVariantList &segments, const QVaria
     if (!normalizeStyle(candidate, style, error)) return false;
     const QString alignment = style.value(QStringLiteral("alignment")).toString();
     const int assAlignment = alignment == QStringLiteral("top") ? 8 : 2;
+    const QString customPosition = alignment == QStringLiteral("custom")
+        ? QStringLiteral("{\\pos(%1,%2)}")
+              .arg(qRound(style.value(QStringLiteral("positionX")).toDouble() * 1920.0))
+              .arg(qRound(style.value(QStringLiteral("positionY")).toDouble() * 1080.0))
+        : QString();
     const int marginV = qRound(style.value(QStringLiteral("safeMargin")).toDouble() * 1080.0);
     const QString header = QStringLiteral("[Script Info]\nScriptType: v4.00+\nPlayResX: 1920\nPlayResY: 1080\n"
                                           "\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\n"
@@ -376,7 +381,8 @@ bool DubbingSubtitleService::writeAss(const QVariantList &segments, const QVaria
         const qint64 end = segment.value(QStringLiteral("endMs")).toLongLong();
         if (text.isEmpty() || end <= start) continue;
         lines.append(QStringLiteral("Dialogue: 0,%1,%2,LAStudio,,0,0,0,,%3")
-                         .arg(assTimestamp(start), assTimestamp(end), assEscapedText(text)));
+                         .arg(assTimestamp(start), assTimestamp(end),
+                              customPosition + assEscapedText(text)));
         ++cue;
     }
     if (cue == 0) {

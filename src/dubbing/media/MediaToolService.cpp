@@ -8,6 +8,18 @@
 
 namespace LAStudio {
 
+namespace {
+
+QString escapedSubtitleFilterPath(const QString &path)
+{
+    QString escaped = QDir::fromNativeSeparators(QFileInfo(path).absoluteFilePath());
+    escaped.replace(QLatin1Char(':'), QStringLiteral("\\:"));
+    escaped.replace(QLatin1Char('\''), QStringLiteral("\\'"));
+    return escaped;
+}
+
+} // namespace
+
 MediaToolService::MediaToolService(QObject *parent)
     : QObject(parent)
 {
@@ -33,7 +45,8 @@ void MediaToolService::muxVideoWithAudio(const QString &videoPath,
                                          const QString &audioPath,
                                          const QString &subtitlePath,
                                          const QString &outputPath,
-                                         bool burnInSubtitles)
+                                         bool burnInSubtitles,
+                                         const QString &subtitleFontDirectory)
 {
     if (m_process.state() != QProcess::NotRunning) {
         emit finished(false, outputPath, QStringLiteral("Another media operation is already running."));
@@ -64,11 +77,15 @@ void MediaToolService::muxVideoWithAudio(const QString &videoPath,
     if (hasSubtitles)
         arguments.append({QStringLiteral("-i"), subtitlePath});
     if (burnInSubtitles && hasSubtitles) {
-        QString filterPath = QDir::fromNativeSeparators(QFileInfo(subtitlePath).absoluteFilePath());
-        filterPath.replace(QLatin1Char(':'), QStringLiteral("\\:"));
-        filterPath.replace(QLatin1Char('\''), QStringLiteral("\\'"));
+        const QString filterPath = escapedSubtitleFilterPath(subtitlePath);
+        QString filter = QStringLiteral("subtitles=filename='%1'").arg(filterPath);
+        if (!subtitleFontDirectory.trimmed().isEmpty()
+            && QFileInfo(subtitleFontDirectory).isDir()) {
+            filter += QStringLiteral(":fontsdir='%1'")
+                          .arg(escapedSubtitleFilterPath(subtitleFontDirectory));
+        }
         arguments.append({QStringLiteral("-vf"),
-                          QStringLiteral("subtitles=filename='%1'").arg(filterPath)});
+                          filter});
     }
     arguments.append({
         QStringLiteral("-map"), QStringLiteral("0:v:0?"),

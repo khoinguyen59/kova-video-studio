@@ -122,6 +122,21 @@ bool DubbingExportJob::startExport(const QString &sourceMediaPath, const QString
     }
     m_exportDestination = outputPath;
     m_exportAudioPath = audioPath;
+    const bool exportBurnIn = subtitleConfiguration.value(QStringLiteral("burnIn")).toBool();
+    const QVariantMap subtitleStyle = subtitleConfiguration.value(QStringLiteral("style")).toMap();
+    QString subtitleFontDirectory;
+    if (exportBurnIn) {
+        const QString fontFile = subtitleStyle.value(QStringLiteral("fontFile")).toString().trimmed();
+        if (!fontFile.isEmpty()) {
+            const QFileInfo fontInfo(fontFile);
+            if (!fontInfo.isFile()) {
+                clearExportPaths();
+                fail(QStringLiteral("The configured subtitle font file no longer exists."));
+                return false;
+            }
+            subtitleFontDirectory = fontInfo.absolutePath();
+        }
+    }
     const QString suffix = QFileInfo(sourceMediaPath).suffix().toLower();
     const bool video = suffix == QStringLiteral("mp4") || suffix == QStringLiteral("mkv")
         || suffix == QStringLiteral("mov") || suffix == QStringLiteral("webm")
@@ -152,13 +167,13 @@ bool DubbingExportJob::startExport(const QString &sourceMediaPath, const QString
     if (!m_mediaTools) { clearExportPaths(); fail(QStringLiteral("Media tool service is unavailable.")); return false; }
     m_running = true;
     emit progressChanged(QStringLiteral("export"), 0);
-    m_exportBurnIn = subtitleConfiguration.value(QStringLiteral("burnIn")).toBool();
+    m_exportBurnIn = exportBurnIn;
     m_exportSubtitlePath = m_exportStagingPath + (m_exportBurnIn ? QStringLiteral(".ass")
                                                                    : QStringLiteral(".srt"));
     QString subtitleError;
     const bool wroteSubtitle = m_exportBurnIn
         ? DubbingSubtitleService::writeAss(segments,
-                                           subtitleConfiguration.value(QStringLiteral("style")).toMap(),
+                                           subtitleStyle,
                                            m_exportSubtitlePath, true, &subtitleError)
         : DubbingSubtitleService::writeSidecar(segments, m_exportSubtitlePath, true, &subtitleError);
     if (!wroteSubtitle) {
@@ -173,7 +188,8 @@ bool DubbingExportJob::startExport(const QString &sourceMediaPath, const QString
         m_exportSubtitlePath.clear();
     }
     m_mediaTools->muxVideoWithAudio(sourceMediaPath, m_exportAudioPath,
-                                    m_exportSubtitlePath, m_exportStagingPath, m_exportBurnIn);
+                                    m_exportSubtitlePath, m_exportStagingPath, m_exportBurnIn,
+                                    subtitleFontDirectory);
     return true;
 }
 

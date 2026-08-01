@@ -2788,8 +2788,10 @@ void TestDubbingProject::persistsDubbingSubtitleStyleAndExportsUnicodeAss()
     QVariantMap style = DubbingSubtitleService::defaultStyle();
     style.insert(QStringLiteral("fontFamily"), QStringLiteral("Noto Sans CJK"));
     style.insert(QStringLiteral("fontSize"), 54);
-    style.insert(QStringLiteral("alignment"), QStringLiteral("top"));
+    style.insert(QStringLiteral("alignment"), QStringLiteral("custom"));
     style.insert(QStringLiteral("safeMargin"), 0.11);
+    style.insert(QStringLiteral("positionX"), 0.25);
+    style.insert(QStringLiteral("positionY"), 0.30);
     QVERIFY(controller.setSubtitleStyle(style));
     QVERIFY(controller.setSubtitleBurnIn(true));
     QVERIFY(controller.saveProject());
@@ -2809,6 +2811,7 @@ void TestDubbingProject::persistsDubbingSubtitleStyleAndExportsUnicodeAss()
     QVERIFY(assFile.open(QIODevice::ReadOnly));
     const QByteArray bytes = assFile.readAll();
     QVERIFY(bytes.contains("Style: LAStudio,Noto Sans CJK,54"));
+    QVERIFY(bytes.contains("{\\pos(480,324)}"));
     QVERIFY(bytes.contains(QString::fromUtf8("Tiáº¿ng Viá»‡t ä¸­æ–‡ æ—¥æœ¬ì–´ í•œêµ­ì–´").toUtf8()));
 }
 

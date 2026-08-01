@@ -20,7 +20,8 @@ public:
                            const QString &audioPath,
                            const QString &subtitlePath,
                            const QString &outputPath,
-                           bool burnInSubtitles = false);
+                           bool burnInSubtitles = false,
+                           const QString &subtitleFontDirectory = QString());
     void cancel();
 
 signals:

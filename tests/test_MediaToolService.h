@@ -10,6 +10,7 @@ class TestMediaToolService : public QObject
 
 private slots:
     void rejectsMissingMediaInputsExactlyOnce();
+    void passesConfiguredFontDirectoryToBurnInFilter();
 };
 
 } // namespace LAStudio
