@@ -2820,6 +2820,47 @@ void TestDubbingProject::persistsDubbingSubtitleStyleAndExportsUnicodeAss()
     QVERIFY(bytes.contains(QString::fromUtf8("Tiáº¿ng Viá»‡t ä¸­æ–‡ æ—¥æœ¬ì–´ í•œêµ­ì–´").toUtf8()));
 }
 
+void TestDubbingProject::preservesConfiguredLineSpacingInBurnInAss()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QVariantList segments{QVariantMap{{QStringLiteral("startMs"), 0},
+                                            {QStringLiteral("endMs"), 1000},
+                                            {QStringLiteral("sourceText"),
+                                             QStringLiteral("First reviewed line\nSecond reviewed line")}}};
+    QVariantMap compact = DubbingSubtitleService::defaultStyle();
+    compact.insert(QStringLiteral("fontSize"), 48);
+    compact.insert(QStringLiteral("lineSpacing"), 1.0);
+    QVariantMap expanded = compact;
+    expanded.insert(QStringLiteral("lineSpacing"), 1.8);
+    const QString compactPath = dir.filePath(QStringLiteral("compact.ass"));
+    const QString expandedPath = dir.filePath(QStringLiteral("expanded.ass"));
+    QString error;
+    QVERIFY2(DubbingSubtitleService::writeAss(segments, compact, compactPath, false, &error),
+             qPrintable(error));
+    QVERIFY2(DubbingSubtitleService::writeAss(segments, expanded, expandedPath, false, &error),
+             qPrintable(error));
+
+    const auto positions = [](const QString &path) {
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly)) return QList<int>{};
+        const QString content = QString::fromUtf8(file.readAll());
+        QRegularExpression expression(QStringLiteral("\\\\pos\\(960,(\\d+)\\)"));
+        QList<int> values;
+        QRegularExpressionMatchIterator matches = expression.globalMatch(content);
+        while (matches.hasNext()) values.append(matches.next().captured(1).toInt());
+        return values;
+    };
+    const QList<int> compactPositions = positions(compactPath);
+    const QList<int> expandedPositions = positions(expandedPath);
+    QCOMPARE(compactPositions.size(), 2);
+    QCOMPARE(expandedPositions.size(), 2);
+    QVERIFY(compactPositions.at(1) > compactPositions.at(0));
+    QVERIFY(expandedPositions.at(1) > expandedPositions.at(0));
+    QVERIFY(expandedPositions.at(1) - expandedPositions.at(0)
+            > compactPositions.at(1) - compactPositions.at(0));
+}
+
 void TestDubbingProject::dubbingSubtitleUiWiresImportPreviewAndBurnIn()
 {
     const QDir sourceRoot(QStringLiteral(LASTUDIO_SOURCE_DIR));
@@ -2844,6 +2885,7 @@ void TestDubbingProject::dubbingSubtitleUiWiresImportPreviewAndBurnIn()
     QVERIFY(editorSource.contains(QStringLiteral("Reviewed source text (STT, OCR, or imported)")));
     QVERIFY(editorSource.contains(QStringLiteral("safeMargin")));
     QVERIFY(editorSource.contains(QStringLiteral("positionX")));
+    QVERIFY(editorSource.contains(QStringLiteral("preview and rendered MP4")));
 }
 
 void TestDubbingProject::resolvesGlobalTimingConflictsWithRippleAndUndo()

@@ -1,10 +1,16 @@
 #include "dubbing/DubbingSubtitleService.h"
 
+#include <QCoreApplication>
 #include <QFile>
 #include <QFileInfo>
 #include <QColor>
+#include <QFont>
+#include <QFontDatabase>
+#include <QFontMetricsF>
+#include <QGuiApplication>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <QTextLayout>
 #include <QUuid>
 
 namespace LAStudio {
@@ -93,6 +99,63 @@ QString plainAssText(QString text)
     text.replace(QStringLiteral("\\N"), QStringLiteral("\n"));
     text.remove(QRegularExpression(QStringLiteral("\\{[^}]*\\}")));
     return text.trimmed();
+}
+
+QFont subtitleLayoutFont(const QVariantMap &style)
+{
+    QFont font(style.value(QStringLiteral("fontFamily")).toString());
+    font.setPixelSize(style.value(QStringLiteral("fontSize")).toInt());
+    font.setWeight(static_cast<QFont::Weight>(
+        style.value(QStringLiteral("fontWeight")).toInt()));
+
+    // libass receives the same file through FFmpeg's fontsdir. Register it
+    // locally so wrapping measures the selected typeface where possible.
+    const QString fontFile = style.value(QStringLiteral("fontFile")).toString().trimmed();
+    if (!fontFile.isEmpty() && QFileInfo(fontFile).isFile()) {
+        const int fontId = QFontDatabase::addApplicationFont(fontFile);
+        const QStringList families = QFontDatabase::applicationFontFamilies(fontId);
+        if (!families.isEmpty()) font.setFamily(families.constFirst());
+    }
+    return font;
+}
+
+QStringList wrapSubtitleText(const QString &text, const QFont &font, int maximumWidth)
+{
+    QStringList wrapped;
+    const QStringList paragraphs = text.split(QRegularExpression(QStringLiteral("\\r?\\n")),
+                                              Qt::KeepEmptyParts);
+    for (const QString &paragraph : paragraphs) {
+        if (paragraph.isEmpty()) {
+            // libass drops empty dialogue text. A non-breaking space retains
+            // an explicitly authored blank line in a multi-line block.
+            wrapped.append(QString(QChar::Nbsp));
+            continue;
+        }
+        QTextLayout layout(paragraph, font);
+        QTextOption option;
+        option.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+        layout.setTextOption(option);
+        layout.beginLayout();
+        while (true) {
+            QTextLine line = layout.createLine();
+            if (!line.isValid()) break;
+            line.setLineWidth(maximumWidth);
+            const QString visualLine = paragraph.mid(line.textStart(), line.textLength()).trimmed();
+            if (!visualLine.isEmpty()) wrapped.append(visualLine);
+        }
+        layout.endLayout();
+    }
+    return wrapped;
+}
+
+QStringList explicitSubtitleLines(const QString &text)
+{
+    QStringList lines;
+    for (const QString &line : text.split(QRegularExpression(QStringLiteral("\\r?\\n")),
+                                          Qt::KeepEmptyParts)) {
+        lines.append(line.isEmpty() ? QString(QChar::Nbsp) : line.trimmed());
+    }
+    return lines;
 }
 
 QVariantMap importedSegment(qint64 startMs, qint64 endMs, const QString &text,
@@ -358,6 +421,14 @@ bool DubbingSubtitleService::writeAss(const QVariantList &segments, const QVaria
         : QString();
     const int marginH = qRound((1.0 - style.value(QStringLiteral("maxWidth")).toDouble()) * 1920.0 / 2.0);
     const int marginV = qRound(style.value(QStringLiteral("safeMargin")).toDouble() * 1080.0);
+    const int maximumWidth = qMax(1, 1920 - marginH * 2);
+    const bool canMeasureFont = qobject_cast<QGuiApplication *>(QCoreApplication::instance()) != nullptr;
+    const QFont layoutFont = canMeasureFont ? subtitleLayoutFont(style) : QFont();
+    const int lineHeight = canMeasureFont
+        ? qMax(1, qRound(QFontMetricsF(layoutFont).height()))
+        : qMax(1, style.value(QStringLiteral("fontSize")).toInt());
+    const int lineStep = qMax(1, qRound(lineHeight
+                                         * style.value(QStringLiteral("lineSpacing")).toDouble()));
     const QString header = QStringLiteral("[Script Info]\nScriptType: v4.00+\nPlayResX: 1920\nPlayResY: 1080\n"
                                           "\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\n"
                                           "Style: LAStudio,%1,%2,%3,&H000000FF,%4,%5,%6,0,0,0,100,100,0,0,1,%7,%8,%9,%10,%10,%11,1\n"
@@ -381,10 +452,38 @@ bool DubbingSubtitleService::writeAss(const QVariantList &segments, const QVaria
         const qint64 start = segment.value(QStringLiteral("startMs")).toLongLong();
         const qint64 end = segment.value(QStringLiteral("endMs")).toLongLong();
         if (text.isEmpty() || end <= start) continue;
-        lines.append(QStringLiteral("Dialogue: 0,%1,%2,LAStudio,,0,0,0,,%3")
-                         .arg(assTimestamp(start), assTimestamp(end),
-                              customPosition + assEscapedText(text)));
-        ++cue;
+        const QStringList visualLines = canMeasureFont
+            ? wrapSubtitleText(text, layoutFont, maximumWidth) : explicitSubtitleLines(text);
+        if (visualLines.isEmpty()) continue;
+        if (visualLines.size() == 1) {
+            lines.append(QStringLiteral("Dialogue: 0,%1,%2,LAStudio,,0,0,0,,%3")
+                             .arg(assTimestamp(start), assTimestamp(end),
+                                  customPosition + assEscapedText(visualLines.constFirst())));
+            ++cue;
+            continue;
+        }
+
+        // ASS/libass has no line-spacing style property: its `Spacing` field
+        // is character spacing. Write each wrapped visual line as a timed
+        // dialogue and place it at the requested proportional line step.
+        const int blockHeight = lineHeight + (visualLines.size() - 1) * lineStep;
+        const int centreX = alignment == QStringLiteral("custom")
+            ? qRound(style.value(QStringLiteral("positionX")).toDouble() * 1920.0) : 960;
+        int topY = marginV;
+        if (alignment == QStringLiteral("bottom")) topY = 1080 - marginV - blockHeight;
+        else if (alignment == QStringLiteral("custom")) {
+            topY = qRound(style.value(QStringLiteral("positionY")).toDouble() * 1080.0)
+                - blockHeight / 2;
+        }
+        topY = qBound(0, topY, qMax(0, 1080 - blockHeight));
+        for (int lineIndex = 0; lineIndex < visualLines.size(); ++lineIndex) {
+            const QString position = QStringLiteral("{\\an8\\q2\\pos(%1,%2)}")
+                .arg(centreX).arg(topY + lineIndex * lineStep);
+            lines.append(QStringLiteral("Dialogue: 0,%1,%2,LAStudio,,0,0,0,,%3")
+                             .arg(assTimestamp(start), assTimestamp(end),
+                                  position + assEscapedText(visualLines.at(lineIndex))));
+            ++cue;
+        }
     }
     if (cue == 0) {
         setError(error, QStringLiteral("No reviewed subtitle cues are available for burn-in."));

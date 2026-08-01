@@ -90,8 +90,16 @@ void MediaToolService::muxVideoWithAudio(const QString &videoPath,
     arguments.append({
         QStringLiteral("-map"), QStringLiteral("0:v:0?"),
         QStringLiteral("-map"), QStringLiteral("1:a:0"),
+        // The bundled internal FFmpeg is deliberately LGPL-only and does not
+        // ship libx264. MPEG-4 Part 2 is available in that runtime, so use it
+        // whenever subtitle burn-in requires video re-encoding instead of
+        // advertising an MP4 export that fails at encoder selection.
         QStringLiteral("-c:v"), burnInSubtitles && hasSubtitles
-            ? QStringLiteral("libx264") : QStringLiteral("copy"),
+            ? QStringLiteral("mpeg4") : QStringLiteral("copy")
+    });
+    if (burnInSubtitles && hasSubtitles)
+        arguments.append({QStringLiteral("-q:v"), QStringLiteral("3")});
+    arguments.append({
         QStringLiteral("-c:a"), QStringLiteral("aac"),
         QStringLiteral("-b:a"), QStringLiteral("192k")
     });

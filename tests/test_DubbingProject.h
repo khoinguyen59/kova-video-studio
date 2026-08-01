@@ -41,6 +41,7 @@ private slots:
     void exportsSubtitlesAndReviewPackage();
     void importsDubbingSubtitleFormatsWithoutInventingTiming();
     void persistsDubbingSubtitleStyleAndExportsUnicodeAss();
+    void preservesConfiguredLineSpacingInBurnInAss();
     void dubbingSubtitleUiWiresImportPreviewAndBurnIn();
     void resolvesGlobalTimingConflictsWithRippleAndUndo();
     void dubbingTimingUiWiresPreviewApplyAndUndo();

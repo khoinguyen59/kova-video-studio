@@ -131,7 +131,7 @@ Dialog {
                 checked: root.configuration.burnIn === true
                 onToggled: dubbing.setSubtitleBurnIn(checked)
             }
-            Text { Layout.fillWidth: true; color: Theme.textSecondary; wrapMode: Text.WordWrap; font.pixelSize: 11; text: burnInBox.checked ? qsTr("Burn-in encodes the video so subtitles are always visible. The Sidecar export remains a separate UTF-8 SRT/VTT file.") : qsTr("MP4 keeps a selectable subtitle track. Enable burn-in for a permanent styled overlay.") }
+            Text { Layout.fillWidth: true; color: Theme.textSecondary; wrapMode: Text.WordWrap; font.pixelSize: 11; text: burnInBox.checked ? qsTr("Burn-in encodes the video so subtitles are always visible. Max width and line spacing apply to both the preview and rendered MP4. The Sidecar export remains a separate UTF-8 SRT/VTT file.") : qsTr("MP4 keeps a selectable subtitle track. Enable burn-in for a permanent styled overlay.") }
         }
     }
 
