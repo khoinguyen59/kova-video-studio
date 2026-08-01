@@ -42,6 +42,7 @@ public:
     static SubtitleOcrRect sourceRect(const SubtitleOcrRoi &roi, int sourceWidth, int sourceHeight);
     static QStringList ffmpegCropArguments(const SubtitleOcrRoi &roi, int sourceWidth, int sourceHeight);
     static QVector<qint64> sampleTimes(qint64 durationMs, qint64 intervalMs);
+    static qint64 lastDecodableTimestamp(qint64 durationMs);
     static QVector<SubtitleOcrSegment> mergeObservations(const QVector<SubtitleOcrObservation> &observations,
                                                           qint64 intervalMs, double minimumConfidence);
     static SubtitleOcrObservation parseTesseractTsv(const QByteArray &tsv, qint64 timestampMs);

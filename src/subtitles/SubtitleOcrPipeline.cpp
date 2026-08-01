@@ -13,10 +13,17 @@ bool SubtitleOcrRoi::isValid() const
 SubtitleOcrRect SubtitleOcrPipeline::sourceRect(const SubtitleOcrRoi &roi, int sourceWidth, int sourceHeight)
 {
     if (!roi.isValid() || sourceWidth <= 0 || sourceHeight <= 0) return {};
-    const int x = qBound(0, qRound(roi.x * sourceWidth), sourceWidth - 1);
-    const int y = qBound(0, qRound(roi.y * sourceHeight), sourceHeight - 1);
-    const int width = qBound(1, qRound(roi.width * sourceWidth), sourceWidth - x);
-    const int height = qBound(1, qRound(roi.height * sourceHeight), sourceHeight - y);
+    const int x = qBound(0, qRound(roi.x * sourceWidth), sourceWidth);
+    const int y = qBound(0, qRound(roi.y * sourceHeight), sourceHeight);
+    // Round the extent independently from its origin.  Rounding both edges
+    // loses a pixel for valid bottom/full-width regions such as 0.883/0.105
+    // on a 180px frame, while this form still clamps the resulting rectangle
+    // strictly inside the decoded source frame.
+    const int width = qMin(qMax(0, qRound(roi.width * sourceWidth)), sourceWidth - x);
+    const int height = qMin(qMax(0, qRound(roi.height * sourceHeight)), sourceHeight - y);
+    // Never turn an almost-empty normalized ROI into a made-up 1px crop.
+    // FFmpeg and OCR must receive an actual, positive source-pixel rectangle.
+    if (width <= 0 || height <= 0) return {};
     return {x, y, width, height};
 }
 
@@ -24,17 +31,32 @@ QStringList SubtitleOcrPipeline::ffmpegCropArguments(const SubtitleOcrRoi &roi, 
 {
     const SubtitleOcrRect rect = sourceRect(roi, sourceWidth, sourceHeight);
     if (rect.width <= 0 || rect.height <= 0) return {};
-    return {QStringLiteral("-vf"), QStringLiteral("crop=%1:%2:%3:%4")
+    // exact=1 stops the crop filter silently aligning an odd-height subtitle
+    // strip down for chroma subsampling. The PNG handed to OCR then matches
+    // the normalized pixel rectangle shown in diagnostics.
+    return {QStringLiteral("-vf"), QStringLiteral("crop=%1:%2:%3:%4:exact=1")
         .arg(rect.width).arg(rect.height).arg(rect.x).arg(rect.y)};
 }
 
 QVector<qint64> SubtitleOcrPipeline::sampleTimes(qint64 durationMs, qint64 intervalMs)
 {
     QVector<qint64> result;
-    if (durationMs < 0 || intervalMs <= 0) return result;
-    for (qint64 value = 0; value <= durationMs; value += intervalMs) result.append(value);
-    if (result.isEmpty() || result.constLast() != durationMs) result.append(durationMs);
+    if (durationMs <= 0 || intervalMs <= 0) return result;
+    const qint64 finalTimestamp = lastDecodableTimestamp(durationMs);
+    for (qint64 value = 0; value < durationMs; value += intervalMs) result.append(value);
+    if (result.isEmpty() || result.constLast() != finalTimestamp) result.append(finalTimestamp);
     return result;
+}
+
+qint64 SubtitleOcrPipeline::lastDecodableTimestamp(qint64 durationMs)
+{
+    // Container duration is not a decoded-frame timestamp. Seeking to
+    // duration-1ms can still land after the final video frame for low frame
+    // rates/keyframe-only media, where FFmpeg exits 0 without creating an
+    // image. Keep the final OCR sample one second inside the stream; short
+    // clips safely use their first frame instead.
+    constexpr qint64 safeEndMarginMs = 1000;
+    return qMax<qint64>(0, durationMs - safeEndMarginMs);
 }
 
 QVector<SubtitleOcrSegment> SubtitleOcrPipeline::mergeObservations(

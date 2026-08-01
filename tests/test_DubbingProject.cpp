@@ -3187,7 +3187,7 @@ void TestDubbingProject::ocrOnlyTranscriptUsesTheSharedSubtitleOcrController()
     QVERIFY(writeFixtureFile(ffprobe, QByteArrayLiteral(
         "@echo off\r\necho {\"streams\":[{\"width\":1920,\"height\":1080}],\"format\":{\"duration\":\"4.0\"}}\r\n")));
     QVERIFY(writeFixtureFile(ffmpeg, QByteArrayLiteral(
-        "@echo off\r\nset \"last=\"\r\n:next\r\nif \"%~1\"==\"\" goto done\r\nset \"last=%~1\"\r\nshift\r\ngoto next\r\n:done\r\n> \"%last%\" echo OCR frame\r\n")));
+        "@echo off\r\nset \"last=\"\r\n:next\r\nif \"%~1\"==\"\" goto done\r\nset \"last=%~1\"\r\nshift\r\ngoto next\r\n:done\r\nset \"LASTUDIO_TEST_FRAME=%last%\"\r\npowershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"$bytes=[Convert]::FromBase64String('iVBORw0KGgoAAAANSUhEUgAAAUAAAAASCAIAAAClw5C1AAAACXBIWXMAAAABAAAAAQBPJcTWAAAAV0lEQVR4nO3TsQnAMBDAwDx4/5Gf7ODGCO4mUKOZmQ9oOrv7ugG4dF4HAPcMDGEGhjADQ5iBIczAEGZgCDMwhBkYwgwMYQaGMANDmIEhzMAQZmAIMzCE/UUWA0OS8G1mAAAAAElFTkSuQmCC'); [IO.File]::WriteAllBytes($env:LASTUDIO_TEST_FRAME, $bytes)\"\r\n")));
     QVERIFY(writeFixtureFile(tesseract, QByteArrayLiteral(
         "@echo off\r\nif /I \"%~1\"==\"--list-langs\" (\r\n  echo List of available languages ^(1^):\r\n  echo eng\r\n  exit /b 0\r\n)\r\necho level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\r\necho 5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t96\tShared\r\necho 5\t1\t1\t1\t1\t2\t10\t0\t10\t10\t94\tOCR\r\n")));
 
@@ -3294,7 +3294,7 @@ void TestDubbingProject::combinedTranscriptRunsSttAndSharedOcrWithoutFallback()
     QVERIFY(writeFixtureFile(ffprobe, QByteArrayLiteral(
         "@echo off\r\necho {\"streams\":[{\"width\":1920,\"height\":1080}],\"format\":{\"duration\":\"4.0\"}}\r\n")));
     QVERIFY(writeFixtureFile(ffmpeg, QByteArrayLiteral(
-        "@echo off\r\nset \"last=\"\r\n:next\r\nif \"%~1\"==\"\" goto done\r\nset \"last=%~1\"\r\nshift\r\ngoto next\r\n:done\r\n> \"%last%\" echo OCR frame\r\n")));
+        "@echo off\r\nset \"last=\"\r\n:next\r\nif \"%~1\"==\"\" goto done\r\nset \"last=%~1\"\r\nshift\r\ngoto next\r\n:done\r\nset \"LASTUDIO_TEST_FRAME=%last%\"\r\npowershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"$bytes=[Convert]::FromBase64String('iVBORw0KGgoAAAANSUhEUgAAAUAAAAASCAIAAAClw5C1AAAACXBIWXMAAAABAAAAAQBPJcTWAAAAV0lEQVR4nO3TsQnAMBDAwDx4/5Gf7ODGCO4mUKOZmQ9oOrv7ugG4dF4HAPcMDGEGhjADQ5iBIczAEGZgCDMwhBkYwgwMYQaGMANDmIEhzMAQZmAIMzCE/UUWA0OS8G1mAAAAAElFTkSuQmCC'); [IO.File]::WriteAllBytes($env:LASTUDIO_TEST_FRAME, $bytes)\"\r\n")));
     QVERIFY(writeFixtureFile(tesseract, QByteArrayLiteral(
         "@echo off\r\nif /I \"%~1\"==\"--list-langs\" (\r\n  echo List of available languages ^(1^):\r\n  echo eng\r\n  exit /b 0\r\n)\r\necho level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\r\necho 5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t96\tShared\r\necho 5\t1\t1\t1\t1\t2\t10\t0\t10\t10\t94\tOCR\r\n")));
     ScopedEnvironmentValue ffmpegEnvironment("LASTUDIO_FFMPEG", ffmpeg.toUtf8());

@@ -19,6 +19,9 @@ private slots:
     void runsManagedAdapterPersistsReviewedSegmentsAndExports();
     void transfersReviewedSegmentsToSubtitleVoiceAndDubbing();
     void cancelsAndRetriesWithoutLeavingOcrStaging();
+    void rejectsUnreadableFrameAndRetriesTheSameSample();
+    void timesOutFrameExtractionAndKeepsDiagnosticsForRetry();
+    void extractsBottomRoiWithTheStagedPackagedFfmpegRuntime();
     void importsSharedStagedMediaWithoutRedownloadAndPreservesSourceOnProbeFailure();
     void importsSharedMediaWithAnUnknownContentLength();
 };

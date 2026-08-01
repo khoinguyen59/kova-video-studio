@@ -10,13 +10,16 @@
 #include "subtitles/SubtitleOcrRuntimeService.h"
 
 #include <QCryptographicHash>
+#include <QDateTime>
 #include <QDir>
-#include <QProcessEnvironment>
 #include <QFile>
 #include <QFileInfo>
+#include <QImage>
+#include <QImageReader>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QProcessEnvironment>
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QTemporaryFile>
@@ -29,6 +32,8 @@ constexpr int kSubtitleOcrProjectVersion = 1;
 const QString kColabSubtitleOcrCapability = QStringLiteral("subtitle-ocr");
 const QString kColabSubtitleOcrModel = QStringLiteral("pp-ocrv5-multilingual-3.1");
 const QString kColabSubtitleOcrNotebook = QStringLiteral("LA_STUDIO_SUBTITLE_OCR_PP_OCRV5_GPU.ipynb");
+constexpr qsizetype kMaxDiagnosticCharacters = 16000;
+constexpr int kFrameExtractionTimeoutMs = 30000;
 
 QString ffmpegTime(qint64 timestampMs)
 {
@@ -42,6 +47,58 @@ QString processFailure(const QString &stage, const QByteArray &standardError)
                             : QStringLiteral("Subtitle OCR %1 failed: %2").arg(stage, detail);
 }
 
+QString boundedDiagnosticText(const QString &value)
+{
+    const QString normalized = value.trimmed();
+    return normalized.size() <= 4000
+        ? normalized
+        : normalized.left(4000) + QStringLiteral(" [truncated]");
+}
+
+QString normalizedRoiText(const SubtitleOcrRoi &roi)
+{
+    return QStringLiteral("x=%1 y=%2 w=%3 h=%4")
+        .arg(roi.x, 0, 'f', 6).arg(roi.y, 0, 'f', 6)
+        .arg(roi.width, 0, 'f', 6).arg(roi.height, 0, 'f', 6);
+}
+
+QString cropText(const SubtitleOcrRect &crop)
+{
+    return QStringLiteral("x=%1 y=%2 w=%3 h=%4")
+        .arg(crop.x).arg(crop.y).arg(crop.width).arg(crop.height);
+}
+
+int normalizedRotation(int rotation)
+{
+    rotation %= 360;
+    if (rotation < 0) rotation += 360;
+    return rotation;
+}
+
+bool parseAspectRatio(const QString &text, double *value)
+{
+    const QStringList parts = text.split(QLatin1Char(':'));
+    if (parts.size() != 2) return false;
+    bool numeratorOk = false;
+    bool denominatorOk = false;
+    const double numerator = parts.at(0).toDouble(&numeratorOk);
+    const double denominator = parts.at(1).toDouble(&denominatorOk);
+    if (!numeratorOk || !denominatorOk || numerator <= 0.0 || denominator <= 0.0) return false;
+    if (value) *value = numerator / denominator;
+    return true;
+}
+
+int frameExtractionTimeoutMs()
+{
+#ifdef LASTUDIO_UNIT_TESTS
+    bool parsed = false;
+    const int requested = qEnvironmentVariableIntValue(
+        "LASTUDIO_TEST_SUBTITLE_OCR_FRAME_TIMEOUT_MS", &parsed);
+    if (parsed && requested > 0) return requested;
+#endif
+    return kFrameExtractionTimeoutMs;
+}
+
 } // namespace
 
 SubtitleOcrController::SubtitleOcrController(SubtitleVoiceController *subtitleVoice,
@@ -51,6 +108,9 @@ SubtitleOcrController::SubtitleOcrController(SubtitleVoiceController *subtitleVo
     connect(&m_process, qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
             this, &SubtitleOcrController::onProcessFinished);
     connect(&m_process, &QProcess::errorOccurred, this, &SubtitleOcrController::onProcessError);
+    m_frameExtractionTimeout.setSingleShot(true);
+    connect(&m_frameExtractionTimeout, &QTimer::timeout,
+            this, &SubtitleOcrController::onFrameExtractionTimeout);
     if (m_dubbing) {
         connect(m_dubbing, &DubbingController::linkImportChanged,
                 this, &SubtitleOcrController::onSharedMediaImportChanged);
@@ -69,6 +129,7 @@ SubtitleOcrController::SubtitleOcrController(SubtitleVoiceController *subtitleVo
 
 SubtitleOcrController::~SubtitleOcrController()
 {
+    m_frameExtractionTimeout.stop();
     if (m_process.state() != QProcess::NotRunning) m_process.kill();
     if (m_colabRunner && m_colabThread.isRunning()) {
         QMetaObject::invokeMethod(m_colabRunner, "cancel", Qt::QueuedConnection);
@@ -165,6 +226,33 @@ void SubtitleOcrController::setError(const QString &message)
     emit errorChanged();
 }
 
+bool SubtitleOcrController::canRetryFrameExtraction() const
+{
+    return !m_processing && m_phase == QStringLiteral("error")
+        && m_lastFailedOperation == Operation::ExtractFrame
+        && !m_sourcePath.isEmpty() && m_frameWidth > 0 && m_frameHeight > 0
+        && m_sampleIndex >= 0 && m_sampleIndex < m_samples.size();
+}
+
+void SubtitleOcrController::clearDiagnostics()
+{
+    if (m_diagnostics.isEmpty()) return;
+    m_diagnostics.clear();
+    emit diagnosticsChanged();
+}
+
+void SubtitleOcrController::appendDiagnostic(const QString &event, const QString &detail)
+{
+    const QString entry = QStringLiteral("[%1] %2\n%3")
+        .arg(QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs), event,
+             boundedDiagnosticText(detail));
+    if (!m_diagnostics.isEmpty()) m_diagnostics += QStringLiteral("\n\n");
+    m_diagnostics += entry;
+    if (m_diagnostics.size() > kMaxDiagnosticCharacters)
+        m_diagnostics = m_diagnostics.right(kMaxDiagnosticCharacters);
+    emit diagnosticsChanged();
+}
+
 void SubtitleOcrController::setPhase(const QString &phase)
 {
     if (m_phase == phase) return;
@@ -205,9 +293,21 @@ bool SubtitleOcrController::ensureWorkspace()
     return true;
 }
 
-void SubtitleOcrController::cleanWorkspace()
+void SubtitleOcrController::cleanWorkspace(bool retainDiagnostics)
 {
-    if (!m_workspacePath.isEmpty()) QDir(m_workspacePath).removeRecursively();
+    if (!m_workspacePath.isEmpty()) {
+        const QString workspace = m_workspacePath;
+        const bool existed = QFileInfo(workspace).isDir();
+        const bool removed = QDir(workspace).removeRecursively();
+        if (retainDiagnostics || !m_diagnostics.isEmpty()) {
+            appendDiagnostic(QStringLiteral("workspace-cleanup"),
+                             QStringLiteral("workspace=%1 existed=%2 removed=%3 completedUtc=%4")
+                                 .arg(workspace)
+                                 .arg(existed ? QStringLiteral("true") : QStringLiteral("false"))
+                                 .arg(removed ? QStringLiteral("true") : QStringLiteral("false"))
+                                 .arg(QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)));
+        }
+    }
     m_workspacePath.clear();
     if (!m_cropPreviewPath.isEmpty()) {
         m_cropPreviewPath.clear();
@@ -219,7 +319,7 @@ void SubtitleOcrController::startProcess(Operation operation, const QString &pro
                                          const QStringList &arguments)
 {
     if (program.isEmpty()) {
-        fail(QStringLiteral("Required Subtitle OCR runtime is unavailable."));
+        fail(QStringLiteral("Required Subtitle OCR runtime is unavailable."), operation);
         return;
     }
     m_operation = operation;
@@ -237,7 +337,72 @@ void SubtitleOcrController::startProcess(Operation operation, const QString &pro
     }
     m_process.setArguments(processArguments);
     m_process.setProcessEnvironment(environment);
+    if (operation == Operation::ExtractFrame) m_frameExtractionTimedOut = false;
     m_process.start();
+    if (operation == Operation::ExtractFrame) {
+        m_frameExtractionTimeout.start(frameExtractionTimeoutMs());
+    }
+}
+
+void SubtitleOcrController::recordFrameExtractionStart(const MediaRuntimePaths &media,
+                                                        qint64 timestampMs,
+                                                        const SubtitleOcrRect &crop)
+{
+    appendDiagnostic(QStringLiteral("frame-extraction-start"),
+                     QStringLiteral("source=%1; ffmpeg=%2; timestampMs=%3; timestamp=%4; frame=%5x%6; "
+                                    "rotation=%7; SAR=%8; normalizedRoi=%9; pixelCrop=%10; output=%11")
+                         .arg(m_sourcePath, media.ffmpeg).arg(timestampMs).arg(ffmpegTime(timestampMs))
+                         .arg(m_frameWidth).arg(m_frameHeight).arg(m_rotationDegrees)
+                         .arg(m_sampleAspectRatio.isEmpty() ? QStringLiteral("unknown") : m_sampleAspectRatio)
+                         .arg(normalizedRoiText(m_roi), cropText(crop), m_currentFramePath));
+}
+
+bool SubtitleOcrController::validateCurrentFrame(QByteArray *hash, QString *errorMessage)
+{
+    const QFileInfo info(m_currentFramePath);
+    const bool exists = info.isFile();
+    const qint64 bytes = exists ? info.size() : 0;
+    QByteArray signature;
+    QString decodeDetail;
+    QImage image;
+    if (!exists) {
+        decodeDetail = QStringLiteral("crop file is missing");
+    } else if (bytes <= 0) {
+        decodeDetail = QStringLiteral("crop file is empty");
+    } else {
+        QFile frame(m_currentFramePath);
+        if (!frame.open(QIODevice::ReadOnly)) {
+            decodeDetail = QStringLiteral("crop file cannot be opened: %1").arg(frame.errorString());
+        } else {
+            signature = frame.read(8);
+            if (signature != QByteArrayLiteral("\x89PNG\r\n\x1a\n")) {
+                decodeDetail = QStringLiteral("crop does not have a PNG signature");
+            } else {
+                QImageReader reader(m_currentFramePath);
+                reader.setAutoTransform(false);
+                image = reader.read();
+                if (image.isNull()) {
+                    decodeDetail = QStringLiteral("PNG decode failed: %1").arg(reader.errorString());
+                } else {
+                    frame.seek(0);
+                    if (hash) *hash = QCryptographicHash::hash(frame.readAll(), QCryptographicHash::Sha256);
+                }
+            }
+        }
+    }
+    appendDiagnostic(QStringLiteral("frame-extraction-output"),
+                     QStringLiteral("output=%1; exists=%2; bytes=%3; signature=%4; decoded=%5x%6; result=%7")
+                         .arg(m_currentFramePath)
+                         .arg(exists ? QStringLiteral("true") : QStringLiteral("false"))
+                         .arg(bytes)
+                         .arg(QString::fromLatin1(signature.toHex()))
+                         .arg(image.width()).arg(image.height())
+                         .arg(decodeDetail.isEmpty() ? QStringLiteral("readable") : decodeDetail));
+    if (!decodeDetail.isEmpty()) {
+        if (errorMessage) *errorMessage = decodeDetail;
+        return false;
+    }
+    return true;
 }
 
 bool SubtitleOcrController::loadSource(const QString &path)
@@ -256,6 +421,13 @@ bool SubtitleOcrController::loadSource(const QString &path)
     }
     m_pendingSourcePath = info.absoluteFilePath();
     m_cancelRequested = false;
+    m_lastFailedOperation = Operation::None;
+    m_samples.clear();
+    emit frameRetryChanged();
+    clearDiagnostics();
+    appendDiagnostic(QStringLiteral("probe-start"),
+                     QStringLiteral("source=%1; ffprobe=%2")
+                         .arg(m_pendingSourcePath, media.ffprobe));
     setError({});
     setProcessing(true);
     setPhase(QStringLiteral("probing"));
@@ -263,7 +435,8 @@ bool SubtitleOcrController::loadSource(const QString &path)
     startProcess(Operation::Probe, media.ffprobe,
                  {QStringLiteral("-v"), QStringLiteral("error"),
                   QStringLiteral("-select_streams"), QStringLiteral("v:0"),
-                  QStringLiteral("-show_entries"), QStringLiteral("stream=width,height:format=duration"),
+                  QStringLiteral("-show_entries"),
+                  QStringLiteral("stream=width,height,sample_aspect_ratio,display_aspect_ratio:stream_tags=rotate:stream_side_data=rotation:format=duration"),
                   QStringLiteral("-of"), QStringLiteral("json"), m_pendingSourcePath});
     return true;
 }
@@ -394,6 +567,20 @@ void SubtitleOcrController::completeProbe(const QByteArray &output)
     const QJsonObject stream = streams.isEmpty() ? QJsonObject() : streams.at(0).toObject();
     const int width = stream.value(QStringLiteral("width")).toInt();
     const int height = stream.value(QStringLiteral("height")).toInt();
+    int rotation = 0;
+    for (const QJsonValue &sideDataValue : stream.value(QStringLiteral("side_data_list")).toArray()) {
+        const QJsonObject sideData = sideDataValue.toObject();
+        if (sideData.contains(QStringLiteral("rotation"))) {
+            rotation = normalizedRotation(qRound(sideData.value(QStringLiteral("rotation")).toDouble()));
+            break;
+        }
+    }
+    if (rotation == 0) {
+        bool rotationOk = false;
+        const int taggedRotation = stream.value(QStringLiteral("tags")).toObject()
+            .value(QStringLiteral("rotate")).toString().toInt(&rotationOk);
+        if (rotationOk) rotation = normalizedRotation(taggedRotation);
+    }
     bool durationOk = false;
     const double durationSeconds = root.value(QStringLiteral("format")).toObject()
         .value(QStringLiteral("duration")).toVariant().toDouble(&durationOk);
@@ -405,9 +592,28 @@ void SubtitleOcrController::completeProbe(const QByteArray &output)
     cleanWorkspace();
     m_sourcePath = m_pendingSourcePath;
     m_pendingSourcePath.clear();
-    m_sourceWidth = width;
-    m_sourceHeight = height;
+    m_rotationDegrees = rotation;
+    const bool transposed = rotation == 90 || rotation == 270;
+    m_frameWidth = transposed ? height : width;
+    m_frameHeight = transposed ? width : height;
+    m_sampleAspectRatio = stream.value(QStringLiteral("sample_aspect_ratio")).toString();
+    m_displayAspectRatio = stream.value(QStringLiteral("display_aspect_ratio")).toString();
+    double displayAspectRatio = 0.0;
+    if (parseAspectRatio(m_displayAspectRatio, &displayAspectRatio)) {
+        if (transposed) displayAspectRatio = 1.0 / displayAspectRatio;
+        m_sourceWidth = qMax(1, qRound(m_frameHeight * displayAspectRatio));
+    } else {
+        m_sourceWidth = m_frameWidth;
+    }
+    m_sourceHeight = m_frameHeight;
     m_durationMs = qRound64(durationSeconds * 1000.0);
+    appendDiagnostic(QStringLiteral("probe-complete"),
+                     QStringLiteral("source=%1; frame=%2x%3; display=%4x%5; rotation=%6; SAR=%7; DAR=%8; durationMs=%9")
+                         .arg(m_sourcePath).arg(m_frameWidth).arg(m_frameHeight)
+                         .arg(m_sourceWidth).arg(m_sourceHeight).arg(m_rotationDegrees)
+                         .arg(m_sampleAspectRatio.isEmpty() ? QStringLiteral("unknown") : m_sampleAspectRatio)
+                         .arg(m_displayAspectRatio.isEmpty() ? QStringLiteral("unknown") : m_displayAspectRatio)
+                         .arg(m_durationMs));
     m_segments.clear();
     setError({});
     setProgress(0, false);
@@ -515,13 +721,13 @@ bool SubtitleOcrController::setMinimumConfidence(double confidence)
 
 bool SubtitleOcrController::requestCropPreview(qint64 positionMs)
 {
-    if (m_processing || m_sourcePath.isEmpty() || m_sourceWidth <= 0 || m_sourceHeight <= 0) return false;
+    if (m_processing || m_sourcePath.isEmpty() || m_frameWidth <= 0 || m_frameHeight <= 0) return false;
     const MediaRuntimePaths media = MediaRuntimeLocator::resolve();
     if (!media.hasFfmpeg()) {
         setError(QStringLiteral("FFmpeg is required to preview the Subtitle OCR region."));
         return false;
     }
-    const QStringList crop = SubtitleOcrPipeline::ffmpegCropArguments(m_roi, m_sourceWidth, m_sourceHeight);
+    const QStringList crop = SubtitleOcrPipeline::ffmpegCropArguments(m_roi, m_frameWidth, m_frameHeight);
     if (crop.isEmpty()) {
         setError(QStringLiteral("Choose a valid Subtitle OCR region before previewing it."));
         return false;
@@ -534,7 +740,8 @@ bool SubtitleOcrController::requestCropPreview(qint64 positionMs)
     setPhase(QStringLiteral("previewing-crop"));
     setProgress(0, false);
     QStringList arguments{QStringLiteral("-hide_banner"), QStringLiteral("-loglevel"), QStringLiteral("error"),
-                          QStringLiteral("-ss"), ffmpegTime(qMin(positionMs, m_durationMs)),
+                          QStringLiteral("-ss"), ffmpegTime(qMin(positionMs,
+                                                                   SubtitleOcrPipeline::lastDecodableTimestamp(m_durationMs))),
                           QStringLiteral("-i"), m_sourcePath};
     arguments += crop;
     arguments += {QStringLiteral("-frames:v"), QStringLiteral("1"), QStringLiteral("-y"), m_cropPreviewPath};
@@ -545,7 +752,7 @@ bool SubtitleOcrController::requestCropPreview(qint64 positionMs)
 bool SubtitleOcrController::run()
 {
     if (m_processing) return false;
-    if (m_sourcePath.isEmpty() || m_sourceWidth <= 0 || m_sourceHeight <= 0 || m_durationMs <= 0) {
+    if (m_sourcePath.isEmpty() || m_frameWidth <= 0 || m_frameHeight <= 0 || m_durationMs <= 0) {
         setError(QStringLiteral("Choose and inspect a video before running Subtitle OCR."));
         return false;
     }
@@ -575,8 +782,8 @@ bool SubtitleOcrController::run()
         setError(QStringLiteral("FFmpeg is required to extract Subtitle OCR frames."));
         return false;
     }
-    if (SubtitleOcrPipeline::ffmpegCropArguments(m_roi, m_sourceWidth, m_sourceHeight).isEmpty()) {
-        setError(QStringLiteral("Choose a valid Subtitle OCR region before running."));
+    if (SubtitleOcrPipeline::ffmpegCropArguments(m_roi, m_frameWidth, m_frameHeight).isEmpty()) {
+        setError(QStringLiteral("Subtitle OCR region resolves to zero source pixels. Enlarge the region before running."));
         return false;
     }
     cleanWorkspace();
@@ -591,6 +798,8 @@ bool SubtitleOcrController::run()
     m_previousFrameHash.clear();
     m_previousText.clear();
     m_previousConfidence = 0.0;
+    m_lastFailedOperation = Operation::None;
+    emit frameRetryChanged();
     m_cancelRequested = false;
     setError({});
     setProcessing(true);
@@ -606,6 +815,36 @@ bool SubtitleOcrController::run()
 bool SubtitleOcrController::retry()
 {
     return run();
+}
+
+bool SubtitleOcrController::retryFrameExtraction()
+{
+    if (!canRetryFrameExtraction()) {
+        setError(QStringLiteral("There is no failed Subtitle OCR frame extraction available to retry."));
+        return false;
+    }
+    const MediaRuntimePaths media = MediaRuntimeLocator::resolve();
+    const QStringList crop = SubtitleOcrPipeline::ffmpegCropArguments(
+        m_roi, m_frameWidth, m_frameHeight);
+    if (!media.hasFfmpeg() || crop.isEmpty()) {
+        setError(QStringLiteral("Subtitle OCR frame extraction is no longer configured."));
+        return false;
+    }
+    cleanWorkspace();
+    if (!ensureWorkspace()) return false;
+    m_lastFailedOperation = Operation::None;
+    emit frameRetryChanged();
+    m_cancelRequested = false;
+    setError({});
+    setProcessing(true);
+    setPhase(QStringLiteral("retrying-frame-extraction"));
+    setProgress(qRound(100.0 * m_sampleIndex / m_samples.size()), true);
+    appendDiagnostic(QStringLiteral("frame-extraction-retry"),
+                     QStringLiteral("sample=%1/%2; source=%3; ffmpeg=%4")
+                         .arg(m_sampleIndex + 1).arg(m_samples.size())
+                         .arg(m_sourcePath, media.ffmpeg));
+    beginNextSample();
+    return true;
 }
 
 void SubtitleOcrController::beginOcrSamples()
@@ -626,15 +865,17 @@ void SubtitleOcrController::beginNextSample()
         return;
     }
     const MediaRuntimePaths media = MediaRuntimeLocator::resolve();
-    const QStringList crop = SubtitleOcrPipeline::ffmpegCropArguments(m_roi, m_sourceWidth, m_sourceHeight);
+    const QStringList crop = SubtitleOcrPipeline::ffmpegCropArguments(m_roi, m_frameWidth, m_frameHeight);
     if (!media.hasFfmpeg() || crop.isEmpty()) {
-        fail(QStringLiteral("Subtitle OCR frame extraction is no longer configured."));
+        fail(QStringLiteral("Subtitle OCR frame extraction is no longer configured."), Operation::ExtractFrame);
         return;
     }
     const qint64 timestampMs = m_samples.at(m_sampleIndex);
     m_currentFramePath = QDir(m_workspacePath).filePath(
         QStringLiteral("frame-%1.png").arg(m_sampleIndex, 6, 10, QLatin1Char('0')));
+    m_currentCrop = SubtitleOcrPipeline::sourceRect(m_roi, m_frameWidth, m_frameHeight);
     setPhase(QStringLiteral("extracting frame %1/%2").arg(m_sampleIndex + 1).arg(m_samples.size()));
+    recordFrameExtractionStart(media, timestampMs, m_currentCrop);
     QStringList arguments{QStringLiteral("-hide_banner"), QStringLiteral("-loglevel"), QStringLiteral("error"),
                           QStringLiteral("-ss"), ffmpegTime(timestampMs), QStringLiteral("-i"), m_sourcePath};
     arguments += crop;
@@ -719,9 +960,28 @@ void SubtitleOcrController::onColabRecognitionFailed(const QString &message)
 void SubtitleOcrController::onProcessError(QProcess::ProcessError error)
 {
     if (!m_processing || error == QProcess::Crashed) return;
-    if (error == QProcess::FailedToStart) {
-        fail(QStringLiteral("Subtitle OCR process could not be started. Check the managed runtime installation."));
+    if (m_operation == Operation::ExtractFrame) {
+        appendDiagnostic(QStringLiteral("frame-extraction-process-error"),
+                         QStringLiteral("ffmpeg=%1; output=%2; processError=%3; detail=%4")
+                             .arg(m_process.program(), m_currentFramePath)
+                             .arg(static_cast<int>(error)).arg(m_process.errorString()));
     }
+    if (error == QProcess::FailedToStart) {
+        fail(QStringLiteral("Subtitle OCR process could not be started. Check the managed runtime installation."),
+             m_operation);
+    }
+}
+
+void SubtitleOcrController::onFrameExtractionTimeout()
+{
+    if (!m_processing || m_operation != Operation::ExtractFrame) return;
+    appendDiagnostic(QStringLiteral("frame-extraction-timeout"),
+                     QStringLiteral("ffmpeg=%1; output=%2; timeoutMs=%3; state=%4")
+                         .arg(m_process.program(), m_currentFramePath)
+                         .arg(frameExtractionTimeoutMs())
+                         .arg(static_cast<int>(m_process.state())));
+    m_frameExtractionTimedOut = true;
+    if (m_process.state() != QProcess::NotRunning) m_process.kill();
 }
 
 void SubtitleOcrController::onProcessFinished(int exitCode, QProcess::ExitStatus status)
@@ -730,9 +990,32 @@ void SubtitleOcrController::onProcessFinished(int exitCode, QProcess::ExitStatus
     const QByteArray output = m_process.readAllStandardOutput();
     const QByteArray standardError = m_process.readAllStandardError();
     const Operation operation = m_operation;
+    if (operation == Operation::ExtractFrame) m_frameExtractionTimeout.stop();
     m_operation = Operation::None;
+    if (operation == Operation::ExtractFrame) {
+        appendDiagnostic(QStringLiteral("frame-extraction-exit"),
+                         QStringLiteral("ffmpeg=%1; output=%2; exitCode=%3; exitStatus=%4; stderr=%5")
+                             .arg(m_process.program(), m_currentFramePath).arg(exitCode)
+                             .arg(status == QProcess::NormalExit ? QStringLiteral("normal")
+                                                                  : QStringLiteral("crashed"))
+                             .arg(boundedDiagnosticText(QString::fromUtf8(standardError))));
+    }
+    if (operation == Operation::Probe) {
+        appendDiagnostic(QStringLiteral("probe-exit"),
+                         QStringLiteral("ffprobe=%1; exitCode=%2; exitStatus=%3; stderr=%4")
+                             .arg(m_process.program()).arg(exitCode)
+                             .arg(status == QProcess::NormalExit ? QStringLiteral("normal")
+                                                                  : QStringLiteral("crashed"))
+                             .arg(boundedDiagnosticText(QString::fromUtf8(standardError))));
+    }
     if (m_cancelRequested) {
         completeCancellation();
+        return;
+    }
+    if (operation == Operation::ExtractFrame && m_frameExtractionTimedOut) {
+        m_frameExtractionTimedOut = false;
+        fail(QStringLiteral("Subtitle OCR frame extraction timed out. Use Retry frame extraction or Open diagnostics."),
+             operation);
         return;
     }
     if (status != QProcess::NormalExit || exitCode != 0) {
@@ -741,7 +1024,7 @@ void SubtitleOcrController::onProcessFinished(int exitCode, QProcess::ExitStatus
             : operation == Operation::VerifyLanguage ? QStringLiteral("Tesseract language check")
             : operation == Operation::ExtractFrame ? QStringLiteral("frame extraction")
             : QStringLiteral("Tesseract recognition");
-        fail(processFailure(stage, standardError));
+        fail(processFailure(stage, standardError), operation);
         return;
     }
     if (operation == Operation::Probe) {
@@ -750,7 +1033,7 @@ void SubtitleOcrController::onProcessFinished(int exitCode, QProcess::ExitStatus
     }
     if (operation == Operation::CropPreview) {
         if (!QFileInfo(m_cropPreviewPath).isFile() || QFileInfo(m_cropPreviewPath).size() <= 0) {
-            fail(QStringLiteral("Subtitle OCR crop preview did not produce an image."));
+            fail(QStringLiteral("Subtitle OCR crop preview did not produce an image."), operation);
             return;
         }
         setProcessing(false);
@@ -768,20 +1051,21 @@ void SubtitleOcrController::onProcessFinished(int exitCode, QProcess::ExitStatus
         }
         if (!missingLanguages.isEmpty()) {
             fail(QStringLiteral("The selected Tesseract language data is not installed: %1. Install the matching traineddata file, refresh the OCR runtime, and try again.")
-                 .arg(missingLanguages.join(QStringLiteral(", "))));
+                 .arg(missingLanguages.join(QStringLiteral(", "))), operation);
             return;
         }
         beginOcrSamples();
         return;
     }
     if (operation == Operation::ExtractFrame) {
-        QFile frame(m_currentFramePath);
-        if (!frame.open(QIODevice::ReadOnly)) {
-            fail(QStringLiteral("Subtitle OCR frame extraction did not produce a readable crop."));
+        QByteArray hash;
+        QString validationError;
+        if (!validateCurrentFrame(&hash, &validationError)) {
+            fail(QStringLiteral("Subtitle OCR frame extraction did not produce a readable PNG crop: %1. "
+                                "Use Retry frame extraction or Open diagnostics.")
+                     .arg(validationError), operation);
             return;
         }
-        const QByteArray hash = QCryptographicHash::hash(frame.readAll(), QCryptographicHash::Sha256);
-        frame.close();
         if (!m_previousFrameHash.isEmpty() && hash == m_previousFrameHash) {
             m_observations.append({m_samples.at(m_sampleIndex), m_previousText, m_previousConfidence});
             ++m_sampleIndex;
@@ -807,8 +1091,12 @@ void SubtitleOcrController::onProcessFinished(int exitCode, QProcess::ExitStatus
 
 void SubtitleOcrController::completeRun()
 {
-    m_segments = segmentsToVariant(SubtitleOcrPipeline::mergeObservations(
-        m_observations, m_sampleIntervalMs, m_minimumConfidence));
+    QVector<SubtitleOcrSegment> merged = SubtitleOcrPipeline::mergeObservations(
+        m_observations, m_sampleIntervalMs, m_minimumConfidence);
+    for (SubtitleOcrSegment &segment : merged) {
+        segment.endMs = qMin(segment.endMs, m_durationMs);
+    }
+    m_segments = segmentsToVariant(merged);
     cleanWorkspace();
     setProcessing(false);
     setProgress(100, true);
@@ -819,6 +1107,8 @@ void SubtitleOcrController::completeRun()
 
 void SubtitleOcrController::completeCancellation()
 {
+    m_frameExtractionTimeout.stop();
+    m_frameExtractionTimedOut = false;
     m_cancelRequested = false;
     m_operation = Operation::None;
     m_pendingSourcePath.clear();
@@ -829,19 +1119,25 @@ void SubtitleOcrController::completeCancellation()
     setError({});
 }
 
-void SubtitleOcrController::fail(const QString &message)
+void SubtitleOcrController::fail(const QString &message, Operation failedOperation)
 {
+    const Operation recordedOperation = failedOperation == Operation::None
+        ? m_operation : failedOperation;
+    m_frameExtractionTimeout.stop();
+    m_frameExtractionTimedOut = false;
     if (m_process.state() != QProcess::NotRunning) m_process.kill();
     if (m_operation == Operation::RecognizeColabFrame && m_colabRunner)
         QMetaObject::invokeMethod(m_colabRunner, "cancel", Qt::QueuedConnection);
     m_operation = Operation::None;
     m_cancelRequested = false;
     m_pendingSourcePath.clear();
-    cleanWorkspace();
+    m_lastFailedOperation = recordedOperation;
+    cleanWorkspace(recordedOperation == Operation::ExtractFrame);
     setProcessing(false);
     setProgress(0, false);
     setPhase(QStringLiteral("error"));
     setError(message);
+    emit frameRetryChanged();
 }
 
 void SubtitleOcrController::cancel()
@@ -957,6 +1253,11 @@ bool SubtitleOcrController::saveProject(const QString &path)
                         {QStringLiteral("sourcePath"), m_sourcePath},
                         {QStringLiteral("sourceWidth"), m_sourceWidth},
                         {QStringLiteral("sourceHeight"), m_sourceHeight},
+                        {QStringLiteral("frameWidth"), m_frameWidth},
+                        {QStringLiteral("frameHeight"), m_frameHeight},
+                        {QStringLiteral("rotationDegrees"), m_rotationDegrees},
+                        {QStringLiteral("sampleAspectRatio"), m_sampleAspectRatio},
+                        {QStringLiteral("displayAspectRatio"), m_displayAspectRatio},
                         {QStringLiteral("durationMs"), static_cast<double>(m_durationMs)},
                         {QStringLiteral("roi"), QJsonObject{{QStringLiteral("x"), m_roi.x},
                                                             {QStringLiteral("y"), m_roi.y},
@@ -996,6 +1297,11 @@ bool SubtitleOcrController::applyProject(const QVariantMap &project, const QStri
                              roiMap.value(QStringLiteral("height")).toDouble()};
     const int width = project.value(QStringLiteral("sourceWidth")).toInt();
     const int height = project.value(QStringLiteral("sourceHeight")).toInt();
+    const int frameWidth = project.value(QStringLiteral("frameWidth"), width).toInt();
+    const int frameHeight = project.value(QStringLiteral("frameHeight"), height).toInt();
+    const int rotation = normalizedRotation(project.value(QStringLiteral("rotationDegrees")).toInt());
+    const QString sampleAspectRatio = project.value(QStringLiteral("sampleAspectRatio")).toString();
+    const QString displayAspectRatio = project.value(QStringLiteral("displayAspectRatio")).toString();
     const qint64 duration = project.value(QStringLiteral("durationMs")).toLongLong();
     const QString language = project.value(QStringLiteral("ocrLanguage")).toString().trimmed();
     const QString executionRoute = project.value(QStringLiteral("executionRoute"),
@@ -1008,7 +1314,7 @@ bool SubtitleOcrController::applyProject(const QVariantMap &project, const QStri
     const QVector<SubtitleOcrSegment> parsed = segmentsFromVariant(
         project.value(QStringLiteral("segments")).toList(), &segmentsError);
     if (version != kSubtitleOcrProjectVersion || source.isEmpty() || !QFileInfo(source).isFile()
-        || width <= 0 || height <= 0 || duration <= 0 || !roi.isValid() || language.isEmpty()
+        || width <= 0 || height <= 0 || frameWidth <= 0 || frameHeight <= 0 || duration <= 0 || !roi.isValid() || language.isEmpty()
         || interval < 100 || interval > 30000 || confidence < 0.0 || confidence > 1.0
         || (executionRoute != QStringLiteral("local-cpu") && executionRoute != QStringLiteral("colab-gpu"))
         || colabModelId != kColabSubtitleOcrModel
@@ -1020,6 +1326,11 @@ bool SubtitleOcrController::applyProject(const QVariantMap &project, const QStri
     m_sourcePath = QFileInfo(source).absoluteFilePath();
     m_sourceWidth = width;
     m_sourceHeight = height;
+    m_frameWidth = frameWidth;
+    m_frameHeight = frameHeight;
+    m_rotationDegrees = rotation;
+    m_sampleAspectRatio = sampleAspectRatio;
+    m_displayAspectRatio = displayAspectRatio;
     m_durationMs = duration;
     m_roi = roi;
     m_ocrLanguage = language;

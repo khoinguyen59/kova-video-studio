@@ -11,6 +11,7 @@ private slots:
     void mapsNormalizedRoiToSourcePixels();
     void buildsPortableFfmpegCropArguments();
     void samplesDurationWithoutDuplicatingTheFinalFrame();
+    void rejectsNormalizedRegionsThatRoundToZeroPixels();
     void mergesRepeatedTextAndSkipsLowConfidenceObservations();
     void parsesMultilineUnicodeTesseractTsv();
     void exportsStableSrtTiming();

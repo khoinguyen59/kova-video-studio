@@ -387,6 +387,8 @@ endif()
 get_filename_component(QT_BIN_DIR "${QT6_CORE_DLL}" DIRECTORY)
 get_filename_component(QT_ROOT_DIR "${QT_BIN_DIR}" DIRECTORY)
 set(QT_PLUGIN_DIR "${QT_ROOT_DIR}/plugins")
+set(LASTUDIO_SUBTITLE_OCR_TEST_MEDIA_RUNTIME_ROOT
+    "${CMAKE_BINARY_DIR}/subtitle-ocr-frame-runtime/media-tools")
 
 set(LASTUDIO_TEST_SUITES
     TestFileAccessService
@@ -429,7 +431,7 @@ foreach(LASTUDIO_TEST_SUITE IN LISTS LASTUDIO_TEST_SUITES)
     add_test(NAME ${LASTUDIO_TEST_SUITE} COMMAND LAStudioUnitTests)
     set_tests_properties(${LASTUDIO_TEST_SUITE} PROPERTIES
         WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
-        ENVIRONMENT "LASTUDIO_TEST_SUITE=${LASTUDIO_TEST_SUITE};QT_PLUGIN_PATH=${QT_PLUGIN_DIR};QT_QPA_PLATFORM=offscreen"
+        ENVIRONMENT "LASTUDIO_TEST_SUITE=${LASTUDIO_TEST_SUITE};LASTUDIO_TEST_MEDIA_RUNTIME_ROOT=${LASTUDIO_SUBTITLE_OCR_TEST_MEDIA_RUNTIME_ROOT};QT_PLUGIN_PATH=${QT_PLUGIN_DIR};QT_QPA_PLATFORM=offscreen"
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${QT_BIN_DIR}"
     )
 endforeach()
@@ -437,6 +439,18 @@ endforeach()
 if(WIN32)
     find_program(POWERSHELL_EXECUTABLE NAMES powershell.exe powershell)
     if(POWERSHELL_EXECUTABLE)
+        add_test(NAME PrepareSubtitleOcrFrameRuntime
+            COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -ExecutionPolicy Bypass
+                -File "${CMAKE_CURRENT_SOURCE_DIR}/prepare_subtitle_ocr_frame_runtime.ps1"
+                -RepositoryRoot "${CMAKE_SOURCE_DIR}"
+                -DeployRoot "${CMAKE_BINARY_DIR}/subtitle-ocr-frame-runtime")
+        set_tests_properties(PrepareSubtitleOcrFrameRuntime PROPERTIES
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+            FIXTURES_SETUP SubtitleOcrFrameRuntime
+            TIMEOUT 180)
+        set_tests_properties(TestSubtitleOcrController PROPERTIES
+            FIXTURES_REQUIRED SubtitleOcrFrameRuntime)
+
         add_test(NAME RemoteLivePreflightContract
             COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -ExecutionPolicy Bypass
                 -File "${CMAKE_CURRENT_SOURCE_DIR}/test_RemoteLivePreflightContract.ps1")

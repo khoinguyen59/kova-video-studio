@@ -368,6 +368,10 @@ void TestSubtitleOcrRuntimeService::qmlRouteRoiAndManagedRuntimeControlsAreWired
     QVERIFY(pageSource.contains(QStringLiteral("runtime.cancelInstallation()")));
     QVERIFY(pageSource.contains(QStringLiteral("runtime.cleanFailedDownload()")));
     QVERIFY(pageSource.contains(QStringLiteral("subtitleOcrOpenRuntimeDiagnosticsButton")));
+    QVERIFY(pageSource.contains(QStringLiteral("subtitleOcrRetryFrameExtractionButton")));
+    QVERIFY(pageSource.contains(QStringLiteral("subtitleOcrOpenDiagnosticsButton")));
+    QVERIFY(pageSource.contains(QStringLiteral("Retry frame extraction")));
+    QVERIFY(pageSource.contains(QStringLiteral("subtitleOcrDiagnosticsDialog")));
     QVERIFY(pageSource.contains(QStringLiteral("subtitleOcrCleanFailedRuntimeDownloadButton")));
     QVERIFY(pageSource.contains(QStringLiteral("Execution route: Colab GPU")));
     QVERIFY(pageSource.contains(QStringLiteral("Local Tesseract is not started or used for this run")));
@@ -389,6 +393,9 @@ void TestSubtitleOcrRuntimeService::qmlRouteRoiAndManagedRuntimeControlsAreWired
     QVERIFY(runtimeServiceSource.contains(QStringLiteral("Tesseract did not report %1")));
     QVERIFY(controllerSource.contains(QStringLiteral("tesseractDataArguments")));
     QVERIFY(controllerSource.contains(QStringLiteral("tesseractProcessEnvironment")));
+    QVERIFY(controllerSource.contains(QStringLiteral("frame-extraction-output")));
+    QVERIFY(controllerSource.contains(QStringLiteral("frame-extraction-timeout")));
+    QVERIFY(controllerSource.contains(QStringLiteral("lastDecodableTimestamp")));
     QVERIFY(controllerSource.contains(QStringLiteral("RecognizeColabFrame")));
     QVERIFY(controllerSource.contains(QStringLiteral("hasVerifiedRoute")));
     QVERIFY(controllerSource.contains(QStringLiteral("croppedFrame")));

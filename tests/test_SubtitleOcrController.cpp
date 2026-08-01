@@ -12,6 +12,8 @@
 #include <QDir>
 #include <QFile>
 #include <QHostAddress>
+#include <QImageReader>
+#include <QProcess>
 #include <QScopeGuard>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -40,12 +42,14 @@ struct OcrRuntimeEnvironment {
     QByteArray data = qgetenv("LASTUDIO_DATA_DIR");
     QByteArray tessdataPrefix = qgetenv("TESSDATA_PREFIX");
     QByteArray expectedTessdata = qgetenv("LASTUDIO_EXPECTED_TESSDATA");
+    QByteArray frameTimeout = qgetenv("LASTUDIO_TEST_SUBTITLE_OCR_FRAME_TIMEOUT_MS");
     bool hadFfmpeg = qEnvironmentVariableIsSet("LASTUDIO_FFMPEG");
     bool hadFfprobe = qEnvironmentVariableIsSet("LASTUDIO_FFPROBE");
     bool hadTesseract = qEnvironmentVariableIsSet("LASTUDIO_TESSERACT");
     bool hadData = qEnvironmentVariableIsSet("LASTUDIO_DATA_DIR");
     bool hadTessdataPrefix = qEnvironmentVariableIsSet("TESSDATA_PREFIX");
     bool hadExpectedTessdata = qEnvironmentVariableIsSet("LASTUDIO_EXPECTED_TESSDATA");
+    bool hadFrameTimeout = qEnvironmentVariableIsSet("LASTUDIO_TEST_SUBTITLE_OCR_FRAME_TIMEOUT_MS");
 
     ~OcrRuntimeEnvironment()
     {
@@ -55,6 +59,7 @@ struct OcrRuntimeEnvironment {
         if (hadData) qputenv("LASTUDIO_DATA_DIR", data); else qunsetenv("LASTUDIO_DATA_DIR");
         if (hadTessdataPrefix) qputenv("TESSDATA_PREFIX", tessdataPrefix); else qunsetenv("TESSDATA_PREFIX");
         if (hadExpectedTessdata) qputenv("LASTUDIO_EXPECTED_TESSDATA", expectedTessdata); else qunsetenv("LASTUDIO_EXPECTED_TESSDATA");
+        if (hadFrameTimeout) qputenv("LASTUDIO_TEST_SUBTITLE_OCR_FRAME_TIMEOUT_MS", frameTimeout); else qunsetenv("LASTUDIO_TEST_SUBTITLE_OCR_FRAME_TIMEOUT_MS");
     }
 };
 
@@ -64,6 +69,7 @@ struct OcrFixtures {
         , ffprobe(directory.filePath(QStringLiteral("ffprobe.cmd")))
         , ffmpeg(directory.filePath(QStringLiteral("ffmpeg.cmd")))
         , slowFfmpeg(directory.filePath(QStringLiteral("slow-ffmpeg.cmd")))
+        , noOutputFfmpeg(directory.filePath(QStringLiteral("no-output-ffmpeg.cmd")))
         , tesseract(directory.filePath(QStringLiteral("tesseract.cmd")))
     {
     }
@@ -72,15 +78,17 @@ struct OcrFixtures {
     {
         return writeFile(source, QByteArrayLiteral("not-a-real-video-fixture"))
             && writeFile(ffprobe, QByteArrayLiteral("@echo off\r\necho {\"streams\":[{\"width\":1920,\"height\":1080}],\"format\":{\"duration\":\"4.0\"}}\r\n"))
-            && writeFile(ffmpeg, QByteArrayLiteral("@echo off\r\nset \"last=\"\r\n:next\r\nif \"%~1\"==\"\" goto done\r\nset \"last=%~1\"\r\nshift\r\ngoto next\r\n:done\r\n> \"%last%\" echo same-cropped-frame\r\n"))
-            && writeFile(slowFfmpeg, QByteArrayLiteral("@echo off\r\nping 127.0.0.1 -n 4 > nul\r\nset \"last=\"\r\n:next\r\nif \"%~1\"==\"\" goto done\r\nset \"last=%~1\"\r\nshift\r\ngoto next\r\n:done\r\n> \"%last%\" echo delayed-cropped-frame\r\n"))
-            && writeFile(tesseract, QByteArrayLiteral("@echo off\r\nif /I \"%~1\"==\"--list-langs\" (\r\n  echo List of available languages in C:\\fixture\\tessdata ^(1^):\r\n  echo eng\r\n  exit /b 0\r\n)\r\necho level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\r\necho 5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t96\tReviewed\r\necho 5\t1\t1\t1\t1\t2\t10\t0\t10\t10\t94\tsubtitle\r\n"));
+            && writeFile(ffmpeg, QByteArrayLiteral("@echo off\r\nset \"last=\"\r\n:next\r\nif \"%~1\"==\"\" goto done\r\nset \"last=%~1\"\r\nshift\r\ngoto next\r\n:done\r\nset \"LASTUDIO_TEST_FRAME=%last%\"\r\npowershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"$bytes=[Convert]::FromBase64String('iVBORw0KGgoAAAANSUhEUgAAAUAAAAASCAIAAAClw5C1AAAACXBIWXMAAAABAAAAAQBPJcTWAAAAV0lEQVR4nO3TsQnAMBDAwDx4/5Gf7ODGCO4mUKOZmQ9oOrv7ugG4dF4HAPcMDGEGhjADQ5iBIczAEGZgCDMwhBkYwgwMYQaGMANDmIEhzMAQZmAIMzCE/UUWA0OS8G1mAAAAAElFTkSuQmCC'); [IO.File]::WriteAllBytes($env:LASTUDIO_TEST_FRAME, $bytes)\"\r\n"))
+            && writeFile(slowFfmpeg, QByteArrayLiteral("@echo off\r\nping 127.0.0.1 -n 4 > nul\r\nset \"last=\"\r\n:next\r\nif \"%~1\"==\"\" goto done\r\nset \"last=%~1\"\r\nshift\r\ngoto next\r\n:done\r\nset \"LASTUDIO_TEST_FRAME=%last%\"\r\npowershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"$bytes=[Convert]::FromBase64String('iVBORw0KGgoAAAANSUhEUgAAAUAAAAASCAIAAAClw5C1AAAACXBIWXMAAAABAAAAAQBPJcTWAAAAV0lEQVR4nO3TsQnAMBDAwDx4/5Gf7ODGCO4mUKOZmQ9oOrv7ugG4dF4HAPcMDGEGhjADQ5iBIczAEGZgCDMwhBkYwgwMYQaGMANDmIEhzMAQZmAIMzCE/UUWA0OS8G1mAAAAAElFTkSuQmCC'); [IO.File]::WriteAllBytes($env:LASTUDIO_TEST_FRAME, $bytes)\"\r\n"))
+            && writeFile(noOutputFfmpeg, QByteArrayLiteral("@echo off\r\nexit /b 0\r\n"))
+            && writeFile(tesseract, QByteArrayLiteral("@echo off\r\nif /I \"%~1\"==\"--list-langs\" (\r\n  echo List of available languages in C:\\fixture\\tessdata ^(2^):\r\n  echo eng\r\n  echo chi_sim\r\n  echo chi_tra\r\n  exit /b 0\r\n)\r\necho level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\r\necho 5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t96\tReviewed\r\necho 5\t1\t1\t1\t1\t2\t10\t0\t10\t10\t94\tsubtitle\r\n"));
     }
 
     QString source;
     QString ffprobe;
     QString ffmpeg;
     QString slowFfmpeg;
+    QString noOutputFfmpeg;
     QString tesseract;
 };
 
@@ -383,14 +391,15 @@ void TestSubtitleOcrController::runsManagedAdapterPersistsReviewedSegmentsAndExp
 
     QVERIFY(controller.run());
     QTRY_VERIFY_WITH_TIMEOUT(!controller.processing(), 10000);
-    QCOMPARE(controller.phase(), QStringLiteral("completed"));
+    QVERIFY2(controller.phase() == QStringLiteral("completed"),
+             qPrintable(controller.error() + QStringLiteral("\n") + controller.diagnostics()));
     QCOMPARE(controller.progress(), 100);
     QVERIFY(controller.progressAvailable());
     QCOMPARE(controller.segments().size(), 1);
     const QVariantMap segment = controller.segments().constFirst().toMap();
     QCOMPARE(segment.value(QStringLiteral("text")).toString(), QStringLiteral("Reviewed subtitle"));
     QCOMPARE(segment.value(QStringLiteral("startMs")).toLongLong(), qint64(0));
-    QCOMPARE(segment.value(QStringLiteral("endMs")).toLongLong(), qint64(5000));
+    QCOMPARE(segment.value(QStringLiteral("endMs")).toLongLong(), qint64(4000));
     QVERIFY(segment.value(QStringLiteral("confidence")).toDouble() > 0.90);
 
     controller.updateSegment(0, {{QStringLiteral("text"), QStringLiteral("Edited subtitle")}});
@@ -466,6 +475,162 @@ void TestSubtitleOcrController::cancelsAndRetriesWithoutLeavingOcrStaging()
     QTRY_VERIFY_WITH_TIMEOUT(!controller.processing(), 10000);
     QCOMPARE(controller.phase(), QStringLiteral("completed"));
     QCOMPARE(controller.segments().size(), 1);
+}
+
+void TestSubtitleOcrController::rejectsUnreadableFrameAndRetriesTheSameSample()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    OcrRuntimeEnvironment environment;
+    OcrFixtures fixtures(directory);
+    QVERIFY(fixtures.create());
+    configure(fixtures);
+
+    SubtitleOcrController controller(nullptr, nullptr);
+    loadFixture(controller, fixtures.source);
+    qputenv("LASTUDIO_FFMPEG", fixtures.noOutputFfmpeg.toUtf8());
+    QVERIFY(controller.run());
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.processing(), 5000);
+    QCOMPARE(controller.phase(), QStringLiteral("error"));
+    QVERIFY(controller.error().contains(QStringLiteral("readable PNG crop"), Qt::CaseInsensitive));
+    QVERIFY(controller.canRetryFrameExtraction());
+    QVERIFY(controller.diagnostics().contains(QStringLiteral("frame-extraction-exit")));
+    QVERIFY(controller.diagnostics().contains(QStringLiteral("exists=false")));
+    QVERIFY(controller.diagnostics().contains(QStringLiteral("workspace-cleanup")));
+    QCOMPARE(controller.sourcePath(), QFileInfo(fixtures.source).absoluteFilePath());
+    QCOMPARE(controller.ocrLanguage(), QStringLiteral("eng"));
+    QCOMPARE(controller.roiX(), 0.10);
+
+    qputenv("LASTUDIO_FFMPEG", fixtures.ffmpeg.toUtf8());
+    QVERIFY(controller.retryFrameExtraction());
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.processing(), 10000);
+    QCOMPARE(controller.phase(), QStringLiteral("completed"));
+    QCOMPARE(controller.segments().size(), 1);
+}
+
+void TestSubtitleOcrController::timesOutFrameExtractionAndKeepsDiagnosticsForRetry()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    OcrRuntimeEnvironment environment;
+    OcrFixtures fixtures(directory);
+    QVERIFY(fixtures.create());
+    configure(fixtures);
+
+    SubtitleOcrController controller(nullptr, nullptr);
+    loadFixture(controller, fixtures.source);
+    qputenv("LASTUDIO_FFMPEG", fixtures.slowFfmpeg.toUtf8());
+    qputenv("LASTUDIO_TEST_SUBTITLE_OCR_FRAME_TIMEOUT_MS", "100");
+    QVERIFY(controller.run());
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.processing(), 5000);
+    QCOMPARE(controller.phase(), QStringLiteral("error"));
+    QVERIFY(controller.error().contains(QStringLiteral("timed out"), Qt::CaseInsensitive));
+    QVERIFY(controller.canRetryFrameExtraction());
+    QVERIFY(controller.diagnostics().contains(QStringLiteral("frame-extraction-timeout")));
+    QVERIFY(controller.diagnostics().contains(QStringLiteral("workspace-cleanup")));
+
+    qunsetenv("LASTUDIO_TEST_SUBTITLE_OCR_FRAME_TIMEOUT_MS");
+    qputenv("LASTUDIO_FFMPEG", fixtures.ffmpeg.toUtf8());
+    QVERIFY(controller.retryFrameExtraction());
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.processing(), 10000);
+    QCOMPARE(controller.phase(), QStringLiteral("completed"));
+}
+
+void TestSubtitleOcrController::extractsBottomRoiWithTheStagedPackagedFfmpegRuntime()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    OcrRuntimeEnvironment environment;
+    OcrFixtures fixtures(directory);
+    QVERIFY(fixtures.create());
+
+    const QString runtimeRoot = qEnvironmentVariable("LASTUDIO_TEST_MEDIA_RUNTIME_ROOT");
+    const QString ffmpeg = QDir(runtimeRoot).filePath(QStringLiteral("ffmpeg.exe"));
+    const QString ffprobe = QDir(runtimeRoot).filePath(QStringLiteral("ffprobe.exe"));
+    QVERIFY2(QFileInfo(ffmpeg).isExecutable(), qPrintable(QStringLiteral("Missing staged package FFmpeg: %1").arg(ffmpeg)));
+    QVERIFY2(QFileInfo(ffprobe).isExecutable(), qPrintable(QStringLiteral("Missing staged package FFprobe: %1").arg(ffprobe)));
+
+    const QString source = directory.filePath(QString::fromUtf8("subtitle source Unicode-\xC4\x91.mp4"));
+    QProcess generator;
+    generator.setProgram(ffmpeg);
+    generator.setArguments({QStringLiteral("-hide_banner"), QStringLiteral("-loglevel"), QStringLiteral("error"),
+                            QStringLiteral("-f"), QStringLiteral("lavfi"),
+                            QStringLiteral("-i"), QStringLiteral("color=c=black:s=320x180:r=25:d=110"),
+                            QStringLiteral("-vf"), QStringLiteral("drawbox=x=0:y=159:w=320:h=19:color=white:t=fill"),
+                            QStringLiteral("-c:v"), QStringLiteral("mpeg4"), QStringLiteral("-q:v"),
+                            QStringLiteral("5"), QStringLiteral("-y"), source});
+    generator.start();
+    QVERIFY2(generator.waitForFinished(30000), qPrintable(generator.errorString()));
+    QVERIFY2(generator.exitCode() == 0, generator.readAllStandardError().constData());
+    QVERIFY(QFileInfo(source).isFile());
+
+    qputenv("LASTUDIO_FFMPEG", ffmpeg.toUtf8());
+    qputenv("LASTUDIO_FFPROBE", ffprobe.toUtf8());
+    qputenv("LASTUDIO_TESSERACT", fixtures.tesseract.toUtf8());
+    SubtitleOcrController controller(nullptr, nullptr);
+    QVERIFY(controller.loadSource(source));
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.processing(), 10000);
+    QCOMPARE(controller.phase(), QStringLiteral("ready"));
+    QCOMPARE(controller.sourceWidth(), 320);
+    QCOMPARE(controller.sourceHeight(), 180);
+    QVERIFY(controller.durationMs() >= 109000);
+    QVERIFY(controller.setOcrLanguage(QStringLiteral("chi_sim")));
+    QVERIFY(controller.setRoi(0.0, 0.883, 1.0, 0.105));
+    QVERIFY(controller.requestCropPreview(108000));
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.processing(), 10000);
+    QImageReader preview(controller.cropPreviewUrl().toLocalFile());
+    const QImage previewImage = preview.read();
+    QVERIFY2(!previewImage.isNull(), qPrintable(preview.errorString()));
+    QCOMPARE(previewImage.width(), 320);
+    QCOMPARE(previewImage.height(), 19);
+
+    QVERIFY(controller.setSampleIntervalMs(30000));
+    QVERIFY(controller.run());
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.processing(), 30000);
+    QVERIFY2(controller.phase() == QStringLiteral("completed"),
+             qPrintable(controller.error() + QStringLiteral("\n") + controller.diagnostics()));
+    QCOMPARE(controller.progress(), 100);
+    QVERIFY(controller.diagnostics().contains(QStringLiteral("ffmpeg=%1").arg(ffmpeg)));
+    QVERIFY(controller.diagnostics().contains(QStringLiteral("timestampMs=109000")));
+    QVERIFY(controller.diagnostics().contains(QStringLiteral("normalizedRoi=x=0.000000 y=0.883000 w=1.000000 h=0.105000")));
+    QVERIFY(controller.diagnostics().contains(QStringLiteral("pixelCrop=x=0 y=159 w=320 h=19")));
+    QVERIFY(controller.diagnostics().contains(QStringLiteral("result=readable")));
+    QVERIFY(controller.diagnostics().contains(QStringLiteral("workspace-cleanup")));
+
+    QVERIFY(controller.setRoi(0.0, 0.883, 0.01, 0.01));
+    QVERIFY(controller.requestCropPreview(108000));
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.processing(), 10000);
+    QImageReader smallPreview(controller.cropPreviewUrl().toLocalFile());
+    const QImage smallImage = smallPreview.read();
+    QVERIFY2(!smallImage.isNull(), qPrintable(smallPreview.errorString()));
+    QCOMPARE(smallImage.width(), 3);
+    QCOMPARE(smallImage.height(), 2);
+
+    const QString rotatedSource = directory.filePath(QStringLiteral("portrait rotated subtitle.mp4"));
+    QProcess rotate;
+    rotate.setProgram(ffmpeg);
+    rotate.setArguments({QStringLiteral("-hide_banner"), QStringLiteral("-loglevel"), QStringLiteral("error"),
+                         QStringLiteral("-display_rotation:v"), QStringLiteral("90"),
+                         QStringLiteral("-i"), source, QStringLiteral("-c"), QStringLiteral("copy"),
+                         QStringLiteral("-y"), rotatedSource});
+    rotate.start();
+    QVERIFY2(rotate.waitForFinished(30000), qPrintable(rotate.errorString()));
+    QVERIFY2(rotate.exitCode() == 0, rotate.readAllStandardError().constData());
+
+    SubtitleOcrController rotatedController(nullptr, nullptr);
+    QVERIFY(rotatedController.loadSource(rotatedSource));
+    QTRY_VERIFY_WITH_TIMEOUT(!rotatedController.processing(), 10000);
+    QCOMPARE(rotatedController.sourceWidth(), 180);
+    QCOMPARE(rotatedController.sourceHeight(), 320);
+    QVERIFY(rotatedController.setRoi(0.0, 0.883, 1.0, 0.105));
+    QVERIFY(rotatedController.requestCropPreview(108000));
+    QTRY_VERIFY_WITH_TIMEOUT(!rotatedController.processing(), 10000);
+    QImageReader rotatedPreview(rotatedController.cropPreviewUrl().toLocalFile());
+    const QImage rotatedImage = rotatedPreview.read();
+    QVERIFY2(!rotatedImage.isNull(), qPrintable(rotatedPreview.errorString()));
+    QCOMPARE(rotatedImage.width(), 180);
+    QCOMPARE(rotatedImage.height(), 34);
+    QVERIFY(rotatedController.diagnostics().contains(QStringLiteral("rotation=90")));
 }
 
 void TestSubtitleOcrController::importsSharedStagedMediaWithoutRedownloadAndPreservesSourceOnProbeFailure()

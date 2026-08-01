@@ -61,6 +61,10 @@ jobs:
           dir: C:\\Qt
           modules: qtmultimedia qtimageformats
 
+      - name: Install 7-Zip for pinned FFmpeg integration staging
+        shell: pwsh
+        run: choco install 7zip --version 26.2.0 --yes --no-progress
+
       - name: Verify generated model catalog is current
         shell: pwsh
         run: |

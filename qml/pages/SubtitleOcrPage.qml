@@ -317,6 +317,28 @@ Page {
     }
 
     Dialog {
+        id: subtitleOcrDiagnosticsDialog
+        objectName: "subtitleOcrDiagnosticsDialog"
+        parent: Overlay.overlay
+        modal: true
+        title: qsTr("Subtitle OCR diagnostics")
+        width: Math.min(root.width - Theme.paddingLarge * 2, 760)
+        height: Math.min(root.height - Theme.paddingLarge * 2, 460)
+        standardButtons: Dialog.Close
+        TextArea {
+            anchors.fill: parent
+            anchors.margins: Theme.paddingMedium
+            readOnly: true
+            selectByMouse: true
+            wrapMode: TextArea.WrapAnywhere
+            text: ocr.diagnostics === "" ? qsTr("No Subtitle OCR diagnostics have been captured yet.")
+                                        : ocr.diagnostics
+            color: Theme.textPrimary
+            background: Rectangle { color: Theme.background; radius: Theme.radiusSmall }
+        }
+    }
+
+    Dialog {
         id: subtitleOcrColabDialog
         objectName: "subtitleOcrColabDialog"
         parent: Overlay.overlay
@@ -943,7 +965,28 @@ Page {
                                 onClicked: ocr.run()
                             }
                             Button { text: qsTr("Cancel OCR"); enabled: ocr.processing; onClicked: ocr.cancel() }
-                            Button { text: qsTr("Retry OCR"); enabled: !ocr.processing && ocr.phase === "error"; onClicked: ocr.retry() }
+                            Button {
+                                id: retryFrameExtractionButton
+                                objectName: "subtitleOcrRetryFrameExtractionButton"
+                                text: qsTr("Retry frame extraction")
+                                visible: ocr.canRetryFrameExtraction
+                                enabled: !ocr.processing
+                                onClicked: ocr.retryFrameExtraction()
+                            }
+                            Button {
+                                text: qsTr("Retry OCR")
+                                visible: !ocr.canRetryFrameExtraction
+                                enabled: !ocr.processing && ocr.phase === "error"
+                                onClicked: ocr.retry()
+                            }
+                            Button {
+                                id: openSubtitleOcrDiagnosticsButton
+                                objectName: "subtitleOcrOpenDiagnosticsButton"
+                                text: qsTr("Open diagnostics")
+                                visible: ocr.diagnostics !== ""
+                                enabled: !ocr.processing
+                                onClicked: subtitleOcrDiagnosticsDialog.open()
+                            }
                         }
                         Text {
                             Layout.fillWidth: true

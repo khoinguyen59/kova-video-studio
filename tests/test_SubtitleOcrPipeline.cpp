@@ -23,14 +23,26 @@ void TestSubtitleOcrPipeline::buildsPortableFfmpegCropArguments()
 {
     const QStringList arguments = SubtitleOcrPipeline::ffmpegCropArguments(
         SubtitleOcrRoi{0.25, 0.50, 0.50, 0.25}, 1280, 720);
-    QCOMPARE(arguments, QStringList({QStringLiteral("-vf"), QStringLiteral("crop=640:180:320:360")}));
+    QCOMPARE(arguments, QStringList({QStringLiteral("-vf"), QStringLiteral("crop=640:180:320:360:exact=1")}));
 }
 
 void TestSubtitleOcrPipeline::samplesDurationWithoutDuplicatingTheFinalFrame()
 {
-    QCOMPARE(SubtitleOcrPipeline::sampleTimes(5000, 2000), QVector<qint64>({0, 2000, 4000, 5000}));
-    QCOMPARE(SubtitleOcrPipeline::sampleTimes(4000, 2000), QVector<qint64>({0, 2000, 4000}));
+    QCOMPARE(SubtitleOcrPipeline::sampleTimes(5000, 2000), QVector<qint64>({0, 2000, 4000}));
+    QCOMPARE(SubtitleOcrPipeline::sampleTimes(4000, 2000), QVector<qint64>({0, 2000, 3000}));
+    QCOMPARE(SubtitleOcrPipeline::lastDecodableTimestamp(1), qint64(0));
+    QCOMPARE(SubtitleOcrPipeline::lastDecodableTimestamp(110000), qint64(109000));
     QVERIFY(SubtitleOcrPipeline::sampleTimes(1000, 0).isEmpty());
+}
+
+void TestSubtitleOcrPipeline::rejectsNormalizedRegionsThatRoundToZeroPixels()
+{
+    const SubtitleOcrRect rect = SubtitleOcrPipeline::sourceRect(
+        SubtitleOcrRoi{0.0, 0.0, 0.0001, 0.50}, 320, 180);
+    QCOMPARE(rect.width, 0);
+    QCOMPARE(rect.height, 0);
+    QVERIFY(SubtitleOcrPipeline::ffmpegCropArguments(
+        SubtitleOcrRoi{0.0, 0.0, 0.0001, 0.50}, 320, 180).isEmpty());
 }
 
 void TestSubtitleOcrPipeline::mergesRepeatedTextAndSkipsLowConfidenceObservations()
