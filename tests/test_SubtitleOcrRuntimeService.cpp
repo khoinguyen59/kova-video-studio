@@ -273,6 +273,11 @@ void TestSubtitleOcrRuntimeService::cancelAndRetryKeepExistingLanguageDataUntouc
                           QStringLiteral("network unavailable"));
     QCOMPARE(service.installState(), SubtitleOcrRuntimeService::Failed);
     QVERIFY(service.runtimeAvailable());
+    QVERIFY(service.error().contains(QStringLiteral("network unavailable")));
+    service.refresh();
+    QCOMPARE(service.installState(), SubtitleOcrRuntimeService::Installed);
+    QCOMPARE(service.stateName(), QStringLiteral("Ready"));
+    QVERIFY(service.error().contains(QStringLiteral("network unavailable")));
     QVERIFY(service.retryInstallation());
     QCOMPARE(service.installState(), SubtitleOcrRuntimeService::Downloading);
 }
@@ -367,6 +372,7 @@ void TestSubtitleOcrRuntimeService::qmlRouteRoiAndManagedRuntimeControlsAreWired
     QVERIFY(pageSource.contains(QStringLiteral("No GPU or Colab required")));
     QVERIFY(pageSource.contains(QStringLiteral("The engine is bundled")));
     QVERIFY(pageSource.contains(QStringLiteral("Repair the package runtime")));
+    QVERIFY(pageSource.contains(QStringLiteral("visible: runtime.error !== \"\" && runtime.runtimeAvailable && !runtime.busy")));
     QVERIFY(pageSource.contains(QStringLiteral("runtime.managedRuntimePath")));
     QVERIFY(runtimeServiceSource.contains(QStringLiteral("chi_tra")));
     QVERIFY(runtimeServiceSource.contains(QStringLiteral("bundled-vcpkg")));

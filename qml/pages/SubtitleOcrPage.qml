@@ -579,7 +579,7 @@ Page {
                             Layout.fillWidth: true
                             spacing: Theme.paddingSmall
                             Button { text: qsTr("Repair the package runtime"); visible: !runtime.runtimeAvailable; enabled: !runtime.busy; onClicked: runtime.installRuntime() }
-                            Button { text: qsTr("Retry language install"); visible: runtime.stateName === "Failed" && runtime.runtimeAvailable; enabled: !runtime.busy; onClicked: runtime.retryInstallation() }
+                            Button { text: qsTr("Retry language install"); visible: runtime.error !== "" && runtime.runtimeAvailable && !runtime.busy; onClicked: runtime.retryInstallation() }
                             Button { text: qsTr("Cancel install"); visible: runtime.busy; onClicked: runtime.cancelInstallation() }
                             Button { id: openRuntimeDiagnosticsButton; objectName: "subtitleOcrOpenRuntimeDiagnosticsButton"; text: qsTr("Open diagnostics"); visible: runtime.diagnostics !== ""; onClicked: runtimeDiagnosticsDialog.open() }
                             Button { id: cleanFailedRuntimeDownloadButton; objectName: "subtitleOcrCleanFailedRuntimeDownloadButton"; text: qsTr("Clean failed download"); visible: runtime.stateName === "Failed" && runtime.canCleanFailedDownload; enabled: !runtime.busy; onClicked: runtime.cleanFailedDownload() }
