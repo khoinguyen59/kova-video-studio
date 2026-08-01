@@ -123,25 +123,12 @@ QString SubtitleOcrRuntimeService::stateName() const
     switch (m_installState) {
     case Downloading: return QStringLiteral("Downloading");
     case Installing: return QStringLiteral("Installing");
-    case Installed: return QStringLiteral("Installed");
+    case Installed: return QStringLiteral("Ready");
     case Invalid: return QStringLiteral("Invalid");
     case Failed: return QStringLiteral("Failed");
     case Missing:
     default: return QStringLiteral("Missing");
     }
-}
-
-SubtitleOcrRuntimeService::Asset SubtitleOcrRuntimeService::runtimeAsset()
-{
-    return {
-        QStringLiteral("tesseract-runtime"),
-        QStringLiteral("Tesseract OCR for Windows (x64)"),
-        QStringLiteral("tesseract-ocr-w64-setup-5.5.3.20260724.exe"),
-        QStringLiteral("https://github.com/tesseract-ocr/tesseract/releases/download/5.5.3/"
-                       "tesseract-ocr-w64-setup-5.5.3.20260724.exe"),
-        QStringLiteral("bee9e3434bd94fd65387d9be28cd467a41f61b1275383b55b0f59a1331270ae4"),
-        26573224,
-    };
 }
 
 QList<SubtitleOcrRuntimeService::Asset> SubtitleOcrRuntimeService::languageAssets()
@@ -326,8 +313,14 @@ bool SubtitleOcrRuntimeService::hasValidManagedRuntime(QString *errorMessage) co
     }
     const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
     const QJsonObject root = document.object();
-    if (!document.isObject() || root.value(QStringLiteral("schemaVersion")).toInt() != 1 ||
-        root.value(QStringLiteral("runtimeVersion")).toString() != kTesseractVersion) {
+    const QJsonObject runtime = root.value(QStringLiteral("runtime")).toObject();
+    const QString executable = SubtitleOcrRuntimeLocator::managedTesseractPath();
+    const QString expectedHash = normalizedSha(runtime.value(QStringLiteral("binarySha256")).toString());
+    if (!document.isObject() || root.value(QStringLiteral("schemaVersion")).toInt() != 2 ||
+        runtime.value(QStringLiteral("delivery")).toString() != QStringLiteral("legacy-app-data") ||
+        runtime.value(QStringLiteral("version")).toString() != kTesseractVersion ||
+        runtime.value(QStringLiteral("binaryRelativePath")).toString() != QStringLiteral("tesseract.exe") ||
+        expectedHash.size() != 64 || normalizedSha(sha256File(executable)) != expectedHash) {
         if (errorMessage) *errorMessage = QStringLiteral("Managed runtime manifest is invalid or incompatible.");
         return false;
     }
@@ -381,11 +374,21 @@ bool SubtitleOcrRuntimeService::hasUsablePackagedRuntime(QString *errorMessage) 
 bool SubtitleOcrRuntimeService::writeInstallationManifest(const QString &installationRoot,
                                                           QString *errorMessage) const
 {
-    QJsonObject root{{QStringLiteral("schemaVersion"), 1},
+    const QString executable = QDir(installationRoot).filePath(QStringLiteral("tesseract.exe"));
+    const QString executableHash = normalizedSha(sha256File(executable));
+    if (!QFileInfo(executable).isFile() || executableHash.size() != 64) {
+        if (errorMessage) *errorMessage = QStringLiteral("Cannot hash the app-managed Tesseract executable.");
+        return false;
+    }
+
+    QJsonObject root{{QStringLiteral("schemaVersion"), 2},
                      {QStringLiteral("component"), QStringLiteral("Tesseract OCR")},
-                     {QStringLiteral("runtimeVersion"), kTesseractVersion},
-                     {QStringLiteral("runtimeInstallerSha256"), runtimeAsset().sha256},
-                     {QStringLiteral("runtimeInstallerUrl"), runtimeAsset().url},
+                     {QStringLiteral("runtime"), QJsonObject{
+                         {QStringLiteral("delivery"), QStringLiteral("legacy-app-data")},
+                         {QStringLiteral("version"), kTesseractVersion},
+                         {QStringLiteral("binaryRelativePath"), QStringLiteral("tesseract.exe")},
+                         {QStringLiteral("binarySha256"), executableHash},
+                     }},
                      {QStringLiteral("license"), QStringLiteral("Apache-2.0")},
                      {QStringLiteral("tessdataCommit"), kTessdataCommit}};
     QJsonArray languages;
@@ -515,7 +518,7 @@ void SubtitleOcrRuntimeService::rebuildLanguagePacks()
         const QString path = languagePath(asset.code);
         const bool exists = QFileInfo(path).isFile();
         const bool installed = managed && normalizedSha(sha256File(path)) == normalizedSha(asset.sha256);
-        QString state = installed ? QStringLiteral("Installed")
+        QString state = installed ? QStringLiteral("Ready")
             : exists && managed ? QStringLiteral("Invalid") : QStringLiteral("Missing");
         QString detail = installed ? QStringLiteral("Verified SHA-256; compatible with managed Tesseract %1.")
                                      .arg(kTesseractVersion)
@@ -567,6 +570,9 @@ void SubtitleOcrRuntimeService::refresh()
         }
     }
     const bool valid = detectedState == Installed;
+    const bool clearResolvedRuntimeError = valid && m_pendingKind == PendingKind::None &&
+        (m_installState == Invalid ||
+         (m_installState == Failed && m_lastAction == QStringLiteral("runtime")));
     const bool changed = m_runtimePath != resolution.path || m_runtimeSource != resolution.source ||
         m_runtimeVersion != version || m_runtimeValid != valid;
     m_runtimePath = resolution.path;
@@ -574,6 +580,7 @@ void SubtitleOcrRuntimeService::refresh()
     m_runtimeVersion = version;
     m_runtimeValid = valid;
     if (m_pendingKind == PendingKind::None) setInstallState(detectedState);
+    if (clearResolvedRuntimeError) setError({});
     rebuildLanguagePacks();
     if (changed) emit runtimeChanged();
 }
@@ -763,8 +770,9 @@ void SubtitleOcrRuntimeService::onDownloadFinished(const QString &identifier, co
     }
 
     QString errorMessage;
+    const bool needsLegacyManifest = m_runtimeSource == QStringLiteral("managed");
     if (!replaceFileAtomically(localPath, languagePath(m_pendingAsset.code), m_pendingAsset.sha256, &errorMessage) ||
-        !writeInstallationManifest(runtimeRoot(), &errorMessage)) {
+        (needsLegacyManifest && !writeInstallationManifest(runtimeRoot(), &errorMessage))) {
         QFile::remove(localPath);
         fail(errorMessage.isEmpty() ? QStringLiteral("Cannot install verified OCR language data.") : errorMessage);
         return;

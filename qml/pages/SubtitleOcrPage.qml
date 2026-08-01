@@ -578,7 +578,7 @@ Page {
                         Flow {
                             Layout.fillWidth: true
                             spacing: Theme.paddingSmall
-                            Button { text: qsTr("Repair package runtime"); visible: !runtime.runtimeAvailable; enabled: !runtime.busy; onClicked: runtime.installRuntime() }
+                            Button { text: qsTr("Repair the package runtime"); visible: !runtime.runtimeAvailable; enabled: !runtime.busy; onClicked: runtime.installRuntime() }
                             Button { text: qsTr("Retry language install"); visible: runtime.stateName === "Failed" && runtime.runtimeAvailable; enabled: !runtime.busy; onClicked: runtime.retryInstallation() }
                             Button { text: qsTr("Cancel install"); visible: runtime.busy; onClicked: runtime.cancelInstallation() }
                             Button { id: openRuntimeDiagnosticsButton; objectName: "subtitleOcrOpenRuntimeDiagnosticsButton"; text: qsTr("Open diagnostics"); visible: runtime.diagnostics !== ""; onClicked: runtimeDiagnosticsDialog.open() }
@@ -690,7 +690,7 @@ Page {
                         Text {
                             Layout.fillWidth: true
                             visible: !runtime.runtimeAvailable || !root.selectedLanguageReady
-                            text: !runtime.runtimeAvailable ? qsTr("Install the OCR runtime to enable Run Subtitle OCR.") : qsTr("Install the selected language pack to enable Run Subtitle OCR.")
+                            text: !runtime.runtimeAvailable ? qsTr("Repair the package runtime to enable Run Subtitle OCR.") : qsTr("Install the selected language pack to enable Run Subtitle OCR.")
                             color: Theme.warning
                             wrapMode: Text.WordWrap
                         }

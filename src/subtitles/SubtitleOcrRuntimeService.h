@@ -110,7 +110,6 @@ private:
         qint64 bytes = 0;
     };
 
-    static Asset runtimeAsset();
     static QList<Asset> languageAssets();
     static QString sha256File(const QString &path);
     static bool hasValidBundledRuntime(const QString &applicationDirectory,

@@ -209,17 +209,31 @@ void TestSubtitleOcrRuntimeService::runtimeActivationIsAtomicAndRestartDiscovery
     SubtitleOcrRuntimeService initial(&downloads);
     QCOMPARE(initial.installState(), SubtitleOcrRuntimeService::Invalid);
     QVERIFY(!initial.runtimeAvailable());
+    QVERIFY(!initial.error().isEmpty());
 
     QString manifestError;
     QVERIFY(initial.writeInstallationManifest(runtimeRoot, &manifestError));
+    QFile manifestFile(QDir(runtimeRoot).filePath(QStringLiteral("runtime-manifest.json")));
+    QVERIFY(manifestFile.open(QIODevice::ReadOnly));
+    const QJsonObject managedManifest = QJsonDocument::fromJson(manifestFile.readAll()).object();
+    QCOMPARE(managedManifest.value(QStringLiteral("schemaVersion")).toInt(), 2);
+    const QJsonObject managedRuntime = managedManifest.value(QStringLiteral("runtime")).toObject();
+    QCOMPARE(managedRuntime.value(QStringLiteral("delivery")).toString(), QStringLiteral("legacy-app-data"));
+    QCOMPARE(managedRuntime.value(QStringLiteral("binarySha256")).toString(),
+             SubtitleOcrRuntimeService::sha256File(SubtitleOcrRuntimeLocator::managedTesseractPath()));
+    QVERIFY(!managedManifest.contains(QStringLiteral("runtimeInstallerUrl")));
+    QVERIFY(!managedManifest.contains(QStringLiteral("runtimeInstallerSha256")));
     initial.refresh();
     QCOMPARE(initial.installState(), SubtitleOcrRuntimeService::Installed);
+    QCOMPARE(initial.stateName(), QStringLiteral("Ready"));
     QVERIFY(initial.runtimeAvailable());
+    QVERIFY(initial.error().isEmpty());
     QCOMPARE(initial.runtimeSource(), QStringLiteral("managed"));
     QCOMPARE(initial.runtimePath(), SubtitleOcrRuntimeLocator::managedTesseractPath());
 
     SubtitleOcrRuntimeService reopened(&downloads);
     QCOMPARE(reopened.installState(), SubtitleOcrRuntimeService::Installed);
+    QCOMPARE(reopened.stateName(), QStringLiteral("Ready"));
     QVERIFY(reopened.runtimeAvailable());
     QCOMPARE(reopened.runtimePath(), initial.runtimePath());
 }
@@ -352,12 +366,15 @@ void TestSubtitleOcrRuntimeService::qmlRouteRoiAndManagedRuntimeControlsAreWired
     QVERIFY(pageSource.contains(QStringLiteral("subtitleOcrCleanFailedRuntimeDownloadButton")));
     QVERIFY(pageSource.contains(QStringLiteral("No GPU or Colab required")));
     QVERIFY(pageSource.contains(QStringLiteral("The engine is bundled")));
-    QVERIFY(pageSource.contains(QStringLiteral("Repair package runtime")));
+    QVERIFY(pageSource.contains(QStringLiteral("Repair the package runtime")));
     QVERIFY(pageSource.contains(QStringLiteral("runtime.managedRuntimePath")));
     QVERIFY(runtimeServiceSource.contains(QStringLiteral("chi_tra")));
     QVERIFY(runtimeServiceSource.contains(QStringLiteral("bundled-vcpkg")));
     QVERIFY(runtimeServiceSource.contains(QStringLiteral("hasValidBundledRuntime")));
     QVERIFY(runtimeServiceSource.contains(QStringLiteral("never executes the deprecated upstream installer")));
+    QVERIFY(runtimeServiceSource.contains(QStringLiteral("case Installed: return QStringLiteral(\"Ready\")")));
+    QVERIFY(!runtimeServiceSource.contains(QStringLiteral("runtimeInstallerUrl")));
+    QVERIFY(runtimeServiceSource.contains(QStringLiteral("const bool needsLegacyManifest")));
     QVERIFY(controllerSource.contains(QStringLiteral("TESSDATA_PREFIX")));
     QVERIFY(pageSource.contains(QStringLiteral("displayedWidth")));
     QVERIFY(pageSource.contains(QStringLiteral("displayedHeight")));
