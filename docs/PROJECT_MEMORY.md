@@ -10,8 +10,8 @@ chi tiết code, log dài hoặc toàn bộ test output.
   Alignment, Translation, Dubbing, LLM Chat, Download và Subtitle OCR.
 - Dubbing hỗ trợ remote Colab workers, local/remote model routing, transcript,
   subtitle, timing conflict và export MP4/Editable CapCut Draft.
-- Package mới nhất là `0.0.2.14`, internal-only. Automated suite gần nhất
-  38/38 PASS, nhưng manual acceptance vẫn tách riêng.
+- Package mới nhất là `0.0.2.15`, internal-only. Automated suite gần nhất
+  39/39 PASS, nhưng manual acceptance vẫn tách riêng.
 - Batch OCR language path, Direct Colab OCR, ROI interaction và media controls
   đã hoàn tất; yêu cầu mới chỉ được lấy từ `AI_AGENT_REQUEST.md`.
 
@@ -59,6 +59,10 @@ chi tiết code, log dài hoặc toàn bộ test output.
   có route Direct Colab GPU PP-OCRv5 multilingual 3.1 không fallback hay lưu secret.
 - ROI/8 handles dùng QML local state và media controls nằm dưới preview;
   automated regression 38/38 PASS. Live desktop/Colab vẫn là manual acceptance.
+- Khắc phục lỗi trích xuất frame Subtitle OCR sát cuối video: FFmpeg có thể trả mã 0
+  nhưng không tạo ảnh ở timestamp đó. Pipeline dùng safe-end, xác thực ảnh trước OCR,
+  hiển thị diagnostics/retry và không fallback toàn khung hình. Regression runtime
+  FFmpeg đã stage kiểm tra Unicode, rotation, ROI sát đáy/0-pixel và retry; 39/39 PASS.
 
 ## Quy tắc duy trì trí nhớ
 
