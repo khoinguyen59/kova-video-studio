@@ -200,6 +200,78 @@ void TestSubtitleOcrRuntimeService::cancelAndRetryKeepExistingRuntimeUntouched()
     QCOMPARE(service.installState(), SubtitleOcrRuntimeService::Downloading);
 }
 
+void TestSubtitleOcrRuntimeService::installerPreflightAndProcessFailureExposeActionableDiagnostics()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    EnvironmentScope environment(directory.path());
+    HFHubClient hub;
+    DownloadManager downloads(&hub);
+    SubtitleOcrRuntimeService service(&downloads);
+
+    service.m_pendingKind = SubtitleOcrRuntimeService::PendingKind::Runtime;
+    service.m_pendingAsset = SubtitleOcrRuntimeService::runtimeAsset();
+    service.beginInstaller(directory.filePath(QStringLiteral("missing installer.exe")));
+    QCOMPARE(service.installState(), SubtitleOcrRuntimeService::Failed);
+    QVERIFY(service.error().contains(QStringLiteral("missing"), Qt::CaseInsensitive));
+    QVERIFY(service.diagnostics().contains(QStringLiteral("exists=false")));
+
+    const QString invalidInstaller = QDir(service.downloadRoot()).filePath(
+        QStringLiteral("installer with spaces ü.exe"));
+    QVERIFY(writeFile(invalidInstaller, QByteArrayLiteral("not a Windows executable")));
+    service.m_pendingKind = SubtitleOcrRuntimeService::PendingKind::Runtime;
+    service.m_pendingAsset = SubtitleOcrRuntimeService::runtimeAsset();
+    service.m_pendingAsset.bytes = QFileInfo(invalidInstaller).size();
+    service.m_pendingAsset.sha256 = SubtitleOcrRuntimeService::sha256File(invalidInstaller);
+    service.beginInstaller(invalidInstaller);
+    QTRY_COMPARE_WITH_TIMEOUT(service.installState(), SubtitleOcrRuntimeService::Failed, 5000);
+    QVERIFY(service.error().contains(QStringLiteral("could not be started"), Qt::CaseInsensitive));
+    QVERIFY(service.diagnostics().contains(QStringLiteral("processError=FailedToStart")));
+    QVERIFY(service.diagnostics().contains(QStringLiteral("workingDirectory=")));
+    QVERIFY(service.canCleanFailedDownload());
+}
+
+void TestSubtitleOcrRuntimeService::healthCheckFailureDoesNotActivateStagingRuntime()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    EnvironmentScope environment(directory.path());
+    HFHubClient hub;
+    DownloadManager downloads(&hub);
+    SubtitleOcrRuntimeService service(&downloads);
+    const QString staging = QDir(directory.path()).filePath(QStringLiteral("runtime.staging-health"));
+    QVERIFY(writeFile(QDir(staging).filePath(QStringLiteral("tesseract.exe")), QByteArrayLiteral("not runnable")));
+
+    service.m_pendingKind = SubtitleOcrRuntimeService::PendingKind::Runtime;
+    service.m_runtimeProcessPhase = SubtitleOcrRuntimeService::RuntimeProcessPhase::HealthCheck;
+    service.m_stagingPath = staging;
+    service.onInstallerFinished(1, QProcess::NormalExit);
+
+    QCOMPARE(service.installState(), SubtitleOcrRuntimeService::Failed);
+    QVERIFY(service.error().contains(QStringLiteral("health check"), Qt::CaseInsensitive));
+    QVERIFY(!QFileInfo::exists(staging));
+    QVERIFY(!QFileInfo::exists(SubtitleOcrRuntimeLocator::managedTesseractPath()));
+}
+
+void TestSubtitleOcrRuntimeService::failedInstallerCacheRequiresExplicitCleanup()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    EnvironmentScope environment(directory.path());
+    HFHubClient hub;
+    DownloadManager downloads(&hub);
+    SubtitleOcrRuntimeService service(&downloads);
+    const QString cachedInstaller = QDir(service.downloadRoot()).filePath(QStringLiteral("failed-installer.exe"));
+    QVERIFY(writeFile(cachedInstaller, QByteArrayLiteral("verified fixture")));
+    service.m_failedDownloadPath = cachedInstaller;
+
+    QVERIFY(service.canCleanFailedDownload());
+    QVERIFY(service.cleanFailedDownload());
+    QVERIFY(!QFileInfo::exists(cachedInstaller));
+    QVERIFY(!service.canCleanFailedDownload());
+    QVERIFY(service.error().contains(QStringLiteral("removed"), Qt::CaseInsensitive));
+}
+
 void TestSubtitleOcrRuntimeService::qmlRouteRoiAndManagedRuntimeControlsAreWired()
 {
     const QDir sourceRoot(QStringLiteral(LASTUDIO_SOURCE_DIR));
@@ -227,7 +299,15 @@ void TestSubtitleOcrRuntimeService::qmlRouteRoiAndManagedRuntimeControlsAreWired
     QVERIFY(pageSource.contains(QStringLiteral("runtime.installRuntime()")));
     QVERIFY(pageSource.contains(QStringLiteral("runtime.installLanguage(modelData.code)")));
     QVERIFY(pageSource.contains(QStringLiteral("runtime.cancelInstallation()")));
+    QVERIFY(pageSource.contains(QStringLiteral("runtime.cleanFailedDownload()")));
+    QVERIFY(pageSource.contains(QStringLiteral("subtitleOcrOpenRuntimeDiagnosticsButton")));
+    QVERIFY(pageSource.contains(QStringLiteral("subtitleOcrCleanFailedRuntimeDownloadButton")));
+    QVERIFY(pageSource.contains(QStringLiteral("No GPU or Colab required")));
+    QVERIFY(pageSource.contains(QStringLiteral("runtime.managedRuntimePath")));
     QVERIFY(runtimeServiceSource.contains(QStringLiteral("chi_tra")));
+    QVERIFY(runtimeServiceSource.contains(QStringLiteral("beginRuntimeHealthCheck")));
+    QVERIFY(runtimeServiceSource.contains(QStringLiteral("processError=")));
+    QVERIFY(runtimeServiceSource.contains(QStringLiteral("signatureDiagnostic")));
     QVERIFY(pageSource.contains(QStringLiteral("displayedWidth")));
     QVERIFY(pageSource.contains(QStringLiteral("displayedHeight")));
     QVERIFY(pageSource.contains(QStringLiteral("ocr.setRoi")));

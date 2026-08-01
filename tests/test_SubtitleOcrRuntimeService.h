@@ -13,6 +13,9 @@ private slots:
     void verifiedLanguageReplacementIsAtomicAndChecksumProtected();
     void runtimeActivationIsAtomicAndRestartDiscoveryUsesAppOwnedPath();
     void cancelAndRetryKeepExistingRuntimeUntouched();
+    void installerPreflightAndProcessFailureExposeActionableDiagnostics();
+    void healthCheckFailureDoesNotActivateStagingRuntime();
+    void failedInstallerCacheRequiresExplicitCleanup();
     void qmlRouteRoiAndManagedRuntimeControlsAreWired();
     void responsiveLayoutSharedMediaAndHomeCardsAreWired();
 };

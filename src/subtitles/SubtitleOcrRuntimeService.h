@@ -27,6 +27,9 @@ class SubtitleOcrRuntimeService final : public QObject
     Q_PROPERTY(QString runtimeSource READ runtimeSource NOTIFY runtimeChanged)
     Q_PROPERTY(QString runtimeVersion READ runtimeVersion NOTIFY runtimeChanged)
     Q_PROPERTY(QString error READ error NOTIFY errorChanged)
+    Q_PROPERTY(QString diagnostics READ diagnostics NOTIFY diagnosticsChanged)
+    Q_PROPERTY(bool canCleanFailedDownload READ canCleanFailedDownload NOTIFY diagnosticsChanged)
+    Q_PROPERTY(QString managedRuntimePath READ managedRuntimePath CONSTANT)
     Q_PROPERTY(QVariantList languagePacks READ languagePacks NOTIFY languagePacksChanged)
     Q_PROPERTY(qint64 bytesReceived READ bytesReceived NOTIFY progressChanged)
     Q_PROPERTY(qint64 bytesTotal READ bytesTotal NOTIFY progressChanged)
@@ -54,6 +57,9 @@ public:
     QString runtimeSource() const { return m_runtimeSource; }
     QString runtimeVersion() const { return m_runtimeVersion; }
     QString error() const { return m_error; }
+    QString diagnostics() const { return m_diagnostics; }
+    bool canCleanFailedDownload() const;
+    QString managedRuntimePath() const;
     QVariantList languagePacks() const { return m_languagePacks; }
     qint64 bytesReceived() const { return m_bytesReceived; }
     qint64 bytesTotal() const { return m_bytesTotal; }
@@ -70,6 +76,7 @@ public:
     Q_INVOKABLE bool installLanguage(const QString &languageCode);
     Q_INVOKABLE bool cancelInstallation();
     Q_INVOKABLE bool retryInstallation();
+    Q_INVOKABLE bool cleanFailedDownload();
     Q_INVOKABLE void refresh();
     Q_INVOKABLE bool isLanguageInstalled(const QString &languageCode) const;
 
@@ -78,6 +85,7 @@ signals:
     void runtimeChanged();
     void languagePacksChanged();
     void errorChanged();
+    void diagnosticsChanged();
     void progressChanged();
 
 private slots:
@@ -91,6 +99,7 @@ private slots:
 
 private:
     enum class PendingKind { None, Runtime, Language };
+    enum class RuntimeProcessPhase { None, Installer, HealthCheck };
 
     struct Asset {
         QString code;
@@ -117,11 +126,16 @@ private:
     bool writeInstallationManifest(const QString &installationRoot, QString *errorMessage) const;
     bool beginDownload(PendingKind kind, const Asset &asset);
     void beginInstaller(const QString &installerPath);
+    void beginRuntimeHealthCheck();
+    void activateVerifiedRuntime();
     void completePending();
     void completeCancelled();
     void fail(const QString &message);
     void setInstallState(int state);
     void setError(const QString &message);
+    void appendDiagnostics(const QString &phase, const QString &message);
+    QString processDiagnostics(const QString &phase, QProcess::ProcessError error) const;
+    bool isManagedDownloadPath(const QString &path) const;
     void rebuildLanguagePacks();
     Asset languageAsset(const QString &languageCode) const;
 
@@ -144,6 +158,9 @@ private:
     bool m_cancelRequested = false;
     QString m_lastAction;
     QString m_lastLanguage;
+    RuntimeProcessPhase m_runtimeProcessPhase = RuntimeProcessPhase::None;
+    QString m_failedDownloadPath;
+    QString m_diagnostics;
 };
 
 } // namespace LAStudio

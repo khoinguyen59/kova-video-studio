@@ -178,6 +178,26 @@ Page {
         nameFilters: [qsTr("Text files (*.txt)")]
         onAccepted: ocr.exportText(selectedFile)
     }
+    Dialog {
+        id: runtimeDiagnosticsDialog
+        objectName: "subtitleOcrRuntimeDiagnosticsDialog"
+        title: qsTr("OCR runtime diagnostics")
+        modal: true
+        width: Math.min(root.width - Theme.paddingLarge * 2, 760)
+        height: Math.min(root.height - Theme.paddingLarge * 2, 460)
+        standardButtons: Dialog.Close
+        TextArea {
+            anchors.fill: parent
+            anchors.margins: Theme.paddingMedium
+            readOnly: true
+            selectByMouse: true
+            wrapMode: TextArea.WrapAnywhere
+            text: runtime.diagnostics === "" ? qsTr("No OCR runtime diagnostics have been captured yet.")
+                                                : runtime.diagnostics
+            color: Theme.textPrimary
+            background: Rectangle { color: Theme.background; radius: Theme.radiusSmall }
+        }
+    }
 
     MediaPlayer {
         id: player
@@ -544,7 +564,13 @@ Page {
                         Text {
                             Layout.fillWidth: true
                             text: runtime.runtimeAvailable ? qsTr("Using %1 runtime: %2").arg(runtime.runtimeSource).arg(runtime.runtimePath)
-                                                           : qsTr("The app-managed CPU runtime is required only to run OCR. You can still choose/import video and set the region now.")
+                                                           : qsTr("The app-managed CPU runtime is required only to run OCR. You can still choose/import video and set the region now. Managed location: %1").arg(runtime.managedRuntimePath)
+                            color: Theme.textSecondary
+                            wrapMode: Text.WordWrap
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: qsTr("Execution route: Local CPU · No GPU or Colab required · Internet is used only for an explicit first-time verified download.")
                             color: Theme.textSecondary
                             wrapMode: Text.WordWrap
                         }
@@ -555,6 +581,8 @@ Page {
                             Button { text: runtime.runtimeSource === "managed" ? qsTr("Reinstall runtime") : qsTr("Install runtime"); enabled: !runtime.busy; onClicked: runtime.installRuntime() }
                             Button { text: qsTr("Retry install"); visible: runtime.stateName === "Failed"; enabled: !runtime.busy; onClicked: runtime.retryInstallation() }
                             Button { text: qsTr("Cancel install"); visible: runtime.busy; onClicked: runtime.cancelInstallation() }
+                            Button { id: openRuntimeDiagnosticsButton; objectName: "subtitleOcrOpenRuntimeDiagnosticsButton"; text: qsTr("Open diagnostics"); visible: runtime.diagnostics !== ""; onClicked: runtimeDiagnosticsDialog.open() }
+                            Button { id: cleanFailedRuntimeDownloadButton; objectName: "subtitleOcrCleanFailedRuntimeDownloadButton"; text: qsTr("Clean failed download"); visible: runtime.stateName === "Failed" && runtime.canCleanFailedDownload; enabled: !runtime.busy; onClicked: runtime.cleanFailedDownload() }
                             Text { text: qsTr("Tesseract %1 · Apache-2.0 · CPU").arg(runtime.runtimeVersion === "" ? "5.5.3" : runtime.runtimeVersion); color: Theme.textSecondary; topPadding: 7 }
                         }
                         ProgressBar { Layout.fillWidth: true; visible: runtime.progressAvailable; from: 0; to: runtime.bytesTotal; value: runtime.bytesReceived }

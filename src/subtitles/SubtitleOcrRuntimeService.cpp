@@ -1,6 +1,7 @@
 #include "subtitles/SubtitleOcrRuntimeService.h"
 
 #include "core/DownloadManager.h"
+#include "core/Logger.h"
 #include "core/PathUtils.h"
 #include "subtitles/SubtitleOcrRuntimeLocator.h"
 
@@ -14,15 +15,70 @@
 #include <QSaveFile>
 #include <QUuid>
 
+#include <string>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <softpub.h>
+#include <wintrust.h>
+#pragma comment(lib, "wintrust.lib")
+#endif
+
 namespace LAStudio {
 namespace {
 
 const QString kTesseractVersion = QStringLiteral("5.5.3.20260724");
 const QString kTessdataCommit = QStringLiteral("87416418657359cb625c412a48b6e1d6d41c29bd");
+#ifdef Q_OS_WIN
+GUID kWintrustActionGenericVerifyV2 = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+#endif
 
 QString normalizedSha(QString value)
 {
     return value.trimmed().toLower();
+}
+
+QString processErrorName(QProcess::ProcessError error)
+{
+    switch (error) {
+    case QProcess::FailedToStart: return QStringLiteral("FailedToStart");
+    case QProcess::Crashed: return QStringLiteral("Crashed");
+    case QProcess::Timedout: return QStringLiteral("Timedout");
+    case QProcess::WriteError: return QStringLiteral("WriteError");
+    case QProcess::ReadError: return QStringLiteral("ReadError");
+    case QProcess::UnknownError:
+    default: return QStringLiteral("UnknownError");
+    }
+}
+
+QString signatureDiagnostic(const QString &path)
+{
+#ifdef Q_OS_WIN
+    WINTRUST_FILE_INFO fileInfo{};
+    fileInfo.cbStruct = sizeof(fileInfo);
+    const std::wstring nativePath = QDir::toNativeSeparators(path).toStdWString();
+    fileInfo.pcwszFilePath = nativePath.c_str();
+
+    WINTRUST_DATA trustData{};
+    trustData.cbStruct = sizeof(trustData);
+    trustData.dwUIChoice = WTD_UI_NONE;
+    trustData.fdwRevocationChecks = WTD_REVOKE_NONE;
+    trustData.dwUnionChoice = WTD_CHOICE_FILE;
+    trustData.pFile = &fileInfo;
+    // This is local diagnostics only.  Never issue a hidden network request
+    // just to inspect a certificate revocation list during installation.
+    trustData.dwProvFlags = WTD_CACHE_ONLY_URL_RETRIEVAL;
+    trustData.dwStateAction = WTD_STATEACTION_VERIFY;
+    const LONG status = WinVerifyTrust(nullptr, &kWintrustActionGenericVerifyV2, &trustData);
+    trustData.dwStateAction = WTD_STATEACTION_CLOSE;
+    WinVerifyTrust(nullptr, &kWintrustActionGenericVerifyV2, &trustData);
+    return QStringLiteral("Authenticode=%1 (0x%2)")
+        .arg(status == ERROR_SUCCESS ? QStringLiteral("verified") : QStringLiteral("not-verified"))
+        .arg(QString::number(static_cast<qulonglong>(static_cast<unsigned long>(status)), 16));
+#else
+    Q_UNUSED(path);
+    return QStringLiteral("Authenticode=not-applicable");
+#endif
 }
 
 } // namespace
@@ -328,6 +384,72 @@ bool SubtitleOcrRuntimeService::isLanguageInstalled(const QString &languageCode)
     return normalizedSha(sha256File(languagePath(asset.code))) == normalizedSha(asset.sha256);
 }
 
+bool SubtitleOcrRuntimeService::canCleanFailedDownload() const
+{
+    return isManagedDownloadPath(m_failedDownloadPath) && QFileInfo(m_failedDownloadPath).isFile();
+}
+
+QString SubtitleOcrRuntimeService::managedRuntimePath() const
+{
+    return SubtitleOcrRuntimeLocator::managedRuntimeRoot();
+}
+
+bool SubtitleOcrRuntimeService::isManagedDownloadPath(const QString &path) const
+{
+    if (path.isEmpty()) return false;
+    const QString root = QDir::cleanPath(QFileInfo(downloadRoot()).absoluteFilePath());
+    const QString candidate = QDir::cleanPath(QFileInfo(path).absoluteFilePath());
+    const QString relative = QDir(root).relativeFilePath(candidate);
+    return relative != QStringLiteral("..") && !relative.startsWith(QStringLiteral("../")) &&
+        !QDir::isAbsolutePath(relative);
+}
+
+void SubtitleOcrRuntimeService::appendDiagnostics(const QString &phase, const QString &message)
+{
+    const QString entry = QStringLiteral("[%1] %2")
+        .arg(phase, Logger::sanitizeDiagnostics(message.trimmed()));
+    constexpr qsizetype maxDiagnosticsCharacters = 12 * 1024;
+    m_diagnostics = (m_diagnostics.isEmpty() ? entry : m_diagnostics + QLatin1Char('\n') + entry);
+    if (m_diagnostics.size() > maxDiagnosticsCharacters) {
+        m_diagnostics = QStringLiteral("[Earlier diagnostics omitted]\n")
+            + m_diagnostics.right(maxDiagnosticsCharacters);
+    }
+    Logger::info(QStringLiteral("Subtitle OCR runtime"), entry);
+    emit diagnosticsChanged();
+}
+
+QString SubtitleOcrRuntimeService::processDiagnostics(const QString &phase,
+                                                      QProcess::ProcessError error) const
+{
+    const QFileInfo fileInfo(m_installer.program());
+    QStringList arguments = m_installer.arguments();
+    for (QString &argument : arguments) argument = QDir::toNativeSeparators(argument);
+    QString nativeError = QStringLiteral("unavailable");
+#ifdef Q_OS_WIN
+    // QProcess does not expose CreateProcessW's native error code. Capture the
+    // callback thread value and label it explicitly instead of pretending it
+    // is an authoritative process error.
+    nativeError = QStringLiteral("callback-GetLastError=%1")
+        .arg(static_cast<qulonglong>(GetLastError()));
+#endif
+    return QStringLiteral("phase=%1; program=%2; workingDirectory=%3; arguments=%4; "
+                          "exists=%5; file=%6; bytes=%7; executable=%8; sha256=%9; %10; "
+                          "processError=%11; processErrorString=%12; nativeError=%13")
+        .arg(phase,
+             QDir::cleanPath(fileInfo.absoluteFilePath()),
+             QDir::cleanPath(m_installer.workingDirectory()),
+             arguments.join(QStringLiteral(" | ")),
+             fileInfo.exists() ? QStringLiteral("true") : QStringLiteral("false"),
+             fileInfo.isFile() ? QStringLiteral("true") : QStringLiteral("false"),
+             QString::number(fileInfo.size()),
+             fileInfo.isExecutable() ? QStringLiteral("true") : QStringLiteral("false"),
+             sha256File(fileInfo.absoluteFilePath()),
+             signatureDiagnostic(fileInfo.absoluteFilePath()),
+             processErrorName(error),
+             m_installer.errorString(),
+             nativeError);
+}
+
 void SubtitleOcrRuntimeService::rebuildLanguagePacks()
 {
     QVariantList packs;
@@ -412,9 +534,22 @@ bool SubtitleOcrRuntimeService::beginDownload(PendingKind kind, const Asset &ass
     m_pendingKind = kind;
     m_pendingAsset = asset;
     m_cancelRequested = false;
+    m_runtimeProcessPhase = RuntimeProcessPhase::None;
     m_bytesReceived = 0;
     m_bytesTotal = 0;
     setError({});
+    if (!m_diagnostics.isEmpty()) {
+        m_diagnostics.clear();
+        emit diagnosticsChanged();
+    }
+    const QString cachedPath = QDir(downloadRoot()).filePath(asset.fileName);
+    if (kind == PendingKind::Runtime && QFileInfo(cachedPath).isFile() &&
+        normalizedSha(sha256File(cachedPath)) == normalizedSha(asset.sha256)) {
+        appendDiagnostics(QStringLiteral("installer-cache"),
+                          QStringLiteral("Reusing a previously verified installer cache for Retry."));
+        beginInstaller(cachedPath);
+        return m_pendingKind == PendingKind::Runtime;
+    }
     setInstallState(Downloading);
     emit progressChanged();
     const QVariantMap metadata{{QStringLiteral("kind"), QStringLiteral("subtitleOcr")},
@@ -487,6 +622,27 @@ bool SubtitleOcrRuntimeService::retryInstallation()
     return false;
 }
 
+bool SubtitleOcrRuntimeService::cleanFailedDownload()
+{
+    if (!canCleanFailedDownload()) {
+        setError(QStringLiteral("There is no verified failed OCR installer cache to clean."));
+        return false;
+    }
+    const QString path = m_failedDownloadPath;
+    if (!QFile::remove(path)) {
+        setError(QStringLiteral("Could not remove the failed OCR installer cache. Check file permissions and retry."));
+        appendDiagnostics(QStringLiteral("cleanup"),
+                          QStringLiteral("Failed to remove installer cache: %1").arg(path));
+        return false;
+    }
+    m_failedDownloadPath.clear();
+    setError(QStringLiteral("The failed OCR installer cache was removed. Retry installs a fresh verified copy."));
+    appendDiagnostics(QStringLiteral("cleanup"),
+                      QStringLiteral("Removed failed installer cache after an explicit user request: %1").arg(path));
+    emit diagnosticsChanged();
+    return true;
+}
+
 void SubtitleOcrRuntimeService::updateTransferProgress()
 {
     if (m_pendingKind == PendingKind::None || !m_downloads) return;
@@ -555,72 +711,155 @@ void SubtitleOcrRuntimeService::onDownloadError(const QString &identifier, const
 
 void SubtitleOcrRuntimeService::beginInstaller(const QString &installerPath)
 {
+    const QFileInfo installerInfo(installerPath);
+    const QString absoluteInstallerPath = QDir::cleanPath(installerInfo.absoluteFilePath());
+    if (!installerInfo.isFile()) {
+        fail(QStringLiteral("Verified Tesseract installer file is missing before it could be started."));
+        appendDiagnostics(QStringLiteral("installer-preflight"),
+                          QStringLiteral("program=%1; exists=false; expectedBytes=%2; expectedSha256=%3")
+                              .arg(absoluteInstallerPath)
+                              .arg(m_pendingAsset.bytes)
+                              .arg(m_pendingAsset.sha256));
+        return;
+    }
+    if (installerInfo.size() != m_pendingAsset.bytes ||
+        normalizedSha(sha256File(absoluteInstallerPath)) != normalizedSha(m_pendingAsset.sha256)) {
+        QFile::remove(absoluteInstallerPath);
+        fail(QStringLiteral("Verified Tesseract installer changed before launch; download it again."));
+        appendDiagnostics(QStringLiteral("installer-preflight"),
+                          QStringLiteral("program=%1; bytes=%2; expectedBytes=%3; sha256=%4; expectedSha256=%5")
+                              .arg(absoluteInstallerPath)
+                              .arg(installerInfo.size())
+                              .arg(m_pendingAsset.bytes)
+                              .arg(sha256File(absoluteInstallerPath), m_pendingAsset.sha256));
+        return;
+    }
     const QString parentRoot = QFileInfo(runtimeRoot()).dir().absolutePath();
     m_stagingPath = QDir(parentRoot).filePath(QStringLiteral("runtime.staging-")
         + QUuid::createUuid().toString(QUuid::WithoutBraces));
     if (!QDir().mkpath(m_stagingPath)) {
-        QFile::remove(installerPath);
         fail(QStringLiteral("Cannot create staging storage for the verified OCR runtime."));
+        appendDiagnostics(QStringLiteral("installer-preflight"),
+                          QStringLiteral("program=%1; staging=%2; parentWritable=false")
+                              .arg(absoluteInstallerPath, m_stagingPath));
         return;
     }
     setInstallState(Installing);
-    m_installer.setProgram(installerPath);
+    m_runtimeProcessPhase = RuntimeProcessPhase::Installer;
+    m_failedDownloadPath = absoluteInstallerPath;
+    m_installer.setWorkingDirectory(installerInfo.absolutePath());
+    m_installer.setProgram(absoluteInstallerPath);
     // NSIS accepts /S and a final absolute /D= path.  The destination is
     // app-owned, so the installation never requests administrator privileges.
     m_installer.setArguments({QStringLiteral("/S"), QStringLiteral("/D=") + QDir::toNativeSeparators(m_stagingPath)});
+    appendDiagnostics(QStringLiteral("installer-start"), processDiagnostics(
+        QStringLiteral("installer"), QProcess::UnknownError));
     m_installer.start();
 }
 
 void SubtitleOcrRuntimeService::onInstallerFinished(int exitCode, QProcess::ExitStatus exitStatus)
 {
     if (m_pendingKind != PendingKind::Runtime) return;
-    const QString installerPath = m_installer.program();
-    const QByteArray installerError = m_installer.readAllStandardError();
+    const QByteArray standardOutput = m_installer.readAllStandardOutput();
+    const QByteArray standardError = m_installer.readAllStandardError();
     if (m_cancelRequested) {
-        QFile::remove(installerPath);
         completeCancelled();
         return;
     }
-    if (exitStatus != QProcess::NormalExit || exitCode != 0 ||
-        !QFileInfo(QDir(m_stagingPath).filePath(
+    if (m_runtimeProcessPhase == RuntimeProcessPhase::Installer) {
+        appendDiagnostics(QStringLiteral("installer-finished"),
+                          QStringLiteral("exitCode=%1; exitStatus=%2; stdout=%3; stderr=%4")
+                              .arg(exitCode)
+                              .arg(exitStatus == QProcess::NormalExit ? QStringLiteral("NormalExit")
+                                                                       : QStringLiteral("CrashExit"))
+                              .arg(QString::fromLocal8Bit(standardOutput).trimmed(),
+                                   QString::fromLocal8Bit(standardError).trimmed()));
+        if (exitStatus != QProcess::NormalExit || exitCode != 0 ||
+            !QFileInfo(QDir(m_stagingPath).filePath(
 #ifdef Q_OS_WIN
-            QStringLiteral("tesseract.exe")
+                QStringLiteral("tesseract.exe")
 #else
-            QStringLiteral("tesseract")
+                QStringLiteral("tesseract")
 #endif
-        )).isFile()) {
-        QFile::remove(installerPath);
-        fail(QStringLiteral("Tesseract installer did not create a usable app-owned runtime%1")
-             .arg(installerError.isEmpty() ? QStringLiteral(".")
-                  : QStringLiteral(": %1").arg(QString::fromLocal8Bit(installerError).trimmed())));
+            )).isFile()) {
+            fail(QStringLiteral("Tesseract installer did not create a usable app-owned runtime. Retry or open diagnostics."));
+            return;
+        }
+        if (!QDir().mkpath(QDir(m_stagingPath).filePath(QStringLiteral("tessdata")))) {
+            fail(QStringLiteral("Tesseract installer did not provide a writable tessdata directory."));
+            return;
+        }
+        beginRuntimeHealthCheck();
         return;
     }
-    if (!QDir().mkpath(QDir(m_stagingPath).filePath(QStringLiteral("tessdata")))) {
-        QFile::remove(installerPath);
-        fail(QStringLiteral("Tesseract installer did not provide a writable tessdata directory."));
+    if (m_runtimeProcessPhase == RuntimeProcessPhase::HealthCheck) {
+        appendDiagnostics(QStringLiteral("health-check-finished"),
+                          QStringLiteral("exitCode=%1; exitStatus=%2; stdout=%3; stderr=%4")
+                              .arg(exitCode)
+                              .arg(exitStatus == QProcess::NormalExit ? QStringLiteral("NormalExit")
+                                                                       : QStringLiteral("CrashExit"))
+                              .arg(QString::fromLocal8Bit(standardOutput).trimmed(),
+                                   QString::fromLocal8Bit(standardError).trimmed()));
+        if (exitStatus != QProcess::NormalExit || exitCode != 0 ||
+            !QString::fromLocal8Bit(standardOutput).contains(QStringLiteral("tesseract"), Qt::CaseInsensitive)) {
+            fail(QStringLiteral("The installed Tesseract runtime failed its health check. Retry or open diagnostics."));
+            return;
+        }
+        activateVerifiedRuntime();
         return;
     }
-    QString errorMessage;
-    if (!writeInstallationManifest(m_stagingPath, &errorMessage) ||
-        !replaceRuntimeAtomically(m_stagingPath, runtimeRoot(), &errorMessage)) {
-        QFile::remove(installerPath);
-        fail(errorMessage.isEmpty() ? QStringLiteral("Cannot atomically activate the OCR runtime.") : errorMessage);
-        return;
-    }
-    m_stagingPath.clear();
-    QFile::remove(installerPath);
-    completePending();
-    refresh();
+    fail(QStringLiteral("OCR runtime installer reached an unexpected process state."));
 }
 
 void SubtitleOcrRuntimeService::onInstallerError(QProcess::ProcessError error)
 {
-    if (m_pendingKind != PendingKind::Runtime || error != QProcess::FailedToStart) return;
+    if (m_pendingKind != PendingKind::Runtime) return;
+    const QString phase = m_runtimeProcessPhase == RuntimeProcessPhase::HealthCheck
+        ? QStringLiteral("health-check") : QStringLiteral("installer");
+    appendDiagnostics(QStringLiteral("process-error"), processDiagnostics(phase, error));
     if (m_cancelRequested) {
         completeCancelled();
     } else {
-        fail(QStringLiteral("Verified Tesseract installer could not be started."));
+        const QString noun = m_runtimeProcessPhase == RuntimeProcessPhase::HealthCheck
+            ? QStringLiteral("installed Tesseract health check") : QStringLiteral("verified Tesseract installer");
+        fail(QStringLiteral("The %1 could not be started. Retry or open diagnostics.").arg(noun));
     }
+}
+
+void SubtitleOcrRuntimeService::beginRuntimeHealthCheck()
+{
+    const QString executable = QDir(m_stagingPath).filePath(
+#ifdef Q_OS_WIN
+        QStringLiteral("tesseract.exe")
+#else
+        QStringLiteral("tesseract")
+#endif
+    );
+    m_runtimeProcessPhase = RuntimeProcessPhase::HealthCheck;
+    m_installer.setWorkingDirectory(m_stagingPath);
+    m_installer.setProgram(executable);
+    m_installer.setArguments({QStringLiteral("--version")});
+    appendDiagnostics(QStringLiteral("health-check-start"), processDiagnostics(
+        QStringLiteral("health-check"), QProcess::UnknownError));
+    m_installer.start();
+}
+
+void SubtitleOcrRuntimeService::activateVerifiedRuntime()
+{
+    QString errorMessage;
+    if (!writeInstallationManifest(m_stagingPath, &errorMessage) ||
+        !replaceRuntimeAtomically(m_stagingPath, runtimeRoot(), &errorMessage)) {
+        fail(errorMessage.isEmpty() ? QStringLiteral("Cannot atomically activate the OCR runtime.") : errorMessage);
+        return;
+    }
+    m_stagingPath.clear();
+    m_runtimeProcessPhase = RuntimeProcessPhase::None;
+    if (isManagedDownloadPath(m_failedDownloadPath)) QFile::remove(m_failedDownloadPath);
+    m_failedDownloadPath.clear();
+    completePending();
+    appendDiagnostics(QStringLiteral("activation"),
+                      QStringLiteral("Activated a health-checked app-managed Tesseract runtime."));
+    refresh();
 }
 
 void SubtitleOcrRuntimeService::completePending()
@@ -628,6 +867,7 @@ void SubtitleOcrRuntimeService::completePending()
     m_pendingKind = PendingKind::None;
     m_pendingAsset = {};
     m_cancelRequested = false;
+    m_runtimeProcessPhase = RuntimeProcessPhase::None;
     m_bytesReceived = 0;
     m_bytesTotal = 0;
     emit progressChanged();
@@ -637,6 +877,7 @@ void SubtitleOcrRuntimeService::completeCancelled()
 {
     if (!m_stagingPath.isEmpty()) QDir(m_stagingPath).removeRecursively();
     m_stagingPath.clear();
+    m_runtimeProcessPhase = RuntimeProcessPhase::None;
     completePending();
     setError(QStringLiteral("OCR installation was cancelled. The existing runtime was kept unchanged."));
     refresh();
@@ -646,6 +887,7 @@ void SubtitleOcrRuntimeService::fail(const QString &message)
 {
     if (!m_stagingPath.isEmpty()) QDir(m_stagingPath).removeRecursively();
     m_stagingPath.clear();
+    m_runtimeProcessPhase = RuntimeProcessPhase::None;
     m_pendingKind = PendingKind::None;
     m_pendingAsset = {};
     m_cancelRequested = false;
