@@ -24,10 +24,15 @@ Ba commit sau đã được push thẳng lên `origin/main`, chưa tạo package
 - `04bc435` — import Subtitle OCR không có `Content-Length` có BusyIndicator indeterminate; smoke Home chạy 1024×720, 1280×800, 1600×900 và kiểm tra card 09/10 + scroll.
 - `0641650` — CapCut draft chỉ gán stem “source vocals” sau khi source separation tạo cả vocals và background; không gán nhãn sai analysis mono.
 - `da67f9a` — ASS burn-in giữ custom normalized x/y, chuyển thư mục font tuỳ chỉnh cho FFmpeg `fontsdir`, và fail sớm nếu font file đã cấu hình bị mất.
+- `149a689` — OCR runtime preflight lại file/size/SHA trước launch, giữ cache installer đã verify cho Retry, ghi QProcess/working-directory/signature diagnostics, health-check `tesseract --version` trước `Ready`, và thêm UI Open diagnostics/Clean failed download.
 
 Regression đã chạy cho các thay đổi trên: `TestSubtitleOcrController`, `TestSubtitleOcrRuntimeService`, `TestDubbingProject`, `TestMediaToolService`, `PrepareQmlRouteSmokeRuntime`, `QmlRouteSmoke` đều PASS ở lượt chăm sóc tương ứng. Đây **không** thay cho full CTest/package, không được gọi là release hoàn tất, và không được gọi live GUI/Colab/CapCut PASS.
 
-Sau khi đọc, AI tiếp theo phải tiếp tục audit H–M và báo cáo requirement → source location → test cụ thể → PASS/FAIL/SKIP/manual. Nếu phát hiện A–G có regression mới thì sửa kèm test; không được chỉ nói “baseline đã xong” để bỏ qua.
+Riêng `149a689` đã chạy lại `TestSubtitleOcrRuntimeService`, `TestSubtitleOcrController`, `TestMediaIngestService`, `PrepareQmlRouteSmokeRuntime` và `QmlRouteSmoke` PASS. Lỗi Windows gốc trước đó không có QProcess diagnostic trong log và đã xóa installer đã hash-verify, nên không thể kết luận hồi tố là lỗi mạng hay quyền. Cần user chạy bản package kế tiếp để xác nhận process-launch thật; không gọi gate đó PASS trước bằng chứng mới.
+
+Audit K mới phát hiện một khoảng trống cần sửa trước release: preview QML có `lineSpacing`, nhưng ASS/libass burn-in hiện không có line-spacing tương đương (trường ASS `Spacing` là character spacing) và `maxWidth` chưa được áp trực tiếp cho output ASS. Không được báo K completed chỉ vì test cũ xanh; phải thay renderer/contract burn-in hoặc giảm UI về đúng capability đã chứng minh kèm migration/test.
+
+Sau khi đọc, AI tiếp theo phải tiếp tục audit H–M (ưu tiên hoàn chỉnh K) và báo cáo requirement → source location → test cụ thể → PASS/FAIL/SKIP/manual. Đồng thời giữ N ở trạng thái manual pending cho đến khi có launch/install thật ở package mới. Nếu phát hiện A–G có regression mới thì sửa kèm test; không được chỉ nói “baseline đã xong” để bỏ qua.
 
 ---
 
