@@ -6,7 +6,7 @@ include(cmake/RuntimeAbi.cmake)
 # automation may override it with -DLASTUDIO_VERSION=<major.minor.release.build>.
 # Internal builds use four numeric fields so each artifact has an unambiguous,
 # monotonically ordered label: 0.0.0.1 ... 0.0.0.9, then 0.0.1.0.
-set(LASTUDIO_VERSION "0.0.2.13" CACHE STRING "LA Studio application version")
+set(LASTUDIO_VERSION "0.0.2.14" CACHE STRING "LA Studio application version")
 if(NOT LASTUDIO_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$")
     message(FATAL_ERROR "LASTUDIO_VERSION must use MAJOR.MINOR.RELEASE.BUILD format; got '${LASTUDIO_VERSION}'")
 endif()
@@ -105,6 +105,7 @@ set(LASTUDIO_SOURCES
     src/translation/TranslationWorker.cpp
     src/translation/GatewayTranslationRunner.cpp
     src/translation/ColabTranslationRunner.cpp
+    src/subtitles/ColabSubtitleOcrRunner.cpp
     src/translation/backends/TranslationBackendFactory.cpp
     src/translation/backends/CrispTranslationBackend.cpp
     src/translation/backends/LlamaTranslationBackend.cpp
@@ -387,6 +388,7 @@ set(LASTUDIO_HEADERS
     src/translation/TranslationWorker.h
     src/translation/GatewayTranslationRunner.h
     src/translation/ColabTranslationRunner.h
+    src/subtitles/ColabSubtitleOcrRunner.h
     src/translation/backends/TranslationBackend.h
     src/translation/backends/TranslationBackendFactory.h
     src/translation/backends/CrispTranslationBackend.h

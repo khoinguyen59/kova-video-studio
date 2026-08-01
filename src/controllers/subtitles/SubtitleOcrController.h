@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QProcess>
+#include <QThread>
 #include <QUrl>
 #include <QVariantList>
 #include <QtQml/qqml.h>
@@ -13,6 +14,8 @@ namespace LAStudio {
 class DubbingController;
 class SubtitleVoiceController;
 class SubtitleOcrRuntimeService;
+class ColabSession;
+class ColabSubtitleOcrRunner;
 
 // Asynchronous, offline hard-subtitle OCR controller. FFmpeg, FFprobe and
 // Tesseract are always invoked with QProcess argument lists. A managed runtime
@@ -32,6 +35,11 @@ class SubtitleOcrController final : public QObject
     Q_PROPERTY(double roiWidth READ roiWidth NOTIFY roiChanged)
     Q_PROPERTY(double roiHeight READ roiHeight NOTIFY roiChanged)
     Q_PROPERTY(QString ocrLanguage READ ocrLanguage NOTIFY settingsChanged)
+    Q_PROPERTY(QString executionRoute READ executionRoute NOTIFY settingsChanged)
+    Q_PROPERTY(QString colabModelId READ colabModelId NOTIFY settingsChanged)
+    Q_PROPERTY(bool colabRouteReady READ colabRouteReady NOTIFY colabRouteChanged)
+    Q_PROPERTY(QString colabRouteStatus READ colabRouteStatus NOTIFY colabRouteChanged)
+    Q_PROPERTY(QString colabNotebookFile READ colabNotebookFile CONSTANT)
     Q_PROPERTY(qint64 sampleIntervalMs READ sampleIntervalMs NOTIFY settingsChanged)
     Q_PROPERTY(double minimumConfidence READ minimumConfidence NOTIFY settingsChanged)
     Q_PROPERTY(bool processing READ processing NOTIFY processingChanged)
@@ -65,6 +73,11 @@ public:
     double roiWidth() const { return m_roi.width; }
     double roiHeight() const { return m_roi.height; }
     QString ocrLanguage() const { return m_ocrLanguage; }
+    QString executionRoute() const { return m_executionRoute; }
+    QString colabModelId() const { return m_colabModelId; }
+    bool colabRouteReady() const;
+    QString colabRouteStatus() const;
+    QString colabNotebookFile() const;
     qint64 sampleIntervalMs() const { return m_sampleIntervalMs; }
     double minimumConfidence() const { return m_minimumConfidence; }
     bool processing() const { return m_processing; }
@@ -99,6 +112,8 @@ public:
     Q_INVOKABLE void setLowerRegionPreset();
     Q_INVOKABLE void resetRoi();
     Q_INVOKABLE bool setOcrLanguage(const QString &language);
+    Q_INVOKABLE bool setExecutionRoute(const QString &route);
+    Q_INVOKABLE bool setColabModelId(const QString &modelId);
     Q_INVOKABLE bool setSampleIntervalMs(qint64 intervalMs);
     Q_INVOKABLE bool setMinimumConfidence(double confidence);
     Q_INVOKABLE void updateSegment(int index, const QVariantMap &patch);
@@ -111,6 +126,7 @@ public:
     Q_INVOKABLE bool sendToDubbing();
     Q_INVOKABLE void refreshRuntime();
     void setRuntimeService(SubtitleOcrRuntimeService *runtimeService);
+    void setColabSession(ColabSession *session);
 
 signals:
     void sourceChanged();
@@ -124,6 +140,7 @@ signals:
     void projectChanged();
     void cropPreviewChanged();
     void runtimeChanged();
+    void colabRouteChanged();
     void sourceImportChanged();
 
 private slots:
@@ -131,6 +148,8 @@ private slots:
     void onProcessError(QProcess::ProcessError error);
     void onSharedMediaImportChanged();
     void onSharedMediaImportError();
+    void onColabRecognitionFinished(const QString &text, double confidence);
+    void onColabRecognitionFailed(const QString &message);
 
 private:
     enum class Operation {
@@ -140,6 +159,7 @@ private:
         VerifyLanguage,
         ExtractFrame,
         RecognizeFrame,
+        RecognizeColabFrame,
     };
 
     bool ensureWorkspace();
@@ -166,6 +186,9 @@ private:
     SubtitleVoiceController *m_subtitleVoice = nullptr;
     DubbingController *m_dubbing = nullptr;
     SubtitleOcrRuntimeService *m_runtimeService = nullptr;
+    ColabSession *m_colabSession = nullptr;
+    ColabSubtitleOcrRunner *m_colabRunner = nullptr;
+    QThread m_colabThread;
     QProcess m_process;
     Operation m_operation = Operation::None;
     bool m_processing = false;
@@ -177,6 +200,8 @@ private:
     qint64 m_durationMs = 0;
     SubtitleOcrRoi m_roi;
     QString m_ocrLanguage = QStringLiteral("eng");
+    QString m_executionRoute = QStringLiteral("local-cpu");
+    QString m_colabModelId = QStringLiteral("pp-ocrv5-multilingual-3.1");
     qint64 m_sampleIntervalMs = 800;
     double m_minimumConfidence = 0.50;
     int m_progress = 0;

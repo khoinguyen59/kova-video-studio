@@ -41,6 +41,7 @@
 #include "test_ColabAlignmentRunner.h"
 #include "test_ColabSeparationRunner.h"
 #include "test_ColabTranslationRunner.h"
+#include "test_ColabSubtitleOcrRunner.h"
 #include "test_ColabChatRunner.h"
 
 #include <QFile>
@@ -285,6 +286,10 @@ int main(int argc, char *argv[])
     {
         LAStudio::TestColabTranslationRunner suite;
         runSuite(&suite, "TestColabTranslationRunner");
+    }
+    {
+        LAStudio::TestColabSubtitleOcrRunner suite;
+        runSuite(&suite, "TestColabSubtitleOcrRunner");
     }
     {
         LAStudio::TestColabChatRunner suite;

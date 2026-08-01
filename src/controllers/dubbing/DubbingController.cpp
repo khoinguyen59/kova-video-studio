@@ -597,12 +597,21 @@ QVariantMap DubbingController::firstCustomSetupIssue() const
 {
     const QString transcriptSource = m_project.transcriptConfiguration.value(
         QStringLiteral("transcriptSource"), QStringLiteral("stt")).toString().trimmed().toLower();
+    const QString persistedOcrRoute = m_project.transcriptConfiguration.value(
+        QStringLiteral("ocrExecutionRoute")).toString().trimmed().toLower();
+    const bool usesColabOcr = persistedOcrRoute == QStringLiteral("colab-gpu")
+        || (persistedOcrRoute.isEmpty() && m_subtitleOcr
+            && m_subtitleOcr->executionRoute() == QStringLiteral("colab-gpu"));
+    const bool ocrRouteReady = m_subtitleOcr
+        && (usesColabOcr ? m_subtitleOcr->colabRouteReady() : m_subtitleOcr->runtimeAvailable());
     if ((transcriptSource == QStringLiteral("ocr") || transcriptSource == QStringLiteral("stt+ocr"))
-        && (!m_subtitleOcr || !m_subtitleOcr->runtimeAvailable())) {
+        && !ocrRouteReady) {
         return {{QStringLiteral("nodeId"), QStringLiteral("transcribe")},
-                {QStringLiteral("setupKind"), QStringLiteral("subtitle-ocr-runtime")},
+                {QStringLiteral("setupKind"), QStringLiteral("subtitle-ocr-route")},
                 {QStringLiteral("message"),
-                 QStringLiteral("Install the Subtitle OCR runtime before using OCR transcript source.")}};
+                 usesColabOcr
+                    ? QStringLiteral("Connect and check the exact Colab Subtitle OCR worker before using OCR transcript source.")
+                    : QStringLiteral("Install the Subtitle OCR runtime before using OCR transcript source.")}};
     }
     QList<QPair<QString, QString>> requiredNodes{
         {QStringLiteral("source-separate"), QStringLiteral("voice-isolation")},
@@ -735,6 +744,8 @@ void DubbingController::setRemoteServices(Settings *settings, ColabSession *tran
     observeColabSession(QStringLiteral("source-separate"), separationSession);
     observeColabSession(QStringLiteral("transcribe"),
                         AppController::instance() ? AppController::instance()->colabSttSession() : nullptr);
+    observeColabSession(QStringLiteral("subtitle-ocr"),
+                        AppController::instance() ? AppController::instance()->colabSubtitleOcrSession() : nullptr);
     observeColabSession(QStringLiteral("translate"), translationSession);
     observeColabSession(QStringLiteral("synthesize"), ttsSession);
     observeColabSession(QStringLiteral("voice-clone"), voiceCloneSession);
@@ -746,6 +757,7 @@ QString DubbingController::colabCapabilityForStage(const QString &stageId)
 {
     if (stageId == QStringLiteral("source-separate")) return QStringLiteral("voice-isolation");
     if (stageId == QStringLiteral("transcribe")) return QStringLiteral("stt");
+    if (stageId == QStringLiteral("subtitle-ocr")) return QStringLiteral("subtitle-ocr");
     if (stageId == QStringLiteral("translate")) return QStringLiteral("translation");
     if (stageId == QStringLiteral("synthesize")) return QStringLiteral("tts");
     if (stageId == QStringLiteral("voice-clone")) return QStringLiteral("voice-cloning");
@@ -759,6 +771,7 @@ ColabSession *DubbingController::colabSessionForStage(const QString &stageId) co
     if (!app) return nullptr;
     if (stageId == QStringLiteral("source-separate")) return app->colabSeparationSession();
     if (stageId == QStringLiteral("transcribe")) return app->colabSttSession();
+    if (stageId == QStringLiteral("subtitle-ocr")) return app->colabSubtitleOcrSession();
     if (stageId == QStringLiteral("translate")) return app->colabTranslationSession();
     if (stageId == QStringLiteral("synthesize")) return app->colabTtsSession();
     if (stageId == QStringLiteral("voice-clone")) return app->colabVoiceCloneSession();
@@ -768,6 +781,13 @@ ColabSession *DubbingController::colabSessionForStage(const QString &stageId) co
 
 QString DubbingController::selectedColabModelForStage(const QString &stageId) const
 {
+    if (stageId == QStringLiteral("subtitle-ocr")) {
+        const QString configured = m_project.transcriptConfiguration.value(
+            QStringLiteral("ocrColabModelId")).toString().trimmed().toLower();
+        return configured.isEmpty()
+            ? DubbingColabModelRoutes::defaultModelForNode(stageId)
+            : configured;
+    }
     const QString nodeId = stageId == QStringLiteral("voice-clone")
         ? QStringLiteral("voice-clone")
         : stageId == QStringLiteral("alignment") ? QStringLiteral("alignment") : stageId;
@@ -788,6 +808,16 @@ QString DubbingController::selectedColabModelForStage(const QString &stageId) co
 
 bool DubbingController::stageUsesDirectColab(const QString &stageId) const
 {
+    if (stageId == QStringLiteral("subtitle-ocr")) {
+        const QString source = m_project.transcriptConfiguration.value(
+            QStringLiteral("transcriptSource"), QStringLiteral("stt")).toString().trimmed().toLower();
+        const QString persistedRoute = m_project.transcriptConfiguration.value(
+            QStringLiteral("ocrExecutionRoute")).toString().trimmed().toLower();
+        const bool usesOcr = source == QStringLiteral("ocr") || source == QStringLiteral("stt+ocr");
+        const bool routeSelected = persistedRoute == QStringLiteral("colab-gpu")
+            || (m_subtitleOcr && m_subtitleOcr->executionRoute() == QStringLiteral("colab-gpu"));
+        return usesOcr && routeSelected;
+    }
     if (stageId == QStringLiteral("transcribe")
         && m_project.transcriptConfiguration.value(QStringLiteral("transcriptSource"),
                                                     QStringLiteral("stt")).toString().trimmed().toLower()
@@ -891,6 +921,7 @@ QVariantList DubbingController::colabSetupStages() const
     const QList<QPair<QString, QString>> definitions{
         {QStringLiteral("source-separate"), QStringLiteral("Source separation / voice isolation")},
         {QStringLiteral("transcribe"), QStringLiteral("Speech to text")},
+        {QStringLiteral("subtitle-ocr"), QStringLiteral("Subtitle OCR")},
         {QStringLiteral("translate"), QStringLiteral("Translation")},
         {QStringLiteral("synthesize"), QStringLiteral("Voice generation")},
         {QStringLiteral("voice-clone"), QStringLiteral("Clone voice profile")},
@@ -1039,7 +1070,20 @@ void DubbingController::setVoiceClonePresetService(VoiceClonePresetService *serv
 void DubbingController::setSubtitleOcrController(SubtitleOcrController *controller)
 {
     m_subtitleOcr = controller;
+    applyStoredSubtitleOcrConfiguration();
     if (m_runner) m_runner->setSubtitleOcrController(controller);
+}
+
+void DubbingController::applyStoredSubtitleOcrConfiguration()
+{
+    if (!m_subtitleOcr) return;
+    const QString route = m_project.transcriptConfiguration.value(
+        QStringLiteral("ocrExecutionRoute")).toString().trimmed().toLower();
+    if (route == QStringLiteral("local-cpu") || route == QStringLiteral("colab-gpu"))
+        m_subtitleOcr->setExecutionRoute(route);
+    const QString model = m_project.transcriptConfiguration.value(
+        QStringLiteral("ocrColabModelId")).toString().trimmed().toLower();
+    if (!model.isEmpty()) m_subtitleOcr->setColabModelId(model);
 }
 
 QVariantMap DubbingController::effectiveTranscriptConfiguration(bool captureOcrSettings)
@@ -1061,6 +1105,8 @@ QVariantMap DubbingController::effectiveTranscriptConfiguration(bool captureOcrS
                               {QStringLiteral("width"), m_subtitleOcr->roiWidth()},
                               {QStringLiteral("height"), m_subtitleOcr->roiHeight()}};
         parameters.insert(QStringLiteral("ocrLanguage"), m_subtitleOcr->ocrLanguage());
+        parameters.insert(QStringLiteral("ocrExecutionRoute"), m_subtitleOcr->executionRoute());
+        parameters.insert(QStringLiteral("ocrColabModelId"), m_subtitleOcr->colabModelId());
         parameters.insert(QStringLiteral("ocrRoi"), roi);
         parameters.insert(QStringLiteral("ocrSampleIntervalMs"), m_subtitleOcr->sampleIntervalMs());
         parameters.insert(QStringLiteral("ocrMinimumConfidence"), m_subtitleOcr->minimumConfidence());
@@ -1068,6 +1114,8 @@ QVariantMap DubbingController::effectiveTranscriptConfiguration(bool captureOcrS
     m_project.transcriptConfiguration = {
         {QStringLiteral("transcriptSource"), parameters.value(QStringLiteral("transcriptSource"))},
         {QStringLiteral("ocrLanguage"), parameters.value(QStringLiteral("ocrLanguage"))},
+        {QStringLiteral("ocrExecutionRoute"), parameters.value(QStringLiteral("ocrExecutionRoute"))},
+        {QStringLiteral("ocrColabModelId"), parameters.value(QStringLiteral("ocrColabModelId"))},
         {QStringLiteral("ocrRoi"), parameters.value(QStringLiteral("ocrRoi"))},
         {QStringLiteral("ocrSampleIntervalMs"), parameters.value(QStringLiteral("ocrSampleIntervalMs"))},
         {QStringLiteral("ocrMinimumConfidence"), parameters.value(QStringLiteral("ocrMinimumConfidence"))}
@@ -1251,7 +1299,9 @@ QVariantList DubbingController::workflowNodes() const
             const QString transcriptSource = m_project.transcriptConfiguration.value(
                 QStringLiteral("transcriptSource"), QStringLiteral("stt")).toString().trimmed().toLower();
             const bool audioReady = !m_project.analysisAudioPath.trimmed().isEmpty() || !m_project.masterAudioPath.trimmed().isEmpty();
-            const bool ocrReady = m_subtitleOcr && m_subtitleOcr->runtimeAvailable();
+            const bool ocrReady = m_subtitleOcr
+                && (m_subtitleOcr->executionRoute() == QStringLiteral("colab-gpu")
+                    ? m_subtitleOcr->colabRouteReady() : m_subtitleOcr->runtimeAvailable());
             const bool sourceReady = transcriptSource == QStringLiteral("ocr") ? hasMedia
                 : transcriptSource == QStringLiteral("stt+ocr") ? (hasMedia && audioReady) : audioReady;
             state = hasSegments ? QStringLiteral("completed")
@@ -1431,7 +1481,9 @@ bool DubbingController::workflowReady() const
         && AppController::instance()->sessionRegistry()->sessionForCapability(QStringLiteral("stt"))->canProcess());
     const QString transcriptSource = m_project.transcriptConfiguration.value(
         QStringLiteral("transcriptSource"), QStringLiteral("stt")).toString().trimmed().toLower();
-    const bool ocrReady = m_subtitleOcr && m_subtitleOcr->runtimeAvailable();
+    const bool ocrReady = m_subtitleOcr
+        && (m_subtitleOcr->executionRoute() == QStringLiteral("colab-gpu")
+            ? m_subtitleOcr->colabRouteReady() : m_subtitleOcr->runtimeAvailable());
     const bool transcriptReady = transcriptSource == QStringLiteral("ocr") ? ocrReady
         : transcriptSource == QStringLiteral("stt+ocr") ? (sttReady && ocrReady) : sttReady;
     const bool translationConfigured = !m_workflowNodeConfigurations.value(QStringLiteral("translate")).toMap().isEmpty();
@@ -2641,6 +2693,8 @@ bool DubbingController::selectWorkflowColabModel(const QString &nodeId,
         selected = app->colabVoiceIsolator()->selectColabModel(normalized);
     else if (nodeId == QStringLiteral("transcribe") && app && app->sttSession())
         selected = app->sttSession()->selectColabModel(normalized);
+    else if (nodeId == QStringLiteral("subtitle-ocr") && app && app->subtitleOcr())
+        selected = app->subtitleOcr()->setColabModelId(normalized);
     else if (nodeId == QStringLiteral("translate") && app && app->translation())
         selected = app->translation()->selectColabModel(normalized);
     else if (nodeId == QStringLiteral("synthesize") && app && app->colabTts())
@@ -2669,6 +2723,15 @@ bool DubbingController::selectWorkflowColabModel(const QString &nodeId,
         return setWorkflowNodeParameters(
             QStringLiteral("transcribe"),
             {{QStringLiteral("alignmentModelId"), normalized}});
+    }
+    if (nodeId == QStringLiteral("subtitle-ocr")) {
+        m_project.transcriptConfiguration.insert(QStringLiteral("ocrExecutionRoute"),
+                                                 QStringLiteral("colab-gpu"));
+        m_project.transcriptConfiguration.insert(QStringLiteral("ocrColabModelId"), normalized);
+        persistAfterEdit();
+        emit projectChanged();
+        emit workflowChanged();
+        return true;
     }
     return setWorkflowNodeParameters(
         nodeId,
@@ -2808,6 +2871,7 @@ bool DubbingController::openProject(const QString &path)
         return false;
     }
     m_project = std::move(loaded);
+    applyStoredSubtitleOcrConfiguration();
     if (m_project.subtitleConfiguration.isEmpty()) {
         m_project.subtitleConfiguration = {{QStringLiteral("source"), QStringLiteral("segments")},
                                            {QStringLiteral("textSource"), QStringLiteral("target")},

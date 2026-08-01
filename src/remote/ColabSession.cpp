@@ -20,6 +20,8 @@ QString requiredResponseContract(const QString &capability)
     // Older notebooks turn that same condition into an HTTP 503.
     if (capability == QStringLiteral("translation"))
         return QStringLiteral("translation-patches-v3");
+    if (capability == QStringLiteral("subtitle-ocr"))
+        return QStringLiteral("subtitle-ocr-crops-v1");
     return {};
 }
 
@@ -35,6 +37,8 @@ QString requiredWorkerRevision(const QString &capability)
     // the selected exact-model worker.
     if (capability == QStringLiteral("stt"))
         return QStringLiteral("stt-2026-07-30.2");
+    if (capability == QStringLiteral("subtitle-ocr"))
+        return QStringLiteral("subtitle-ocr-2026-08-01.1");
     return {};
 }
 
@@ -44,6 +48,8 @@ QString capabilityDisplayName(const QString &capability)
         return QStringLiteral("Translation");
     if (capability == QStringLiteral("stt"))
         return QStringLiteral("Speech-to-Text");
+    if (capability == QStringLiteral("subtitle-ocr"))
+        return QStringLiteral("Subtitle OCR");
     return capability.isEmpty() ? QStringLiteral("selected") : capability;
 }
 
@@ -461,8 +467,9 @@ void ColabSession::handleVerificationReply(QNetworkReply *reply,
             if (!expectedResponseContract.isEmpty()
                 && reportedResponseContract != expectedResponseContract) {
                 failVerification(QStringLiteral(
-                    "The selected Translation notebook uses an outdated response contract. "
-                    "Open the current exact-model notebook, run it again, then use Check Colab."),
+                    "The selected %1 notebook uses an outdated response contract. "
+                    "Open the current exact-model notebook, run it again, then use Check Colab.")
+                                     .arg(m_expectedCapability),
                                  generation);
                 return;
             }

@@ -47,6 +47,13 @@ inline QVariantList optionsForNode(const QString &nodeId)
                    QStringLiteral("LA_STUDIO_STT_QWEN3_ASR_1_7B_GPU.ipynb"))
         };
     }
+    if (id == QStringLiteral("subtitle-ocr")) {
+        return {
+            option(QStringLiteral("pp-ocrv5-multilingual-3.1"),
+                   QStringLiteral("PP-OCRv5 Multilingual 3.1"),
+                   QStringLiteral("LA_STUDIO_SUBTITLE_OCR_PP_OCRV5_GPU.ipynb"))
+        };
+    }
     if (id == QStringLiteral("translate")) {
         return {
             option(QStringLiteral("m2m100-418m"), QStringLiteral("M2M100 418M"),
@@ -127,6 +134,8 @@ inline QString defaultModelForNode(const QString &nodeId)
         return QStringLiteral("sherpa-onnx-spleeter-2stems-fp16");
     if (id == QStringLiteral("transcribe"))
         return QStringLiteral("whisper.cpp");
+    if (id == QStringLiteral("subtitle-ocr"))
+        return QStringLiteral("pp-ocrv5-multilingual-3.1");
     if (id == QStringLiteral("translate"))
         return QStringLiteral("m2m100-418m");
     if (id == QStringLiteral("synthesize"))

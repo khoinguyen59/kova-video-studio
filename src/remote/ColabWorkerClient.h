@@ -66,6 +66,12 @@ public:
                            const QString &targetLanguage, const QString &model,
                            const std::shared_ptr<std::atomic_bool> &cancelToken,
                            QJsonObject *response, QString *errorMessage);
+    // The caller supplies an already-cropped ROI frame, never a source video.
+    // An empty text string is a valid "no subtitle in this sample" result;
+    // malformed/missing fields remain a contract failure.
+    bool recognizeSubtitleImage(const QByteArray &pngData, const QString &model,
+                                const QString &language, QString *text, double *confidence,
+                                QString *errorMessage);
     bool streamChat(const QList<QVariantMap> &messages, const QString &model, int maxTokens,
                     int contextTokens, float temperature, float topP, int topK,
                     float repeatPenalty,

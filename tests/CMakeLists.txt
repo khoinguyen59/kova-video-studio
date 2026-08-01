@@ -24,6 +24,8 @@ set(TEST_SOURCES
     test_ColabSeparationRunner.h
     test_ColabTranslationRunner.cpp
     test_ColabTranslationRunner.h
+    test_ColabSubtitleOcrRunner.cpp
+    test_ColabSubtitleOcrRunner.h
     test_ColabChatRunner.cpp
     test_ColabChatRunner.h
     test_SubtitleVoice.cpp
@@ -95,6 +97,7 @@ set(TEST_SOURCES
     ../src/translation/TranslationWorker.cpp
     ../src/translation/GatewayTranslationRunner.cpp
     ../src/translation/ColabTranslationRunner.cpp
+    ../src/subtitles/ColabSubtitleOcrRunner.cpp
     ../src/translation/backends/TranslationBackendFactory.cpp
     ../src/translation/backends/CrispTranslationBackend.cpp
     ../src/translation/backends/LlamaTranslationBackend.cpp
@@ -269,6 +272,7 @@ set(TEST_SOURCES
     ../src/translation/TranslationWorker.h
     ../src/translation/GatewayTranslationRunner.h
     ../src/translation/ColabTranslationRunner.h
+    ../src/subtitles/ColabSubtitleOcrRunner.h
     ../src/translation/backends/TranslationBackend.h
     ../src/translation/backends/TranslationBackendFactory.h
     ../src/translation/backends/CrispTranslationBackend.h

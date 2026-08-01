@@ -14,8 +14,8 @@ Item {
     property bool controlsFocused: false
     property bool controlsVisible: true
 
-    readonly property bool keepVisible: !playing || pointerInsideSurface
-                                        || interactionActive || menuOpen || controlsFocused
+    readonly property bool keepVisible: pointerInsideSurface || interactionActive
+                                        || menuOpen || controlsFocused
 
     function reveal() {
         controlsVisible = true
@@ -101,7 +101,10 @@ Item {
         controlsFocused = false
         playing = false
         applyHideDecision()
-        passed = passed && controlsVisible
+        // Pause must not pin controls over an ROI forever. Once pointer,
+        // drag/menu and focus have all left, the normal two-second hide rule
+        // applies identically after play, pause and seek.
+        passed = passed && !controlsVisible
 
         // The smoke is invoked during app startup. Restore the component
         // exactly and stop the test-created timer before the real route runs.

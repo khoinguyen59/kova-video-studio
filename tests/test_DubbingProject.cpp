@@ -1359,6 +1359,7 @@ void TestDubbingProject::dubbingColabModelsMapToExactNotebooks()
     const QStringList nodes{
         QStringLiteral("source-separate"),
         QStringLiteral("transcribe"),
+        QStringLiteral("subtitle-ocr"),
         QStringLiteral("translate"),
         QStringLiteral("synthesize"),
         QStringLiteral("voice-clone"),
@@ -1391,7 +1392,7 @@ void TestDubbingProject::dubbingColabModelsMapToExactNotebooks()
             ++routeCount;
         }
     }
-    QCOMPARE(routeCount, 27);
+    QCOMPARE(routeCount, 28);
     QVERIFY(DubbingColabModelRoutes::notebookForModel(
                 QStringLiteral("transcribe"),
                 QStringLiteral("not-a-model")).isEmpty());
@@ -1455,6 +1456,10 @@ void TestDubbingProject::dubbingUiUsesExactModelWorkers()
         QStringLiteral("dubbing.validateAllWorkflowColabStages")));
     QVERIFY(colabSetupSource.contains(
         QStringLiteral("ColabSessionStatus")));
+    QVERIFY(colabSetupSource.contains(
+        QStringLiteral("subtitle-ocr\") return AppController.colabSubtitleOcrSession")));
+    QVERIFY(colabSetupSource.contains(
+        QStringLiteral("enabled: stageCard.stageSession && !stageCard.stageSession.checking")));
 
     QFile dubbingController(
         QStringLiteral(LASTUDIO_SOURCE_DIR)
@@ -3128,6 +3133,8 @@ void TestDubbingProject::preservesFusionAndTranscriptSettingsAcrossProjectReload
     project.transcriptConfiguration = {
         {QStringLiteral("transcriptSource"), QStringLiteral("stt+ocr")},
         {QStringLiteral("ocrLanguage"), QStringLiteral("chi_sim")},
+        {QStringLiteral("ocrExecutionRoute"), QStringLiteral("colab-gpu")},
+        {QStringLiteral("ocrColabModelId"), QStringLiteral("pp-ocrv5-multilingual-3.1")},
         {QStringLiteral("ocrRoi"), QVariantMap{{QStringLiteral("x"), 0.1},
                                                  {QStringLiteral("y"), 0.70},
                                                  {QStringLiteral("width"), 0.8},
@@ -3151,10 +3158,21 @@ void TestDubbingProject::preservesFusionAndTranscriptSettingsAcrossProjectReload
              QStringLiteral("stt+ocr"));
     QCOMPARE(restored.transcriptConfiguration.value(QStringLiteral("ocrRoi")).toMap()
                  .value(QStringLiteral("y")).toDouble(), 0.70);
+    QCOMPARE(restored.transcriptConfiguration.value(QStringLiteral("ocrExecutionRoute")).toString(),
+             QStringLiteral("colab-gpu"));
     QCOMPARE(restored.segments.constFirst().toMap().value(QStringLiteral("fusionStatus")).toString(),
              QStringLiteral("conflict"));
     QCOMPARE(restored.segments.constFirst().toMap().value(QStringLiteral("fusionOcrText")).toString(),
              QStringLiteral("beta"));
+
+    SubtitleOcrController subtitleOcr(nullptr, nullptr);
+    DubbingController controller(nullptr, nullptr);
+    controller.setSubtitleOcrController(&subtitleOcr);
+    QVERIFY2(controller.openProject(project.projectPath), qPrintable(controller.lastError()));
+    QCOMPARE(subtitleOcr.executionRoute(), QStringLiteral("colab-gpu"));
+    QCOMPARE(subtitleOcr.colabModelId(), QStringLiteral("pp-ocrv5-multilingual-3.1"));
+    QVERIFY(!controller.customReady());
+    QVERIFY(controller.customStatusText().contains(QStringLiteral("Connect and check")));
 }
 
 void TestDubbingProject::ocrOnlyTranscriptUsesTheSharedSubtitleOcrController()

@@ -27,6 +27,7 @@ Dialog {
     function sessionForStage(stageId) {
         if (stageId === "source-separate") return AppController.colabSeparationSession
         if (stageId === "transcribe") return AppController.colabSttSession
+        if (stageId === "subtitle-ocr") return AppController.colabSubtitleOcrSession
         if (stageId === "translate") return AppController.colabTranslationSession
         if (stageId === "synthesize") return AppController.colabTtsSession
         if (stageId === "voice-clone") return AppController.colabVoiceCloneSession
@@ -258,7 +259,7 @@ Dialog {
                                     iconName: "close"
                                     quiet: true
                                     visible: stageCard.stageSession && stageCard.stageSession.active
-                                    enabled: !stageCard.stageSession.checking
+                                    enabled: stageCard.stageSession && !stageCard.stageSession.checking
                                     onClicked: root.dubbing.disconnectWorkflowColabStage(stageCard.stageId)
                                 }
                                 Item { Layout.fillWidth: true }

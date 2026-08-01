@@ -29,8 +29,9 @@ GENERATORS = (
     "generate_voice_colab_notebooks.py",
     "generate_alignment_separation_colab_notebooks.py",
     "generate_language_colab_notebooks.py",
+    "generate_subtitle_ocr_colab_notebook.py",
 )
-EXPECTED_EXACT_NOTEBOOKS = 31
+EXPECTED_EXACT_NOTEBOOKS = 32
 
 
 def load_generator(path: Path, index: int) -> ModuleType:

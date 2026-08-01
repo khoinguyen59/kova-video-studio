@@ -349,6 +349,16 @@
       "text": "LA Studio live model validation.",
       "voice_description": "A calm studio narrator.",
       "language": "en"
+    },
+    {
+      "capability": "subtitle-ocr",
+      "model": "pp-ocrv5-multilingual-3.1",
+      "notebook": "LA_STUDIO_SUBTITLE_OCR_PP_OCRV5_GPU.ipynb",
+      "url_env": "LASTUDIO_LIVE_SUBTITLE_OCR_PP_OCRV5_URL",
+      "token_env": "LASTUDIO_LIVE_SUBTITLE_OCR_PP_OCRV5_TOKEN",
+      "request_timeout_seconds": 180,
+      "png_path": "REPLACE_WITH_CROPPED_SUBTITLE_FRAME.png",
+      "language": "vi"
     }
   ]
 }

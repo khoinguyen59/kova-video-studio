@@ -803,6 +803,74 @@ bool ColabWorkerClient::translateSegments(const QVariantList &segments, const QS
     return ok;
 }
 
+bool ColabWorkerClient::recognizeSubtitleImage(const QByteArray &pngData, const QString &model,
+                                               const QString &language, QString *text,
+                                               double *confidence, QString *errorMessage)
+{
+    if (text) text->clear();
+    if (confidence) *confidence = 0.0;
+    if (!m_workerUrl.isValid() || m_bearerToken.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab worker is not connected");
+        return false;
+    }
+    if (pngData.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Subtitle OCR crop is empty");
+        return false;
+    }
+    const QString normalizedModel = model.trimmed().toLower();
+    const QString normalizedLanguage = language.trimmed().toLower();
+    if (normalizedModel.isEmpty() || normalizedLanguage.isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab Subtitle OCR requires an exact model and language");
+        return false;
+    }
+
+    QNetworkAccessManager manager;
+    QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v1/ocr/subtitles")));
+    request.setTransferTimeout(kInferenceRequestTimeoutMs);
+    request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
+    request.setRawHeader("Accept", "application/json");
+    auto *multipart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
+    multipart->append(formField("model", normalizedModel.toUtf8()));
+    multipart->append(formField("language", normalizedLanguage.toUtf8()));
+    QHttpPart imagePart;
+    imagePart.setHeader(QNetworkRequest::ContentDispositionHeader,
+                        QVariant(QStringLiteral("form-data; name=\"file\"; filename=\"subtitle-roi.png\"")));
+    imagePart.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QStringLiteral("image/png")));
+    auto *buffer = new QBuffer(multipart);
+    buffer->setData(pngData);
+    buffer->open(QIODevice::ReadOnly);
+    imagePart.setBodyDevice(buffer);
+    multipart->append(imagePart);
+
+    QNetworkReply *reply = manager.post(request, multipart);
+    multipart->setParent(reply);
+    m_activeReply = reply;
+    QEventLoop eventLoop;
+    QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
+    eventLoop.exec();
+    m_activeReply = nullptr;
+    QJsonObject response;
+    const bool ok = parseJsonResponse(reply, nullptr, &response, errorMessage,
+                                      QStringLiteral("Colab worker returned an invalid Subtitle OCR response"));
+    reply->deleteLater();
+    if (!ok) return false;
+    if (!response.value(QStringLiteral("text")).isString()
+        || !response.value(QStringLiteral("confidence")).isDouble()) {
+        if (errorMessage) *errorMessage = QStringLiteral(
+            "Colab worker returned an invalid Subtitle OCR response (text and confidence are required)");
+        return false;
+    }
+    const double reportedConfidence = response.value(QStringLiteral("confidence")).toDouble(-1.0);
+    if (reportedConfidence < 0.0 || reportedConfidence > 1.0) {
+        if (errorMessage) *errorMessage = QStringLiteral(
+            "Colab worker returned an invalid Subtitle OCR confidence");
+        return false;
+    }
+    if (text) *text = response.value(QStringLiteral("text")).toString();
+    if (confidence) *confidence = reportedConfidence;
+    return true;
+}
+
 bool ColabWorkerClient::streamChat(const QList<QVariantMap> &messages, const QString &model,
                                    int maxTokens, int contextTokens, float temperature, float topP,
                                    int topK, float repeatPenalty,

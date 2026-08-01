@@ -4,6 +4,8 @@
 #include "controllers/tts/SubtitleVoiceController.h"
 #include "core/MediaRuntimeLocator.h"
 #include "core/PathUtils.h"
+#include "remote/ColabSession.h"
+#include "subtitles/ColabSubtitleOcrRunner.h"
 #include "subtitles/SubtitleOcrRuntimeLocator.h"
 #include "subtitles/SubtitleOcrRuntimeService.h"
 
@@ -24,6 +26,9 @@ namespace LAStudio {
 namespace {
 
 constexpr int kSubtitleOcrProjectVersion = 1;
+const QString kColabSubtitleOcrCapability = QStringLiteral("subtitle-ocr");
+const QString kColabSubtitleOcrModel = QStringLiteral("pp-ocrv5-multilingual-3.1");
+const QString kColabSubtitleOcrNotebook = QStringLiteral("LA_STUDIO_SUBTITLE_OCR_PP_OCRV5_GPU.ipynb");
 
 QString ffmpegTime(qint64 timestampMs)
 {
@@ -52,11 +57,24 @@ SubtitleOcrController::SubtitleOcrController(SubtitleVoiceController *subtitleVo
         connect(m_dubbing, &DubbingController::errorChanged,
                 this, &SubtitleOcrController::onSharedMediaImportError);
     }
+    m_colabRunner = new ColabSubtitleOcrRunner;
+    m_colabRunner->moveToThread(&m_colabThread);
+    connect(&m_colabThread, &QThread::finished, m_colabRunner, &QObject::deleteLater);
+    connect(m_colabRunner, &ColabSubtitleOcrRunner::finished,
+            this, &SubtitleOcrController::onColabRecognitionFinished);
+    connect(m_colabRunner, &ColabSubtitleOcrRunner::failed,
+            this, &SubtitleOcrController::onColabRecognitionFailed);
+    m_colabThread.start();
 }
 
 SubtitleOcrController::~SubtitleOcrController()
 {
     if (m_process.state() != QProcess::NotRunning) m_process.kill();
+    if (m_colabRunner && m_colabThread.isRunning()) {
+        QMetaObject::invokeMethod(m_colabRunner, "cancel", Qt::QueuedConnection);
+        m_colabThread.quit();
+        m_colabThread.wait(3000);
+    }
     cleanWorkspace();
 }
 
@@ -100,6 +118,44 @@ void SubtitleOcrController::setRuntimeService(SubtitleOcrRuntimeService *runtime
                 this, &SubtitleOcrController::runtimeChanged);
     }
     emit runtimeChanged();
+}
+
+bool SubtitleOcrController::colabRouteReady() const
+{
+    return m_colabSession
+        && m_colabSession->hasVerifiedRoute(kColabSubtitleOcrCapability, m_colabModelId);
+}
+
+QString SubtitleOcrController::colabRouteStatus() const
+{
+    if (!m_colabSession) return QStringLiteral("Subtitle OCR Colab session is unavailable in this build.");
+    QString diagnostic;
+    if (m_colabSession->hasVerifiedRoute(kColabSubtitleOcrCapability, m_colabModelId, &diagnostic)) {
+        const QString gpu = m_colabSession->reportedGpu().trimmed();
+        return gpu.isEmpty() ? QStringLiteral("Verified CUDA worker for %1.").arg(m_colabModelId)
+                             : QStringLiteral("Verified CUDA worker (%1) for %2.").arg(gpu, m_colabModelId);
+    }
+    if (!diagnostic.isEmpty()) return diagnostic;
+    return m_colabSession->verificationMessage().trimmed();
+}
+
+QString SubtitleOcrController::colabNotebookFile() const
+{
+    return kColabSubtitleOcrNotebook;
+}
+
+void SubtitleOcrController::setColabSession(ColabSession *session)
+{
+    if (m_colabSession == session) return;
+    if (m_colabSession) disconnect(m_colabSession, nullptr, this, nullptr);
+    m_colabSession = session;
+    if (m_colabSession) {
+        connect(m_colabSession, &ColabSession::sessionChanged,
+                this, &SubtitleOcrController::colabRouteChanged);
+        connect(m_colabSession, &ColabSession::verificationChanged,
+                this, &SubtitleOcrController::colabRouteChanged);
+    }
+    emit colabRouteChanged();
 }
 
 void SubtitleOcrController::setError(const QString &message)
@@ -405,6 +461,36 @@ bool SubtitleOcrController::setOcrLanguage(const QString &language)
     return true;
 }
 
+bool SubtitleOcrController::setExecutionRoute(const QString &route)
+{
+    const QString normalized = route.trimmed().toLower();
+    if (normalized != QStringLiteral("local-cpu") && normalized != QStringLiteral("colab-gpu")) {
+        setError(QStringLiteral("Subtitle OCR route must be Local CPU or Colab GPU."));
+        return false;
+    }
+    if (m_executionRoute == normalized) return true;
+    m_executionRoute = normalized;
+    setError({});
+    emit settingsChanged();
+    emit colabRouteChanged();
+    return true;
+}
+
+bool SubtitleOcrController::setColabModelId(const QString &modelId)
+{
+    const QString normalized = modelId.trimmed().toLower();
+    if (normalized != kColabSubtitleOcrModel) {
+        setError(QStringLiteral("Choose the supported exact Colab Subtitle OCR model."));
+        return false;
+    }
+    if (m_colabModelId == normalized) return true;
+    m_colabModelId = normalized;
+    setError({});
+    emit settingsChanged();
+    emit colabRouteChanged();
+    return true;
+}
+
 bool SubtitleOcrController::setSampleIntervalMs(qint64 intervalMs)
 {
     if (intervalMs < 100 || intervalMs > 30000) {
@@ -463,10 +549,25 @@ bool SubtitleOcrController::run()
         setError(QStringLiteral("Choose and inspect a video before running Subtitle OCR."));
         return false;
     }
+    const bool useColab = m_executionRoute == QStringLiteral("colab-gpu");
     const QString tesseract = runtimePath();
-    if (tesseract.isEmpty() || !runtimeAvailable()) {
+    if (!useColab && (tesseract.isEmpty() || !runtimeAvailable())) {
         setError(QStringLiteral("Subtitle OCR runtime is unavailable. Use Install runtime in Subtitle OCR, then install the selected language pack before running."));
         emit runtimeChanged();
+        return false;
+    }
+    QString routeError;
+    if (useColab && (!m_colabSession
+                     || !m_colabSession->hasVerifiedRoute(kColabSubtitleOcrCapability,
+                                                          m_colabModelId, &routeError))) {
+        const QString guidance = QStringLiteral(
+            "Connect and check the exact Colab Subtitle OCR worker before running.");
+        setError(routeError.isEmpty() ? guidance
+                                      : QStringLiteral("%1 %2").arg(guidance, routeError));
+        return false;
+    }
+    if (useColab && m_ocrLanguage.contains(QLatin1Char('+'))) {
+        setError(QStringLiteral("Colab Subtitle OCR runs one explicit language profile at a time. Choose one language before running."));
         return false;
     }
     const MediaRuntimePaths media = MediaRuntimeLocator::resolve();
@@ -493,13 +594,12 @@ bool SubtitleOcrController::run()
     m_cancelRequested = false;
     setError({});
     setProcessing(true);
-    // An executable by itself is not a usable OCR runtime: language data is
-    // resolved independently by Tesseract. Verify the selected language before
-    // extracting any video frame, so a missing `vie`/`eng` install does not
-    // look like a video failure after a long operation.
-    setPhase(QStringLiteral("checking-language"));
+    // Local execution must preflight the exact Tesseract worker. Colab is a
+    // separate verified route and intentionally never falls back to local.
+    setPhase(useColab ? QStringLiteral("checking-colab-route") : QStringLiteral("checking-language"));
     setProgress(0, false);
-    startProcess(Operation::VerifyLanguage, tesseract, {QStringLiteral("--list-langs")});
+    if (useColab) beginOcrSamples();
+    else startProcess(Operation::VerifyLanguage, tesseract, {QStringLiteral("--list-langs")});
     return true;
 }
 
@@ -544,6 +644,38 @@ void SubtitleOcrController::beginNextSample()
 
 void SubtitleOcrController::beginRecognition()
 {
+    if (m_executionRoute == QStringLiteral("colab-gpu")) {
+        if (!m_colabRunner || !m_colabSession) {
+            fail(QStringLiteral("Colab Subtitle OCR worker is unavailable."));
+            return;
+        }
+        QString routeError;
+        if (!m_colabSession->hasVerifiedRoute(kColabSubtitleOcrCapability, m_colabModelId, &routeError)) {
+            fail(routeError.isEmpty() ? QStringLiteral("Colab Subtitle OCR route is no longer verified.") : routeError);
+            return;
+        }
+        QFile frame(m_currentFramePath);
+        if (!frame.open(QIODevice::ReadOnly)) {
+            fail(QStringLiteral("Subtitle OCR frame extraction did not produce a readable crop."));
+            return;
+        }
+        const QByteArray croppedFrame = frame.readAll();
+        if (croppedFrame.isEmpty() || croppedFrame.size() > 16 * 1024 * 1024) {
+            fail(QStringLiteral("Subtitle OCR crop must be a non-empty PNG smaller than 16 MiB."));
+            return;
+        }
+        setPhase(QStringLiteral("recognizing GPU frame %1/%2").arg(m_sampleIndex + 1).arg(m_samples.size()));
+        m_operation = Operation::RecognizeColabFrame;
+        if (!QMetaObject::invokeMethod(m_colabRunner, "recognize", Qt::QueuedConnection,
+                                       Q_ARG(QUrl, m_colabSession->endpoint()),
+                                       Q_ARG(QString, m_colabSession->bearerTokenForRequest()),
+                                       Q_ARG(QString, m_colabModelId), Q_ARG(QString, m_ocrLanguage),
+                                       Q_ARG(QByteArray, croppedFrame),
+                                       Q_ARG(bool, m_colabSession->allowsInsecureLocalhostForTests()))) {
+            fail(QStringLiteral("Could not dispatch the cropped frame to Colab Subtitle OCR."));
+        }
+        return;
+    }
     const QString tesseract = runtimePath();
     if (tesseract.isEmpty()) {
         fail(QStringLiteral("Subtitle OCR runtime became unavailable during processing."));
@@ -554,6 +686,34 @@ void SubtitleOcrController::beginRecognition()
     startProcess(Operation::RecognizeFrame, tesseract,
                  {m_currentFramePath, QStringLiteral("stdout"), QStringLiteral("-l"), m_ocrLanguage,
                   QStringLiteral("--psm"), QStringLiteral("6"), QStringLiteral("tsv")});
+}
+
+void SubtitleOcrController::onColabRecognitionFinished(const QString &text, double confidence)
+{
+    if (!m_processing || m_operation != Operation::RecognizeColabFrame) return;
+    m_operation = Operation::None;
+    if (m_cancelRequested) {
+        completeCancellation();
+        return;
+    }
+    const SubtitleOcrObservation observation{m_samples.at(m_sampleIndex), text.trimmed(),
+                                             qBound(0.0, confidence, 1.0)};
+    m_previousText = observation.text;
+    m_previousConfidence = observation.confidence;
+    m_observations.append(observation);
+    ++m_sampleIndex;
+    setProgress((m_sampleIndex * 100) / m_samples.size(), true);
+    beginNextSample();
+}
+
+void SubtitleOcrController::onColabRecognitionFailed(const QString &message)
+{
+    if (!m_processing || m_operation != Operation::RecognizeColabFrame) return;
+    if (m_cancelRequested) {
+        completeCancellation();
+        return;
+    }
+    fail(message.isEmpty() ? QStringLiteral("Colab Subtitle OCR request failed.") : message);
 }
 
 void SubtitleOcrController::onProcessError(QProcess::ProcessError error)
@@ -672,6 +832,8 @@ void SubtitleOcrController::completeCancellation()
 void SubtitleOcrController::fail(const QString &message)
 {
     if (m_process.state() != QProcess::NotRunning) m_process.kill();
+    if (m_operation == Operation::RecognizeColabFrame && m_colabRunner)
+        QMetaObject::invokeMethod(m_colabRunner, "cancel", Qt::QueuedConnection);
     m_operation = Operation::None;
     m_cancelRequested = false;
     m_pendingSourcePath.clear();
@@ -687,6 +849,8 @@ void SubtitleOcrController::cancel()
     if (!m_processing) return;
     m_cancelRequested = true;
     if (m_process.state() != QProcess::NotRunning) m_process.kill();
+    else if (m_operation == Operation::RecognizeColabFrame && m_colabRunner)
+        QMetaObject::invokeMethod(m_colabRunner, "cancel", Qt::QueuedConnection);
     else completeCancellation();
 }
 
@@ -799,6 +963,8 @@ bool SubtitleOcrController::saveProject(const QString &path)
                                                             {QStringLiteral("width"), m_roi.width},
                                                             {QStringLiteral("height"), m_roi.height}}},
                         {QStringLiteral("ocrLanguage"), m_ocrLanguage},
+                        {QStringLiteral("executionRoute"), m_executionRoute},
+                        {QStringLiteral("colabModelId"), m_colabModelId},
                         {QStringLiteral("sampleIntervalMs"), static_cast<double>(m_sampleIntervalMs)},
                         {QStringLiteral("minimumConfidence"), m_minimumConfidence},
                         {QStringLiteral("segments"), QJsonArray::fromVariantList(m_segments)}};
@@ -832,6 +998,10 @@ bool SubtitleOcrController::applyProject(const QVariantMap &project, const QStri
     const int height = project.value(QStringLiteral("sourceHeight")).toInt();
     const qint64 duration = project.value(QStringLiteral("durationMs")).toLongLong();
     const QString language = project.value(QStringLiteral("ocrLanguage")).toString().trimmed();
+    const QString executionRoute = project.value(QStringLiteral("executionRoute"),
+        QStringLiteral("local-cpu")).toString().trimmed().toLower();
+    const QString colabModelId = project.value(QStringLiteral("colabModelId"),
+        kColabSubtitleOcrModel).toString().trimmed().toLower();
     const qint64 interval = project.value(QStringLiteral("sampleIntervalMs")).toLongLong();
     const double confidence = project.value(QStringLiteral("minimumConfidence")).toDouble();
     QString segmentsError;
@@ -840,6 +1010,8 @@ bool SubtitleOcrController::applyProject(const QVariantMap &project, const QStri
     if (version != kSubtitleOcrProjectVersion || source.isEmpty() || !QFileInfo(source).isFile()
         || width <= 0 || height <= 0 || duration <= 0 || !roi.isValid() || language.isEmpty()
         || interval < 100 || interval > 30000 || confidence < 0.0 || confidence > 1.0
+        || (executionRoute != QStringLiteral("local-cpu") && executionRoute != QStringLiteral("colab-gpu"))
+        || colabModelId != kColabSubtitleOcrModel
         || (!project.value(QStringLiteral("segments")).toList().isEmpty() && parsed.isEmpty())) {
         setError(segmentsError.isEmpty() ? QStringLiteral("Invalid or incompatible Subtitle OCR project.") : segmentsError);
         return false;
@@ -851,6 +1023,8 @@ bool SubtitleOcrController::applyProject(const QVariantMap &project, const QStri
     m_durationMs = duration;
     m_roi = roi;
     m_ocrLanguage = language;
+    m_executionRoute = executionRoute;
+    m_colabModelId = colabModelId;
     m_sampleIntervalMs = interval;
     m_minimumConfidence = confidence;
     m_segments = project.value(QStringLiteral("segments")).toList();
@@ -861,6 +1035,7 @@ bool SubtitleOcrController::applyProject(const QVariantMap &project, const QStri
     emit sourceChanged();
     emit roiChanged();
     emit settingsChanged();
+    emit colabRouteChanged();
     emit segmentsChanged();
     emit projectChanged();
     return true;

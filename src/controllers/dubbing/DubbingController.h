@@ -377,6 +377,7 @@ private:
     void observeColabSession(const QString &stageId, ColabSession *session);
     void refreshColabSetupSnapshot(const QString &stageId, bool verified);
     QVariantMap effectiveTranscriptConfiguration(bool captureOcrSettings);
+    void applyStoredSubtitleOcrConfiguration();
 
     DubbingProject m_project;
     Settings *m_settings = nullptr;

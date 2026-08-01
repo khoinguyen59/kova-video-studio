@@ -12,6 +12,8 @@ private slots:
     void blocksMissingManagedRuntimeWithoutSilentDownload();
     void rejectsInvalidVideoProbeWithoutReplacingCurrentSource();
     void blocksMissingSelectedLanguageBeforeFrameExtraction();
+    void blocksColabRouteWithoutAnExactVerifiedProfile();
+    void projectNeverPersistsTemporaryColabCredentials();
     void usesExactManagedTessdataForLanguagePreflightAndRecognition();
     void keepsLowerRegionPresetSeparateFromFullFrameReset();
     void runsManagedAdapterPersistsReviewedSegmentsAndExports();

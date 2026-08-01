@@ -6,6 +6,7 @@
 #include "core/DownloadManager.h"
 #include "core/HFHubClient.h"
 #include "core/PathUtils.h"
+#include "remote/ColabSession.h"
 #include "subtitles/SubtitleOcrRuntimeService.h"
 
 #include <QDir>
@@ -200,6 +201,59 @@ void TestSubtitleOcrController::blocksMissingSelectedLanguageBeforeFrameExtracti
     QCOMPARE(controller.phase(), QStringLiteral("error"));
     QVERIFY(controller.error().contains(QStringLiteral("vie")));
     QVERIFY(controller.error().contains(QStringLiteral("language data"), Qt::CaseInsensitive));
+}
+
+void TestSubtitleOcrController::blocksColabRouteWithoutAnExactVerifiedProfile()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    OcrRuntimeEnvironment environment;
+    OcrFixtures fixtures(directory);
+    QVERIFY(fixtures.create());
+    configure(fixtures, false);
+
+    ColabSession session;
+    SubtitleOcrController controller(nullptr, nullptr);
+    controller.setColabSession(&session);
+    loadFixture(controller, fixtures.source);
+    QVERIFY(controller.setExecutionRoute(QStringLiteral("colab-gpu")));
+    QCOMPARE(controller.colabModelId(), QStringLiteral("pp-ocrv5-multilingual-3.1"));
+    QVERIFY(!controller.colabRouteReady());
+
+    QVERIFY(!controller.run());
+    QVERIFY(controller.error().contains(QStringLiteral("Connect and check")));
+    QVERIFY(!controller.processing());
+}
+
+void TestSubtitleOcrController::projectNeverPersistsTemporaryColabCredentials()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    OcrRuntimeEnvironment environment;
+    OcrFixtures fixtures(directory);
+    QVERIFY(fixtures.create());
+    configure(fixtures, false);
+
+    ColabSession session;
+    QString sessionError;
+    QVERIFY(session.setSession(QStringLiteral("http://127.0.0.1:8765"),
+                               QStringLiteral("temporary-colab-token"),
+                               &sessionError, true));
+
+    SubtitleOcrController controller(nullptr, nullptr);
+    controller.setColabSession(&session);
+    loadFixture(controller, fixtures.source);
+    QVERIFY(controller.setExecutionRoute(QStringLiteral("colab-gpu")));
+    const QString projectPath = directory.filePath(QStringLiteral("private-route.laocr.json"));
+    QVERIFY(controller.saveProject(projectPath));
+
+    QFile project(projectPath);
+    QVERIFY(project.open(QIODevice::ReadOnly));
+    const QByteArray serialized = project.readAll();
+    QVERIFY(serialized.contains("\"executionRoute\": \"colab-gpu\""));
+    QVERIFY(serialized.contains("\"colabModelId\": \"pp-ocrv5-multilingual-3.1\""));
+    QVERIFY(!serialized.contains("temporary-colab-token"));
+    QVERIFY(!serialized.contains("127.0.0.1:8765"));
 }
 
 void TestSubtitleOcrController::usesExactManagedTessdataForLanguagePreflightAndRecognition()

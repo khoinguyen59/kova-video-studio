@@ -675,7 +675,7 @@ Item {
                                 }
                                 Text {
                                     text: (dubbing.transcriptConfiguration.transcriptSource || "stt") === "ocr"
-                                          ? qsTr("Uses Subtitle OCR video, runtime, language and ROI.")
+                                          ? qsTr("Uses Subtitle OCR video, selected Local CPU/Colab route, language and ROI.")
                                           : (dubbing.transcriptConfiguration.transcriptSource || "stt") === "stt+ocr"
                                             ? qsTr("Both sources must succeed; conflicts remain for review.")
                                             : qsTr("Uses the existing audio STT route only.")
@@ -693,6 +693,17 @@ Item {
                                       .arg(dubbing.transcriptConfiguration.ocrSampleIntervalMs || "—")
                                       .arg(dubbing.transcriptConfiguration.ocrMinimumConfidence === undefined
                                            ? "—" : Number(dubbing.transcriptConfiguration.ocrMinimumConfidence).toFixed(2))
+                                color: Theme.textSecondary
+                                font.pixelSize: Theme.fontSmall
+                                wrapMode: Text.WordWrap
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                visible: (dubbing.transcriptConfiguration.transcriptSource || "stt") !== "stt"
+                                text: dubbing.transcriptConfiguration.ocrExecutionRoute === "colab-gpu"
+                                      ? qsTr("OCR route: Colab GPU · %1 · configure and check it in Subtitle OCR before this Dubbing run.")
+                                            .arg(dubbing.transcriptConfiguration.ocrColabModelId || "pp-ocrv5-multilingual-3.1")
+                                      : qsTr("OCR route: Local CPU · Tesseract runtime and selected language pack are required.")
                                 color: Theme.textSecondary
                                 font.pixelSize: Theme.fontSmall
                                 wrapMode: Text.WordWrap

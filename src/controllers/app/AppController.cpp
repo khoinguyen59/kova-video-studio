@@ -70,6 +70,7 @@ AppController::AppController(QObject *parent)
     m_colabAlignmentSession = new ColabSession(this);
     m_colabSeparationSession = new ColabSession(this);
     m_colabTranslationSession = new ColabSession(this);
+    m_colabSubtitleOcrSession = new ColabSession(this);
     m_colabChatSession = new ColabSession(this);
     Logger::info(QStringLiteral("App"), QStringLiteral("Initializing runtime services."));
     m_runtimes  = new RuntimeManager(m_catalog, m_settings, this);
@@ -106,6 +107,7 @@ AppController::AppController(QObject *parent)
         {QStringLiteral("forced-alignment"), m_colabAlignmentSession},
         {QStringLiteral("voice-isolation"), m_colabSeparationSession},
         {QStringLiteral("translation"), m_colabTranslationSession},
+        {QStringLiteral("subtitle-ocr"), m_colabSubtitleOcrSession},
         {QStringLiteral("chat"), m_colabChatSession},
     }, this);
     m_voiceClonePresets = new VoiceClonePresetService(this);
@@ -116,6 +118,7 @@ AppController::AppController(QObject *parent)
     m_subtitleOcrRuntime = new SubtitleOcrRuntimeService(m_downloads, this);
     m_subtitleOcr = new SubtitleOcrController(m_subtitleVoice, m_dubbing, this);
     m_subtitleOcr->setRuntimeService(m_subtitleOcrRuntime);
+    m_subtitleOcr->setColabSession(m_colabSubtitleOcrSession);
     m_dubbing->setSubtitleOcrController(m_subtitleOcr);
     // Dubbing owns a project-level selection, while the preset service owns
     // the durable reference media.  Inject the service instead of reading the

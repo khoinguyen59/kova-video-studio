@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import QtQuick.Dialogs
 import QtMultimedia
 import "../components/shared"
+import "../components/base"
 import LAStudio
 
 Page {
@@ -15,6 +16,7 @@ Page {
     readonly property bool selectedLanguageReady: runtime.runtimeSource === "environment"
                                                  ? ocr.ocrLanguage !== ""
                                                  : runtime.isLanguageInstalled(ocr.ocrLanguage)
+    readonly property bool usingColabRoute: ocr.executionRoute === "colab-gpu"
     property real previewPositionMs: player.position
     readonly property real displayedWidth: {
         if (ocr.sourceWidth <= 0 || ocr.sourceHeight <= 0 || videoCanvas.width <= 0 || videoCanvas.height <= 0)
@@ -29,6 +31,14 @@ Page {
     readonly property real displayedX: (videoCanvas.width - displayedWidth) / 2
     readonly property real displayedY: (videoCanvas.height - displayedHeight) / 2
     readonly property real minimumRoiPixels: 16
+    // Pointer movement only updates this local draft. The controller is
+    // notified exactly once when a move/resize gesture ends, so it cannot
+    // trigger project writes, video seeks, decoding or OCR for every pixel.
+    property real draftRoiX: ocr.roiX
+    property real draftRoiY: ocr.roiY
+    property real draftRoiWidth: ocr.roiWidth
+    property real draftRoiHeight: ocr.roiHeight
+    property bool roiDragActive: false
 
     title: qsTr("Subtitle OCR")
     background: Rectangle { color: Theme.background }
@@ -40,27 +50,77 @@ Page {
 
     function clamp(value, low, high) { return Math.max(low, Math.min(high, value)) }
 
-    function commitOverlayPosition() {
-        if (displayedWidth <= 0 || displayedHeight <= 0) return
-        ocr.setRoi((roiOverlay.x - displayedX) / displayedWidth,
-                   (roiOverlay.y - displayedY) / displayedHeight,
-                   roiOverlay.width / displayedWidth, roiOverlay.height / displayedHeight)
-    }
-
-    function resizeRoi(mode, point) {
-        if (displayedWidth <= 0 || displayedHeight <= 0) return
-        var left = roiOverlay.x
-        var right = roiOverlay.x + roiOverlay.width
-        var top = roiOverlay.y
-        var bottom = roiOverlay.y + roiOverlay.height
-        var x = clamp(point.x, displayedX, displayedX + displayedWidth)
-        var y = clamp(point.y, displayedY, displayedY + displayedHeight)
+    function resizedRoi(roi, mode, point, geometry) {
+        var left = geometry.x + roi.x * geometry.width
+        var right = left + roi.width * geometry.width
+        var top = geometry.y + roi.y * geometry.height
+        var bottom = top + roi.height * geometry.height
+        var x = clamp(point.x, geometry.x, geometry.x + geometry.width)
+        var y = clamp(point.y, geometry.y, geometry.y + geometry.height)
         if (mode.indexOf("l") !== -1) left = Math.min(x, right - minimumRoiPixels)
         if (mode.indexOf("r") !== -1) right = Math.max(x, left + minimumRoiPixels)
         if (mode.indexOf("t") !== -1) top = Math.min(y, bottom - minimumRoiPixels)
         if (mode.indexOf("b") !== -1) bottom = Math.max(y, top + minimumRoiPixels)
-        ocr.setRoi((left - displayedX) / displayedWidth, (top - displayedY) / displayedHeight,
-                   (right - left) / displayedWidth, (bottom - top) / displayedHeight)
+        return { x: (left - geometry.x) / geometry.width,
+                 y: (top - geometry.y) / geometry.height,
+                 width: (right - left) / geometry.width,
+                 height: (bottom - top) / geometry.height }
+    }
+
+    function movedRoi(roi, point, grabX, grabY, geometry) {
+        var pixelWidth = roi.width * geometry.width
+        var pixelHeight = roi.height * geometry.height
+        var left = clamp(point.x - grabX, geometry.x, geometry.x + geometry.width - pixelWidth)
+        var top = clamp(point.y - grabY, geometry.y, geometry.y + geometry.height - pixelHeight)
+        return { x: (left - geometry.x) / geometry.width,
+                 y: (top - geometry.y) / geometry.height,
+                 width: roi.width, height: roi.height }
+    }
+
+    function syncDraftRoi() {
+        if (roiDragActive) return
+        draftRoiX = ocr.roiX
+        draftRoiY = ocr.roiY
+        draftRoiWidth = ocr.roiWidth
+        draftRoiHeight = ocr.roiHeight
+    }
+
+    function beginRoiDrag() {
+        roiDragActive = true
+        subtitleControlsAutoHide.interactionActive = true
+    }
+
+    function commitOverlayPosition() {
+        if (displayedWidth <= 0 || displayedHeight <= 0) return
+        var accepted = ocr.setRoi(draftRoiX, draftRoiY, draftRoiWidth, draftRoiHeight)
+        if (!accepted) syncDraftRoi()
+        roiDragActive = false
+        subtitleControlsAutoHide.interactionActive = false
+        subtitleControlsAutoHide.noteInteraction()
+    }
+
+    function resizeRoi(mode, point) {
+        if (displayedWidth <= 0 || displayedHeight <= 0) return
+        var next = resizedRoi({ x: draftRoiX, y: draftRoiY,
+                                 width: draftRoiWidth, height: draftRoiHeight },
+                              mode, point,
+                              { x: displayedX, y: displayedY,
+                                width: displayedWidth, height: displayedHeight })
+        draftRoiX = next.x
+        draftRoiY = next.y
+        draftRoiWidth = next.width
+        draftRoiHeight = next.height
+    }
+
+    function moveRoi(point, grabX, grabY) {
+        if (displayedWidth <= 0 || displayedHeight <= 0) return
+        var next = movedRoi({ x: draftRoiX, y: draftRoiY,
+                               width: draftRoiWidth, height: draftRoiHeight },
+                            point, grabX, grabY,
+                            { x: displayedX, y: displayedY,
+                              width: displayedWidth, height: displayedHeight })
+        draftRoiX = next.x
+        draftRoiY = next.y
     }
 
     function itemRectInContent(item) {
@@ -91,6 +151,38 @@ Page {
     function qmlSmokeMediaControlsCheck() {
         return subtitleControlsAutoHide.qmlSmokeStateCheck()
                 && subtitleControlsAutoHide.delayMs === 2000
+    }
+
+    function qmlSmokeRoiInteractionCheck() {
+        // Exercise the same local geometry helpers used by pointer handlers.
+        // The three logical surfaces cover the route-smoke sizes and a HiDPI
+        // mapping (physical pixels / device scale) without sending a controller
+        // call while the pointer is moving.
+        var surfaces = [
+            { physicalWidth: 1024, physicalHeight: 720, scale: 1.0 },
+            { physicalWidth: 1600, physicalHeight: 1000, scale: 1.25 },
+            { physicalWidth: 2400, physicalHeight: 1350, scale: 1.5 }
+        ]
+        for (var i = 0; i < surfaces.length; ++i) {
+            var surface = surfaces[i]
+            var logicalWidth = surface.physicalWidth / surface.scale
+            var logicalHeight = surface.physicalHeight / surface.scale
+            var lower = { x: 0.10, y: 0.72, width: 0.80, height: 0.22 }
+            var moved = movedRoi(lower,
+                                 { x: logicalWidth * 2, y: logicalHeight * 2 },
+                                 logicalWidth * 0.20, logicalHeight * 0.08,
+                                 { x: 0, y: 0, width: logicalWidth, height: logicalHeight })
+            if (moved.x < 0 || moved.y < 0 || moved.x + moved.width > 1
+                    || moved.y + moved.height > 1) return false
+            var resized = resizedRoi(moved, "br",
+                                     { x: logicalWidth * 2, y: logicalHeight * 2 },
+                                     { x: 0, y: 0, width: logicalWidth, height: logicalHeight })
+            if (resized.x < 0 || resized.y < 0 || resized.x + resized.width > 1
+                    || resized.y + resized.height > 1
+                    || resized.width * logicalWidth < minimumRoiPixels
+                    || resized.height * logicalHeight < minimumRoiPixels) return false
+        }
+        return true
     }
 
     // Used by the offscreen QML route smoke. It verifies the responsive card
@@ -136,6 +228,7 @@ Page {
         if (!runtime.runtimeAvailable && (!languageSelector.enabled || runOcrButton.enabled))
             return false
         if (!qmlSmokeMediaControlsCheck()) return false
+        if (!qmlSmokeRoiInteractionCheck()) return false
         var transcriptRect = itemRectInContent(transcriptCard)
         if (subtitleOcrScroll.contentHeight < transcriptRect.y + transcriptRect.height - 1)
             return false
@@ -160,6 +253,9 @@ Page {
                 if (!pressed) return
                 root.resizeRoi(parent.mode, parent.mapToItem(videoCanvas, mouse.x, mouse.y))
             }
+            onPressed: root.beginRoiDrag()
+            onReleased: root.commitOverlayPosition()
+            onCanceled: root.commitOverlayPosition()
         }
     }
 
@@ -220,6 +316,78 @@ Page {
         }
     }
 
+    Dialog {
+        id: subtitleOcrColabDialog
+        objectName: "subtitleOcrColabDialog"
+        parent: Overlay.overlay
+        modal: true
+        title: qsTr("Colab GPU for Subtitle OCR")
+        width: Math.min(560, Overlay.overlay.width - Theme.paddingXL * 2)
+        anchors.centerIn: parent
+        standardButtons: Dialog.Close
+        onOpened: {
+            subtitleOcrColabUrl.text = AppController.colabSubtitleOcrSession.workerUrl
+            subtitleOcrColabToken.text = ""
+        }
+        contentItem: ColumnLayout {
+            spacing: Theme.paddingSmall
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("Direct Colab is independent of API Gateway. The source video stays on this computer; only the sampled, cropped PNG subtitle frames are sent to the temporary CUDA worker.")
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontSmall
+                wrapMode: Text.WordWrap
+            }
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("Exact model: PP-OCRv5 Multilingual 3.1 · Apache-2.0 · CUDA. The worker selects the official language profile for Vietnamese, Chinese, Japanese or Korean.")
+                color: Theme.textPrimary
+                wrapMode: Text.WordWrap
+            }
+            ColabNotebookLink { notebookFile: ocr.colabNotebookFile }
+            Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+            TextField {
+                id: subtitleOcrColabUrl
+                Layout.fillWidth: true
+                placeholderText: qsTr("https://…trycloudflare.com")
+                selectByMouse: true
+            }
+            Text { text: qsTr("Temporary session token"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+            TextField {
+                id: subtitleOcrColabToken
+                Layout.fillWidth: true
+                echoMode: TextInput.Password
+                placeholderText: qsTr("Token printed by this exact notebook")
+                selectByMouse: true
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Button {
+                    text: qsTr("Connect and check Colab")
+                    enabled: !AppController.colabSubtitleOcrSession.checking
+                    onClicked: {
+                        if (AppController.colabSubtitleOcrSession.connectTemporaryWorker(
+                                subtitleOcrColabUrl.text.trim(), subtitleOcrColabToken.text,
+                                "subtitle-ocr", ocr.colabModelId))
+                            subtitleOcrColabToken.text = ""
+                    }
+                }
+                Button {
+                    text: qsTr("Check Colab")
+                    enabled: AppController.colabSubtitleOcrSession.active
+                             && !AppController.colabSubtitleOcrSession.checking
+                    onClicked: AppController.colabSubtitleOcrSession.checkConnection()
+                }
+                Button {
+                    text: qsTr("Disconnect")
+                    enabled: AppController.colabSubtitleOcrSession.active
+                    onClicked: AppController.colabSubtitleOcrSession.disconnectTemporaryWorker()
+                }
+            }
+            ColabSessionStatus { session: AppController.colabSubtitleOcrSession }
+        }
+    }
+
     MediaPlayer {
         id: player
         source: ocr.sourceUrl
@@ -232,6 +400,13 @@ Page {
         playing: player.playbackState === MediaPlayer.PlayingState
         controlsFocused: subtitlePlayButton.activeFocus || subtitleSeekSlider.activeFocus
     }
+
+    Connections {
+        target: ocr
+        function onRoiChanged() { root.syncDraftRoi() }
+    }
+
+    Component.onCompleted: syncDraftRoi()
 
     ScrollView {
         id: subtitleOcrScroll
@@ -453,23 +628,30 @@ Page {
                                 id: roiOverlay
                                 objectName: "subtitleOcrRoiOverlay"
                                 visible: ocr.sourceWidth > 0 && root.displayedWidth > 0
-                                x: root.displayedX + ocr.roiX * root.displayedWidth
-                                y: root.displayedY + ocr.roiY * root.displayedHeight
-                                width: ocr.roiWidth * root.displayedWidth
-                                height: ocr.roiHeight * root.displayedHeight
+                                x: root.displayedX + root.draftRoiX * root.displayedWidth
+                                y: root.displayedY + root.draftRoiY * root.displayedHeight
+                                width: root.draftRoiWidth * root.displayedWidth
+                                height: root.draftRoiHeight * root.displayedHeight
                                 color: Qt.rgba(0.45, 0.20, 1.0, 0.16)
                                 border.color: Theme.primary
                                 border.width: 2
                                 z: 3
                                 MouseArea {
                                     anchors.fill: parent
-                                    drag.target: roiOverlay
-                                    drag.minimumX: root.displayedX
-                                    drag.maximumX: root.displayedX + root.displayedWidth - roiOverlay.width
-                                    drag.minimumY: root.displayedY
-                                    drag.maximumY: root.displayedY + root.displayedHeight - roiOverlay.height
+                                    property real grabX: 0
+                                    property real grabY: 0
                                     cursorShape: Qt.SizeAllCursor
+                                    onPressed: function(mouse) {
+                                        grabX = mouse.x
+                                        grabY = mouse.y
+                                        root.beginRoiDrag()
+                                    }
+                                    onPositionChanged: function(mouse) {
+                                        if (pressed)
+                                            root.moveRoi(parent.mapToItem(videoCanvas, mouse.x, mouse.y), grabX, grabY)
+                                    }
                                     onReleased: root.commitOverlayPosition()
+                                    onCanceled: root.commitOverlayPosition()
                                 }
                                 RoiHandle { objectName: "subtitleOcrRoiHandleTl"; mode: "tl"; x: -width / 2; y: -height / 2 }
                                 RoiHandle { objectName: "subtitleOcrRoiHandleTr"; mode: "tr"; x: parent.width - width / 2; y: -height / 2 }
@@ -485,68 +667,69 @@ Page {
                                 enabled: ocr.sourcePath !== ""
                                 onHoveredChanged: subtitleControlsAutoHide.pointerInsideSurface = hovered
                             }
-                            Rectangle {
-                                id: subtitleSharedMediaControls
-                                objectName: "subtitleOcrSharedMediaControls"
-                                anchors.left: parent.left
-                                anchors.right: parent.right
-                                anchors.bottom: parent.bottom
-                                height: 48
-                                z: 5
-                                visible: ocr.sourcePath !== "" && (opacity > 0 || subtitleControlsAutoHide.controlsVisible)
-                                opacity: subtitleControlsAutoHide.controlsVisible ? 1 : 0
-                                Behavior on opacity { NumberAnimation { duration: 250 } }
-                                gradient: Gradient {
-                                    GradientStop { position: 0; color: "transparent" }
-                                    GradientStop { position: 1; color: Qt.rgba(0.06, 0.06, 0.09, 0.92) }
-                                }
-                                RowLayout {
-                                    anchors.fill: parent
-                                    anchors.leftMargin: Theme.paddingMedium
-                                    anchors.rightMargin: Theme.paddingMedium
-                                    spacing: Theme.paddingSmall
-                                    Button {
-                                        id: subtitlePlayButton
-                                        implicitWidth: 30
-                                        implicitHeight: 30
-                                        flat: true
-                                        contentItem: LineIcon {
-                                            anchors.centerIn: parent
-                                            name: player.playbackState === MediaPlayer.PlayingState ? "pause" : "play"
-                                            color: Theme.textPrimary
-                                            width: 15
-                                            height: 15
-                                        }
-                                        onClicked: {
-                                            player.playbackState === MediaPlayer.PlayingState ? player.pause() : player.play()
-                                            subtitleControlsAutoHide.noteInteraction()
-                                        }
+                        }
+                        Rectangle {
+                            id: subtitleSharedMediaControls
+                            objectName: "subtitleOcrSharedMediaControls"
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 48
+                            radius: Theme.radiusSmall
+                            color: Theme.surfaceAlt
+                            border.color: Theme.border
+                            border.width: 1
+                            visible: ocr.sourcePath !== ""
+                            opacity: subtitleControlsAutoHide.controlsVisible ? 1 : 0
+                            Behavior on opacity { NumberAnimation { duration: 180 } }
+                            HoverHandler {
+                                enabled: ocr.sourcePath !== ""
+                                onHoveredChanged: subtitleControlsAutoHide.pointerInsideSurface = hovered
+                            }
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: Theme.paddingMedium
+                                anchors.rightMargin: Theme.paddingMedium
+                                spacing: Theme.paddingSmall
+                                Button {
+                                    id: subtitlePlayButton
+                                    implicitWidth: 30
+                                    implicitHeight: 30
+                                    flat: true
+                                    contentItem: LineIcon {
+                                        anchors.centerIn: parent
+                                        name: player.playbackState === MediaPlayer.PlayingState ? "pause" : "play"
+                                        color: Theme.textPrimary
+                                        width: 15
+                                        height: 15
                                     }
-                                    Slider {
-                                        id: subtitleSeekSlider
-                                        Layout.fillWidth: true
-                                        from: 0
-                                        to: Math.max(1, ocr.durationMs)
-                                        value: root.previewPositionMs
-                                        enabled: ocr.durationMs > 0
-                                        onPressedChanged: {
-                                            subtitleControlsAutoHide.interactionActive = pressed
-                                            if (!pressed) {
-                                                player.position = value
-                                                subtitleControlsAutoHide.noteInteraction()
-                                            }
-                                        }
-                                        onMoved: {
+                                    onClicked: {
+                                        player.playbackState === MediaPlayer.PlayingState ? player.pause() : player.play()
+                                        subtitleControlsAutoHide.noteInteraction()
+                                    }
+                                }
+                                Slider {
+                                    id: subtitleSeekSlider
+                                    Layout.fillWidth: true
+                                    from: 0
+                                    to: Math.max(1, ocr.durationMs)
+                                    value: root.previewPositionMs
+                                    enabled: ocr.durationMs > 0
+                                    onPressedChanged: {
+                                        subtitleControlsAutoHide.interactionActive = pressed
+                                        if (!pressed) {
                                             player.position = value
                                             subtitleControlsAutoHide.noteInteraction()
                                         }
                                     }
-                                    Text {
-                                        text: Math.round(player.position / 1000) + "s / "
-                                              + Math.round(ocr.durationMs / 1000) + "s"
-                                        color: Theme.textSecondary
-                                        font.pixelSize: Theme.fontSmall
+                                    onMoved: {
+                                        player.position = value
+                                        subtitleControlsAutoHide.noteInteraction()
                                     }
+                                }
+                                Text {
+                                    text: Math.round(player.position / 1000) + "s / "
+                                          + Math.round(ocr.durationMs / 1000) + "s"
+                                    color: Theme.textSecondary
+                                    font.pixelSize: Theme.fontSmall
                                 }
                             }
                         }
@@ -556,7 +739,7 @@ Page {
                             Button { text: qsTr("Preset lower region"); enabled: !ocr.processing && ocr.sourcePath !== ""; onClicked: ocr.setLowerRegionPreset() }
                             Button { text: qsTr("Reset region"); enabled: !ocr.processing && ocr.sourcePath !== ""; onClicked: ocr.resetRoi() }
                             Button { text: qsTr("Preview crop"); enabled: !ocr.processing && ocr.sourcePath !== ""; onClicked: ocr.requestCropPreview(player.position) }
-                            Text { text: qsTr("ROI: x %1, y %2, w %3, h %4").arg(ocr.roiX.toFixed(3)).arg(ocr.roiY.toFixed(3)).arg(ocr.roiWidth.toFixed(3)).arg(ocr.roiHeight.toFixed(3)); color: Theme.textSecondary; topPadding: 7 }
+                            Text { text: qsTr("ROI: x %1, y %2, w %3, h %4").arg(root.draftRoiX.toFixed(3)).arg(root.draftRoiY.toFixed(3)).arg(root.draftRoiWidth.toFixed(3)).arg(root.draftRoiHeight.toFixed(3)); color: Theme.textSecondary; topPadding: 7 }
                         }
                     }
                 }
@@ -578,7 +761,7 @@ Page {
                         spacing: Theme.paddingSmall
                         RowLayout {
                             Layout.fillWidth: true
-                            Text { text: qsTr("3. OCR runtime and language packs"); color: Theme.textPrimary; font.pixelSize: Theme.fontLarge; font.bold: true; Layout.fillWidth: true }
+                            Text { text: qsTr("3. Local CPU runtime and language packs"); color: Theme.textPrimary; font.pixelSize: Theme.fontLarge; font.bold: true; Layout.fillWidth: true }
                             Text { text: runtime.stateName; color: runtime.runtimeAvailable ? Theme.success : Theme.warning; font.bold: true }
                             Button { text: qsTr("Refresh"); enabled: !runtime.busy; onClicked: runtime.refresh() }
                         }
@@ -591,7 +774,15 @@ Page {
                         }
                         Text {
                             Layout.fillWidth: true
-                            text: qsTr("Execution route: Local CPU · No GPU or Colab required · The engine is bundled; internet is used only when you explicitly install a verified language pack.")
+                            visible: !root.usingColabRoute
+                            text: qsTr("Execution route: Local CPU · The bundled engine works offline; internet is used only when you explicitly install a verified language pack.")
+                            color: Theme.textSecondary
+                            wrapMode: Text.WordWrap
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            visible: root.usingColabRoute
+                            text: qsTr("Execution route: Colab GPU. Local Tesseract is not started or used for this run; only cropped sample frames are uploaded after the Colab worker is checked.")
                             color: Theme.textSecondary
                             wrapMode: Text.WordWrap
                         }
@@ -664,6 +855,38 @@ Page {
                         anchors.margins: Theme.paddingLarge
                         spacing: Theme.paddingMedium
                         Text { text: qsTr("4. OCR settings and actions"); color: Theme.textPrimary; font.pixelSize: Theme.fontLarge; font.bold: true }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text { text: qsTr("Execution route"); color: Theme.textSecondary; Layout.preferredWidth: 115 }
+                            ComboBox {
+                                id: subtitleOcrExecutionRoute
+                                objectName: "subtitleOcrExecutionRoute"
+                                Layout.fillWidth: true
+                                textRole: "label"
+                                model: [
+                                    { "id": "local-cpu", "label": qsTr("Local CPU · Tesseract 5.5.1") },
+                                    { "id": "colab-gpu", "label": qsTr("Colab GPU · PP-OCRv5 Multilingual 3.1") }
+                                ]
+                                currentIndex: ocr.executionRoute === "colab-gpu" ? 1 : 0
+                                enabled: !ocr.processing
+                                onActivated: ocr.setExecutionRoute(model[index].id)
+                            }
+                            Button {
+                                id: subtitleOcrConfigureColabButton
+                                objectName: "subtitleOcrConfigureColabButton"
+                                visible: root.usingColabRoute
+                                text: qsTr("Configure / check Colab")
+                                enabled: !ocr.processing
+                                onClicked: subtitleOcrColabDialog.open()
+                            }
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            visible: root.usingColabRoute
+                            text: ocr.colabRouteStatus
+                            color: ocr.colabRouteReady ? Theme.success : Theme.warning
+                            wrapMode: Text.WordWrap
+                        }
                         ComboBox {
                             id: languageSelector
                             objectName: "subtitleOcrLanguageSelector"
@@ -714,7 +937,9 @@ Page {
                                 id: runOcrButton
                                 objectName: "subtitleOcrRunButton"
                                 text: qsTr("Run Subtitle OCR")
-                                enabled: !ocr.processing && ocr.sourcePath !== "" && ocr.roiWidth > 0 && ocr.roiHeight > 0 && ocr.runtimeAvailable && root.selectedLanguageReady
+                                enabled: !ocr.processing && ocr.sourcePath !== "" && ocr.roiWidth > 0 && ocr.roiHeight > 0
+                                         && (root.usingColabRoute ? ocr.colabRouteReady
+                                                                  : (ocr.runtimeAvailable && root.selectedLanguageReady))
                                 onClicked: ocr.run()
                             }
                             Button { text: qsTr("Cancel OCR"); enabled: ocr.processing; onClicked: ocr.cancel() }
@@ -722,8 +947,15 @@ Page {
                         }
                         Text {
                             Layout.fillWidth: true
-                            visible: !runtime.runtimeAvailable || !root.selectedLanguageReady
-                            text: !runtime.runtimeAvailable ? qsTr("Repair the package runtime to enable Run Subtitle OCR.") : qsTr("Install the selected language pack to enable Run Subtitle OCR.")
+                            visible: !root.usingColabRoute && (!runtime.runtimeAvailable || !root.selectedLanguageReady)
+                            text: !runtime.runtimeAvailable ? qsTr("Repair the package runtime to enable Local CPU Subtitle OCR.") : qsTr("Install the selected language pack to enable Local CPU Subtitle OCR.")
+                            color: Theme.warning
+                            wrapMode: Text.WordWrap
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            visible: root.usingColabRoute && !ocr.colabRouteReady
+                            text: qsTr("Connect and check the exact Colab Subtitle OCR notebook before running. LA Studio will not silently fall back to Local CPU.")
                             color: Theme.warning
                             wrapMode: Text.WordWrap
                         }
