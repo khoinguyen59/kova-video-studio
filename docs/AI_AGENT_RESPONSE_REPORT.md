@@ -5,10 +5,28 @@
 ### Commit đã push trực tiếp `main`
 
 - `bcc7cfc` — `fix(ocr): bundle verified Tesseract runtime`
-- Remote đã xác minh: `origin/main` chứa commit này. Không có branch/PR trung gian.
-- Chưa tạo package `0.0.2.10` trong cập nhật này. Vì vậy chưa có đường dẫn EXE,
-  File/Product version hoặc SHA-256 mới để báo cáo; không được gọi OCR runtime
-  manual gate là PASS trước khi package đó được tạo và người dùng nghiệm thu.
+- `7d9afb7` — `fix(package): validate OCR runtime health output`
+- Remote đã xác minh: `origin/main` chứa hai commit này. Không có branch/PR
+  trung gian.
+
+### Package portable nội bộ 0.0.2.10
+
+Package đã được tạo từ `main` sau full CTest, không ghi đè 0.0.2.9:
+
+| Hạng mục | Giá trị xác minh độc lập |
+| --- | --- |
+| Artifact | `out/LA-Studio-0.0.2.10/LA-Studio-0.0.2.10.exe` |
+| FileVersion / ProductVersion / OriginalFilename | `0.0.2.10` / `0.0.2.10` / `LA-Studio-0.0.2.10.exe` |
+| EXE SHA-256 | `10525E1456C07C49B1E08C41AD47B7C57EA844B2B03EA9663B8575CDB0E302FD` |
+| EXE size | 22,888,448 bytes |
+| Stage inventory | 1,981 files, 134 directories, 32 license files |
+| OCR runtime | `bundled-vcpkg`, Tesseract `5.5.1`, SHA-256 `8c3c6cc32409ff7799ee3090704f223db2230096ae8be8146c64ac90deeb81f0` |
+| OCR health | package health-check và xác minh độc lập `tesseract --version` đều PASS; manifest ghi `tesseract 5.5.1` |
+| Required stage | `qwindows.dll`, Qt Multimedia, FFmpeg/FFprobe, `subtitle-ocr/tesseract.exe`, runtime manifest/README và Tesseract license/notice đều tồn tại |
+
+Package script cũng tự xác minh 19 runtime artifact và 19 license artifact.
+Nó có eSpeak MSI hash-verified nhưng `NotSigned`, nên **0.0.2.10 vẫn chỉ là
+internal build**. Không mở EXE/browser/GUI trong build hay verify.
 
 ### Điều tra lỗi thật trên package 0.0.2.9
 
@@ -41,6 +59,15 @@ Thay vì tiếp tục phụ thuộc một installer ngoài, sửa mới loại b
   hoặc Colab, bundle status và repair runtime; language action chỉ mở khi runtime
   bundled sẵn sàng.
 
+Lần packaging đầu của 0.0.2.10 bị dừng đúng ở `Stage-SubtitleOcrRuntimeManifest`:
+script gán `healthCheckOutput` cho JSON object nhưng source schema chưa khai báo
+field, nên PowerShell ném `SetValueInvocationException` trước khi ghi
+README/manifest/license. Đây không phải lỗi Tesseract: binary stage chạy
+`tesseract --version` với exit 0. Commit `7d9afb7` khai báo default rỗng, bắt
+package script validate field trước khi copy runtime, và thêm regression đọc
+contract này. Package lần hai mới được dùng và đã PASS toàn bộ manifest/license
+checks ở bảng trên.
+
 ### Sửa kèm tính toàn vẹn regression UI
 
 Trong khi chạy smoke thật, hai lỗi vốn bị che đã được phát hiện và sửa:
@@ -60,23 +87,24 @@ Trong khi chạy smoke thật, hai lỗi vốn bị che đã được phát hi�
 | Tesseract package source | Build vcpkg cô lập `tesseract 5.5.1`; `tesseract --version` thực thi thành công | PASS CLI, không mở desktop GUI |
 | OCR locator/service/controller | `TestSubtitleOcrRuntimeService`, `TestSubtitleOcrController` | PASS |
 | QML route | `PrepareQmlRouteSmokeRuntime`, `QmlRouteSmoke`, gồm regression warning và Dubbing tab | PASS offscreen, không thay cho visual/manual |
-| Full suite | `ctest --test-dir out\\build\\windows-msvc-tests --output-on-failure -j 1` | **38/38 PASS, 0 FAIL** (47.57 s) |
+| Full suite | `ctest --test-dir out\\build\\windows-msvc-tests --output-on-failure -j 1` sau `7d9afb7` | **38/38 PASS, 0 FAIL** (47.26 s) |
 | Graph | `graphify update .` sau source change | Đã chạy; output generated vẫn untracked/không commit |
 
-Các kiểm thử trên là source/CLI/offscreen. Chúng **không** chứng minh package
-desktop mới, OCR video thật, video picker/drag-drop thật hay chất lượng visual.
+Các kiểm thử và package checks trên là source/CLI/offscreen/binary-health. Chúng
+**không** chứng minh thao tác desktop UI, OCR video thật, video picker/drag-drop
+thật hay chất lượng visual.
 
-### Gate tiếp theo bắt buộc cho package 0.0.2.10
+### Manual gate bắt buộc cho package 0.0.2.10
 
-1. Đọc lại `docs/AI_AGENT_REQUEST.md` ngay trước packaging để bảo đảm không có
-   lệnh mới; build portable với `-Version 0.0.2.10`, không đụng package 0.0.2.9.
-2. Xác minh manifest bundle trong stage: `tesseract.exe`, SHA khớp manifest,
-   health-check, DLL phụ thuộc và `licenses/tesseract/LICENSE`; kiểm version và
-   SHA-256 EXE rồi ghi chính xác vào report này.
-3. Người dùng tự mở đúng EXE mới (agent không điều khiển GUI), vào Subtitle OCR
+1. Người dùng tự mở đúng `out/LA-Studio-0.0.2.10/LA-Studio-0.0.2.10.exe`
+   (agent không điều khiển GUI), vào Subtitle OCR
    và xác nhận card ghi Local CPU/No GPU or Colab required, runtime **Ready**,
    language English/Vietnamese/Chinese cài/refresh qua app-data và OCR một video
    thật. Nếu package/binary thiếu, ghi FAIL cụ thể; không fallback installer cũ.
+2. Kiểm fresh package: runtime không còn CTA installer ngoài; nếu runtime/card
+   lỗi, bấm Repair package runtime phải nêu lỗi manifest/hash/binary cụ thể.
+3. Xác nhận package path có khoảng trắng này vẫn có runtime Ready; download
+   language chỉ bắt đầu sau đó và không làm mất source/ROI đang chọn khi thất bại.
 
 Các file request/handoff, `VoiceLibraryDialog.qml`, `.agents/`, Graphify,
 `out/` và temporary logs không thuộc commit `bcc7cfc`.
