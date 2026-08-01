@@ -240,6 +240,7 @@ public:
     Q_INVOKABLE bool importSubtitles(const QString &path,
                                      const QString &untimedStrategy = QStringLiteral("existing-segment"));
     Q_INVOKABLE bool setSubtitleStyle(const QVariantMap &style);
+    Q_INVOKABLE bool setSubtitleTextSource(const QString &source);
     Q_INVOKABLE bool setSubtitleBurnIn(bool enabled);
     Q_INVOKABLE QVariantMap previewTimingResolution(const QString &mode,
                                                      int minimumGapMs = 80);

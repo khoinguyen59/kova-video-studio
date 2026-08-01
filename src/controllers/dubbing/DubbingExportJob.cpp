@@ -124,6 +124,9 @@ bool DubbingExportJob::startExport(const QString &sourceMediaPath, const QString
     m_exportAudioPath = audioPath;
     const bool exportBurnIn = subtitleConfiguration.value(QStringLiteral("burnIn")).toBool();
     const QVariantMap subtitleStyle = subtitleConfiguration.value(QStringLiteral("style")).toMap();
+    const bool subtitleUsesTargetText = subtitleConfiguration.value(
+        QStringLiteral("textSource"), QStringLiteral("target")).toString().trimmed().toLower()
+        != QStringLiteral("source");
     QString subtitleFontDirectory;
     if (exportBurnIn) {
         const QString fontFile = subtitleStyle.value(QStringLiteral("fontFile")).toString().trimmed();
@@ -174,8 +177,9 @@ bool DubbingExportJob::startExport(const QString &sourceMediaPath, const QString
     const bool wroteSubtitle = m_exportBurnIn
         ? DubbingSubtitleService::writeAss(segments,
                                            subtitleStyle,
-                                           m_exportSubtitlePath, true, &subtitleError)
-        : DubbingSubtitleService::writeSidecar(segments, m_exportSubtitlePath, true, &subtitleError);
+                                           m_exportSubtitlePath, subtitleUsesTargetText, &subtitleError)
+        : DubbingSubtitleService::writeSidecar(segments, m_exportSubtitlePath,
+                                                subtitleUsesTargetText, &subtitleError);
     if (!wroteSubtitle) {
         if (m_exportBurnIn) {
             QFile::remove(m_exportStagingPath);

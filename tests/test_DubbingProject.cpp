@@ -2793,6 +2793,8 @@ void TestDubbingProject::persistsDubbingSubtitleStyleAndExportsUnicodeAss()
     style.insert(QStringLiteral("positionX"), 0.25);
     style.insert(QStringLiteral("positionY"), 0.30);
     QVERIFY(controller.setSubtitleStyle(style));
+    QVERIFY(controller.setSubtitleTextSource(QStringLiteral("source")));
+    QVERIFY(!controller.setSubtitleTextSource(QStringLiteral("unknown")));
     QVERIFY(controller.setSubtitleBurnIn(true));
     QVERIFY(controller.saveProject());
 
@@ -2801,6 +2803,8 @@ void TestDubbingProject::persistsDubbingSubtitleStyleAndExportsUnicodeAss()
     QCOMPARE(reopened.subtitleConfiguration().value(QStringLiteral("burnIn")).toBool(), true);
     QCOMPARE(reopened.subtitleConfiguration().value(QStringLiteral("style")).toMap()
                  .value(QStringLiteral("fontSize")).toInt(), 54);
+    QCOMPARE(reopened.subtitleConfiguration().value(QStringLiteral("textSource")).toString(),
+             QStringLiteral("source"));
 
     const QString assPath = dir.filePath(QStringLiteral("styled.ass"));
     QString error;
@@ -2811,6 +2815,7 @@ void TestDubbingProject::persistsDubbingSubtitleStyleAndExportsUnicodeAss()
     QVERIFY(assFile.open(QIODevice::ReadOnly));
     const QByteArray bytes = assFile.readAll();
     QVERIFY(bytes.contains("Style: LAStudio,Noto Sans CJK,54"));
+    QVERIFY(bytes.contains(",2,173,173,119,1"));
     QVERIFY(bytes.contains("{\\pos(480,324)}"));
     QVERIFY(bytes.contains(QString::fromUtf8("Tiáº¿ng Viá»‡t ä¸­æ–‡ æ—¥æœ¬ì–´ í•œêµ­ì–´").toUtf8()));
 }
@@ -2834,6 +2839,9 @@ void TestDubbingProject::dubbingSubtitleUiWiresImportPreviewAndBurnIn()
     QVERIFY(editorSource.contains(QStringLiteral("*.srt *.vtt *.ass *.ssa *.txt *.md *.markdown")));
     QVERIFY(editorSource.contains(QStringLiteral("timestamps are never invented")));
     QVERIFY(editorSource.contains(QStringLiteral("Burn the styled subtitles into rendered MP4")));
+    QVERIFY(editorSource.contains(QStringLiteral("subtitleTextSourceBox")));
+    QVERIFY(editorSource.contains(QStringLiteral("setSubtitleTextSource(currentValue)")));
+    QVERIFY(editorSource.contains(QStringLiteral("Reviewed source text (STT, OCR, or imported)")));
     QVERIFY(editorSource.contains(QStringLiteral("safeMargin")));
     QVERIFY(editorSource.contains(QStringLiteral("positionX")));
 }

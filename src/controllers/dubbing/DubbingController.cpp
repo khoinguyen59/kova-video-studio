@@ -2765,6 +2765,7 @@ bool DubbingController::newProject(const QString &path)
 {
     m_project = DubbingProject();
     m_project.subtitleConfiguration = {{QStringLiteral("source"), QStringLiteral("segments")},
+                                       {QStringLiteral("textSource"), QStringLiteral("target")},
                                        {QStringLiteral("burnIn"), false},
                                        {QStringLiteral("style"), DubbingSubtitleService::defaultStyle()}};
     m_project.timingConfiguration = {{QStringLiteral("mode"), QStringLiteral("keep")},
@@ -2809,6 +2810,7 @@ bool DubbingController::openProject(const QString &path)
     m_project = std::move(loaded);
     if (m_project.subtitleConfiguration.isEmpty()) {
         m_project.subtitleConfiguration = {{QStringLiteral("source"), QStringLiteral("segments")},
+                                           {QStringLiteral("textSource"), QStringLiteral("target")},
                                            {QStringLiteral("burnIn"), false},
                                            {QStringLiteral("style"), DubbingSubtitleService::defaultStyle()}};
     }
@@ -3056,6 +3058,11 @@ QVariantMap DubbingController::subtitleConfiguration() const
     configuration.insert(QStringLiteral("style"), style);
     if (!configuration.contains(QStringLiteral("source")))
         configuration.insert(QStringLiteral("source"), QStringLiteral("segments"));
+    QString textSource = configuration.value(QStringLiteral("textSource"),
+                                             QStringLiteral("target")).toString().trimmed().toLower();
+    if (textSource != QStringLiteral("source") && textSource != QStringLiteral("target"))
+        textSource = QStringLiteral("target");
+    configuration.insert(QStringLiteral("textSource"), textSource);
     if (!configuration.contains(QStringLiteral("burnIn")))
         configuration.insert(QStringLiteral("burnIn"), false);
     return configuration;
@@ -3775,6 +3782,22 @@ bool DubbingController::setSubtitleStyle(const QVariantMap &style)
     }
     QVariantMap configuration = subtitleConfiguration();
     configuration.insert(QStringLiteral("style"), normalized);
+    m_project.subtitleConfiguration = configuration;
+    clearError();
+    emit projectChanged();
+    persistAfterEdit();
+    return true;
+}
+
+bool DubbingController::setSubtitleTextSource(const QString &source)
+{
+    const QString normalized = source.trimmed().toLower();
+    if (normalized != QStringLiteral("source") && normalized != QStringLiteral("target")) {
+        setError(QStringLiteral("Subtitle text source must be source or target."));
+        return false;
+    }
+    QVariantMap configuration = subtitleConfiguration();
+    configuration.insert(QStringLiteral("textSource"), normalized);
     m_project.subtitleConfiguration = configuration;
     clearError();
     emit projectChanged();

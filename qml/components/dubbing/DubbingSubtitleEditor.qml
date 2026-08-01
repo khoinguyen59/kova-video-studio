@@ -46,7 +46,7 @@ Dialog {
             && height <= (parent ? parent.height : height)
             && subtitleImportButton.width > 0 && subtitleImportButton.enabled
             && burnInBox.width > 0 && fontFamilyField.width > 0
-            && alignmentBox.width > 0 && safeMarginBox.width > 0
+            && alignmentBox.width > 0 && subtitleTextSourceBox.width > 0 && safeMarginBox.width > 0
     }
 
     onOpened: {
@@ -91,6 +91,20 @@ Dialog {
                 }
             }
             Text { Layout.fillWidth: true; visible: untimedStrategyBox.currentValue === "alignment"; color: Theme.warning; wrapMode: Text.WordWrap; font.pixelSize: 11; text: qsTr("Import is blocked until forced alignment creates a reviewed timed transcript. This prevents guessed subtitle timing.") }
+
+            RowLayout {
+                Layout.fillWidth: true; spacing: Theme.paddingMedium
+                Label { text: qsTr("Rendered text"); color: Theme.textSecondary }
+                ComboBox {
+                    id: subtitleTextSourceBox
+                    Layout.fillWidth: true
+                    model: [{ value: "target", text: qsTr("Translated / target text") },
+                            { value: "source", text: qsTr("Reviewed source text (STT, OCR, or imported)") }]
+                    textRole: "text"; valueRole: "value"
+                    currentIndex: (root.configuration.textSource || "target") === "source" ? 1 : 0
+                    onActivated: root.dubbing.setSubtitleTextSource(currentValue)
+                }
+            }
 
             Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1,1,1,0.08) }
             Text { text: qsTr("PREVIEW STYLE"); color: Theme.textPrimary; font.bold: true; font.pixelSize: Theme.fontSmall }

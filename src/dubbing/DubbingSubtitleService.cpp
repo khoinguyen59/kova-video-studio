@@ -356,10 +356,11 @@ bool DubbingSubtitleService::writeAss(const QVariantList &segments, const QVaria
               .arg(qRound(style.value(QStringLiteral("positionX")).toDouble() * 1920.0))
               .arg(qRound(style.value(QStringLiteral("positionY")).toDouble() * 1080.0))
         : QString();
+    const int marginH = qRound((1.0 - style.value(QStringLiteral("maxWidth")).toDouble()) * 1920.0 / 2.0);
     const int marginV = qRound(style.value(QStringLiteral("safeMargin")).toDouble() * 1080.0);
     const QString header = QStringLiteral("[Script Info]\nScriptType: v4.00+\nPlayResX: 1920\nPlayResY: 1080\n"
                                           "\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\n"
-                                          "Style: LAStudio,%1,%2,%3,&H000000FF,%4,%5,%6,0,0,0,100,100,0,0,1,%7,%8,%9,80,80,%10,1\n"
+                                          "Style: LAStudio,%1,%2,%3,&H000000FF,%4,%5,%6,0,0,0,100,100,0,0,1,%7,%8,%9,%10,%10,%11,1\n"
                                           "\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n")
         .arg(style.value(QStringLiteral("fontFamily")).toString().replace(QLatin1Char(','), QLatin1Char(' ')))
         .arg(style.value(QStringLiteral("fontSize")).toInt())
@@ -370,7 +371,7 @@ bool DubbingSubtitleService::writeAss(const QVariantList &segments, const QVaria
         .arg(style.value(QStringLiteral("fontWeight")).toInt() >= 600 ? -1 : 0)
         .arg(style.value(QStringLiteral("outlineWidth")).toInt())
         .arg(style.value(QStringLiteral("shadowOffset")).toInt())
-        .arg(assAlignment).arg(marginV);
+        .arg(assAlignment).arg(marginH).arg(marginV);
     QStringList lines{header};
     int cue = 0;
     for (const QVariant &entry : segments) {
