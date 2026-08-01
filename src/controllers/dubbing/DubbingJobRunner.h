@@ -89,6 +89,9 @@ public:
     void clearError();
     void setProcessingState(bool value, const QString &stage, int progress);
     void setError(const QString &message);
+    // Reports an interaction rejection without failing or cancelling an
+    // already-running worker.
+    void setBusyError(const QString &message);
     void setBackgroundAudioPath(const QString &path) { m_backgroundAudioPath = path; }
 
 signals:
@@ -107,7 +110,6 @@ private slots:
 
 private:
     void setProcessing(bool value, const QString &stage, int progress);
-    void setBusyError(const QString &message);
     void finishTranslation(const QVariantList &segments);
     void finishTranscript(const QVariantList &segments);
     void startOcrTranscript(const QVariantMap &parameters);

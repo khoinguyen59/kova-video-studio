@@ -2099,6 +2099,7 @@ void TestDubbingProject::exportsSelfContainedCapCutDraftWithUnverifiedImportStat
     const QString mixPath = dir.filePath(QStringLiteral("dubbed-mix.wav"));
     const QString clipPath = dir.filePath(QStringLiteral("clip-01.wav"));
     const QString secondClipPath = dir.filePath(QStringLiteral("clip-02.wav"));
+    const QString customFontPath = dir.filePath(QStringLiteral("private-subtitle-font.ttf"));
     QVERIFY(WavIO::saveFloat(sourcePath, samples.constData(), samples.size(), sampleRate));
     QVERIFY(WavIO::saveFloat(masterPath, samples.constData(), samples.size(), sampleRate));
     QVERIFY(WavIO::saveFloat(vocalsPath, samples.constData(), samples.size(), sampleRate));
@@ -2106,6 +2107,10 @@ void TestDubbingProject::exportsSelfContainedCapCutDraftWithUnverifiedImportStat
     QVERIFY(WavIO::saveFloat(mixPath, samples.constData(), samples.size(), sampleRate));
     QVERIFY(WavIO::saveFloat(clipPath, samples.constData(), samples.size(), sampleRate));
     QVERIFY(WavIO::saveFloat(secondClipPath, samples.constData(), samples.size(), sampleRate));
+    QFile customFontFile(customFontPath);
+    QVERIFY(customFontFile.open(QIODevice::WriteOnly));
+    QCOMPARE(customFontFile.write("test subtitle font"), qint64(18));
+    customFontFile.close();
 
     const QVariantList segments{
         QVariantMap{{QStringLiteral("id"), QStringLiteral("segment-01")},
@@ -2135,6 +2140,7 @@ void TestDubbingProject::exportsSelfContainedCapCutDraftWithUnverifiedImportStat
     subtitleStyle.insert(QStringLiteral("textColor"), QStringLiteral("#FF80D8FF"));
     subtitleStyle.insert(QStringLiteral("outlineWidth"), 3);
     subtitleStyle.insert(QStringLiteral("lineSpacing"), 1.2);
+    subtitleStyle.insert(QStringLiteral("fontFile"), customFontPath);
     const QVariantMap subtitleConfiguration{{QStringLiteral("source"), QStringLiteral("imported-vtt")},
                                             {QStringLiteral("style"), subtitleStyle}};
     const QVariantMap timingConfiguration{{QStringLiteral("mode"), QStringLiteral("ripple")},
@@ -2153,13 +2159,15 @@ void TestDubbingProject::exportsSelfContainedCapCutDraftWithUnverifiedImportStat
     QVERIFY(QFileInfo(QDir(draftPath).filePath(QStringLiteral("assets/clips/0001.wav"))).isFile());
     QVERIFY(QFileInfo(QDir(draftPath).filePath(QStringLiteral("assets/clips/0002.wav"))).isFile());
     QVERIFY(QFileInfo(QDir(draftPath).filePath(QStringLiteral("assets/source-vocals.wav"))).isFile());
+    QVERIFY(QFileInfo(QDir(draftPath).filePath(QStringLiteral("assets/fonts/subtitle-font.ttf"))).isFile());
     QVERIFY(QFileInfo(QDir(draftPath).filePath(QStringLiteral("subtitles/dubbed.srt"))).isFile());
     QVERIFY(QFileInfo(QDir(draftPath).filePath(QStringLiteral("LA_STUDIO_EDITABLE_MANIFEST.json"))).isFile());
     QVERIFY(warning.contains(QStringLiteral("not yet verified")));
 
     QFile contentFile(QDir(draftPath).filePath(QStringLiteral("draft_content.json")));
     QVERIFY(contentFile.open(QIODevice::ReadOnly));
-    const QJsonDocument content = QJsonDocument::fromJson(contentFile.readAll());
+    const QByteArray contentBytes = contentFile.readAll();
+    const QJsonDocument content = QJsonDocument::fromJson(contentBytes);
     QVERIFY(content.isObject());
     const QJsonObject materials = content.object().value(QStringLiteral("materials")).toObject();
     QCOMPARE(materials.value(QStringLiteral("videos")).toArray().size(), 1);
@@ -2177,7 +2185,8 @@ void TestDubbingProject::exportsSelfContainedCapCutDraftWithUnverifiedImportStat
     QVERIFY(!textContent.value(QStringLiteral("text")).toString().isEmpty());
     QCOMPARE(textContent.value(QStringLiteral("styles")).toArray().first().toObject()
                  .value(QStringLiteral("font")).toObject().value(QStringLiteral("path")).toString(),
-             QString());
+             QDir(draftPath).filePath(QStringLiteral("assets/fonts/subtitle-font.ttf")));
+    QVERIFY(!contentBytes.contains(customFontPath.toUtf8()));
     contentFile.close();
 
     QFile segmentFile(QDir(draftPath).filePath(QStringLiteral("segments.json")));
@@ -2208,12 +2217,16 @@ void TestDubbingProject::exportsSelfContainedCapCutDraftWithUnverifiedImportStat
                  .value(QStringLiteral("source")).toString(), QStringLiteral("imported-vtt"));
     QCOMPARE(editableManifest.value(QStringLiteral("subtitle")).toObject()
                  .value(QStringLiteral("style")).toObject().value(QStringLiteral("fontSize")).toInt(), 52);
+    QCOMPARE(editableManifest.value(QStringLiteral("subtitle")).toObject()
+                 .value(QStringLiteral("style")).toObject().value(QStringLiteral("fontFile")).toString(),
+             QStringLiteral("assets/fonts/subtitle-font.ttf"));
     QCOMPARE(editableManifest.value(QStringLiteral("timing")).toObject()
                  .value(QStringLiteral("mode")).toString(), QStringLiteral("ripple"));
     QCOMPARE(editableManifest.value(QStringLiteral("subtitle")).toObject()
                  .value(QStringLiteral("editableTextSegmentCount")).toInt(), 2);
     QVERIFY(!editableManifestBytes.contains("temporary-colab-secret"));
     QVERIFY(!editableManifestBytes.contains("gateway-secret"));
+    QVERIFY(!editableManifestBytes.contains(customFontPath.toUtf8()));
 
     QString secondDraft;
     QVERIFY2(CapCutDraftExporter::exportDraft(
@@ -2963,6 +2976,16 @@ void TestDubbingProject::resolvesGlobalTimingConflictsWithRippleAndUndo()
     QVERIFY(!controller.stepOutput(QStringLiteral("mix")).isEmpty());
     QVERIFY(!controller.stepOutput(QStringLiteral("export")).isEmpty());
     QVERIFY(!controller.timingConflicts().isEmpty());
+    runner->setProcessingState(true, QStringLiteral("translation"), 42);
+    QVERIFY(controller.processing());
+    QVERIFY(controller.previewTimingResolution(QStringLiteral("ripple"), 100).isEmpty());
+    QVERIFY(!controller.applyTimingResolution(QStringLiteral("ripple"), 100));
+    QVERIFY(controller.processing());
+    QCOMPARE(controller.stage(), QStringLiteral("translation"));
+    QCOMPARE(controller.progress(), 42);
+    QVERIFY(controller.lastError().contains(QStringLiteral("Wait for the current Dubbing operation")));
+    QCOMPARE(controller.segments().at(1).toMap().value(QStringLiteral("startMs")).toLongLong(), qint64(600));
+    runner->setProcessingState(false, QStringLiteral("ready"), 100);
     const QVariantMap preview = controller.previewTimingResolution(QStringLiteral("ripple"), 100);
     QVERIFY(!preview.isEmpty());
     QVERIFY(controller.applyTimingResolution(QStringLiteral("ripple"), 100));

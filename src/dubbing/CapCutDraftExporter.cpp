@@ -367,6 +367,29 @@ QString subtitles(const QVariantList &segments, bool target)
 
 bool validateDraft(const QString &draftPath, const QString &publishedDraftPath, QString *error)
 {
+    const QString publishedRoot = QDir::cleanPath(QDir::fromNativeSeparators(publishedDraftPath));
+    const auto validatePublishedAsset = [&](const QString &publishedAssetPath,
+                                            const QString &description) {
+        if (publishedAssetPath.trimmed().isEmpty()) return true;
+        const QString publishedAsset = QDir::cleanPath(
+            QDir::fromNativeSeparators(publishedAssetPath));
+        const QString rootPrefix = publishedRoot + QLatin1Char('/');
+        if (!publishedAsset.startsWith(rootPrefix)) {
+            return fail(error, QStringLiteral("CapCut draft %1 refers outside the published draft folder.")
+                                   .arg(description));
+        }
+        const QString relativePath = QDir(publishedRoot).relativeFilePath(publishedAsset);
+        if (relativePath == QStringLiteral(".") || relativePath.startsWith(QStringLiteral("../"))) {
+            return fail(error, QStringLiteral("CapCut draft %1 has an unsafe asset path.")
+                                   .arg(description));
+        }
+        if (!QFileInfo(QDir(draftPath).filePath(relativePath)).isFile()) {
+            return fail(error, QStringLiteral("CapCut draft %1 was not copied into the draft folder.")
+                                   .arg(description));
+        }
+        return true;
+    };
+
     QFile contentFile(QDir(draftPath).filePath(QStringLiteral("draft_content.json")));
     if (!contentFile.open(QIODevice::ReadOnly))
         return fail(error, QStringLiteral("CapCut draft content was not written."));
@@ -385,12 +408,10 @@ bool validateDraft(const QString &draftPath, const QString &publishedDraftPath, 
             const QJsonObject material = value.toObject();
             const QString id = material.value(QStringLiteral("id")).toString();
             const QString assetPath = material.value(QStringLiteral("path")).toString();
-            QString validationPath = assetPath;
-            const QString relativePath = QDir(publishedDraftPath).relativeFilePath(assetPath);
-            if (!relativePath.startsWith(QStringLiteral("..")))
-                validationPath = QDir(draftPath).filePath(relativePath);
-            if (assetPath.isEmpty() || !QFileInfo(validationPath).isFile())
+            if (assetPath.isEmpty())
                 return fail(error, QStringLiteral("CapCut draft references a missing %1 asset.").arg(kind));
+            if (!validatePublishedAsset(assetPath, QStringLiteral("%1 material").arg(kind)))
+                return false;
             if (id.isEmpty() || materialKindsById.contains(id))
                 return fail(error, QStringLiteral("CapCut draft has a duplicate or missing material identifier."));
             materialKindsById.insert(id, kind);
@@ -410,6 +431,12 @@ bool validateDraft(const QString &draftPath, const QString &publishedDraftPath, 
             || textContent.object().value(QStringLiteral("text")).toString().trimmed().isEmpty()
             || materialKindsById.contains(id)) {
             return fail(error, QStringLiteral("CapCut editable subtitle material is invalid."));
+        }
+        const QJsonArray styles = textContent.object().value(QStringLiteral("styles")).toArray();
+        for (const QJsonValue &styleValue : styles) {
+            const QString fontPath = styleValue.toObject().value(QStringLiteral("font")).toObject()
+                .value(QStringLiteral("path")).toString();
+            if (!validatePublishedAsset(fontPath, QStringLiteral("subtitle font"))) return false;
         }
         materialKindsById.insert(id, QStringLiteral("texts"));
     }
@@ -509,6 +536,26 @@ bool CapCutDraftExporter::exportDraft(const QString &parentDirectory,
     const QString copiedMix = QDir(assetRoot).filePath(QStringLiteral("dubbed-mix.wav"));
     if (!copyAsset(dubbedMixPath, copiedMix, true, error)) return abort();
 
+    // A custom subtitle font must travel with an editable draft. Leaving the
+    // user's original absolute path in draft_content.json makes the draft
+    // machine-dependent and leaks a local path into the export.
+    QVariantMap capCutSubtitleStyle = subtitleStyle;
+    QString copiedSubtitleFont;
+    const QString configuredSubtitleFont = subtitleStyle.value(QStringLiteral("fontFile")).toString().trimmed();
+    if (!configuredSubtitleFont.isEmpty()) {
+        const QFileInfo fontInfo(configuredSubtitleFont);
+        if (!fontInfo.isFile()) {
+            fail(error, QStringLiteral("The selected subtitle font file is unavailable: %1")
+                            .arg(fontInfo.absoluteFilePath()));
+            return abort();
+        }
+        const QString extension = fontInfo.suffix().isEmpty() ? QStringLiteral("ttf") : fontInfo.suffix();
+        copiedSubtitleFont = QDir(assetRoot).filePath(
+            QStringLiteral("fonts/subtitle-font.%1").arg(extension));
+        if (!copyAsset(fontInfo.absoluteFilePath(), copiedSubtitleFont, true, error)) return abort();
+        capCutSubtitleStyle.insert(QStringLiteral("fontFile"), publishedAssetPath(copiedSubtitleFont));
+    }
+
     QString copiedMaster;
     if (!masterAudioPath.trimmed().isEmpty() && QFileInfo(masterAudioPath).isFile()) {
         copiedMaster = QDir(assetRoot).filePath(QStringLiteral("source-audio.wav"));
@@ -604,10 +651,10 @@ bool CapCutDraftExporter::exportDraft(const QString &parentDirectory,
         QString subtitleMaterialId;
         if (!subtitleText.isEmpty()) {
             subtitleMaterialId = newId();
-            textMaterials.append(textMaterial(subtitleMaterialId, subtitleText, subtitleStyle));
+            textMaterials.append(textMaterial(subtitleMaterialId, subtitleText, capCutSubtitleStyle));
             subtitleTrack.append(textSegment(subtitleMaterialId,
                                               startMs * kMicrosecondsPerMillisecond,
-                                              durationUs, subtitleStyle));
+                                              durationUs, capCutSubtitleStyle));
         }
         segmentManifest.append(QJsonObject{{QStringLiteral("id"), segment.value(QStringLiteral("id")).toString()},
                                             {QStringLiteral("startMs"), startMs},
@@ -714,6 +761,12 @@ bool CapCutDraftExporter::exportDraft(const QString &parentDirectory,
     const auto relativeDraftPath = [&stagingPath](const QString &path) {
         return path.isEmpty() ? QString() : QDir(stagingPath).relativeFilePath(path);
     };
+    QVariantMap manifestSubtitleStyle = subtitleStyle;
+    if (copiedSubtitleFont.isEmpty()) {
+        manifestSubtitleStyle.remove(QStringLiteral("fontFile"));
+    } else {
+        manifestSubtitleStyle.insert(QStringLiteral("fontFile"), relativeDraftPath(copiedSubtitleFont));
+    }
     const QVariantMap safeTimingConfiguration{
         {QStringLiteral("mode"), timingConfiguration.value(QStringLiteral("mode"), QStringLiteral("keep")).toString()},
         {QStringLiteral("minimumGapMs"), qBound(0,
@@ -762,7 +815,7 @@ bool CapCutDraftExporter::exportDraft(const QString &parentDirectory,
         {QStringLiteral("subtitle"), QJsonObject{
             {QStringLiteral("source"), subtitleConfiguration.value(QStringLiteral("source"),
                                                                        QStringLiteral("segments")).toString()},
-            {QStringLiteral("style"), QJsonObject::fromVariantMap(subtitleStyle)},
+            {QStringLiteral("style"), QJsonObject::fromVariantMap(manifestSubtitleStyle)},
             {QStringLiteral("editableTextSegmentCount"), subtitleTrack.size()},
             {QStringLiteral("sidecars"), QJsonArray{QStringLiteral("subtitles/original.srt"),
                                                       QStringLiteral("subtitles/dubbed.srt")}}}},

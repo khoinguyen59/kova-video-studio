@@ -336,6 +336,7 @@ private slots:
 private:
     bool ensureProject(const QString &path);
     void setError(const QString &message);
+    void setBusyError(const QString &message);
     void persistAfterEdit();
     void invalidateTimingOutputs();
     void setWorkflowMode(const QString &mode);

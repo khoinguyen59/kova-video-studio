@@ -3094,6 +3094,10 @@ QVariantList DubbingController::timingConflicts() const
 
 QVariantMap DubbingController::previewTimingResolution(const QString &mode, int minimumGapMs)
 {
+    if (processing()) {
+        setBusyError(QStringLiteral("Wait for the current Dubbing operation before reviewing speech timing."));
+        return {};
+    }
     const QString normalizedMode = mode.trimmed().toLower();
     if (normalizedMode != QStringLiteral("keep") && normalizedMode != QStringLiteral("ripple")
         && normalizedMode != QStringLiteral("manual")) {
@@ -3128,6 +3132,10 @@ QVariantMap DubbingController::previewTimingResolution(const QString &mode, int 
 
 bool DubbingController::applyTimingResolution(const QString &mode, int minimumGapMs)
 {
+    if (processing()) {
+        setBusyError(QStringLiteral("Wait for the current Dubbing operation before changing speech timing."));
+        return false;
+    }
     const QString normalizedMode = mode.trimmed().toLower();
     if (normalizedMode != QStringLiteral("keep") && normalizedMode != QStringLiteral("ripple")
         && normalizedMode != QStringLiteral("manual")) {
@@ -3177,6 +3185,10 @@ bool DubbingController::applyTimingResolution(const QString &mode, int minimumGa
 
 bool DubbingController::undoTimingResolution()
 {
+    if (processing()) {
+        setBusyError(QStringLiteral("Wait for the current Dubbing operation before undoing speech timing."));
+        return false;
+    }
     if (m_timingUndoSegments.isEmpty()) {
         setError(QStringLiteral("No ripple timing change is available to undo."));
         return false;
@@ -3223,7 +3235,7 @@ bool DubbingController::importMediaFromLink(const QString &url)
         return false;
     }
     if (linkImporting() || processing()) {
-        setError(QStringLiteral("Finish or cancel the active media import before starting another one."));
+        setBusyError(QStringLiteral("Finish or cancel the active media import before starting another one."));
         return false;
     }
     if (m_project.projectPath.isEmpty() && !newProject()) return false;
@@ -3249,7 +3261,7 @@ bool DubbingController::downloadMediaFromLink(const QString &url)
         return false;
     }
     if (linkImporting() || processing()) {
-        setError(QStringLiteral("Finish or cancel the active media import before starting another download."));
+        setBusyError(QStringLiteral("Finish or cancel the active media import before starting another download."));
         return false;
     }
 
@@ -3273,7 +3285,7 @@ bool DubbingController::handoffDownloadedMediaToDubbing()
         return false;
     }
     if (linkImporting() || processing()) {
-        setError(QStringLiteral("Finish or cancel the active media import before sending downloaded media to Dubbing."));
+        setBusyError(QStringLiteral("Finish or cancel the active media import before sending downloaded media to Dubbing."));
         return false;
     }
     if (!m_runner) {
@@ -3726,7 +3738,7 @@ bool DubbingController::exportPackage(const QString &directoryPath)
 bool DubbingController::importSubtitles(const QString &path, const QString &untimedStrategy)
 {
     if (processing()) {
-        setError(QStringLiteral("Wait for the active Dubbing operation before importing subtitles."));
+        setBusyError(QStringLiteral("Wait for the active Dubbing operation before importing subtitles."));
         return false;
     }
     if (!hasProject()) {
@@ -3867,7 +3879,7 @@ bool DubbingController::renderPreview(const QString &path)
 bool DubbingController::replaceTranscriptSegments(const QVariantList &ocrSegments)
 {
     if (processing()) {
-        setError(QStringLiteral("Wait for the current Dubbing operation before replacing its transcript."));
+        setBusyError(QStringLiteral("Wait for the current Dubbing operation before replacing its transcript."));
         return false;
     }
     if (!hasProject()) {
@@ -4098,6 +4110,14 @@ void DubbingController::clearError()
 void DubbingController::setError(const QString &message)
 {
     m_runner->setError(message);
+}
+
+void DubbingController::setBusyError(const QString &message)
+{
+    // A rejected user action must never turn a valid in-flight worker into a
+    // failed job. Keep the visible diagnostic without changing the stage,
+    // progress, or cancellation state of that worker.
+    m_runner->setBusyError(message);
 }
 
 void DubbingController::persistAfterEdit()
