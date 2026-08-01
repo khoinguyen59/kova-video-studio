@@ -14,6 +14,8 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
+#include <QProcessEnvironment>
+#include <QRegularExpression>
 #include <QUuid>
 
 #include <string>
@@ -109,12 +111,17 @@ SubtitleOcrRuntimeService::SubtitleOcrRuntimeService(DownloadManager *downloads,
             this, &SubtitleOcrRuntimeService::onInstallerFinished);
     connect(&m_installer, &QProcess::errorOccurred,
             this, &SubtitleOcrRuntimeService::onInstallerError);
+    connect(&m_languagePreflight, qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
+            this, &SubtitleOcrRuntimeService::onLanguagePreflightFinished);
+    connect(&m_languagePreflight, &QProcess::errorOccurred,
+            this, &SubtitleOcrRuntimeService::onLanguagePreflightError);
     refresh();
 }
 
 SubtitleOcrRuntimeService::~SubtitleOcrRuntimeService()
 {
     if (m_installer.state() != QProcess::NotRunning) m_installer.kill();
+    if (m_languagePreflight.state() != QProcess::NotRunning) m_languagePreflight.kill();
     if (!m_stagingPath.isEmpty()) QDir(m_stagingPath).removeRecursively();
 }
 
@@ -440,7 +447,8 @@ bool SubtitleOcrRuntimeService::isLanguageInstalled(const QString &languageCode)
         (m_runtimeSource != QStringLiteral("managed") && m_runtimeSource != QStringLiteral("bundled"))) {
         return false;
     }
-    return normalizedSha(sha256File(languagePath(asset.code))) == normalizedSha(asset.sha256);
+    return m_languagePreflightFinished && m_workerLanguages.contains(asset.code) &&
+        normalizedSha(sha256File(languagePath(asset.code))) == normalizedSha(asset.sha256);
 }
 
 bool SubtitleOcrRuntimeService::canCleanFailedDownload() const
@@ -451,6 +459,43 @@ bool SubtitleOcrRuntimeService::canCleanFailedDownload() const
 QString SubtitleOcrRuntimeService::managedRuntimePath() const
 {
     return SubtitleOcrRuntimeLocator::managedRuntimeRoot();
+}
+
+QString SubtitleOcrRuntimeService::managedTessdataPath() const
+{
+    return QDir(managedRuntimePath()).filePath(QStringLiteral("tessdata"));
+}
+
+QStringList SubtitleOcrRuntimeService::tesseractDataArguments() const
+{
+    if (m_runtimeSource != QStringLiteral("managed") &&
+        m_runtimeSource != QStringLiteral("bundled")) {
+        return {};
+    }
+    return {QStringLiteral("--tessdata-dir"), managedTessdataPath()};
+}
+
+QProcessEnvironment SubtitleOcrRuntimeService::tesseractProcessEnvironment() const
+{
+    QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+    if (m_runtimeSource == QStringLiteral("managed") ||
+        m_runtimeSource == QStringLiteral("bundled")) {
+        environment.remove(QStringLiteral("TESSDATA_PREFIX"));
+    }
+    return environment;
+}
+
+QSet<QString> SubtitleOcrRuntimeService::parseTesseractLanguages(const QByteArray &output)
+{
+    QSet<QString> languages;
+    const QStringList lines = QString::fromLocal8Bit(output).split(QRegularExpression("[\\r\\n]+"),
+                                                                     Qt::SkipEmptyParts);
+    static const QRegularExpression languageCode(QStringLiteral("^[A-Za-z0-9_]+$"));
+    for (const QString &line : lines) {
+        const QString code = line.trimmed();
+        if (languageCode.match(code).hasMatch()) languages.insert(code);
+    }
+    return languages;
 }
 
 bool SubtitleOcrRuntimeService::isManagedDownloadPath(const QString &path) const
@@ -517,11 +562,22 @@ void SubtitleOcrRuntimeService::rebuildLanguagePacks()
     for (const Asset &asset : languageAssets()) {
         const QString path = languagePath(asset.code);
         const bool exists = QFileInfo(path).isFile();
-        const bool installed = managed && normalizedSha(sha256File(path)) == normalizedSha(asset.sha256);
-        QString state = installed ? QStringLiteral("Ready")
+        const bool payloadVerified = managed && normalizedSha(sha256File(path)) == normalizedSha(asset.sha256);
+        const bool workerVerified = payloadVerified && m_languagePreflightFinished &&
+            m_workerLanguages.contains(asset.code);
+        QString state = workerVerified ? QStringLiteral("Ready")
+            : payloadVerified && m_languagePreflightRunning ? QStringLiteral("Verifying")
+            : payloadVerified ? QStringLiteral("Invalid")
             : exists && managed ? QStringLiteral("Invalid") : QStringLiteral("Missing");
-        QString detail = installed ? QStringLiteral("Verified SHA-256; compatible with managed Tesseract %1.")
-                                     .arg(kTesseractVersion)
+        const QString workerDiagnostic = QStringLiteral("Tesseract did not report %1; binary=%2; tessdata=%3; reported=%4.")
+            .arg(asset.code, QDir::cleanPath(m_runtimePath), QDir::cleanPath(managedTessdataPath()),
+                 QStringList(m_workerLanguages.values()).join(QLatin1Char(',')));
+        QString detail = workerVerified
+            ? QStringLiteral("Verified SHA-256 and confirmed by Tesseract using this app's tessdata directory.")
+            : payloadVerified && m_languagePreflightRunning
+            ? QStringLiteral("Verified SHA-256; checking Tesseract access using the app's exact tessdata directory.")
+            : payloadVerified
+            ? (m_languagePreflightError.isEmpty() ? workerDiagnostic : m_languagePreflightError)
             : managed ? QStringLiteral("Install this language pack before OCR uses it.")
             : QStringLiteral("Language packs are managed only for the app-owned runtime. External runtime languages are preflighted by Tesseract.");
         packs.append(QVariantMap{{QStringLiteral("code"), asset.code},
@@ -530,7 +586,9 @@ void SubtitleOcrRuntimeService::rebuildLanguagePacks()
                                  {QStringLiteral("sha256"), asset.sha256},
                                  {QStringLiteral("url"), asset.url},
                                  {QStringLiteral("bytes"), asset.bytes},
-                                 {QStringLiteral("installed"), installed},
+                                 {QStringLiteral("installed"), workerVerified},
+                                 {QStringLiteral("payloadVerified"), payloadVerified},
+                                 {QStringLiteral("workerVerified"), workerVerified},
                                  {QStringLiteral("state"), state},
                                  {QStringLiteral("detail"), detail},
                                  {QStringLiteral("compatibleRuntimeVersion"), kTesseractVersion}});
@@ -538,6 +596,110 @@ void SubtitleOcrRuntimeService::rebuildLanguagePacks()
     if (m_languagePacks == packs) return;
     m_languagePacks = packs;
     emit languagePacksChanged();
+}
+
+QString SubtitleOcrRuntimeService::languageFingerprint() const
+{
+    if (!m_runtimeValid || (m_runtimeSource != QStringLiteral("managed") &&
+                            m_runtimeSource != QStringLiteral("bundled"))) {
+        return {};
+    }
+    QStringList parts{QDir::cleanPath(m_runtimePath), QDir::cleanPath(managedTessdataPath())};
+    for (const Asset &asset : languageAssets()) {
+        const QString hash = normalizedSha(sha256File(languagePath(asset.code)));
+        if (hash == normalizedSha(asset.sha256)) parts.append(asset.code + QLatin1Char('=') + hash);
+    }
+    return parts.join(QLatin1Char('|'));
+}
+
+void SubtitleOcrRuntimeService::resetLanguagePreflight(const QString &fingerprint)
+{
+    if (m_languagePreflightRunning && m_languagePreflight.state() != QProcess::NotRunning) {
+        m_languagePreflight.kill();
+    }
+    m_languagePreflightFingerprint = fingerprint;
+    m_workerLanguages.clear();
+    m_languagePreflightError.clear();
+    m_languagePreflightExpectedCodes.clear();
+    m_languagePreflightRunning = false;
+    m_languagePreflightFinished = false;
+}
+
+void SubtitleOcrRuntimeService::beginLanguagePreflight()
+{
+    if (m_languagePreflightFingerprint.isEmpty() || m_languagePreflightRunning ||
+        m_languagePreflightFinished || !m_runtimeValid) {
+        return;
+    }
+    QStringList verifiedCodes;
+    for (const Asset &asset : languageAssets()) {
+        if (normalizedSha(sha256File(languagePath(asset.code))) == normalizedSha(asset.sha256)) {
+            verifiedCodes.append(asset.code);
+        }
+    }
+    if (verifiedCodes.isEmpty()) return;
+
+    QStringList arguments = tesseractDataArguments();
+    arguments.append(QStringLiteral("--list-langs"));
+    m_languagePreflight.setProgram(m_runtimePath);
+    m_languagePreflight.setArguments(arguments);
+    m_languagePreflight.setProcessEnvironment(tesseractProcessEnvironment());
+    m_languagePreflightRunning = true;
+    m_languagePreflightExpectedCodes = verifiedCodes;
+    appendDiagnostics(QStringLiteral("language-preflight"),
+                      QStringLiteral("Starting; binary=%1; tessdata=%2; language=%3")
+                          .arg(QDir::cleanPath(m_runtimePath), QDir::cleanPath(managedTessdataPath()),
+                               verifiedCodes.join(QLatin1Char(','))));
+    rebuildLanguagePacks();
+    m_languagePreflight.start();
+}
+
+void SubtitleOcrRuntimeService::completeLanguagePreflight(const QSet<QString> &languages,
+                                                           const QString &errorMessage)
+{
+    if (!m_languagePreflightRunning) return;
+    m_languagePreflightRunning = false;
+    m_languagePreflightFinished = true;
+    m_workerLanguages = languages;
+    m_languagePreflightError = errorMessage;
+    if (errorMessage.isEmpty()) {
+        appendDiagnostics(QStringLiteral("language-preflight"),
+                          QStringLiteral("Passed; binary=%1; tessdata=%2; language=%3")
+                              .arg(QDir::cleanPath(m_runtimePath), QDir::cleanPath(managedTessdataPath()),
+                                   QStringList(languages.values()).join(QLatin1Char(','))));
+    } else {
+        appendDiagnostics(QStringLiteral("language-preflight"), errorMessage);
+    }
+    rebuildLanguagePacks();
+}
+
+void SubtitleOcrRuntimeService::onLanguagePreflightFinished(int exitCode, QProcess::ExitStatus exitStatus)
+{
+    if (!m_languagePreflightRunning) return;
+    const QByteArray output = m_languagePreflight.readAllStandardOutput();
+    const QString errorOutput = QString::fromLocal8Bit(m_languagePreflight.readAllStandardError()).trimmed();
+    if (exitStatus != QProcess::NormalExit || exitCode != 0) {
+        const QString message = QStringLiteral("Tesseract language preflight failed; binary=%1; tessdata=%2; language=%3; exit=%4; stderr=%5")
+            .arg(QDir::cleanPath(m_runtimePath))
+            .arg(QDir::cleanPath(managedTessdataPath()))
+            .arg(m_languagePreflightExpectedCodes.join(QLatin1Char(',')))
+            .arg(exitCode)
+            .arg(errorOutput);
+        completeLanguagePreflight({}, message);
+        return;
+    }
+    completeLanguagePreflight(parseTesseractLanguages(output), {});
+}
+
+void SubtitleOcrRuntimeService::onLanguagePreflightError(QProcess::ProcessError error)
+{
+    if (!m_languagePreflightRunning) return;
+    completeLanguagePreflight({}, QStringLiteral("Tesseract language preflight failed; binary=%1; tessdata=%2; language=%3; processError=%4; detail=%5")
+        .arg(QDir::cleanPath(m_runtimePath))
+        .arg(QDir::cleanPath(managedTessdataPath()))
+        .arg(m_languagePreflightExpectedCodes.join(QLatin1Char(',')))
+        .arg(processErrorName(error))
+        .arg(m_languagePreflight.errorString()));
 }
 
 void SubtitleOcrRuntimeService::refresh()
@@ -581,7 +743,16 @@ void SubtitleOcrRuntimeService::refresh()
     m_runtimeValid = valid;
     if (m_pendingKind == PendingKind::None) setInstallState(detectedState);
     if (clearResolvedRuntimeError) setError({});
+    const QString fingerprint = languageFingerprint();
+    // An explicit Refresh is a new worker check, not a relabel of an old
+    // checksum result.  This also makes a replacement download recover from
+    // a transient worker-start failure without ever showing a false Ready.
+    if (fingerprint != m_languagePreflightFingerprint ||
+        (m_languagePreflightFinished && m_pendingKind == PendingKind::None)) {
+        resetLanguagePreflight(fingerprint);
+    }
     rebuildLanguagePacks();
+    beginLanguagePreflight();
     if (changed) emit runtimeChanged();
 }
 

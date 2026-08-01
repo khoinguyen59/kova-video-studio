@@ -3,11 +3,39 @@
 #include <QDir>
 #include <QUrl>
 
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+
 namespace LAStudio {
+
+namespace {
+
+QString dataDirectoryOverride()
+{
+#ifdef Q_OS_WIN
+    // qgetenv()/qEnvironmentVariable() are byte-oriented.  A user profile or
+    // explicit LASTUDIO_DATA_DIR can be Unicode on Windows, so query the wide
+    // environment directly rather than decoding UTF-8 bytes through the
+    // active console codepage.
+    const DWORD required = GetEnvironmentVariableW(L"LASTUDIO_DATA_DIR", nullptr, 0);
+    if (required == 0) return {};
+    QString value(static_cast<qsizetype>(required), Qt::Uninitialized);
+    const DWORD written = GetEnvironmentVariableW(
+        L"LASTUDIO_DATA_DIR", reinterpret_cast<wchar_t *>(value.data()), required);
+    if (written == 0 || written >= required) return {};
+    value.truncate(static_cast<qsizetype>(written));
+    return value.trimmed();
+#else
+    return qEnvironmentVariable("LASTUDIO_DATA_DIR").trimmed();
+#endif
+}
+
+} // namespace
 
 QString PathUtils::dataDir()
 {
-    const QString overrideDir = qEnvironmentVariable("LASTUDIO_DATA_DIR").trimmed();
+    const QString overrideDir = dataDirectoryOverride();
     if (!overrideDir.isEmpty()) {
         return QDir::cleanPath(overrideDir);
     }
@@ -30,7 +58,7 @@ QString PathUtils::cacheDir()
     // disposable package acceptance profiles.  Keep every mutable artifact
     // inside that profile; otherwise media staging can unexpectedly write to
     // the real per-user cache while the rest of the application is isolated.
-    const QString overrideDir = qEnvironmentVariable("LASTUDIO_DATA_DIR").trimmed();
+    const QString overrideDir = dataDirectoryOverride();
     if (!overrideDir.isEmpty()) {
         return QDir::cleanPath(QDir(overrideDir).filePath(QStringLiteral("cache")));
     }

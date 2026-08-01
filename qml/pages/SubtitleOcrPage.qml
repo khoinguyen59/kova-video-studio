@@ -626,7 +626,19 @@ Page {
                                     delegate: RowLayout {
                                         required property var modelData
                                         Layout.fillWidth: true
-                                        Text { text: modelData.label + " (" + modelData.code + ")"; color: Theme.textSecondary; Layout.fillWidth: true; elide: Text.ElideRight }
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 1
+                                            Text { text: modelData.label + " (" + modelData.code + ")"; color: Theme.textSecondary; Layout.fillWidth: true; elide: Text.ElideRight }
+                                            Text {
+                                                Layout.fillWidth: true
+                                                visible: modelData.state !== "Missing"
+                                                text: modelData.detail || ""
+                                                color: modelData.installed ? Theme.success : Theme.warning
+                                                font.pixelSize: Theme.fontSmall
+                                                wrapMode: Text.WrapAnywhere
+                                            }
+                                        }
                                         Text { text: modelData.state; color: modelData.installed ? Theme.success : Theme.warning }
                                         Button { text: modelData.installed ? qsTr("Verified") : qsTr("Install"); enabled: runtime.runtimeAvailable && !runtime.busy && !modelData.installed && runtime.runtimeSource !== "environment"; onClicked: runtime.installLanguage(modelData.code) }
                                     }

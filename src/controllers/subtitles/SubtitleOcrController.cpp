@@ -168,15 +168,18 @@ void SubtitleOcrController::startProcess(Operation operation, const QString &pro
     }
     m_operation = operation;
     m_process.setProgram(program);
-    m_process.setArguments(arguments);
+    QStringList processArguments = arguments;
     QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
-    if (m_runtimeService && m_runtimeService->runtimeSource() == QStringLiteral("bundled")) {
-        // The executable is immutable package content, while language packs
-        // remain user-managed app data.  Tesseract must therefore resolve
-        // tessdata from the managed data root instead of beside the EXE.
-        environment.insert(QStringLiteral("TESSDATA_PREFIX"),
-                           QDir::toNativeSeparators(m_runtimeService->managedRuntimePath()));
+    if (m_runtimeService && (operation == Operation::VerifyLanguage ||
+                             operation == Operation::RecognizeFrame)) {
+        // Keep the UI/runtime preflight and every actual OCR invocation on the
+        // same explicitly resolved tessdata directory.  This avoids a system
+        // TESSDATA_PREFIX making a language look installed when this worker
+        // cannot use the verified app-managed file.
+        processArguments = m_runtimeService->tesseractDataArguments() + processArguments;
+        environment = m_runtimeService->tesseractProcessEnvironment();
     }
+    m_process.setArguments(processArguments);
     m_process.setProcessEnvironment(environment);
     m_process.start();
 }

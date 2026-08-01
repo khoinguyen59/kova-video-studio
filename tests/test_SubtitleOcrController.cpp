@@ -3,7 +3,10 @@
 #include "controllers/dubbing/DubbingController.h"
 #include "controllers/subtitles/SubtitleOcrController.h"
 #include "controllers/tts/SubtitleVoiceController.h"
+#include "core/DownloadManager.h"
+#include "core/HFHubClient.h"
 #include "core/PathUtils.h"
+#include "subtitles/SubtitleOcrRuntimeService.h"
 
 #include <QDir>
 #include <QFile>
@@ -14,6 +17,10 @@
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QtTest>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
 
 namespace LAStudio {
 namespace {
@@ -29,15 +36,24 @@ struct OcrRuntimeEnvironment {
     QByteArray ffmpeg = qgetenv("LASTUDIO_FFMPEG");
     QByteArray ffprobe = qgetenv("LASTUDIO_FFPROBE");
     QByteArray tesseract = qgetenv("LASTUDIO_TESSERACT");
+    QByteArray data = qgetenv("LASTUDIO_DATA_DIR");
+    QByteArray tessdataPrefix = qgetenv("TESSDATA_PREFIX");
+    QByteArray expectedTessdata = qgetenv("LASTUDIO_EXPECTED_TESSDATA");
     bool hadFfmpeg = qEnvironmentVariableIsSet("LASTUDIO_FFMPEG");
     bool hadFfprobe = qEnvironmentVariableIsSet("LASTUDIO_FFPROBE");
     bool hadTesseract = qEnvironmentVariableIsSet("LASTUDIO_TESSERACT");
+    bool hadData = qEnvironmentVariableIsSet("LASTUDIO_DATA_DIR");
+    bool hadTessdataPrefix = qEnvironmentVariableIsSet("TESSDATA_PREFIX");
+    bool hadExpectedTessdata = qEnvironmentVariableIsSet("LASTUDIO_EXPECTED_TESSDATA");
 
     ~OcrRuntimeEnvironment()
     {
         if (hadFfmpeg) qputenv("LASTUDIO_FFMPEG", ffmpeg); else qunsetenv("LASTUDIO_FFMPEG");
         if (hadFfprobe) qputenv("LASTUDIO_FFPROBE", ffprobe); else qunsetenv("LASTUDIO_FFPROBE");
         if (hadTesseract) qputenv("LASTUDIO_TESSERACT", tesseract); else qunsetenv("LASTUDIO_TESSERACT");
+        if (hadData) qputenv("LASTUDIO_DATA_DIR", data); else qunsetenv("LASTUDIO_DATA_DIR");
+        if (hadTessdataPrefix) qputenv("TESSDATA_PREFIX", tessdataPrefix); else qunsetenv("TESSDATA_PREFIX");
+        if (hadExpectedTessdata) qputenv("LASTUDIO_EXPECTED_TESSDATA", expectedTessdata); else qunsetenv("LASTUDIO_EXPECTED_TESSDATA");
     }
 };
 
@@ -184,6 +200,95 @@ void TestSubtitleOcrController::blocksMissingSelectedLanguageBeforeFrameExtracti
     QCOMPARE(controller.phase(), QStringLiteral("error"));
     QVERIFY(controller.error().contains(QStringLiteral("vie")));
     QVERIFY(controller.error().contains(QStringLiteral("language data"), Qt::CaseInsensitive));
+}
+
+void TestSubtitleOcrController::usesExactManagedTessdataForLanguagePreflightAndRecognition()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    OcrRuntimeEnvironment environment;
+    OcrFixtures fixtures(directory);
+    QVERIFY(fixtures.create());
+    const QString strictTesseract = directory.filePath(QStringLiteral("strict tesseract.cmd"));
+    const QByteArray strictWorker = QByteArrayLiteral(
+        "@echo off\r\n"
+        "if /I not \"%~1\"==\"--tessdata-dir\" goto invalid-first\r\n"
+        "if /I not \"%~2\"==\"%LASTUDIO_EXPECTED_TESSDATA%\" goto invalid-directory\r\n"
+        "if not \"%TESSDATA_PREFIX%\"==\"\" goto invalid-prefix\r\n"
+        "if /I \"%~3\"==\"--list-langs\" (\r\n"
+        "  echo List of available languages in managed tessdata ^(2^):\r\n"
+        "  echo eng\r\n"
+        "  echo chi_sim\r\n"
+        "  exit /b 0\r\n"
+        ")\r\n"
+        "if /I \"%~4\"==\"stdout\" (\r\n"
+        "  echo level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\r\n"
+        "  echo 5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t96\tManaged\r\n"
+        "  echo 5\t1\t1\t1\t1\t2\t10\t0\t10\t10\t94\tlanguage\r\n"
+        "  exit /b 0\r\n"
+        ")\r\n"
+        ":invalid-first\r\n"
+        "echo expected --tessdata-dir, got [%~1] 1>&2\r\n"
+        "exit /b 9\r\n"
+        ":invalid-directory\r\n"
+        "echo expected tessdata [%LASTUDIO_EXPECTED_TESSDATA%], got [%~2] 1>&2\r\n"
+        "exit /b 9\r\n"
+        ":invalid-prefix\r\n"
+        "echo inherited TESSDATA_PREFIX [%TESSDATA_PREFIX%] 1>&2\r\n"
+        "exit /b 9\r\n");
+    QVERIFY(writeFile(strictTesseract, strictWorker));
+    configure(fixtures, false);
+
+    // Keep a Unicode directory in the direct argument regression. cmd.exe
+    // uses the active console codepage when a batch fixture compares text, so
+    // the process-boundary fixture below uses spaces while this assertion
+    // proves Qt retains the exact Unicode path before process creation.
+    const QString unicodeDataDirectory = directory.filePath(QString::fromUtf8("unicode-\xC4\x91"));
+    QVERIFY(QDir().mkpath(unicodeDataDirectory));
+#ifdef Q_OS_WIN
+    QVERIFY(SetEnvironmentVariableW(L"LASTUDIO_DATA_DIR",
+                                    reinterpret_cast<const wchar_t *>(unicodeDataDirectory.utf16())));
+#else
+    qputenv("LASTUDIO_DATA_DIR", unicodeDataDirectory.toUtf8());
+#endif
+    HFHubClient unicodeHub;
+    DownloadManager unicodeDownloads(&unicodeHub);
+    SubtitleOcrRuntimeService unicodeRuntime(&unicodeDownloads);
+    unicodeRuntime.m_runtimeSource = QStringLiteral("bundled");
+    unicodeRuntime.m_runtimeValid = true;
+    const QString unicodeTessdata = QDir(unicodeDataDirectory).filePath(
+        QStringLiteral("subtitle-ocr/runtime/tessdata"));
+    QCOMPARE(unicodeRuntime.managedTessdataPath(), QDir::cleanPath(unicodeTessdata));
+    QCOMPARE(unicodeRuntime.tesseractDataArguments(),
+             QStringList({QStringLiteral("--tessdata-dir"), QDir::cleanPath(unicodeTessdata)}));
+
+    // The worker path and active managed data directory contain spaces. A
+    // stale inherited prefix would fail the strict worker rather than
+    // accidentally finding a system Tesseract install.
+    const QString dataDirectory = directory.filePath(QStringLiteral("data with spaces"));
+    QVERIFY(QDir().mkpath(dataDirectory));
+    qputenv("LASTUDIO_DATA_DIR", dataDirectory.toUtf8());
+    qputenv("TESSDATA_PREFIX", QByteArrayLiteral("C:\\unrelated-system-tessdata"));
+
+    HFHubClient hub;
+    DownloadManager downloads(&hub);
+    SubtitleOcrRuntimeService runtime(&downloads);
+    runtime.m_runtimePath = strictTesseract;
+    runtime.m_runtimeSource = QStringLiteral("bundled");
+    runtime.m_runtimeVersion = QStringLiteral("5.5.1");
+    runtime.m_runtimeValid = true;
+    qputenv("LASTUDIO_EXPECTED_TESSDATA", runtime.managedTessdataPath().toUtf8());
+
+    SubtitleOcrController controller(nullptr, nullptr);
+    controller.setRuntimeService(&runtime);
+    loadFixture(controller, fixtures.source);
+    QVERIFY(controller.setOcrLanguage(QStringLiteral("eng+chi_sim")));
+    QVERIFY(controller.run());
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.processing(), 10000);
+    QVERIFY2(controller.phase() == QStringLiteral("completed"), qPrintable(controller.error()));
+    QCOMPARE(controller.segments().size(), 1);
+    QCOMPARE(controller.segments().constFirst().toMap().value(QStringLiteral("text")).toString(),
+             QStringLiteral("Managed language"));
 }
 
 void TestSubtitleOcrController::keepsLowerRegionPresetSeparateFromFullFrameReset()

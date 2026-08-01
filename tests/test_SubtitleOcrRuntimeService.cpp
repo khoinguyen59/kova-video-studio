@@ -381,7 +381,13 @@ void TestSubtitleOcrRuntimeService::qmlRouteRoiAndManagedRuntimeControlsAreWired
     QVERIFY(runtimeServiceSource.contains(QStringLiteral("case Installed: return QStringLiteral(\"Ready\")")));
     QVERIFY(!runtimeServiceSource.contains(QStringLiteral("runtimeInstallerUrl")));
     QVERIFY(runtimeServiceSource.contains(QStringLiteral("const bool needsLegacyManifest")));
-    QVERIFY(controllerSource.contains(QStringLiteral("TESSDATA_PREFIX")));
+    QVERIFY(runtimeServiceSource.contains(QStringLiteral("m_languagePreflight")));
+    QVERIFY(runtimeServiceSource.contains(QStringLiteral("tesseractDataArguments")));
+    QVERIFY(runtimeServiceSource.contains(QStringLiteral("tesseractProcessEnvironment")));
+    QVERIFY(runtimeServiceSource.contains(QStringLiteral("Tesseract did not report %1")));
+    QVERIFY(controllerSource.contains(QStringLiteral("tesseractDataArguments")));
+    QVERIFY(controllerSource.contains(QStringLiteral("tesseractProcessEnvironment")));
+    QVERIFY(pageSource.contains(QStringLiteral("modelData.detail")));
     QVERIFY(pageSource.contains(QStringLiteral("displayedWidth")));
     QVERIFY(pageSource.contains(QStringLiteral("displayedHeight")));
     QVERIFY(pageSource.contains(QStringLiteral("ocr.setRoi")));

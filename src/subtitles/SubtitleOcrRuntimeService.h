@@ -2,6 +2,8 @@
 
 #include <QObject>
 #include <QProcess>
+#include <QProcessEnvironment>
+#include <QSet>
 #include <QString>
 #include <QVariantList>
 
@@ -30,6 +32,7 @@ class SubtitleOcrRuntimeService final : public QObject
     Q_PROPERTY(QString diagnostics READ diagnostics NOTIFY diagnosticsChanged)
     Q_PROPERTY(bool canCleanFailedDownload READ canCleanFailedDownload NOTIFY diagnosticsChanged)
     Q_PROPERTY(QString managedRuntimePath READ managedRuntimePath CONSTANT)
+    Q_PROPERTY(QString managedTessdataPath READ managedTessdataPath CONSTANT)
     Q_PROPERTY(QVariantList languagePacks READ languagePacks NOTIFY languagePacksChanged)
     Q_PROPERTY(qint64 bytesReceived READ bytesReceived NOTIFY progressChanged)
     Q_PROPERTY(qint64 bytesTotal READ bytesTotal NOTIFY progressChanged)
@@ -60,6 +63,7 @@ public:
     QString diagnostics() const { return m_diagnostics; }
     bool canCleanFailedDownload() const;
     QString managedRuntimePath() const;
+    QString managedTessdataPath() const;
     QVariantList languagePacks() const { return m_languagePacks; }
     qint64 bytesReceived() const { return m_bytesReceived; }
     qint64 bytesTotal() const { return m_bytesTotal; }
@@ -80,6 +84,12 @@ public:
     Q_INVOKABLE void refresh();
     Q_INVOKABLE bool isLanguageInstalled(const QString &languageCode) const;
 
+    // Both the preflight and the OCR controller use these exact values for an
+    // app-owned runtime.  Do not rely on an inherited TESSDATA_PREFIX: it can
+    // point at a system install unrelated to the verified language packs.
+    QStringList tesseractDataArguments() const;
+    QProcessEnvironment tesseractProcessEnvironment() const;
+
 signals:
     void stateChanged();
     void runtimeChanged();
@@ -96,6 +106,8 @@ private slots:
     void updateTransferProgress();
     void onInstallerFinished(int exitCode, QProcess::ExitStatus exitStatus);
     void onInstallerError(QProcess::ProcessError error);
+    void onLanguagePreflightFinished(int exitCode, QProcess::ExitStatus exitStatus);
+    void onLanguagePreflightError(QProcess::ProcessError error);
 
 private:
     enum class PendingKind { None, Runtime, Language };
@@ -118,11 +130,13 @@ private:
                                       const QString &expectedSha256, QString *errorMessage);
     static bool replaceRuntimeAtomically(const QString &stagingPath, const QString &runtimeRoot,
                                          QString *errorMessage);
+    static QSet<QString> parseTesseractLanguages(const QByteArray &output);
 
     QString runtimeRoot() const;
     QString downloadRoot() const;
     QString manifestPath() const;
     QString languagePath(const QString &languageCode) const;
+    QString languageFingerprint() const;
     bool hasValidManagedRuntime(QString *errorMessage = nullptr) const;
     bool hasUsablePackagedRuntime(QString *errorMessage = nullptr) const;
     bool writeInstallationManifest(const QString &installationRoot, QString *errorMessage) const;
@@ -139,12 +153,17 @@ private:
     QString processDiagnostics(const QString &phase, QProcess::ProcessError error) const;
     bool isManagedDownloadPath(const QString &path) const;
     void rebuildLanguagePacks();
+    void resetLanguagePreflight(const QString &fingerprint);
+    void beginLanguagePreflight();
+    void completeLanguagePreflight(const QSet<QString> &languages, const QString &errorMessage);
     Asset languageAsset(const QString &languageCode) const;
 
     friend class TestSubtitleOcrRuntimeService;
+    friend class TestSubtitleOcrController;
 
     DownloadManager *m_downloads = nullptr;
     QProcess m_installer;
+    QProcess m_languagePreflight;
     int m_installState = Missing;
     QString m_runtimePath;
     QString m_runtimeSource;
@@ -163,6 +182,12 @@ private:
     RuntimeProcessPhase m_runtimeProcessPhase = RuntimeProcessPhase::None;
     QString m_failedDownloadPath;
     QString m_diagnostics;
+    QString m_languagePreflightFingerprint;
+    QSet<QString> m_workerLanguages;
+    QString m_languagePreflightError;
+    QStringList m_languagePreflightExpectedCodes;
+    bool m_languagePreflightRunning = false;
+    bool m_languagePreflightFinished = false;
 };
 
 } // namespace LAStudio
