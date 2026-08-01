@@ -1,3 +1,36 @@
+# Điều phối báo cáo hiện hành — bắt buộc đọc trước khi làm tiếp
+
+Tài liệu này là **điểm vào duy nhất** cho AI agent tiếp theo. Không được coi phần báo cáo 0.0.2.7 bên dưới là trạng thái mới nhất.
+
+## Thứ tự đọc bắt buộc cho AI tiếp theo
+
+Trước khi audit, sửa, build, package hoặc kết luận bất kỳ hạng mục nào, phải đọc đầy đủ theo thứ tự:
+
+1. `C:/Users/Nguyen Trong Khoi/Downloads/LA-STUDIO/docs/AI_AGENT_RESPONSE_REPORT_0.0.2.8.md`
+2. `C:/Users/Nguyen Trong Khoi/Downloads/LA-STUDIO/docs/AI_AGENT_RESPONSE_REPORT_0.0.2.9.md`
+3. `C:/Users/Nguyen Trong Khoi/Downloads/LA-STUDIO/docs/AI_AGENT_REQUEST.md`
+4. `C:/Users/Nguyen Trong Khoi/Downloads/LA-STUDIO/docs/AI_AGENT_HANDOFF_2026-07-30.md`
+5. File này và `git status --short`.
+
+Hai report version là báo cáo bằng chứng chi tiết, không được bỏ qua hoặc thay thế bằng tổng kê CTest:
+
+- `AI_AGENT_RESPONSE_REPORT_0.0.2.8.md`: ma trận A–M, package 0.0.2.8 và ranh giới manual.
+- `AI_AGENT_RESPONSE_REPORT_0.0.2.9.md`: audit lại A–G, regression transcript/media controls, package 0.0.2.9 và checksum.
+
+## Trạng thái sau report 0.0.2.9 (2026-08-01)
+
+Ba commit sau đã được push thẳng lên `origin/main`, chưa tạo package mới vì full audit/chạy full regression chưa kết thúc:
+
+- `04bc435` — import Subtitle OCR không có `Content-Length` có BusyIndicator indeterminate; smoke Home chạy 1024×720, 1280×800, 1600×900 và kiểm tra card 09/10 + scroll.
+- `0641650` — CapCut draft chỉ gán stem “source vocals” sau khi source separation tạo cả vocals và background; không gán nhãn sai analysis mono.
+- `da67f9a` — ASS burn-in giữ custom normalized x/y, chuyển thư mục font tuỳ chỉnh cho FFmpeg `fontsdir`, và fail sớm nếu font file đã cấu hình bị mất.
+
+Regression đã chạy cho các thay đổi trên: `TestSubtitleOcrController`, `TestSubtitleOcrRuntimeService`, `TestDubbingProject`, `TestMediaToolService`, `PrepareQmlRouteSmokeRuntime`, `QmlRouteSmoke` đều PASS ở lượt chăm sóc tương ứng. Đây **không** thay cho full CTest/package, không được gọi là release hoàn tất, và không được gọi live GUI/Colab/CapCut PASS.
+
+Sau khi đọc, AI tiếp theo phải tiếp tục audit H–M và báo cáo requirement → source location → test cụ thể → PASS/FAIL/SKIP/manual. Nếu phát hiện A–G có regression mới thì sửa kèm test; không được chỉ nói “baseline đã xong” để bỏ qua.
+
+---
+
 # Báo cáo thực hiện — LA Studio 0.0.2.7
 
 Ngày kiểm chứng: 2026-08-01
