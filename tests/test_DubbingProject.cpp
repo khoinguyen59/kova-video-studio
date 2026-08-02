@@ -585,10 +585,10 @@ void TestDubbingProject::colabDubbingVoiceCloningIsDirectAndRequiresConsent()
                         QStringLiteral("gateway-clone")));
     QCOMPARE(failures.count(), 1);
     QCOMPARE(failures.takeFirst().at(0).toString(),
-             QStringLiteral("API Gateway TTS does not support direct voice cloning. Select Colab GPU for this node or turn off voice cloning."));
+             QStringLiteral("The selected saved voice is not supported by this API Gateway TTS route. Choose a compatible built-in voice or Direct Colab; LA Studio will not substitute a voice."));
 
-    // Direct Colab requires an explicit permission acknowledgement; it must
-    // not silently use either API Gateway or the local TTS engine.
+    // A saved library voice requires its matching verified worker. Dubbing
+    // must not silently switch to API Gateway or local TTS.
     QVERIFY(!job.start(segments, projectPath,
                         QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
                                     {QStringLiteral("modelId"), QStringLiteral("kokoro")},
@@ -601,7 +601,7 @@ void TestDubbingProject::colabDubbingVoiceCloningIsDirectAndRequiresConsent()
                         QStringLiteral("colab-without-consent")));
     QCOMPARE(failures.count(), 1);
     QCOMPARE(failures.takeFirst().at(0).toString(),
-             QStringLiteral("Confirm permission to clone this voice before starting Colab voice cloning."));
+             QStringLiteral("Connect a Colab voice-cloning worker before running this TTS node."));
 
     // Once consented, the selected source reference is resolved locally and
     // the next dependency checked is only the direct Colab session.
@@ -1378,7 +1378,6 @@ void TestDubbingProject::dubbingColabModelsMapToExactNotebooks()
         QStringLiteral("subtitle-ocr"),
         QStringLiteral("translate"),
         QStringLiteral("synthesize"),
-        QStringLiteral("voice-clone"),
         QStringLiteral("alignment")
     };
     int routeCount = 0;
@@ -1408,7 +1407,7 @@ void TestDubbingProject::dubbingColabModelsMapToExactNotebooks()
             ++routeCount;
         }
     }
-    QCOMPARE(routeCount, 28);
+    QCOMPARE(routeCount, 22);
     QVERIFY(DubbingColabModelRoutes::notebookForModel(
                 QStringLiteral("transcribe"),
                 QStringLiteral("not-a-model")).isEmpty());
@@ -1439,15 +1438,10 @@ void TestDubbingProject::dubbingUiUsesExactModelWorkers()
         + QStringLiteral("/qml/components/dubbing/DubbingNodeInspector.qml"));
     QVERIFY(inspector.open(QIODevice::ReadOnly));
     const QString inspectorSource = QString::fromUtf8(inspector.readAll());
-    QVERIFY(inspectorSource.contains(
-        QStringLiteral("\"voice-clone\", root.voiceCloneModelId")));
-    QVERIFY(inspectorSource.contains(
-        QStringLiteral("AppController.colabVoiceCloneSession.connectTemporaryWorker")));
-    QVERIFY(inspectorSource.contains(
-        QStringLiteral("dubbing.cloneVoicePresets")));
-    QVERIFY(inspectorSource.contains(
-        QStringLiteral("dubbing.selectCloneVoicePreset")));
-    QVERIFY(inspectorSource.contains(QStringLiteral("VoiceLibraryDialog")));
+    QVERIFY(inspectorSource.contains(QStringLiteral("TTS / Text to Speech")));
+    QVERIFY(inspectorSource.contains(QStringLiteral("dubbing.ttsVoiceOptions")));
+    QVERIFY(inspectorSource.contains(QStringLiteral("dubbing.selectTtsVoice")));
+    QVERIFY(!inspectorSource.contains(QStringLiteral("Create or import clone voice")));
     QVERIFY(inspectorSource.contains(
         QStringLiteral("Saved voice-design presets are not available for Dubbing yet.")));
     QVERIFY(inspectorSource.contains(
@@ -1503,7 +1497,7 @@ void TestDubbingProject::dubbingUiUsesExactModelWorkers()
     QVERIFY(synthesisSource.contains(
         QStringLiteral("request.model = model;")));
     QVERIFY(synthesisSource.contains(
-        QStringLiteral("voiceCloneModelId")));
+        QStringLiteral("savedTtsVoicePreset")));
     QVERIFY(synthesisSource.contains(
         QStringLiteral("effectiveVoiceCloneModel")));
     QVERIFY(synthesisSource.contains(
@@ -1913,15 +1907,19 @@ void TestDubbingProject::cloneVoicePresetSelectionPersistsAndMissingPresetBlocks
     QCOMPARE(reloaded.selectedCloneVoicePresetId(), presetId);
     QVERIFY(reloaded.cloneVoiceSelectionValid());
 
-    // A preset belongs to the exact configured Colab clone model. A change to
-    // another supported family must not silently reuse the old reference.
+    // A saved voice remains visible after the TTS family changes so the user
+    // can see why it cannot run; it must be marked incompatible and never
+    // selected as a silent fallback.
     QVERIFY(reloaded.setWorkflowNodeParameters(
         QStringLiteral("synthesize"),
         QVariantMap{{QStringLiteral("voiceCloneModelId"), QStringLiteral("voxcpm2")}}));
     QCOMPARE(reloaded.cloneVoicePresetFamily(), QStringLiteral("voxcpm2"));
-    QVERIFY(reloaded.cloneVoicePresets().isEmpty());
+    QVERIFY(!reloaded.cloneVoicePresets().isEmpty());
+    QCOMPARE(reloaded.cloneVoicePresets().first().toMap()
+                 .value(QStringLiteral("compatible")).toBool(), false);
+    QVERIFY(!reloaded.cloneVoiceSelectionValid());
     QVERIFY(!reloaded.selectCloneVoicePreset(presetId));
-    QVERIFY(reloaded.lastError().contains(QStringLiteral("unavailable")));
+    QVERIFY(reloaded.lastError().contains(QStringLiteral("incompatible")));
 
     QVERIFY(presets.deletePreset(presetId));
     QVERIFY(!reloaded.cloneVoiceSelectionValid());

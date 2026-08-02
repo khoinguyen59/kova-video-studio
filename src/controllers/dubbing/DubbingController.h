@@ -69,6 +69,8 @@ class DubbingController : public QObject
     Q_PROPERTY(QVariantList workflowNodes READ workflowNodes NOTIFY workflowChanged)
     Q_PROPERTY(QVariantMap workflowNodeConfigurations READ workflowNodeConfigurations NOTIFY workflowChanged)
     Q_PROPERTY(QVariantMap transcriptConfiguration READ transcriptConfiguration NOTIFY projectChanged)
+    Q_PROPERTY(QVariantMap dubbingOcrRoi READ dubbingOcrRoi NOTIFY projectChanged)
+    Q_PROPERTY(bool dubbingOcrRoiVisible READ dubbingOcrRoiVisible NOTIFY projectChanged)
     Q_PROPERTY(QVariantMap subtitleConfiguration READ subtitleConfiguration NOTIFY projectChanged)
     Q_PROPERTY(QVariantMap timingConfiguration READ timingConfiguration NOTIFY timingResolutionChanged)
     Q_PROPERTY(QVariantList timingConflicts READ timingConflicts NOTIFY timingResolutionChanged)
@@ -105,12 +107,10 @@ class DubbingController : public QObject
     Q_PROPERTY(bool automaticSetupActive READ automaticSetupActive NOTIFY workflowChanged)
     Q_PROPERTY(QString automaticStatusText READ automaticStatusText NOTIFY workflowChanged)
     Q_PROPERTY(QVariantList automaticEvents READ automaticEvents NOTIFY workflowChanged)
-    Q_PROPERTY(QVariantList cloneVoicePresets READ cloneVoicePresets NOTIFY cloneVoiceSelectionChanged)
-    Q_PROPERTY(QString selectedCloneVoicePresetId READ selectedCloneVoicePresetId NOTIFY cloneVoiceSelectionChanged)
-    Q_PROPERTY(QString cloneVoicePresetFamily READ cloneVoicePresetFamily NOTIFY cloneVoiceSelectionChanged)
-    Q_PROPERTY(bool cloneVoiceSelectionRequired READ cloneVoiceSelectionRequired NOTIFY cloneVoiceSelectionChanged)
-    Q_PROPERTY(bool cloneVoiceSelectionValid READ cloneVoiceSelectionValid NOTIFY cloneVoiceSelectionChanged)
-    Q_PROPERTY(QString cloneVoiceSelectionError READ cloneVoiceSelectionError NOTIFY cloneVoiceSelectionChanged)
+    Q_PROPERTY(QVariantList ttsVoiceOptions READ ttsVoiceOptions NOTIFY cloneVoiceSelectionChanged)
+    Q_PROPERTY(QString selectedTtsVoiceId READ selectedTtsVoiceId NOTIFY cloneVoiceSelectionChanged)
+    Q_PROPERTY(bool ttsVoiceSelectionValid READ ttsVoiceSelectionValid NOTIFY cloneVoiceSelectionChanged)
+    Q_PROPERTY(QString ttsVoiceSelectionError READ ttsVoiceSelectionError NOTIFY cloneVoiceSelectionChanged)
     Q_PROPERTY(QVariantList colabSetupStages READ colabSetupStages NOTIFY colabSetupChanged)
     Q_PROPERTY(bool colabSetupChecking READ colabSetupChecking NOTIFY colabSetupChanged)
     Q_PROPERTY(QString colabSetupSummary READ colabSetupSummary NOTIFY colabSetupChanged)
@@ -167,6 +167,8 @@ public:
     QVariantList workflowNodes() const;
     QVariantMap workflowNodeConfigurations() const { return m_workflowNodeConfigurations; }
     QVariantMap transcriptConfiguration() const { return m_project.transcriptConfiguration; }
+    QVariantMap dubbingOcrRoi() const;
+    bool dubbingOcrRoiVisible() const;
     QVariantMap subtitleConfiguration() const;
     QVariantMap timingConfiguration() const;
     QVariantList timingConflicts() const;
@@ -204,11 +206,15 @@ public:
     QString automaticStatusText() const { return m_automaticStatusText; }
     QVariantList automaticEvents() const { return m_automaticEvents; }
     QVariantList cloneVoicePresets() const { return m_cloneVoicePresets; }
-    QString selectedCloneVoicePresetId() const { return m_project.cloneVoicePresetId; }
+    QString selectedCloneVoicePresetId() const { return m_project.ttsVoiceId; }
     QString cloneVoicePresetFamily() const;
     bool cloneVoiceSelectionRequired() const { return m_voiceClonePresetsService != nullptr; }
     bool cloneVoiceSelectionValid() const;
     QString cloneVoiceSelectionError() const;
+    QVariantList ttsVoiceOptions() const;
+    QString selectedTtsVoiceId() const { return m_project.ttsVoiceId; }
+    bool ttsVoiceSelectionValid() const { return cloneVoiceSelectionValid(); }
+    QString ttsVoiceSelectionError() const { return cloneVoiceSelectionError(); }
     QVariantList colabSetupStages() const;
     bool colabSetupChecking() const { return !m_colabSetupPendingChecks.isEmpty(); }
     QString colabSetupSummary() const { return m_colabSetupSummary; }
@@ -283,6 +289,10 @@ public:
     Q_INVOKABLE bool unloadWorkflowNodeModel(const QString &nodeId);
     Q_INVOKABLE bool reloadWorkflowNodeModel(const QString &nodeId);
     Q_INVOKABLE bool setWorkflowNodeParameters(const QString &nodeId, const QVariantMap &parameters);
+    Q_INVOKABLE bool setDubbingOcrRoi(const QVariantMap &roi);
+    Q_INVOKABLE bool presetDubbingOcrLowerRegion();
+    Q_INVOKABLE bool resetDubbingOcrRoi();
+    Q_INVOKABLE bool previewDubbingOcrCrop(qint64 positionMs = 0);
     Q_INVOKABLE QVariantList colabModelOptionsForNode(const QString &nodeId) const;
     Q_INVOKABLE QString defaultColabModelForNode(const QString &nodeId) const;
     Q_INVOKABLE QString colabNotebookForNode(const QString &nodeId,
@@ -301,6 +311,8 @@ public:
     Q_INVOKABLE void setAdaptiveConfiguration(const QVariantMap &configuration);
     Q_INVOKABLE bool selectCloneVoicePreset(const QString &presetId);
     Q_INVOKABLE void refreshCloneVoicePresets();
+    Q_INVOKABLE bool selectTtsVoice(const QString &voiceId);
+    Q_INVOKABLE void refreshTtsVoices() { refreshCloneVoicePresets(); }
     // Direct-Colab credentials remain only in the corresponding ColabSession.
     // The controller stores a model-only, in-memory verification snapshot.
     Q_INVOKABLE bool connectWorkflowColabStage(const QString &stageId,

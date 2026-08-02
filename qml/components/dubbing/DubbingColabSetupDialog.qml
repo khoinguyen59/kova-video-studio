@@ -30,7 +30,6 @@ Dialog {
         if (stageId === "subtitle-ocr") return AppController.colabSubtitleOcrSession
         if (stageId === "translate") return AppController.colabTranslationSession
         if (stageId === "synthesize") return AppController.colabTtsSession
-        if (stageId === "voice-clone") return AppController.colabVoiceCloneSession
         if (stageId === "alignment") return AppController.colabAlignmentSession
         return null
     }

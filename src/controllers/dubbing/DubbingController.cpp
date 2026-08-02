@@ -748,7 +748,7 @@ void DubbingController::setRemoteServices(Settings *settings, ColabSession *tran
                         AppController::instance() ? AppController::instance()->colabSubtitleOcrSession() : nullptr);
     observeColabSession(QStringLiteral("translate"), translationSession);
     observeColabSession(QStringLiteral("synthesize"), ttsSession);
-    observeColabSession(QStringLiteral("voice-clone"), voiceCloneSession);
+    Q_UNUSED(voiceCloneSession);
     observeColabSession(QStringLiteral("alignment"), alignmentSession);
     emit colabSetupChanged();
 }
@@ -760,7 +760,6 @@ QString DubbingController::colabCapabilityForStage(const QString &stageId)
     if (stageId == QStringLiteral("subtitle-ocr")) return QStringLiteral("subtitle-ocr");
     if (stageId == QStringLiteral("translate")) return QStringLiteral("translation");
     if (stageId == QStringLiteral("synthesize")) return QStringLiteral("tts");
-    if (stageId == QStringLiteral("voice-clone")) return QStringLiteral("voice-cloning");
     if (stageId == QStringLiteral("alignment")) return QStringLiteral("forced-alignment");
     return {};
 }
@@ -774,7 +773,6 @@ ColabSession *DubbingController::colabSessionForStage(const QString &stageId) co
     if (stageId == QStringLiteral("subtitle-ocr")) return app->colabSubtitleOcrSession();
     if (stageId == QStringLiteral("translate")) return app->colabTranslationSession();
     if (stageId == QStringLiteral("synthesize")) return app->colabTtsSession();
-    if (stageId == QStringLiteral("voice-clone")) return app->colabVoiceCloneSession();
     if (stageId == QStringLiteral("alignment")) return app->colabAlignmentSession();
     return nullptr;
 }
@@ -788,17 +786,12 @@ QString DubbingController::selectedColabModelForStage(const QString &stageId) co
             ? DubbingColabModelRoutes::defaultModelForNode(stageId)
             : configured;
     }
-    const QString nodeId = stageId == QStringLiteral("voice-clone")
-        ? QStringLiteral("voice-clone")
-        : stageId == QStringLiteral("alignment") ? QStringLiteral("alignment") : stageId;
+    const QString nodeId = stageId == QStringLiteral("alignment") ? QStringLiteral("alignment") : stageId;
     const QVariantMap configuration = m_workflowNodeConfigurations.value(
-        stageId == QStringLiteral("voice-clone") ? QStringLiteral("synthesize")
-        : stageId == QStringLiteral("alignment") ? QStringLiteral("transcribe") : nodeId).toMap();
+        stageId == QStringLiteral("alignment") ? QStringLiteral("transcribe") : nodeId).toMap();
     const QVariantMap parameters = configuration.value(QStringLiteral("parameters")).toMap();
     QString model;
-    if (stageId == QStringLiteral("voice-clone"))
-        model = parameters.value(QStringLiteral("voiceCloneModelId")).toString();
-    else if (stageId == QStringLiteral("alignment"))
+    if (stageId == QStringLiteral("alignment"))
         model = parameters.value(QStringLiteral("alignmentModelId")).toString();
     else
         model = parameters.value(QStringLiteral("modelId")).toString();
@@ -824,17 +817,11 @@ bool DubbingController::stageUsesDirectColab(const QString &stageId) const
                == QStringLiteral("ocr")) {
         return false;
     }
-    const QString configurationNode = stageId == QStringLiteral("voice-clone")
-        ? QStringLiteral("synthesize")
-        : stageId == QStringLiteral("alignment") ? QStringLiteral("transcribe") : stageId;
+    const QString configurationNode = stageId == QStringLiteral("alignment") ? QStringLiteral("transcribe") : stageId;
     const QVariantMap configuration = m_workflowNodeConfigurations.value(configurationNode).toMap();
     const QVariantMap parameters = configuration.value(QStringLiteral("parameters")).toMap();
     const QString provider = configuration.value(QStringLiteral("executionProvider"),
         parameters.value(QStringLiteral("executionProvider"))).toString().trimmed().toLower();
-    if (stageId == QStringLiteral("voice-clone")) {
-        return provider == QStringLiteral("colab-direct")
-            && !m_project.cloneVoicePresetId.trimmed().isEmpty();
-    }
     if (stageId == QStringLiteral("alignment"))
         return parameters.value(QStringLiteral("refineAlignmentWithColab")).toBool();
     return provider == QStringLiteral("colab-direct");
@@ -923,8 +910,7 @@ QVariantList DubbingController::colabSetupStages() const
         {QStringLiteral("transcribe"), QStringLiteral("Speech to text")},
         {QStringLiteral("subtitle-ocr"), QStringLiteral("Subtitle OCR")},
         {QStringLiteral("translate"), QStringLiteral("Translation")},
-        {QStringLiteral("synthesize"), QStringLiteral("Voice generation")},
-        {QStringLiteral("voice-clone"), QStringLiteral("Clone voice profile")},
+        {QStringLiteral("synthesize"), QStringLiteral("TTS / Text to Speech")},
         {QStringLiteral("alignment"), QStringLiteral("Forced alignment")},
     };
     QVariantList result;
@@ -1074,6 +1060,69 @@ void DubbingController::setSubtitleOcrController(SubtitleOcrController *controll
     if (m_runner) m_runner->setSubtitleOcrController(controller);
 }
 
+QVariantMap DubbingController::dubbingOcrRoi() const
+{
+    if (m_subtitleOcr) {
+        return {{QStringLiteral("x"), m_subtitleOcr->roiX()},
+                {QStringLiteral("y"), m_subtitleOcr->roiY()},
+                {QStringLiteral("width"), m_subtitleOcr->roiWidth()},
+                {QStringLiteral("height"), m_subtitleOcr->roiHeight()}};
+    }
+    return m_project.transcriptConfiguration.value(QStringLiteral("ocrRoi")).toMap();
+}
+
+bool DubbingController::dubbingOcrRoiVisible() const
+{
+    const QString source = m_project.transcriptConfiguration.value(
+        QStringLiteral("transcriptSource"), QStringLiteral("stt")).toString().trimmed().toLower();
+    // This is a mode capability, rather than a video-presence check.  The QML
+    // overlay additionally requires a video content rect, while its controls
+    // can explain why they are disabled before the user selects media.
+    return source == QStringLiteral("ocr") || source == QStringLiteral("stt+ocr");
+}
+
+bool DubbingController::setDubbingOcrRoi(const QVariantMap &roi)
+{
+    if (!m_subtitleOcr || !dubbingOcrRoiVisible()) return false;
+    const bool accepted = m_subtitleOcr->setRoi(roi.value(QStringLiteral("x")).toDouble(),
+        roi.value(QStringLiteral("y")).toDouble(), roi.value(QStringLiteral("width")).toDouble(),
+        roi.value(QStringLiteral("height")).toDouble());
+    if (!accepted) return false;
+    // The OCR cache key includes this normalized rectangle. Keeping STT
+    // segments intact means switching OCR/STT/OCR never destroys STT work.
+    m_project.transcriptConfiguration.insert(QStringLiteral("ocrRoi"), dubbingOcrRoi());
+    persistAfterEdit();
+    emit projectChanged();
+    emit workflowChanged();
+    return true;
+}
+
+bool DubbingController::presetDubbingOcrLowerRegion()
+{
+    if (!m_subtitleOcr || !dubbingOcrRoiVisible()) return false;
+    m_subtitleOcr->setLowerRegionPreset();
+    m_project.transcriptConfiguration.insert(QStringLiteral("ocrRoi"), dubbingOcrRoi());
+    persistAfterEdit();
+    emit projectChanged();
+    return true;
+}
+
+bool DubbingController::resetDubbingOcrRoi()
+{
+    if (!m_subtitleOcr || !dubbingOcrRoiVisible()) return false;
+    m_subtitleOcr->resetRoi();
+    m_project.transcriptConfiguration.insert(QStringLiteral("ocrRoi"), dubbingOcrRoi());
+    persistAfterEdit();
+    emit projectChanged();
+    return true;
+}
+
+bool DubbingController::previewDubbingOcrCrop(qint64 positionMs)
+{
+    return m_subtitleOcr && dubbingOcrRoiVisible()
+        && m_subtitleOcr->requestCropPreview(positionMs);
+}
+
 void DubbingController::applyStoredSubtitleOcrConfiguration()
 {
     if (!m_subtitleOcr) return;
@@ -1087,6 +1136,20 @@ void DubbingController::applyStoredSubtitleOcrConfiguration()
     const QString model = m_project.transcriptConfiguration.value(
         QStringLiteral("ocrColabModelId")).toString().trimmed().toLower();
     if (!model.isEmpty()) m_subtitleOcr->setColabModelId(model);
+    const QString language = m_project.transcriptConfiguration.value(
+        QStringLiteral("ocrLanguage")).toString().trimmed();
+    if (!language.isEmpty()) m_subtitleOcr->setOcrLanguage(language);
+    const QVariantMap roi = m_project.transcriptConfiguration.value(QStringLiteral("ocrRoi")).toMap();
+    if (!roi.isEmpty()) m_subtitleOcr->setRoi(roi.value(QStringLiteral("x")).toDouble(),
+                                               roi.value(QStringLiteral("y")).toDouble(),
+                                               roi.value(QStringLiteral("width")).toDouble(),
+                                               roi.value(QStringLiteral("height")).toDouble());
+    const qint64 interval = m_project.transcriptConfiguration.value(
+        QStringLiteral("ocrSampleIntervalMs")).toLongLong();
+    if (interval > 0) m_subtitleOcr->setSampleIntervalMs(interval);
+    const double confidence = m_project.transcriptConfiguration.value(
+        QStringLiteral("ocrMinimumConfidence")).toDouble();
+    if (confidence > 0) m_subtitleOcr->setMinimumConfidence(confidence);
 }
 
 QVariantMap DubbingController::effectiveTranscriptConfiguration(bool captureOcrSettings)
@@ -1135,16 +1198,18 @@ QString DubbingController::cloneVoicePresetFamily() const
 {
     const QVariantMap synthesis = m_workflowNodeConfigurations
         .value(QStringLiteral("synthesize")).toMap();
-    const QString configured = synthesis.value(QStringLiteral("parameters")).toMap()
-        .value(QStringLiteral("voiceCloneModelId")).toString().trimmed().toLower();
+    const QVariantMap parameters = synthesis.value(QStringLiteral("parameters")).toMap();
+    const QString configured = parameters.value(QStringLiteral("voiceCloneModelId"),
+        parameters.value(QStringLiteral("modelId"))).toString().trimmed().toLower();
     return configured.isEmpty()
-        ? DubbingColabModelRoutes::defaultModelForNode(QStringLiteral("voice-clone"))
+        ? DubbingColabModelRoutes::defaultModelForNode(QStringLiteral("synthesize"))
         : configured;
 }
 
 QVariantMap DubbingController::selectedCloneVoicePreset() const
 {
-    const QString selectedId = m_project.cloneVoicePresetId.trimmed();
+    const QString selectedId = m_project.ttsVoiceId.trimmed();
+    if (selectedId.startsWith(QStringLiteral("builtin:"))) return {};
     if (selectedId.isEmpty()) return {};
     for (const QVariant &entry : m_cloneVoicePresets) {
         const QVariantMap preset = entry.toMap();
@@ -1156,26 +1221,37 @@ QVariantMap DubbingController::selectedCloneVoicePreset() const
 
 bool DubbingController::cloneVoiceSelectionValid() const
 {
-    if (!cloneVoiceSelectionRequired()) return true;
+    const QString selectedId = m_project.ttsVoiceId.trimmed();
+    if (selectedId.startsWith(QStringLiteral("builtin:"))) {
+        const QString voice = selectedId.mid(QStringLiteral("builtin:").size()).trimmed();
+        return !voice.isEmpty();
+    }
+    if (!cloneVoiceSelectionRequired()) return false;
     const QVariantMap preset = selectedCloneVoicePreset();
     const QString audioPath = PathUtils::urlToLocalPath(
         preset.value(QStringLiteral("audioPath")).toString());
     return !preset.value(QStringLiteral("id")).toString().trimmed().isEmpty()
         && !audioPath.isEmpty() && QFileInfo(audioPath).isFile()
-        && preset.value(QStringLiteral("valid"), true).toBool();
+        && preset.value(QStringLiteral("valid"), true).toBool()
+        && preset.value(QStringLiteral("compatible"), false).toBool();
 }
 
 QString DubbingController::cloneVoiceSelectionError() const
 {
-    if (!cloneVoiceSelectionRequired()) return {};
-    if (m_project.cloneVoicePresetId.trimmed().isEmpty()) {
+    if (m_project.ttsVoiceId.trimmed().isEmpty()) {
         return m_cloneVoicePresets.isEmpty()
-            ? QStringLiteral("No saved clone voices are available. Create or import one before generating dubbing audio.")
-            : QStringLiteral("Select one saved clone voice before generating dubbing audio.");
+            ? QStringLiteral("Select a built-in TTS voice before generating dubbing audio. Saved voices can be created in Voice Cloning Studio.")
+            : QStringLiteral("Select one TTS voice before generating dubbing audio.");
     }
+    if (m_project.ttsVoiceId.startsWith(QStringLiteral("builtin:"))) return {};
+    if (!cloneVoiceSelectionRequired())
+        return QStringLiteral("Saved Voice Cloning library is unavailable. Select a built-in TTS voice or restore the library.");
     const QVariantMap preset = selectedCloneVoicePreset();
     if (preset.isEmpty())
         return QStringLiteral("The selected clone voice is no longer available. Select another saved voice; LA Studio will not substitute one automatically.");
+    if (!preset.value(QStringLiteral("compatible"), false).toBool()) {
+        return QStringLiteral("The selected saved voice is incompatible with the current TTS model family. Choose a compatible voice or change the TTS model.");
+    }
     const QString validationError = preset.value(QStringLiteral("validationError")).toString().trimmed();
     if (!validationError.isEmpty())
         return QStringLiteral("The selected clone voice cannot be used: %1").arg(validationError);
@@ -1190,14 +1266,16 @@ void DubbingController::refreshCloneVoicePresets()
 {
     QVariantList refreshed;
     if (m_voiceClonePresetsService) {
-        for (const QVariant &entry : m_voiceClonePresetsService->presetsForFamily(
-                 cloneVoicePresetFamily())) {
+        const QString activeFamily = cloneVoicePresetFamily();
+        for (const QVariant &entry : m_voiceClonePresetsService->allPresets()) {
             QVariantMap preset = entry.toMap();
             const QString id = preset.value(QStringLiteral("id")).toString().trimmed();
             const QString audioPath = PathUtils::urlToLocalPath(
                 preset.value(QStringLiteral("audioPath")).toString());
             if (id.isEmpty()) continue;
             preset.insert(QStringLiteral("audioPath"), audioPath);
+            preset.insert(QStringLiteral("compatible"),
+                          preset.value(QStringLiteral("familyId")).toString() == activeFamily);
             refreshed.append(preset);
         }
     }
@@ -1215,18 +1293,23 @@ bool DubbingController::selectCloneVoicePreset(const QString &presetId)
         setError(QStringLiteral("Select a saved clone voice before generating dubbing audio."));
         return false;
     }
-    bool found = false;
+    QVariantMap selected;
     for (const QVariant &entry : m_cloneVoicePresets) {
         if (entry.toMap().value(QStringLiteral("id")).toString() == normalized) {
-            found = true;
+            selected = entry.toMap();
             break;
         }
     }
-    if (!found) {
+    if (selected.isEmpty()) {
         setError(QStringLiteral("The selected clone voice is unavailable or its reference audio is missing."));
         return false;
     }
-    if (m_project.cloneVoicePresetId == normalized) return true;
+    if (!selected.value(QStringLiteral("compatible"), false).toBool()) {
+        setError(QStringLiteral("That saved voice is incompatible with the selected TTS model family. Change the model or choose a compatible voice."));
+        return false;
+    }
+    if (m_project.ttsVoiceId == normalized) return true;
+    m_project.ttsVoiceId = normalized;
     m_project.cloneVoicePresetId = normalized;
     emit cloneVoiceSelectionChanged();
     emit projectChanged();
@@ -1237,15 +1320,82 @@ bool DubbingController::selectCloneVoicePreset(const QString &presetId)
 
 bool DubbingController::applySelectedCloneVoiceToSynthesis(QVariantMap *settings)
 {
-    if (!settings || !cloneVoiceSelectionRequired()) return true;
+    if (!settings) return false;
     refreshCloneVoicePresets();
     if (!cloneVoiceSelectionValid()) {
         setError(cloneVoiceSelectionError());
         return false;
     }
-    settings->insert(QStringLiteral("voiceCloningEnabled"), true);
-    settings->insert(QStringLiteral("cloneVoicePreset"), selectedCloneVoicePreset());
+    const QString selectedId = m_project.ttsVoiceId.trimmed();
+    settings->insert(QStringLiteral("ttsVoiceId"), selectedId);
+    if (selectedId.startsWith(QStringLiteral("builtin:"))) {
+        settings->insert(QStringLiteral("voice"), selectedId.mid(QStringLiteral("builtin:").size()));
+    } else {
+        // Dubbing only consumes a verified library preset.  It never receives
+        // a source-media reference, consent form, or clone-model selection.
+        settings->insert(QStringLiteral("savedTtsVoicePreset"), selectedCloneVoicePreset());
+    }
     return true;
+}
+
+QVariantList DubbingController::ttsVoiceOptions() const
+{
+    QVariantList result;
+    const QVariantMap synthesis = m_workflowNodeConfigurations.value(
+        QStringLiteral("synthesize")).toMap();
+    const QVariantMap parameters = synthesis.value(QStringLiteral("parameters")).toMap();
+    QString voice = parameters.value(QStringLiteral("voice")).toString().trimmed();
+    if (voice.isEmpty()) {
+        voice = DubbingColabModelRoutes::defaultVoiceForTtsModel(
+            parameters.value(QStringLiteral("modelId")).toString());
+    }
+    if (!voice.isEmpty()) {
+        result.append(QVariantMap{{QStringLiteral("id"), QStringLiteral("builtin:") + voice},
+                                  {QStringLiteral("name"), QStringLiteral("Built-in TTS · %1").arg(voice)},
+                                  {QStringLiteral("group"), QStringLiteral("Built-in TTS voices")},
+                                  {QStringLiteral("kind"), QStringLiteral("builtin")},
+                                  {QStringLiteral("valid"), true}});
+    }
+    for (const QVariant &entry : m_cloneVoicePresets) {
+        QVariantMap option = entry.toMap();
+        option.insert(QStringLiteral("group"), QStringLiteral("Saved Voice Cloning voices"));
+        option.insert(QStringLiteral("kind"), QStringLiteral("saved-clone"));
+        const QString savedVoiceName = option.value(QStringLiteral("name")).toString();
+        const QString family = option.value(QStringLiteral("familyId")).toString();
+        const bool compatible = option.value(QStringLiteral("compatible"), false).toBool();
+        const bool valid = option.value(QStringLiteral("valid"), false).toBool();
+        option.insert(QStringLiteral("name"), QStringLiteral("Saved voice · %1").arg(
+            option.value(QStringLiteral("name")).toString()));
+        option.insert(QStringLiteral("name"),
+                      QStringLiteral("Saved clone [%1] - %2 - %3 - %4").arg(
+                          savedVoiceName, family,
+                          compatible ? QStringLiteral("Compatible") : QStringLiteral("Incompatible"),
+                          valid ? QStringLiteral("Valid") : QStringLiteral("Needs repair")));
+        result.append(option);
+    }
+    return result;
+}
+
+bool DubbingController::selectTtsVoice(const QString &voiceId)
+{
+    refreshCloneVoicePresets();
+    const QString normalized = voiceId.trimmed();
+    if (normalized.startsWith(QStringLiteral("builtin:"))) {
+        const QString voice = normalized.mid(QStringLiteral("builtin:").size()).trimmed();
+        if (voice.isEmpty()) {
+            setError(QStringLiteral("Choose a valid built-in TTS voice."));
+            return false;
+        }
+        if (m_project.ttsVoiceId == normalized) return true;
+        m_project.ttsVoiceId = normalized;
+        m_project.cloneVoicePresetId = normalized;
+        emit cloneVoiceSelectionChanged();
+        emit projectChanged();
+        emit workflowChanged();
+        persistAfterEdit();
+        return true;
+    }
+    return selectCloneVoicePreset(normalized);
 }
 
 QVariantList DubbingController::workflowNodes() const
@@ -1336,8 +1486,7 @@ QVariantList DubbingController::workflowNodes() const
             state = voicesReady ? QStringLiteral("ready") : QStringLiteral("blocked");
             detail = voicesReady ? QStringLiteral("Speaker assignments are ready") : QStringLiteral("Translated transcript and a speaker are required");
         } else if (definition.id == QStringLiteral("synthesize")) {
-            const bool cloneVoiceReady = !cloneVoiceSelectionRequired()
-                || cloneVoiceSelectionValid();
+            const bool cloneVoiceReady = cloneVoiceSelectionValid();
             state = !cloneVoiceReady ? QStringLiteral("blocked")
                 : (!ttsReady ? QStringLiteral("missing")
                    : (hasClips ? QStringLiteral("completed")
@@ -1460,6 +1609,45 @@ QVariantList DubbingController::workflowNodes() const
             item.insert(QStringLiteral("parameterSchema"), parameterSchema);
             item.insert(QStringLiteral("studioConfig"), studioConfig);
         }
+        const QVariantMap effectiveParameters = item.value(QStringLiteral("parameters")).toMap();
+        const QString configuredProvider = item.value(QStringLiteral("executionProvider"),
+            effectiveParameters.value(QStringLiteral("executionProvider"),
+                                      QStringLiteral("local-dev"))).toString().trimmed().toLower();
+        const QString configuredModel = effectiveParameters.value(QStringLiteral("modelId")).toString().trimmed();
+        const auto roleForNode = [](const QString &id) {
+            if (id == QStringLiteral("media-input")) return QStringLiteral("Choose the original audio or video used by the project.");
+            if (id == QStringLiteral("ingest")) return QStringLiteral("Inspect media and create normalized working audio.");
+            if (id == QStringLiteral("source-separate")) return QStringLiteral("Separate voice and background stems for the mix.");
+            if (id == QStringLiteral("transcribe")) return QStringLiteral("Create timed text from speech, subtitles, or both.");
+            if (id == QStringLiteral("review-transcript")) return QStringLiteral("Review the transcript before translation.");
+            if (id == QStringLiteral("translate")) return QStringLiteral("Translate reviewed timed text into the target language.");
+            if (id == QStringLiteral("review-translation")) return QStringLiteral("Review translated text before speech synthesis.");
+            if (id == QStringLiteral("assign-voices")) return QStringLiteral("Choose one TTS voice applied to all segments and speakers.");
+            if (id == QStringLiteral("synthesize")) return QStringLiteral("Generate timed speech with the selected TTS voice.");
+            if (id == QStringLiteral("fit-timing")) return QStringLiteral("Fit generated clips to the reviewed timing.");
+            if (id == QStringLiteral("review-conflicts")) return QStringLiteral("Resolve clips whose timing needs a decision.");
+            if (id == QStringLiteral("mix")) return QStringLiteral("Mix generated speech with the background audio.");
+            return QStringLiteral("Write the verified dub and subtitles to the chosen output.");
+        };
+        const bool ocrUsesColab = definition.id == QStringLiteral("transcribe")
+            && (m_project.transcriptConfiguration.value(QStringLiteral("transcriptSource"))
+                    .toString().contains(QStringLiteral("ocr")))
+            && m_subtitleOcr && m_subtitleOcr->executionRoute() == QStringLiteral("colab-gpu");
+        const bool colabHeavy = configuredProvider == QStringLiteral("colab-direct") || ocrUsesColab;
+        item.insert(QStringLiteral("roleDescription"), roleForNode(definition.id));
+        item.insert(QStringLiteral("showColabRecommendation"), colabHeavy);
+        item.insert(QStringLiteral("resourceText"), colabHeavy ? QStringLiteral("Nên dùng Colab")
+            : configuredProvider == QStringLiteral("api-gateway") ? QStringLiteral("API Gateway")
+            : QStringLiteral("CPU phù hợp"));
+        item.insert(QStringLiteral("resourceReason"), colabHeavy
+            ? QStringLiteral("The selected Direct Colab route runs its exact model on the temporary GPU worker.")
+            : configuredProvider == QStringLiteral("api-gateway")
+                ? QStringLiteral("This node sends requests only to the configured API Gateway.")
+                : QStringLiteral("This stage is executed locally without a required GPU worker."));
+        if (colabHeavy)
+            item.insert(QStringLiteral("notebookFile"), DubbingColabModelRoutes::notebookForModel(
+                ocrUsesColab ? QStringLiteral("subtitle-ocr") : definition.id,
+                ocrUsesColab ? m_subtitleOcr->colabModelId() : configuredModel));
         result.append(item);
     }
     return result;
@@ -1551,7 +1739,7 @@ bool DubbingController::workflowReady() const
     return workflowGraphValid()
         && !m_project.sourceMediaPath.isEmpty()
         && !m_project.targetLanguage.trimmed().isEmpty()
-        && (!cloneVoiceSelectionRequired() || cloneVoiceSelectionValid())
+        && cloneVoiceSelectionValid()
         && ttsReady
         && transcriptReady
         && translationReady;
@@ -1786,12 +1974,15 @@ bool DubbingController::setWorkflowNodeParameters(const QString &nodeId, const Q
                            .toString().trimmed().toLower();
         if (mode != QStringLiteral("ocr") && mode != QStringLiteral("stt+ocr")) mode = QStringLiteral("stt");
         m_project.transcriptConfiguration.insert(QStringLiteral("transcriptSource"), mode);
-        for (const QString &key : {QStringLiteral("ocrLanguage"), QStringLiteral("ocrRoi"),
+        for (const QString &key : {QStringLiteral("ocrLanguage"), QStringLiteral("ocrExecutionRoute"),
+                                   QStringLiteral("ocrLocalEngineId"), QStringLiteral("ocrLocalEngineVersion"),
+                                   QStringLiteral("ocrColabModelId"), QStringLiteral("ocrRoi"),
                                    QStringLiteral("ocrSampleIntervalMs"),
                                    QStringLiteral("ocrMinimumConfidence")}) {
             if (current.contains(key))
                 m_project.transcriptConfiguration.insert(key, current.value(key));
         }
+        applyStoredSubtitleOcrConfiguration();
     }
     if (m_project.dubbingQuality == QStringLiteral("custom"))
         m_project.workflowNodeConfigurations = m_workflowNodeConfigurations;
@@ -2379,7 +2570,7 @@ bool DubbingController::runWorkflow(const QString &outputPath)
         setError(QStringLiteral("Import source media before running the dubbing workflow."));
         return false;
     }
-    if (cloneVoiceSelectionRequired() && !cloneVoiceSelectionValid()) {
+    if (!cloneVoiceSelectionValid()) {
         setError(cloneVoiceSelectionError());
         return false;
     }
@@ -2465,10 +2656,6 @@ bool DubbingController::startAutomaticWorkflow(const QString &outputPath)
         setError(QStringLiteral("Import source media before generating the final dub."));
         return false;
     }
-    if (cloneVoiceSelectionRequired() && !cloneVoiceSelectionValid()) {
-        setError(cloneVoiceSelectionError());
-        return false;
-    }
     if (m_project.dubbingQuality == QStringLiteral("custom")) {
         const QVariantMap issue = firstCustomSetupIssue();
         if (!issue.isEmpty()) {
@@ -2480,6 +2667,34 @@ bool DubbingController::startAutomaticWorkflow(const QString &outputPath)
             emit workflowChanged();
             return false;
         }
+    }
+    if (m_project.dubbingQuality == QStringLiteral("custom")) {
+        if (!cloneVoiceSelectionValid()) {
+            setError(cloneVoiceSelectionError());
+            return false;
+        }
+    } else if (m_project.ttsVoiceId.trimmed().isEmpty()) {
+        const QVariantMap synthesis = m_workflowNodeConfigurations.value(
+            QStringLiteral("synthesize")).toMap();
+        const QVariantMap parameters = synthesis.value(QStringLiteral("parameters")).toMap();
+        QString modelId = parameters.value(QStringLiteral("modelId")).toString().trimmed();
+        if (modelId.isEmpty())
+            modelId = automaticDefaultFamilyId(QStringLiteral("tts"), m_project.dubbingQuality);
+        const QString builtInVoice = DubbingColabModelRoutes::defaultVoiceForTtsModel(modelId);
+        if (builtInVoice.isEmpty()) {
+            setError(QStringLiteral("The selected TTS model has no deterministic built-in voice. Select a voice in TTS settings."));
+            return false;
+        }
+        // Automatic quality selects the documented default for its exact TTS
+        // family once, then persists it as a normal TTS voice selection.
+        // This is not a random fallback and never replaces a saved voice.
+        m_project.ttsVoiceId = QStringLiteral("builtin:") + builtInVoice;
+        m_project.cloneVoicePresetId = m_project.ttsVoiceId;
+        emit cloneVoiceSelectionChanged();
+        persistAfterEdit();
+    } else if (!cloneVoiceSelectionValid()) {
+        setError(cloneVoiceSelectionError());
+        return false;
     }
     clearError();
     setWorkflowMode(QStringLiteral("automatic"));
@@ -2706,8 +2921,6 @@ bool DubbingController::selectWorkflowColabModel(const QString &nodeId,
         selected = app->translation()->selectColabModel(normalized);
     else if (nodeId == QStringLiteral("synthesize") && app && app->colabTts())
         selected = app->colabTts()->selectColabModel(normalized);
-    else if (nodeId == QStringLiteral("voice-clone") && app && app->colabVoiceClone())
-        selected = app->colabVoiceClone()->selectColabModel(normalized);
     else if (nodeId == QStringLiteral("alignment") && app && app->colabAlignment())
         selected = app->colabAlignment()->selectColabModel(normalized);
 
@@ -2721,11 +2934,6 @@ bool DubbingController::selectWorkflowColabModel(const QString &nodeId,
     // repurposes a verified worker or silently changes route.
     m_colabSetupSnapshots.remove(nodeId);
     emit colabSetupChanged();
-    if (nodeId == QStringLiteral("voice-clone")) {
-        return setWorkflowNodeParameters(
-            QStringLiteral("synthesize"),
-            {{QStringLiteral("voiceCloneModelId"), normalized}});
-    }
     if (nodeId == QStringLiteral("alignment")) {
         return setWorkflowNodeParameters(
             QStringLiteral("transcribe"),
@@ -2897,6 +3105,20 @@ bool DubbingController::openProject(const QString &path)
         m_workflowNodeConfigurations.clear();
         m_project.workflowNodeConfigurations.clear();
         resetStandardTranslationFixConfiguration();
+    }
+    if (m_project.ttsVoiceId.trimmed().isEmpty()) {
+        const QVariantMap synthesis = m_workflowNodeConfigurations.value(
+            QStringLiteral("synthesize")).toMap();
+        const QString modelId = synthesis.value(QStringLiteral("parameters")).toMap()
+            .value(QStringLiteral("modelId"), automaticDefaultFamilyId(
+                QStringLiteral("tts"), m_project.dubbingQuality)).toString();
+        const QString builtInVoice = DubbingColabModelRoutes::defaultVoiceForTtsModel(modelId);
+        if (!builtInVoice.isEmpty()) {
+            // Migration/default only: persist it on the next project save just
+            // like a normal selection, without replacing an existing saved ID.
+            m_project.ttsVoiceId = QStringLiteral("builtin:") + builtInVoice;
+            m_project.cloneVoicePresetId = m_project.ttsVoiceId;
+        }
     }
     if (m_project.dubbingQuality == QStringLiteral("custom")
         && m_translationFix && !m_project.customRewriteConfiguration.isEmpty()) {

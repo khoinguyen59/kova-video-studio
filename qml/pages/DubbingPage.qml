@@ -161,8 +161,7 @@ Item {
         if (stepId === "transcribe"
                 && (dubbing.transcriptConfiguration.transcriptSource || "stt") === "ocr")
             return node.state === "ready" || node.state === "completed"
-        if (stepId === "synthesize" && dubbing.cloneVoiceSelectionRequired
-                && !dubbing.cloneVoiceSelectionValid) return false
+        if (stepId === "synthesize" && !dubbing.ttsVoiceSelectionValid) return false
         if (node.configurable === true && node.selectedFamilyId
                 && node.providerState !== "ready") return false
         return true

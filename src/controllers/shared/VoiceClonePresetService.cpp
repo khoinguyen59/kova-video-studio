@@ -215,6 +215,15 @@ QVariantList VoiceClonePresetService::presetsForFamily(const QString &familyId)
     return filtered;
 }
 
+QVariantList VoiceClonePresetService::allPresets()
+{
+    QVariantList validated;
+    for (const QVariant &val : loadAllPresets()) {
+        validated.append(validatePreset(val.toMap()));
+    }
+    return validated;
+}
+
 bool VoiceClonePresetService::addPreset(const QString &familyId,
                                         const QString &name,
                                         const QString &audioPath,

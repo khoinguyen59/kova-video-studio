@@ -45,6 +45,7 @@ public:
 
     Q_INVOKABLE void stopWorkflow(const QString &id);
     Q_INVOKABLE void openWorkflow(const QString &id);
+    Q_INVOKABLE void openVoiceCloningStudio();
 
 signals:
     void workflowsChanged();

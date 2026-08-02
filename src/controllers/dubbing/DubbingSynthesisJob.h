@@ -85,6 +85,7 @@ private:
     QString m_colabVoiceProfileId;
     QString m_colabVoiceProfileSignature;
     bool m_useVoiceCloning = false;
+    bool m_legacyCloneSettings = false;
     bool m_forceSegmentDuration = false;
     QString m_runId;
     QString m_nodeRunId;

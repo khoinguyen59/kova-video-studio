@@ -26,7 +26,7 @@ Rectangle {
     signal fixRequested()
 
     Layout.fillWidth: true
-    Layout.preferredHeight: root.remoteRouteConfigurable() ? 126 : 66
+    Layout.preferredHeight: root.remoteRouteConfigurable() ? 146 : 86
     radius: Theme.radiusSmall
     color: Theme.surfaceAlt
     border.color: Qt.rgba(1, 1, 1, 0.08)
@@ -42,6 +42,16 @@ Rectangle {
             spacing: 1
             Text { text: root.node && root.node.configurable ? qsTr("%1 settings").arg(root.nodeTitle) : qsTr("%1 actions").arg(root.nodeTitle); color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; font.bold: true }
             Text { Layout.fillWidth: true; text: root.node && root.node.providerName ? root.node.providerName : qsTr("Use the workflow default model"); color: Theme.textSecondary; font.pixelSize: 10; elide: Text.ElideRight }
+            Text { Layout.fillWidth: true; visible: root.node && root.node.roleDescription; text: root.node ? root.node.roleDescription : ""; color: Theme.textSecondary; font.pixelSize: 10; elide: Text.ElideRight }
+        }
+        Rectangle {
+            visible: root.node && root.node.showColabRecommendation === true
+            Layout.preferredHeight: 22; Layout.preferredWidth: 104; radius: 7
+            color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.16)
+            Text { anchors.centerIn: parent; text: qsTr("Nên dùng Colab"); color: Theme.accentLight; font.pixelSize: 10; font.bold: true }
+            ToolTip.visible: colabBadgeHover.hovered
+            ToolTip.text: root.node ? root.node.resourceReason : ""
+            HoverHandler { id: colabBadgeHover }
         }
         Text { visible: root.node && root.node.configurable === true; text: root.modelStateLabel(); color: root.modelStateColor(); font.pixelSize: 10; font.bold: true; Layout.preferredWidth: 62; horizontalAlignment: Text.AlignRight }
         PrimaryButton {

@@ -48,7 +48,8 @@ QJsonObject DubbingProject::toJson() const
     json.insert(QStringLiteral("sourceLanguage"), sourceLanguage);
     json.insert(QStringLiteral("targetLanguage"), targetLanguage);
     json.insert(QStringLiteral("dubbingQuality"), dubbingQuality);
-    json.insert(QStringLiteral("cloneVoicePresetId"), cloneVoicePresetId);
+    json.insert(QStringLiteral("ttsVoiceId"),
+                ttsVoiceId.isEmpty() ? cloneVoicePresetId : ttsVoiceId);
     json.insert(QStringLiteral("durationControl"), QJsonObject::fromVariantMap(durationControl));
     json.insert(QStringLiteral("workflowNodeConfigurations"),
                 QJsonObject::fromVariantMap(workflowNodeConfigurations));
@@ -88,8 +89,14 @@ bool DubbingProject::fromJson(const QJsonObject &json, DubbingProject &project, 
     if (project.dubbingQuality != QStringLiteral("adaptive")
         && project.dubbingQuality != QStringLiteral("custom"))
         project.dubbingQuality = QStringLiteral("fast");
-    if (version >= 8)
-        project.cloneVoicePresetId = json.value(QStringLiteral("cloneVoicePresetId")).toString().trimmed();
+    // Schema 12 renames the project decision from the implementation-specific
+    // clone preset to a TTS voice.  Preserve every existing selection on load
+    // but write only ttsVoiceId on the next save.
+    if (version >= 12)
+        project.ttsVoiceId = json.value(QStringLiteral("ttsVoiceId")).toString().trimmed();
+    else if (version >= 8)
+        project.ttsVoiceId = json.value(QStringLiteral("cloneVoicePresetId")).toString().trimmed();
+    project.cloneVoicePresetId = project.ttsVoiceId;
     project.durationControl = json.value(QStringLiteral("durationControl")).toObject().toVariantMap();
     if (project.durationControl.isEmpty()) {
         project.durationControl = QVariantMap{{QStringLiteral("enabled"), version >= 3},

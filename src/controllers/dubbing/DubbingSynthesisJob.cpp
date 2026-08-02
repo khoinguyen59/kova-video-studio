@@ -209,16 +209,19 @@ bool DubbingSynthesisJob::start(const QVariantList &segments, const QString &pro
     m_projectPath = projectPath;
     m_settings = settings;
     m_cacheSettings = settings;
-    // A clone reference is a deliberate, project-level choice.  Keep the
-    // legacy flag only long enough to reject old auto-reference projects with
-    // an actionable error; never re-select a source window per run/segment.
-    m_useVoiceCloning = settings.value(QStringLiteral("voiceCloningEnabled")).toBool()
-        || settings.value(QStringLiteral("autoSelectVoiceReference")).toBool();
+    // Dubbing consumes a selected TTS voice only. A saved Voice Cloning
+    // library preset is materialized from its managed asset; it never uses
+    // source media or auto-selected vocals.
+    m_legacyCloneSettings = settings.value(QStringLiteral("voiceCloningEnabled")).toBool();
+    m_useVoiceCloning = settings.contains(QStringLiteral("savedTtsVoicePreset"))
+        || m_legacyCloneSettings;
     m_voiceReference = {};
     m_cloneVoicePresetId.clear();
     m_cloneVoicePresetName.clear();
     if (m_useVoiceCloning) {
-        const QVariantMap preset = settings.value(QStringLiteral("cloneVoicePreset")).toMap();
+        const QVariantMap preset = m_legacyCloneSettings
+            ? settings.value(QStringLiteral("cloneVoicePreset")).toMap()
+            : settings.value(QStringLiteral("savedTtsVoicePreset")).toMap();
         m_cloneVoicePresetId = preset.value(QStringLiteral("id")).toString().trimmed();
         m_cloneVoicePresetName = preset.value(QStringLiteral("name")).toString().trimmed();
         const QString referencePath = preset.value(QStringLiteral("audioPath")).toString().trimmed();
@@ -230,7 +233,7 @@ bool DubbingSynthesisJob::start(const QVariantList &segments, const QString &pro
         m_voiceReference.audioPath = QFileInfo(referencePath).absoluteFilePath();
         m_voiceReference.referenceText = preset.value(QStringLiteral("referenceText")).toString().trimmed();
         m_settings.insert(QStringLiteral("ref_text"), m_voiceReference.referenceText);
-        m_cacheSettings.insert(QStringLiteral("cloneVoicePresetId"), m_cloneVoicePresetId);
+        m_cacheSettings.insert(QStringLiteral("ttsVoiceId"), settings.value(QStringLiteral("ttsVoiceId")));
         m_cacheSettings.insert(QStringLiteral("selectedReferencePath"), m_voiceReference.audioPath);
         m_cacheSettings.insert(QStringLiteral("selectedReferenceText"), m_voiceReference.referenceText);
     }
@@ -238,12 +241,7 @@ bool DubbingSynthesisJob::start(const QVariantList &segments, const QString &pro
         && settings.value(QStringLiteral("familyId")).toString()
                .contains(QStringLiteral("omnivoice"), Qt::CaseInsensitive);
     if (m_useVoiceCloning && m_executionProvider == ExecutionProvider::ApiGateway) {
-        fail(QStringLiteral("API Gateway TTS does not support direct voice cloning. Select Colab GPU for this node or turn off voice cloning."));
-        return false;
-    }
-    if (m_useVoiceCloning && m_executionProvider == ExecutionProvider::ColabDirect
-        && !settings.value(QStringLiteral("voiceCloneConsentConfirmed")).toBool()) {
-        fail(QStringLiteral("Confirm permission to clone this voice before starting Colab voice cloning."));
+        fail(QStringLiteral("The selected saved voice is not supported by this API Gateway TTS route. Choose a compatible built-in voice or Direct Colab; LA Studio will not substitute a voice."));
         return false;
     }
     if (remote) {
@@ -260,11 +258,12 @@ bool DubbingSynthesisJob::start(const QVariantList &segments, const QString &pro
             if (voice.isEmpty())
                 voice = DubbingColabModelRoutes::defaultVoiceForTtsModel(model);
             if (m_useVoiceCloning) {
-                const QString cloneModel = settings.value(
-                    QStringLiteral("voiceCloneModelId")).toString().trimmed().toLower();
-                if (!DubbingColabModelRoutes::supports(QStringLiteral("voice-clone"),
-                                                       cloneModel)) {
-                    fail(QStringLiteral("Select an exact Colab voice-cloning model before enabling automatic voice cloning."));
+                const QString cloneModel = (m_legacyCloneSettings
+                    ? settings.value(QStringLiteral("voiceCloneModelId"))
+                    : settings.value(QStringLiteral("savedTtsVoicePreset")).toMap()
+                        .value(QStringLiteral("familyId"))).toString().trimmed().toLower();
+                if (cloneModel.isEmpty()) {
+                    fail(QStringLiteral("The selected saved voice has no compatible Voice Cloning family."));
                     return false;
                 }
                 QString routeError;
@@ -306,7 +305,7 @@ bool DubbingSynthesisJob::start(const QVariantList &segments, const QString &pro
         // The durable preset ID is part of the cache key.  A different voice
         // therefore creates a new run even if text and TTS model are unchanged.
         m_synthesisSignature.append(
-            QStringLiteral("|clone-preset|%1").arg(m_cloneVoicePresetId));
+            QStringLiteral("|tts-voice|%1").arg(settings.value(QStringLiteral("ttsVoiceId")).toString()));
         if (m_executionProvider == ExecutionProvider::ColabDirect) {
             const QFileInfo referenceInfo(m_voiceReference.audioPath);
             const QString cloneModel = m_cacheSettings.value(
@@ -328,6 +327,7 @@ bool DubbingSynthesisJob::start(const QVariantList &segments, const QString &pro
     m_settings.remove(QStringLiteral("autoReferenceSourcePath"));
     m_settings.remove(QStringLiteral("voiceCloningEnabled"));
     m_settings.remove(QStringLiteral("cloneVoicePreset"));
+    m_settings.remove(QStringLiteral("savedTtsVoicePreset"));
     m_settings.remove(QStringLiteral("forceSegmentDuration"));
     m_settings.remove(QStringLiteral("familyId"));
     m_runId = runId;
@@ -546,27 +546,23 @@ void DubbingSynthesisJob::startColabVoiceClone(const QString &text,
                                                 const QVariantMap &requestSettings,
                                                 quint64 requestId)
 {
-    // Voice cloning is a Colab-only route.  Its profile ID is kept only in
-    // memory for this direct worker session; it is never written to Settings
-    // or sent to API Gateway.
+    // A saved library voice is materialized only when the Direct Colab worker
+    // needs it. Its profile ID stays process-memory only and is reused for the
+    // matching durable preset during this session.
     if (!m_colabVoiceCloneRunner || !m_colabVoiceCloneSession) {
-        fail(QStringLiteral("Connect a Colab GPU worker before running voice cloning."));
+        fail(QStringLiteral("Connect the saved voice's verified Colab worker before generating TTS."));
         return;
     }
     if (!m_voiceReference.isValid()) {
-        fail(QStringLiteral("A valid local voice reference is required for Colab voice cloning."));
-        return;
-    }
-    if (!requestSettings.value(QStringLiteral("voiceCloneConsentConfirmed")).toBool()) {
-        fail(QStringLiteral("Confirm permission to clone this voice before starting Colab voice cloning."));
+        fail(QStringLiteral("The selected saved voice asset is unavailable."));
         return;
     }
     const QString language = requestSettings.value(QStringLiteral("lang")).toString().trimmed().isEmpty()
         ? QStringLiteral("vi") : requestSettings.value(QStringLiteral("lang")).toString().trimmed();
-    const QString model = requestSettings.value(
-        QStringLiteral("voiceCloneModelId")).toString().trimmed().toLower();
-    if (!DubbingColabModelRoutes::supports(QStringLiteral("voice-clone"), model)) {
-        fail(QStringLiteral("Select an exact Colab voice-cloning model before starting voice cloning."));
+    const QString model = m_cacheSettings.value(
+        QStringLiteral("effectiveVoiceCloneModel")).toString().trimmed().toLower();
+    if (model.isEmpty()) {
+        fail(QStringLiteral("The selected saved voice has no compatible Voice Cloning family."));
         return;
     }
     QString routeError;
@@ -672,14 +668,14 @@ void DubbingSynthesisJob::commitSynthesizedAudio(const QVector<float> &inputSamp
     updated.insert(QStringLiteral("clipPath"), clipPath);
     updated.insert(QStringLiteral("clipArtifact"), artifact.toJson().toVariantMap());
     updated.insert(QStringLiteral("cacheFingerprint"), fingerprint(segment, m_synthesisSignature, m_cacheSettings));
-    if (m_useVoiceCloning) {
+    updated.insert(QStringLiteral("ttsVoiceId"), m_cacheSettings.value(QStringLiteral("ttsVoiceId")));
+    if (m_useVoiceCloning && !m_legacyCloneSettings)
+        updated.insert(QStringLiteral("savedTtsVoiceName"), m_cloneVoicePresetName);
+    if (m_legacyCloneSettings) {
         updated.insert(QStringLiteral("cloneVoicePresetId"), m_cloneVoicePresetId);
         updated.insert(QStringLiteral("cloneVoicePresetName"), m_cloneVoicePresetName);
         updated.insert(QStringLiteral("voiceReferencePath"), m_voiceReference.audioPath);
         updated.insert(QStringLiteral("voiceReferenceText"), m_voiceReference.referenceText);
-        updated.insert(QStringLiteral("voiceReferenceStartMs"), m_voiceReference.startMs);
-        updated.insert(QStringLiteral("voiceReferenceEndMs"), m_voiceReference.endMs);
-        updated.insert(QStringLiteral("voiceReferenceQuality"), m_voiceReference.qualityScore);
     }
     updated.insert(QStringLiteral("sampleRate"), sampleRate);
     updated.insert(QStringLiteral("sampleCount"), samples.size());

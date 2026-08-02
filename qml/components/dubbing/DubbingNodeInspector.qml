@@ -26,18 +26,11 @@ Rectangle {
     readonly property bool isOmniVoice: nodeId === "synthesize"
                                              && node
                                              && String(node.selectedFamilyId || "").toLowerCase().indexOf("omnivoice") !== -1
-    // Colab voice cloning is a direct, session-scoped worker capability.  It
-    // deliberately remains separate from the API Gateway route and its model.
-    readonly property bool isDirectColabSynthesis: nodeId === "synthesize"
-                                                  && String(dynamicSettings.executionProvider || "local-dev").toLowerCase() === "colab-direct"
-    // Keep the project voice selector visible before a model/runtime is
+    // Keep the project TTS voice selector visible before a model/runtime is
     // loaded as well; model setup must not hide a required run configuration.
-    readonly property bool voiceCloningAvailable: nodeId === "synthesize"
+    readonly property bool ttsVoiceAvailable: nodeId === "synthesize"
     readonly property bool isRemoteTranscription: nodeId === "transcribe"
                                                   && String(dynamicSettings.executionProvider || "local-dev").toLowerCase() !== "local-dev"
-    readonly property string voiceCloneModelId:
-        String(dynamicSettings.voiceCloneModelId
-               || dubbing.defaultColabModelForNode("voice-clone"))
     readonly property string alignmentModelId:
         String(dynamicSettings.alignmentModelId
                || dubbing.defaultColabModelForNode("alignment"))
@@ -109,6 +102,25 @@ Rectangle {
                     color: Theme.textSecondary
                     font.pixelSize: 10
                     elide: Text.ElideRight
+                }
+                Text {
+                    Layout.fillWidth: true
+                    visible: root.node && root.node.roleDescription
+                    text: root.node ? root.node.roleDescription : ""
+                    color: Theme.textSecondary
+                    font.pixelSize: 10
+                    wrapMode: Text.WordWrap
+                }
+                Text {
+                    Layout.fillWidth: true
+                    visible: root.node && root.node.showColabRecommendation === true
+                    text: qsTr("Nên dùng Colab")
+                    color: Theme.accentLight
+                    font.pixelSize: 10
+                    font.bold: true
+                    ToolTip.visible: colabRecommendationHover.hovered
+                    ToolTip.text: root.node ? root.node.resourceReason : ""
+                    HoverHandler { id: colabRecommendationHover }
                 }
             }
 
@@ -196,164 +208,69 @@ Rectangle {
                 }
 
                 SettingsSection {
-                    title: qsTr("Voice cloning")
-                    iconName: "spark"
-                    visible: root.voiceCloningAvailable
+                    title: qsTr("TTS / Text to Speech")
+                    iconName: "volume"
+                    visible: root.ttsVoiceAvailable
 
                     Text {
                         Layout.fillWidth: true
-                        text: qsTr("One saved clone voice is used for every segment and speaker in this dubbing run.")
-                        color: Theme.textSecondary
-                        font.pixelSize: 10
-                        wrapMode: Text.WordWrap
-                    }
-
-                    Text {
-                        text: qsTr("Saved clone voice")
+                        text: qsTr("Giọng nói")
                         color: Theme.textSecondary
                         font.pixelSize: 10
                     }
-
                     ComboBox {
-                        id: cloneVoicePresetSelector
+                        id: ttsVoiceSelector
                         Layout.fillWidth: true
                         textRole: "name"
-                        model: root.dubbing.cloneVoicePresets
+                        model: root.dubbing.ttsVoiceOptions
                         currentIndex: {
                             for (var i = 0; i < model.length; ++i)
-                                if (model[i].id === root.dubbing.selectedCloneVoicePresetId)
-                                    return i
+                                if (model[i].id === root.dubbing.selectedTtsVoiceId) return i
                             return -1
                         }
                         enabled: !root.dubbing.processing && model.length > 0
-                        onActivated: function(index) {
-                            root.dubbing.selectCloneVoicePreset(model[index].id)
-                        }
+                        onActivated: function(index) { root.dubbing.selectTtsVoice(model[index].id) }
                     }
-
                     Text {
                         Layout.fillWidth: true
-                        visible: cloneVoicePresetSelector.model.length === 0
-                        text: qsTr("No saved clone voice is available for this model. Create or import a reference voice to continue.")
-                        color: Theme.warning
-                        font.pixelSize: 10
-                        wrapMode: Text.WordWrap
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        PrimaryButton {
-                            text: qsTr("Create or import clone voice")
-                            iconName: "users"
-                            quiet: true
-                            enabled: !root.dubbing.processing
-                            onClicked: {
-                                cloneVoiceLibraryDialog.initialReferenceAudioPath = ""
-                                cloneVoiceLibraryDialog.initialReferenceText = ""
-                                cloneVoiceLibraryDialog.open()
-                            }
-                        }
-                        PrimaryButton {
-                            visible: root.dubbing.vocalsPath !== ""
-                            text: qsTr("Use clean vocals")
-                            iconName: "volume"
-                            quiet: true
-                            enabled: !root.dubbing.processing
-                            onClicked: {
-                                cloneVoiceLibraryDialog.initialReferenceAudioPath = root.dubbing.vocalsPath
-                                cloneVoiceLibraryDialog.initialReferenceText = ""
-                                cloneVoiceLibraryDialog.open()
-                            }
-                        }
-                        Item { Layout.fillWidth: true }
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        visible: root.dubbing.vocalsPath !== ""
-                        text: qsTr("Preview the separated vocals in the Source separation step, then save this clean reference to the shared library.")
+                        text: qsTr("Built-in TTS voices and valid saved voices from Voice Cloning Studio are listed here. One selected voice is applied to all segments and speakers.")
                         color: Theme.textSecondary
                         font.pixelSize: 10
                         wrapMode: Text.WordWrap
                     }
-
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Text {
+                            Layout.fillWidth: true
+                            visible: ttsVoiceSelector.model.length <= 1
+                            text: qsTr("No saved voice yet. Create one in the standalone Voice Cloning Studio, then refresh this list.")
+                            color: Theme.warning
+                            font.pixelSize: 10
+                            wrapMode: Text.WordWrap
+                        }
+                        PrimaryButton {
+                            visible: ttsVoiceSelector.model.length <= 1
+                            text: qsTr("Open Voice Cloning Studio")
+                            iconName: "spark"
+                            quiet: true
+                            enabled: !root.dubbing.processing
+                            onClicked: AppController.workflows.openVoiceCloningStudio()
+                        }
+                        PrimaryButton {
+                            text: qsTr("Refresh voices")
+                            iconName: "refresh"
+                            quiet: true
+                            enabled: !root.dubbing.processing
+                            onClicked: root.dubbing.refreshTtsVoices()
+                        }
+                    }
                     Text {
                         Layout.fillWidth: true
-                        visible: root.dubbing.cloneVoiceSelectionError !== ""
-                        text: root.dubbing.cloneVoiceSelectionError
+                        visible: root.dubbing.ttsVoiceSelectionError !== ""
+                        text: root.dubbing.ttsVoiceSelectionError
                         color: Theme.danger
                         font.pixelSize: 10
                         wrapMode: Text.WordWrap
-                    }
-
-                    ToggleRow {
-                        visible: root.isDirectColabSynthesis
-                        text: qsTr("I have permission to clone this voice")
-                        checked: root.dynamicSettings.voiceCloneConsentConfirmed === true
-                        enabled: !root.dubbing.processing
-                        onToggled: root.updateParameter("voiceCloneConsentConfirmed", checked)
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: root.isDirectColabSynthesis
-                              ? qsTr("Direct Colab only: a 3-15 second reference is sent to the paired temporary worker. Its voice profile stays in that worker session and is never sent to or stored by API Gateway.")
-                              : qsTr("Select a saved voice reference. LA Studio never replaces it with source audio, a random voice, or a per-segment fallback.")
-                        color: Theme.textSecondary
-                        font.pixelSize: 10
-                        wrapMode: Text.WordWrap
-                    }
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.paddingSmall
-                        visible: root.isDirectColabSynthesis
-
-                        Text {
-                            text: qsTr("Voice-cloning model")
-                            color: Theme.textSecondary
-                            font.pixelSize: 10
-                        }
-                        ComboBox {
-                            Layout.fillWidth: true
-                            textRole: "displayName"
-                            model: root.dubbing.colabModelOptionsForNode("voice-clone")
-                            currentIndex: {
-                                for (var i = 0; i < model.length; ++i)
-                                    if (model[i].modelId === root.voiceCloneModelId) return i
-                                return -1
-                            }
-                            enabled: !root.dubbing.processing
-                            onActivated: function(index) {
-                                root.dubbing.selectWorkflowColabModel(
-                                    "voice-clone", model[index].modelId)
-                            }
-                        }
-                        ColabNotebookLink {
-                            notebookFile: root.dubbing.colabNotebookForNode(
-                                              "voice-clone",
-                                              root.voiceCloneModelId)
-                        }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            Text {
-                                Layout.fillWidth: true
-                                text: AppController.colabVoiceCloneSession.active
-                                      ? qsTr("Clone worker connected")
-                                      : qsTr("Clone worker not connected")
-                                color: AppController.colabVoiceCloneSession.active
-                                       ? Theme.success : Theme.warning
-                                font.pixelSize: 10
-                            }
-                            PrimaryButton {
-                                text: AppController.colabVoiceCloneSession.active
-                                      ? qsTr("Reconnect") : qsTr("Connect")
-                                iconName: "link"
-                                quiet: true
-                                enabled: !root.dubbing.processing
-                                onClicked: voiceCloneColabDialog.open()
-                            }
-                        }
                     }
                 }
 
@@ -609,118 +526,6 @@ Rectangle {
 
                 Item { Layout.fillHeight: true }
             }
-        }
-    }
-
-    Dialog {
-        id: voiceCloneColabDialog
-        parent: Overlay.overlay
-        modal: true
-        property bool awaitingVerification: false
-        anchors.centerIn: parent
-        width: Math.min(520, Overlay.overlay.width - Theme.paddingXL * 2)
-        title: qsTr("Voice-cloning Colab worker")
-        standardButtons: Dialog.Ok | Dialog.Cancel
-        onOpened: {
-            voiceCloneWorkerUrl.text = AppController.colabVoiceCloneSession.workerUrl
-            if (!awaitingVerification) {
-                voiceCloneWorkerToken.text = ""
-                voiceCloneWorkerError.text = ""
-            }
-        }
-        onAccepted: {
-            if (!root.dubbing.selectWorkflowColabModel(
-                    "voice-clone", root.voiceCloneModelId)) {
-                voiceCloneWorkerError.text = qsTr("Select an exact voice-cloning model.")
-                voiceCloneColabDialog.open()
-                return
-            }
-            if (!AppController.colabVoiceCloneSession.connectTemporaryWorker(
-                    voiceCloneWorkerUrl.text.trim(),
-                    voiceCloneWorkerToken.text,
-                    "voice-cloning",
-                    root.voiceCloneModelId)) {
-                voiceCloneWorkerError.text =
-                    AppController.colabVoiceCloneSession.lastError
-                voiceCloneColabDialog.open()
-                return
-            }
-            awaitingVerification = true
-            voiceCloneWorkerToken.text = ""
-        }
-        onRejected: {
-            if (!awaitingVerification) return
-            awaitingVerification = false
-            if (AppController.colabVoiceCloneSession.checking)
-                AppController.colabVoiceCloneSession.disconnectTemporaryWorker()
-        }
-        onClosed: {
-            if (awaitingVerification && AppController.colabVoiceCloneSession.checking) {
-                Qt.callLater(function() {
-                    if (voiceCloneColabDialog.awaitingVerification
-                            && AppController.colabVoiceCloneSession.checking)
-                        voiceCloneColabDialog.open()
-                })
-            }
-        }
-        contentItem: ColumnLayout {
-            spacing: Theme.paddingSmall
-            ColabNotebookLink {
-                notebookFile: root.dubbing.colabNotebookForNode(
-                                  "voice-clone", root.voiceCloneModelId)
-            }
-            Text {
-                Layout.fillWidth: true
-                text: qsTr("Exact model: %1").arg(root.voiceCloneModelId)
-                color: Theme.textPrimary
-                font.pixelSize: Theme.fontSmall
-                wrapMode: Text.WrapAnywhere
-            }
-            TextField {
-                id: voiceCloneWorkerUrl
-                Layout.fillWidth: true
-                placeholderText: qsTr("https://…trycloudflare.com")
-                selectByMouse: true
-            }
-            TextField {
-                id: voiceCloneWorkerToken
-                Layout.fillWidth: true
-                echoMode: TextInput.Password
-                placeholderText: qsTr("Temporary token from Colab")
-                selectByMouse: true
-            }
-            ColabSessionStatus {
-                session: AppController.colabVoiceCloneSession
-            }
-            Text {
-                id: voiceCloneWorkerError
-                Layout.fillWidth: true
-                visible: text !== ""
-                color: Theme.danger
-                font.pixelSize: Theme.fontSmall
-                wrapMode: Text.WordWrap
-            }
-        }
-    }
-
-    VoiceLibraryDialog {
-        id: cloneVoiceLibraryDialog
-        parent: Overlay.overlay
-        familyId: root.dubbing.cloneVoicePresetFamily
-        initialMode: "reference"
-    }
-
-    Connections {
-        target: AppController.colabVoiceCloneSession
-        function onVerificationFinished(success, message) {
-            if (!voiceCloneColabDialog.awaitingVerification) return
-            voiceCloneColabDialog.awaitingVerification = false
-            if (success) {
-                voiceCloneColabDialog.close()
-                return
-            }
-            voiceCloneWorkerError.text = message
-            if (!voiceCloneColabDialog.visible) voiceCloneColabDialog.open()
         }
     }
 

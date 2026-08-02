@@ -22,6 +22,8 @@ Rectangle {
     property real pendingPosition: -1
     property bool pendingPlayback: false
     property int sourceSwitchAttempts: 0
+    property var draftOcrRoi: root.dubbing.dubbingOcrRoi || ({ x: 0.08, y: 0.80, width: 0.84, height: 0.16 })
+    property bool ocrRoiDragging: false
     readonly property var subtitleStyle: (root.dubbing.subtitleConfiguration || {}).style || ({})
     readonly property string activeSubtitleText: {
         for (var i = 0; i < root.dubbing.segments.length; ++i) {
@@ -121,6 +123,40 @@ Rectangle {
             seekAll(root.dubbing.segments[index].startMs)
     }
 
+    function clampRoi(value, low, high) { return Math.max(low, Math.min(high, value)) }
+    function commitDubbingOcrRoi() {
+        if (!root.dubbing.setDubbingOcrRoi(draftOcrRoi))
+            draftOcrRoi = root.dubbing.dubbingOcrRoi
+        ocrRoiDragging = false
+    }
+    function resizeDubbingOcrRoi(mode, point, geometry) {
+        var r = draftOcrRoi
+        var left = geometry.x + r.x * geometry.width
+        var right = left + r.width * geometry.width
+        var top = geometry.y + r.y * geometry.height
+        var bottom = top + r.height * geometry.height
+        var x = clampRoi(point.x, geometry.x, geometry.x + geometry.width)
+        var y = clampRoi(point.y, geometry.y, geometry.y + geometry.height)
+        var minimum = 18
+        if (mode.indexOf("l") !== -1) left = Math.min(x, right - minimum)
+        if (mode.indexOf("r") !== -1) right = Math.max(x, left + minimum)
+        if (mode.indexOf("t") !== -1) top = Math.min(y, bottom - minimum)
+        if (mode.indexOf("b") !== -1) bottom = Math.max(y, top + minimum)
+        draftOcrRoi = { x: (left - geometry.x) / geometry.width,
+                        y: (top - geometry.y) / geometry.height,
+                        width: (right - left) / geometry.width,
+                        height: (bottom - top) / geometry.height }
+    }
+    function moveDubbingOcrRoi(point, grabX, grabY, geometry) {
+        var width = draftOcrRoi.width * geometry.width
+        var height = draftOcrRoi.height * geometry.height
+        var left = clampRoi(point.x - grabX, geometry.x, geometry.x + geometry.width - width)
+        var top = clampRoi(point.y - grabY, geometry.y, geometry.y + geometry.height - height)
+        draftOcrRoi = { x: (left - geometry.x) / geometry.width,
+                        y: (top - geometry.y) / geometry.height,
+                        width: draftOcrRoi.width, height: draftOcrRoi.height }
+    }
+
     function qmlSmokeMediaControlsCheck() {
         return controlsAutoHide.qmlSmokeStateCheck()
                 && controlsAutoHide.delayMs === 2000
@@ -132,6 +168,14 @@ Rectangle {
         id: controlsAutoHide
         playing: mediaPlayer.playbackState === MediaPlayer.PlayingState
         controlsFocused: previewPlayButton.activeFocus || previewMuteButton.activeFocus
+    }
+
+    Connections {
+        target: root.dubbing
+        function onProjectChanged() {
+            if (!root.ocrRoiDragging)
+                root.draftOcrRoi = root.dubbing.dubbingOcrRoi
+        }
     }
 
     MediaPlayer {
@@ -349,6 +393,60 @@ Rectangle {
                 Text { anchors.horizontalCenter: parent.horizontalCenter; text: qsTr("WAV, MP3, MP4 or MKV"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
             }
             VideoOutput { id: videoOutput; anchors.fill: parent; visible: root.isVideoSource; fillMode: VideoOutput.PreserveAspectFit }
+            Rectangle {
+                id: dubbingOcrRoiOverlay
+                objectName: "dubbingSubtitleOcrRoiOverlay"
+                readonly property rect content: videoOutput.contentRect
+                visible: root.isVideoSource && root.dubbing.dubbingOcrRoiVisible
+                         && content.width > 0 && content.height > 0
+                x: content.x + root.draftOcrRoi.x * content.width
+                y: content.y + root.draftOcrRoi.y * content.height
+                width: root.draftOcrRoi.width * content.width
+                height: root.draftOcrRoi.height * content.height
+                color: Qt.rgba(0.45, 0.20, 1.0, 0.16)
+                border.color: Theme.primary
+                border.width: 2
+                z: 4
+                MouseArea {
+                    anchors.fill: parent
+                    property real grabX: 0
+                    property real grabY: 0
+                    cursorShape: Qt.SizeAllCursor
+                    onPressed: function(mouse) { grabX = mouse.x; grabY = mouse.y; root.ocrRoiDragging = true }
+                    onPositionChanged: function(mouse) {
+                        if (pressed) root.moveDubbingOcrRoi(parent.mapToItem(dubbingOcrRoiOverlay.parent, mouse.x, mouse.y),
+                                                             grabX, grabY, dubbingOcrRoiOverlay.content)
+                    }
+                    onReleased: root.commitDubbingOcrRoi()
+                    onCanceled: root.commitDubbingOcrRoi()
+                }
+                Repeater {
+                    model: [ { key: "tl", x: 0, y: 0 }, { key: "tr", x: 1, y: 0 },
+                             { key: "bl", x: 0, y: 1 }, { key: "br", x: 1, y: 1 },
+                             { key: "l", x: 0, y: 0.5 }, { key: "r", x: 1, y: 0.5 },
+                             { key: "t", x: 0.5, y: 0 }, { key: "b", x: 0.5, y: 1 } ]
+                    delegate: Rectangle {
+                        objectName: "dubbingSubtitleOcrRoiHandle_" + modelData.key
+                        width: 12; height: 12; radius: 6
+                        x: modelData.x * parent.width - width / 2
+                        y: modelData.y * parent.height - height / 2
+                        color: Theme.primary; border.color: Theme.textPrimary; border.width: 1
+                        z: 2
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.SizeFDiagCursor
+                            onPressed: root.ocrRoiDragging = true
+                            onPositionChanged: function(mouse) {
+                                if (pressed) root.resizeDubbingOcrRoi(modelData.key,
+                                    parent.mapToItem(dubbingOcrRoiOverlay.parent, mouse.x, mouse.y),
+                                    dubbingOcrRoiOverlay.content)
+                            }
+                            onReleased: root.commitDubbingOcrRoi()
+                            onCanceled: root.commitDubbingOcrRoi()
+                        }
+                    }
+                }
+            }
             FontLoader {
                 id: subtitlePreviewFont
                 source: root.subtitleStyle.fontFile || ""
@@ -503,6 +601,31 @@ Rectangle {
                     Item { Layout.fillWidth: true }
                     Text { text: "%1 / %2".arg(root.formatTime(mediaPlayer.position)).arg(root.formatTime(mediaPlayer.duration)); color: Theme.textSecondary; font.pixelSize: 11; font.family: "Monospace" }
                 }
+            }
+        }
+        Flow {
+            Layout.fillWidth: true
+            visible: root.dubbing.dubbingOcrRoiVisible
+            spacing: Theme.paddingSmall
+            Button { text: qsTr("Preset lower region"); enabled: !root.dubbing.processing && root.isVideoSource; onClicked: root.dubbing.presetDubbingOcrLowerRegion() }
+            Button { text: qsTr("Reset region"); enabled: !root.dubbing.processing && root.isVideoSource; onClicked: root.dubbing.resetDubbingOcrRoi() }
+            Button { text: qsTr("Preview crop"); enabled: !root.dubbing.processing && root.isVideoSource; onClicked: root.dubbing.previewDubbingOcrCrop(mediaPlayer.position) }
+            Text { visible: root.isVideoSource; text: qsTr("ROI: x %1, y %2, w %3, h %4").arg(Number(root.draftOcrRoi.x).toFixed(3)).arg(Number(root.draftOcrRoi.y).toFixed(3)).arg(Number(root.draftOcrRoi.width).toFixed(3)).arg(Number(root.draftOcrRoi.height).toFixed(3)); color: Theme.textSecondary; topPadding: 7; font.pixelSize: 10 }
+            Text { visible: !root.isVideoSource; text: qsTr("Choose a video to set the OCR scan region."); color: Theme.textSecondary; topPadding: 7; font.pixelSize: 10 }
+        }
+        Rectangle {
+            Layout.fillWidth: true
+            visible: root.dubbing.dubbingOcrRoiVisible
+                     && AppController.subtitleOcr.cropPreviewUrl.toString() !== ""
+            Layout.preferredHeight: visible ? 180 : 0
+            color: Theme.surfaceAlt
+            radius: Theme.radiusSmall
+            Image {
+                anchors.fill: parent
+                anchors.margins: Theme.paddingSmall
+                source: AppController.subtitleOcr.cropPreviewUrl
+                fillMode: Image.PreserveAspectFit
+                asynchronous: true
             }
         }
         Rectangle {

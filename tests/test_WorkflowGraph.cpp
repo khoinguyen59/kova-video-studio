@@ -167,7 +167,7 @@ void TestWorkflowGraph::buildsCanonicalDubbingWorkflowDefinition()
     QCOMPARE(graph.version, DubbingWorkflowDefinition::Version);
     QCOMPARE(graph.kind, QStringLiteral("system"));
     QCOMPARE(graph.nodes.size(), 13);
-    QCOMPARE(graph.edges.size(), 17);
+    QCOMPARE(graph.edges.size(), 16);
     QVERIFY(graph.interfaceDefinition.value(QStringLiteral("inputs")).toList().size() == 3);
     QCOMPARE(graph.policies.value(QStringLiteral("maxParallelNodes")).toInt(), 2);
     QVERIFY(!graph.policies.value(QStringLiteral("offlineOnly")).toBool());
@@ -189,10 +189,8 @@ void TestWorkflowGraph::buildsCanonicalDubbingWorkflowDefinition()
     QCOMPARE(providerFor(QStringLiteral("translate")), QStringLiteral("api-gateway"));
     QCOMPARE(providerFor(QStringLiteral("synthesize")), QStringLiteral("colab-direct"));
     const auto referenceEdge = std::find_if(graph.edges.cbegin(), graph.edges.cend(),
-        [](const WorkflowGraphEdge &edge) { return edge.id == QStringLiteral("l07b"); });
-    QVERIFY(referenceEdge != graph.edges.cend());
-    QCOMPARE(referenceEdge->sourceNodeId, QStringLiteral("source-separate"));
-    QCOMPARE(referenceEdge->targetPortId, QStringLiteral("referenceAudio"));
+        [](const WorkflowGraphEdge &edge) { return edge.targetPortId == QStringLiteral("referenceAudio"); });
+    QVERIFY(referenceEdge == graph.edges.cend());
     const auto subtitleEdge = std::find_if(graph.edges.cbegin(), graph.edges.cend(),
         [](const WorkflowGraphEdge &edge) { return edge.id == QStringLiteral("l14"); });
     QVERIFY(subtitleEdge != graph.edges.cend());

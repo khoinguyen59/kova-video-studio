@@ -516,7 +516,7 @@ void TestRemoteExecution::everyGpuControllerUsesExactVerifiedColabRoute()
         {QStringLiteral("qml/components/dubbing/DubbingNodeSettingsPanel.qml"),
          QStringLiteral("colabCapabilityForNode")},
         {QStringLiteral("qml/components/dubbing/DubbingNodeInspector.qml"),
-         QStringLiteral("\"voice-cloning\"")},
+         QStringLiteral("TTS / Text to Speech")},
         {QStringLiteral("qml/components/dubbing/DubbingNodeInspector.qml"),
          QStringLiteral("\"forced-alignment\"")},
     };

@@ -13,7 +13,7 @@ namespace LAStudio {
 class DubbingProject
 {
 public:
-    static constexpr int CurrentSchemaVersion = 11;
+    static constexpr int CurrentSchemaVersion = 12;
 
     QString projectPath;
     QString sourceMediaPath;
@@ -28,9 +28,12 @@ public:
     QString sourceLanguage = QStringLiteral("en");
     QString targetLanguage = QStringLiteral("vi");
     QString dubbingQuality = QStringLiteral("adaptive");
-    // The selected clone-voice preset is project configuration.  Only its
-    // durable library ID is persisted; reference media remains owned by the
-    // local preset library and temporary Colab profile IDs are never saved.
+    // The selected TTS voice is project configuration.  This is either a
+    // built-in voice ID or the durable ID of a saved Voice Cloning-library
+    // preset; transient worker profile IDs are deliberately never persisted.
+    QString ttsVoiceId;
+    // Source compatibility for callers compiled against schema <= 11.  New
+    // Dubbing code must use ttsVoiceId; serialization never writes this key.
     QString cloneVoicePresetId;
     QVariantMap durationControl = QVariantMap{{QStringLiteral("enabled"), true},
                                                {QStringLiteral("unit"), QStringLiteral("phoneme-v1")},

@@ -17,6 +17,9 @@ public:
     ~VoiceClonePresetService() override = default;
 
     Q_INVOKABLE QVariantList presetsForFamily(const QString &familyId);
+    // The Dubbing TTS selector uses this to show compatible and incompatible
+    // saved voices explicitly. Creation/editing remains in Voice Cloning.
+    Q_INVOKABLE QVariantList allPresets();
     Q_INVOKABLE bool addPreset(const QString &familyId,
                                const QString &name,
                                const QString &audioPath,

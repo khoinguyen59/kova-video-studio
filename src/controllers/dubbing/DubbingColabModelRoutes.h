@@ -85,22 +85,6 @@ inline QVariantList optionsForNode(const QString &nodeId)
                    QStringLiteral("LA_STUDIO_TTS_VOXCPM2_GPU.ipynb"))
         };
     }
-    if (id == QStringLiteral("voice-clone")) {
-        return {
-            option(QStringLiteral("omnivoice"), QStringLiteral("OmniVoice"),
-                   QStringLiteral("LA_STUDIO_VOICE_CLONE_OMNIVOICE_GPU.ipynb")),
-            option(QStringLiteral("qwen3-tts-0.6b-base"), QStringLiteral("Qwen3-TTS Base 0.6B"),
-                   QStringLiteral("LA_STUDIO_VOICE_CLONE_QWEN3_BASE_0_6B_GPU.ipynb")),
-            option(QStringLiteral("qwen3-tts-1.7b-base"), QStringLiteral("Qwen3-TTS Base 1.7B"),
-                   QStringLiteral("LA_STUDIO_VOICE_CLONE_QWEN3_BASE_1_7B_GPU.ipynb")),
-            option(QStringLiteral("vieneu-tts-v2-turbo"), QStringLiteral("VieNeu-TTS v2 Turbo"),
-                   QStringLiteral("LA_STUDIO_VOICE_CLONE_VIENEU_V2_TURBO_GPU.ipynb")),
-            option(QStringLiteral("vieneu-tts-v3-turbo"), QStringLiteral("VieNeu-TTS v3 Turbo"),
-                   QStringLiteral("LA_STUDIO_VOICE_CLONE_VIENEU_V3_TURBO_GPU.ipynb")),
-            option(QStringLiteral("voxcpm2"), QStringLiteral("VoxCPM2"),
-                   QStringLiteral("LA_STUDIO_VOICE_CLONE_VOXCPM2_GPU.ipynb"))
-        };
-    }
     if (id == QStringLiteral("alignment")) {
         return {
             option(QStringLiteral("wav2vec2-aligner-zh"), QStringLiteral("Wav2Vec2 Chinese Aligner"),
@@ -140,8 +124,6 @@ inline QString defaultModelForNode(const QString &nodeId)
         return QStringLiteral("m2m100-418m");
     if (id == QStringLiteral("synthesize"))
         return QStringLiteral("kokoro");
-    if (id == QStringLiteral("voice-clone"))
-        return QStringLiteral("omnivoice");
     if (id == QStringLiteral("alignment"))
         return QStringLiteral("mms-forced-aligner-onnx");
     return {};

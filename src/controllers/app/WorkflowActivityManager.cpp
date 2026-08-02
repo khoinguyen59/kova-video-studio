@@ -202,6 +202,11 @@ void WorkflowActivityManager::openWorkflow(const QString &id)
     }
 }
 
+void WorkflowActivityManager::openVoiceCloningStudio()
+{
+    emit openRequested(studioRouteForCapability(QStringLiteral("voice-cloning")));
+}
+
 void WorkflowActivityManager::refresh()
 {
     emit workflowsChanged();
