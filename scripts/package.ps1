@@ -767,7 +767,9 @@ function Stage-PaddleOcrRuntime {
     $healthOutput = & $pythonTarget $workerTarget --cache-root $modelsTarget --manifest $manifestTarget --health 2>&1 | Out-String
     $healthExitCode = $LASTEXITCODE
     $health = $null
-    foreach ($line in @($healthOutput -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Reverse)) {
+    $healthLines = @($healthOutput -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    [array]::Reverse($healthLines)
+    foreach ($line in $healthLines) {
         try {
             $candidate = $line | ConvertFrom-Json -ErrorAction Stop
             if ($null -ne $candidate.ok) { $health = $candidate; break }
@@ -780,7 +782,27 @@ function Stage-PaddleOcrRuntime {
     }
     $manifest.runtime.healthCheckPassed = $true
     $manifest.runtime.healthCheckOutput = (($health | ConvertTo-Json -Compress).Trim())
-    $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifestTarget -Encoding UTF8
+    # Windows PowerShell 5.1 writes a BOM for -Encoding UTF8. The isolated
+    # Python worker deliberately reads JSON as UTF-8, where that BOM makes
+    # json.loads reject the staged manifest. Keep the package contract
+    # byte-for-byte UTF-8 without BOM and verify it after the final write.
+    [IO.File]::WriteAllText($manifestTarget, ($manifest | ConvertTo-Json -Depth 8),
+                            [Text.UTF8Encoding]::new($false))
+    $finalHealthOutput = & $pythonTarget $workerTarget --cache-root $modelsTarget --manifest $manifestTarget --health 2>&1 | Out-String
+    $finalHealthExitCode = $LASTEXITCODE
+    $finalHealth = $null
+    $finalHealthLines = @($finalHealthOutput -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    [array]::Reverse($finalHealthLines)
+    foreach ($line in $finalHealthLines) {
+        try {
+            $candidate = $line | ConvertFrom-Json -ErrorAction Stop
+            if ($null -ne $candidate.ok) { $finalHealth = $candidate; break }
+        } catch { }
+    }
+    if ($finalHealthExitCode -ne 0 -or $null -eq $finalHealth -or $finalHealth.ok -ne $true -or
+        $finalHealth.manifestVerified -ne $true) {
+        throw "Final staged PaddleOCR manifest health verification failed. Exit=$finalHealthExitCode Output=$finalHealthOutput"
+    }
 
     $licenseRoot = Join-Path $StageRoot "licenses\paddle-ocr-python"
     New-Item -ItemType Directory -Path $licenseRoot -Force | Out-Null
@@ -798,7 +820,11 @@ function Stage-PaddleOcrRuntime {
         }
         New-Item -ItemType Directory -Path $distributionTarget -Force | Out-Null
         foreach ($legalFile in $legalFiles) {
-            $relative = $legalFile.FullName.Substring($distribution.FullName.Length).TrimStart('\\', '/')
+            # PowerShell does not treat backslash as an escape in single-quoted
+            # strings. Pass one character here; "\\" is a two-character string
+            # and causes TrimStart() to throw after the package has already
+            # staged the executable and OCR runtime.
+            $relative = $legalFile.FullName.Substring($distribution.FullName.Length).TrimStart('\', '/')
             $destination = Join-Path $distributionTarget $relative
             New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
             Copy-Item -LiteralPath $legalFile.FullName -Destination $destination -Force
@@ -989,6 +1015,7 @@ Ensure-Bsdtar -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stag
 Ensure-FfmpegRuntime -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir
 Ensure-YtDlpRuntime -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir
 Stage-SubtitleOcrRuntimeManifest -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir -BuildDirectory $buildDir -Triplet $vcpkgTriplet
+Stage-PaddleOcrRuntime -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir -PaddleRuntimeRoot $PaddleRuntimeRoot
 Stage-ThirdPartyLicenseTexts -RepositoryRoot $RepoRoot -StageRoot $stageDir -BuildDirectory $buildDir -Triplet $vcpkgTriplet -QtRoot $QtRoot -SevenZipSource $sevenZipSource
 if ($AllowUnsignedEspeakForInternalBuild) {
     Write-Warning "INTERNAL BUILD ONLY: permitting the SHA-256-verified but unsigned eSpeak NG MSI. Do not distribute this package or promote it to a release."

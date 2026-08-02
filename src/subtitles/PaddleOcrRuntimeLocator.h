@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
 
 namespace LAStudio {
 
@@ -28,6 +29,12 @@ public:
 
     static PaddleOcrRuntimeResolution resolve();
     static PaddleOcrRuntimeResolution resolveForApplicationDirectory(const QString &applicationDirectory);
+    // The internal candidate bundles only the Chinese profile which has been
+    // verified end-to-end.  Other languages remain available through the
+    // explicit Tesseract baseline or Direct Colab worker; they must never be
+    // presented as ready for the local Paddle bundle.
+    static QStringList bundledLanguageCodes();
+    static bool supportsBundledLanguage(const QString &language);
     static QString sha256File(const QString &path);
     static QString modelTreeSha256(const QString &cacheRoot);
     static bool hasValidManifest(const PaddleOcrRuntimeResolution &resolution,

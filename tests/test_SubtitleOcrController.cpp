@@ -550,6 +550,33 @@ void TestSubtitleOcrController::runsPaddleOcrBatchAdapterWithoutTesseractFallbac
     QVERIFY(statistics.value(QStringLiteral("ocrWorkerPeakWorkingSetBytes")).toLongLong() > 0);
 }
 
+void TestSubtitleOcrController::localPaddleRouteRejectsUnbundledLanguageBeforeProcessing()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    OcrRuntimeEnvironment environment;
+    OcrFixtures fixtures(directory);
+    PaddleFixture paddle(directory);
+    QVERIFY(fixtures.create());
+    QVERIFY(paddle.create());
+    configure(fixtures, false);
+    qputenv("LASTUDIO_SUBTITLE_OCR_ENGINE", QByteArrayLiteral("paddleocr-ppocrv6-tiny"));
+    qputenv("LASTUDIO_PADDLE_PYTHON", paddle.python.toUtf8());
+    qputenv("LASTUDIO_PADDLE_WORKER", paddle.worker.toUtf8());
+    qputenv("LASTUDIO_PADDLE_CACHE", paddle.cache.toUtf8());
+    qputenv("LASTUDIO_PADDLE_MANIFEST", paddle.manifest.toUtf8());
+
+    SubtitleOcrController controller(nullptr, nullptr);
+    loadFixture(controller, fixtures.source);
+    QVERIFY(controller.setOcrLanguage(QStringLiteral("eng")));
+    QVERIFY(controller.runtimeAvailable());
+    QVERIFY(!controller.localRouteReady());
+    QCOMPARE(controller.localRuntimeState(), QStringLiteral("Unsupported language"));
+    QVERIFY(!controller.run());
+    QVERIFY(controller.error().contains(QStringLiteral("Simplified Chinese")));
+    QVERIFY(!controller.processing());
+}
+
 void TestSubtitleOcrController::keepsLowerRegionPresetSeparateFromFullFrameReset()
 {
     SubtitleOcrController controller(nullptr, nullptr);

@@ -178,4 +178,14 @@ PaddleOcrRuntimeResolution PaddleOcrRuntimeLocator::resolveForApplicationDirecto
     return resolution;
 }
 
+QStringList PaddleOcrRuntimeLocator::bundledLanguageCodes()
+{
+    return {QStringLiteral("chi_sim")};
+}
+
+bool PaddleOcrRuntimeLocator::supportsBundledLanguage(const QString &language)
+{
+    return bundledLanguageCodes().contains(language.trimmed().toLower());
+}
+
 } // namespace LAStudio

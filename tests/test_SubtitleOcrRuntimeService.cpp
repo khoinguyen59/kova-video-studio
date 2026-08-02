@@ -425,6 +425,25 @@ void TestSubtitleOcrRuntimeService::qmlRouteRoiAndManagedRuntimeControlsAreWired
     QVERIFY(controllerSource.contains(QStringLiteral("will not fall back silently to Tesseract")));
 }
 
+void TestSubtitleOcrRuntimeService::packageScriptStagesPaddleRuntimeWithBomSafeManifest()
+{
+    const QDir sourceRoot(QStringLiteral(LASTUDIO_SOURCE_DIR));
+    QFile script(sourceRoot.filePath(QStringLiteral("scripts/package.ps1")));
+    QVERIFY(script.open(QIODevice::ReadOnly));
+    const QString source = QString::fromUtf8(script.readAll());
+
+    QVERIFY(source.contains(QStringLiteral("function Stage-PaddleOcrRuntime")));
+    QVERIFY(source.contains(QStringLiteral("Stage-PaddleOcrRuntime -RepositoryRoot $RepoRoot")));
+    QVERIFY(source.contains(QStringLiteral("-PaddleRuntimeRoot $PaddleRuntimeRoot")));
+    QVERIFY(source.contains(QStringLiteral("[Text.UTF8Encoding]::new($false)")));
+    QVERIFY(source.contains(QStringLiteral("[array]::Reverse($healthLines)")));
+    QVERIFY(source.contains(QStringLiteral("[array]::Reverse($finalHealthLines)")));
+    QVERIFY(source.contains(QStringLiteral("Final staged PaddleOCR manifest health verification failed")));
+    QVERIFY(!source.contains(QStringLiteral("$manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifestTarget -Encoding UTF8")));
+    QVERIFY(source.contains(QStringLiteral(".TrimStart('\\', '/')")));
+    QVERIFY(!source.contains(QStringLiteral(".TrimStart('\\\\', '/')")));
+}
+
 void TestSubtitleOcrRuntimeService::responsiveLayoutSharedMediaAndHomeCardsAreWired()
 {
     const QDir sourceRoot(QStringLiteral(LASTUDIO_SOURCE_DIR));

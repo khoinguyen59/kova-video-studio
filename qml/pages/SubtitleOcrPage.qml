@@ -16,9 +16,14 @@ Page {
     readonly property bool usingColabRoute: ocr.executionRoute === "colab-gpu"
     readonly property bool usingPaddleLocalEngine: !usingColabRoute
                                                    && ocr.localEngineId === "paddleocr-ppocrv6-tiny"
-    readonly property bool selectedLanguageReady: usingPaddleLocalEngine || runtime.runtimeSource === "environment"
-                                                 ? ocr.ocrLanguage !== ""
-                                                 : runtime.isLanguageInstalled(ocr.ocrLanguage)
+    // PaddleOCR has a deliberately narrow bundled language profile for this
+    // candidate. Keep the language selector visible for the Tesseract/Colab
+    // alternatives, but never claim that an unbundled local Paddle language
+    // can run.
+    readonly property bool selectedLanguageReady: usingPaddleLocalEngine ? ocr.localRouteReady
+                                                 : (runtime.runtimeSource === "environment"
+                                                    ? ocr.ocrLanguage !== ""
+                                                    : runtime.isLanguageInstalled(ocr.ocrLanguage))
     property real previewPositionMs: player.position
     readonly property real displayedWidth: {
         if (ocr.sourceWidth <= 0 || ocr.sourceHeight <= 0 || videoCanvas.width <= 0 || videoCanvas.height <= 0)
@@ -190,13 +195,18 @@ Page {
     // Used by the offscreen QML route smoke. It verifies the responsive card
     // contract, child reachability and disabled-runtime behavior rather than
     // assuming a fixed window height or z-order.
+    function qmlSmokeFailure(reason) {
+        console.warn("Subtitle OCR QML smoke failure: " + reason)
+        return false
+    }
+
     function qmlSmokeLayoutCheck() {
         var cards = [sourceMediaCard, previewCard, runtimeCard, settingsCard, transcriptCard]
         for (var i = 0; i < cards.length; ++i) {
             var card = cards[i]
-            if (!itemIsScrollReachable(card)) return false
+            if (!itemIsScrollReachable(card)) return qmlSmokeFailure("unreachable-card-" + i)
             for (var j = i + 1; j < cards.length; ++j)
-                if (rectanglesOverlap(card, cards[j])) return false
+                if (rectanglesOverlap(card, cards[j])) return qmlSmokeFailure("overlapping-cards-" + i + "-" + j)
         }
         // A blank link field correctly keeps Import link disabled; the smoke
         // contract is that the field itself remains usable while runtime is
@@ -208,33 +218,38 @@ Page {
                 || chooseVideoButton.height < chooseVideoButton.implicitHeight
                 || importLinkButton.width < importLinkButton.implicitWidth
                 || sourceLinkInput.width <= 0 || sourceDropZone.height <= 0)
-            return false
+            return qmlSmokeFailure("source-controls")
         var requiredControls = [sourceDropZone, chooseVideoButton, sourceLinkInput,
-                                importLinkButton, videoCanvas, languagePackScroll,
-                                languageSelector, intervalInput, confidenceInput,
-                                runOcrButton, segmentView]
+                                importLinkButton, videoCanvas, languageSelector,
+                                intervalInput, confidenceInput, runOcrButton, segmentView]
+        // The local Paddle candidate intentionally does not show Tesseract's
+        // language-pack installer. Its visible language selector is checked
+        // above; the Tesseract list is checked whenever that explicit engine
+        // is selected rather than treating a hidden control as reachable.
+        if (!usingPaddleLocalEngine) requiredControls.splice(5, 0, languagePackScroll)
         for (var k = 0; k < requiredControls.length; ++k)
-            if (!itemIsScrollReachable(requiredControls[k])) return false
+            if (!itemIsScrollReachable(requiredControls[k])) return qmlSmokeFailure("unreachable-control-" + k)
         if (languageSelector.width < languageSelector.implicitWidth
                 || runOcrButton.width < runOcrButton.implicitWidth)
-            return false
+            return qmlSmokeFailure("compressed-controls")
         var savedSourceLink = sourceLinkInput.text
         sourceLinkInput.text = "https://example.invalid/subtitle-ocr-fixture.mp4"
         var validLinkEnablesImport = importLinkButton.enabled
         sourceLinkInput.forceActiveFocus()
         var sourceLinkCanReceiveFocus = sourceLinkInput.activeFocus
         sourceLinkInput.text = savedSourceLink
-        if (!validLinkEnablesImport || !sourceLinkCanReceiveFocus) return false
+        if (!validLinkEnablesImport || !sourceLinkCanReceiveFocus) return qmlSmokeFailure("link-input")
         // A missing runtime only blocks execution/install. Selecting the
         // desired language remains useful before the runtime is installed.
         if (!ocr.runtimeAvailable && (!languageSelector.enabled || runOcrButton.enabled))
-            return false
-        if (!qmlSmokeMediaControlsCheck()) return false
-        if (!qmlSmokeRoiInteractionCheck()) return false
+            return qmlSmokeFailure("missing-runtime-state")
+        if (!qmlSmokeMediaControlsCheck()) return qmlSmokeFailure("media-controls")
+        if (!qmlSmokeRoiInteractionCheck()) return qmlSmokeFailure("roi-interaction")
         var transcriptRect = itemRectInContent(transcriptCard)
         if (subtitleOcrScroll.contentHeight < transcriptRect.y + transcriptRect.height - 1)
-            return false
+            return qmlSmokeFailure("transcript-content-height")
         return !rectanglesOverlap(sourceMediaCard, previewCard)
+            || qmlSmokeFailure("source-preview-overlap")
     }
 
     component RoiHandle: Rectangle {
@@ -786,7 +801,7 @@ Page {
                         RowLayout {
                             Layout.fillWidth: true
                             Text { text: qsTr("3. Local CPU runtime and language packs"); color: Theme.textPrimary; font.pixelSize: Theme.fontLarge; font.bold: true; Layout.fillWidth: true }
-                            Text { text: root.usingPaddleLocalEngine ? (ocr.runtimeAvailable ? qsTr("PaddleOCR ready") : qsTr("PaddleOCR unavailable")) : runtime.stateName; color: ocr.runtimeAvailable || root.usingColabRoute ? Theme.success : Theme.warning; font.bold: true }
+                            Text { text: root.usingPaddleLocalEngine ? qsTr("PaddleOCR %1").arg(ocr.localRuntimeState) : runtime.stateName; color: ocr.localRouteReady || root.usingColabRoute ? Theme.success : Theme.warning; font.bold: true }
                             Button { text: qsTr("Refresh"); enabled: !runtime.busy; onClicked: runtime.refresh() }
                         }
                         Text {
@@ -807,6 +822,13 @@ Page {
                                   ? qsTr("Execution route: Local CPU · PaddleOCR uses offline PP-OCRv6 tiny batch recognition. Tesseract is available only as an explicit compatibility baseline.")
                                   : qsTr("Execution route: Local CPU · Tesseract baseline works offline; internet is used only when you explicitly install a verified language pack.")
                             color: Theme.textSecondary
+                            wrapMode: Text.WordWrap
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            visible: root.usingPaddleLocalEngine && !ocr.localRouteReady && ocr.runtimeAvailable
+                            text: qsTr("This bundled PaddleOCR candidate is ready only for Simplified Chinese (chi_sim). Select chi_sim, use the explicit Tesseract baseline with an installed language pack, or use Direct Colab GPU for another supported language.")
+                            color: Theme.warning
                             wrapMode: Text.WordWrap
                         }
                         Text {
@@ -1022,7 +1044,9 @@ Page {
                                   ? (root.usingPaddleLocalEngine
                                      ? qsTr("Repair the package to restore the bundled PaddleOCR runtime and verified model cache.")
                                      : qsTr("Repair the package runtime to enable the Tesseract baseline."))
-                                  : qsTr("Install the selected language pack to enable the Tesseract baseline.")
+                                  : (root.usingPaddleLocalEngine
+                                     ? qsTr("The selected language is not bundled with local PaddleOCR. Select chi_sim, Tesseract, or Direct Colab GPU.")
+                                     : qsTr("Install the selected language pack to enable the Tesseract baseline."))
                             color: Theme.warning
                             wrapMode: Text.WordWrap
                         }

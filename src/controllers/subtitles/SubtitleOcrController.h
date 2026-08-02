@@ -46,6 +46,8 @@ class SubtitleOcrController final : public QObject
     Q_PROPERTY(QString executionRoute READ executionRoute NOTIFY settingsChanged)
     Q_PROPERTY(QString localEngineId READ localEngineId NOTIFY settingsChanged)
     Q_PROPERTY(QString localEngineVersion READ localEngineVersion NOTIFY settingsChanged)
+    Q_PROPERTY(bool localRouteReady READ localRouteReady NOTIFY runtimeChanged)
+    Q_PROPERTY(QString localRuntimeState READ localRuntimeState NOTIFY runtimeChanged)
     Q_PROPERTY(QString colabModelId READ colabModelId NOTIFY settingsChanged)
     Q_PROPERTY(bool colabRouteReady READ colabRouteReady NOTIFY colabRouteChanged)
     Q_PROPERTY(QString colabRouteStatus READ colabRouteStatus NOTIFY colabRouteChanged)
@@ -91,6 +93,8 @@ public:
     QString executionRoute() const { return m_executionRoute; }
     QString localEngineId() const { return m_localEngineId; }
     QString localEngineVersion() const;
+    bool localRouteReady() const;
+    QString localRuntimeState() const;
     QString colabModelId() const { return m_colabModelId; }
     bool colabRouteReady() const;
     QString colabRouteStatus() const;

@@ -1308,7 +1308,7 @@ QVariantList DubbingController::workflowNodes() const
             const bool audioReady = !m_project.analysisAudioPath.trimmed().isEmpty() || !m_project.masterAudioPath.trimmed().isEmpty();
             const bool ocrReady = m_subtitleOcr
                 && (m_subtitleOcr->executionRoute() == QStringLiteral("colab-gpu")
-                    ? m_subtitleOcr->colabRouteReady() : m_subtitleOcr->runtimeAvailable());
+                    ? m_subtitleOcr->colabRouteReady() : m_subtitleOcr->localRouteReady());
             const bool sourceReady = transcriptSource == QStringLiteral("ocr") ? hasMedia
                 : transcriptSource == QStringLiteral("stt+ocr") ? (hasMedia && audioReady) : audioReady;
             state = hasSegments ? QStringLiteral("completed")
@@ -1490,7 +1490,7 @@ bool DubbingController::workflowReady() const
         QStringLiteral("transcriptSource"), QStringLiteral("stt")).toString().trimmed().toLower();
     const bool ocrReady = m_subtitleOcr
         && (m_subtitleOcr->executionRoute() == QStringLiteral("colab-gpu")
-            ? m_subtitleOcr->colabRouteReady() : m_subtitleOcr->runtimeAvailable());
+            ? m_subtitleOcr->colabRouteReady() : m_subtitleOcr->localRouteReady());
     const bool transcriptReady = transcriptSource == QStringLiteral("ocr") ? ocrReady
         : transcriptSource == QStringLiteral("stt+ocr") ? (sttReady && ocrReady) : sttReady;
     const bool translationConfigured = !m_workflowNodeConfigurations.value(QStringLiteral("translate")).toMap().isEmpty();

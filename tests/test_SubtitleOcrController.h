@@ -17,6 +17,7 @@ private slots:
     void usesExactManagedTessdataForLanguagePreflightAndRecognition();
     void rejectsIncompletePaddleOcrRuntimeManifest();
     void runsPaddleOcrBatchAdapterWithoutTesseractFallback();
+    void localPaddleRouteRejectsUnbundledLanguageBeforeProcessing();
     void keepsLowerRegionPresetSeparateFromFullFrameReset();
     void runsManagedAdapterPersistsReviewedSegmentsAndExports();
     void transfersReviewedSegmentsToSubtitleVoiceAndDubbing();

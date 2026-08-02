@@ -19,6 +19,7 @@ private slots:
     void healthCheckFailureDoesNotActivateStagingRuntime();
     void failedInstallerCacheRequiresExplicitCleanup();
     void qmlRouteRoiAndManagedRuntimeControlsAreWired();
+    void packageScriptStagesPaddleRuntimeWithBomSafeManifest();
     void responsiveLayoutSharedMediaAndHomeCardsAreWired();
 };
 

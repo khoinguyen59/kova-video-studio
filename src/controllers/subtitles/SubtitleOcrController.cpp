@@ -223,6 +223,30 @@ bool SubtitleOcrController::runtimeAvailable() const
     return !SubtitleOcrRuntimeLocator::resolveTesseract().isEmpty();
 }
 
+bool SubtitleOcrController::localRouteReady() const
+{
+    if (!runtimeAvailable()) return false;
+    if (usesPaddleLocalEngine())
+        return PaddleOcrRuntimeLocator::supportsBundledLanguage(m_ocrLanguage);
+    // Tesseract's managed language state is intentionally verified through
+    // the same `--list-langs` process boundary that recognition will use.
+    // This also covers an explicit environment runtime, whose language data
+    // is outside of the package service's inventory.
+    return true;
+}
+
+QString SubtitleOcrController::localRuntimeState() const
+{
+    if (usesPaddleLocalEngine()) {
+        QString error;
+        if (!PaddleOcrRuntimeLocator::resolve().isUsable(&error)) return QStringLiteral("Missing");
+        return PaddleOcrRuntimeLocator::supportsBundledLanguage(m_ocrLanguage)
+            ? QStringLiteral("Ready") : QStringLiteral("Unsupported language");
+    }
+    if (m_runtimeService) return m_runtimeService->stateName();
+    return runtimeAvailable() ? QStringLiteral("Ready") : QStringLiteral("Missing");
+}
+
 QString SubtitleOcrController::runtimePath() const
 {
     if (usesPaddleLocalEngine()) return PaddleOcrRuntimeLocator::resolve().pythonPath;
@@ -838,6 +862,7 @@ bool SubtitleOcrController::setOcrLanguage(const QString &language)
     if (m_ocrLanguage == normalized) return true;
     m_ocrLanguage = normalized;
     emit settingsChanged();
+    emit runtimeChanged();
     return true;
 }
 
@@ -979,6 +1004,13 @@ bool SubtitleOcrController::run()
         setError(usePaddle
                      ? QStringLiteral("The package-provisioned PaddleOCR PP-OCRv6 tiny runtime is unavailable or incomplete. Repair the package; LA Studio will not fall back silently to Tesseract.")
                      : QStringLiteral("Subtitle OCR Tesseract baseline runtime is unavailable. Install runtime or repair the package before running."));
+        emit runtimeChanged();
+        return false;
+    }
+    if (!useColab && !localRouteReady()) {
+        setError(usePaddle
+                     ? QStringLiteral("The bundled PaddleOCR PP-OCRv6 tiny runtime is verified only for Simplified Chinese (chi_sim). Select chi_sim, the explicit Tesseract baseline with its matching language pack, or Direct Colab GPU.")
+                     : QStringLiteral("The selected Tesseract language data is not installed. Install the matching language pack and retry."));
         emit runtimeChanged();
         return false;
     }
