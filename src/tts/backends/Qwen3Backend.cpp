@@ -1,4 +1,5 @@
 #include "Qwen3Backend.h"
+#include "tts/TtsSavedVoiceProfile.h"
 #include "core/InferenceThreadPolicy.h"
 #include "core/Logger.h"
 #include "core/PathUtils.h"
@@ -265,6 +266,7 @@ bool Qwen3Backend::load(const QVariantMap &config, QString &error, QVariantList 
 
 void Qwen3Backend::unload()
 {
+    m_savedVoiceProfileSignature.clear();
     if (m_session) {
         auto& qi = CrispQwen3TtsInterface::instance();
         if (qi.isLoaded()) {
@@ -297,6 +299,9 @@ bool Qwen3Backend::synthesize(const QString &text, float speed, const QVariantMa
         error = QStringLiteral("CrispASR Qwen3-TTS runtime was unloaded unexpectedly.");
         return false;
     }
+
+    if (!applySavedVoiceProfile(settings, error))
+        return false;
 
     // Apply speaker if changed
     if (settings.contains("voice")) {
@@ -457,9 +462,27 @@ bool Qwen3Backend::cloneVoice(const QString &text, const QString &referencePath,
         return false;
     }
 
-    QString refText = settings.value("ref_text").toString();
-    if (refText.isEmpty()) {
-        error = QStringLiteral("Qwen3-TTS voice cloning requires a reference transcript (ref_text). Please provide it in the input box.");
+    QVariantMap savedProfileSettings = settings;
+    savedProfileSettings.insert(QLatin1String(kTtsSavedVoiceId),
+                                QStringLiteral("voice-cloning-request"));
+    savedProfileSettings.insert(QLatin1String(kTtsSavedVoiceReferencePath), referencePath);
+    savedProfileSettings.insert(QLatin1String(kTtsSavedVoiceReferenceText),
+                                settings.value(QStringLiteral("ref_text")).toString());
+    return synthesize(text, 1.0f, savedProfileSettings, samples, sampleRate, error);
+}
+
+bool Qwen3Backend::applySavedVoiceProfile(const QVariantMap &settings, QString &error)
+{
+    const QString presetId = settings.value(QLatin1String(kTtsSavedVoiceId)).toString().trimmed();
+    if (presetId.isEmpty()) {
+        m_savedVoiceProfileSignature.clear();
+        return true;
+    }
+
+    const QString referencePath = settings.value(QLatin1String(kTtsSavedVoiceReferencePath)).toString().trimmed();
+    const QString referenceText = settings.value(QLatin1String(kTtsSavedVoiceReferenceText)).toString().trimmed();
+    if (referencePath.isEmpty() || referenceText.isEmpty()) {
+        error = QStringLiteral("The saved Qwen3-TTS voice profile is missing managed reference audio or transcript.");
         return false;
     }
     if (m_cancelRequested.load()) {
@@ -467,16 +490,36 @@ bool Qwen3Backend::cloneVoice(const QString &text, const QString &referencePath,
         return false;
     }
 
-    QByteArray refPathBytes = QDir::toNativeSeparators(PathUtils::toNativeShortPath(referencePath)).toUtf8();
-    QByteArray refTextBytes = refText.toUtf8();
-    
-    int rc = qi.crispasr_session_set_voice(static_cast<crispasr_session*>(m_session), refPathBytes.constData(), refTextBytes.constData());
-    if (rc != 0) {
-        error = QStringLiteral("Failed to set reference voice for Qwen3-TTS (rc=%1). Ensure the WAV file is valid and 24kHz.").arg(rc);
+    const QString signature = presetId + QLatin1Char('|') + referencePath
+        + QLatin1Char('|') + referenceText;
+    if (signature == m_savedVoiceProfileSignature)
+        return true;
+
+    auto &qi = CrispQwen3TtsInterface::instance();
+    if (!qi.crispasr_session_set_voice) {
+        error = QStringLiteral("The active Qwen3-TTS runtime does not expose persistent saved-voice profiles.");
         return false;
     }
-
-    return synthesize(text, 1.0f, settings, samples, sampleRate, error);
+    bool isVoiceDesign = false;
+    if (qi.crispasr_session_is_voice_design) {
+        isVoiceDesign = qi.crispasr_session_is_voice_design(
+            static_cast<crispasr_session *>(m_session)) != 0;
+    }
+    if (isVoiceDesign) {
+        error = QStringLiteral("Qwen3 VoiceDesign cannot apply a saved cloned voice profile.");
+        return false;
+    }
+    const QByteArray path = QDir::toNativeSeparators(
+        PathUtils::toNativeShortPath(referencePath)).toUtf8();
+    const QByteArray transcript = referenceText.toUtf8();
+    const int rc = qi.crispasr_session_set_voice(
+        static_cast<crispasr_session *>(m_session), path.constData(), transcript.constData());
+    if (rc != 0) {
+        error = QStringLiteral("Failed to prepare saved Qwen3-TTS voice profile (rc=%1). Ensure the managed WAV is valid and 24kHz.").arg(rc);
+        return false;
+    }
+    m_savedVoiceProfileSignature = signature;
+    return true;
 }
 
 } // namespace LAStudio

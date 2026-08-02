@@ -2,6 +2,7 @@
 
 #include "SttSessionController.h"
 #include "tts/TtsEngine.h"
+#include "tts/TtsSavedVoiceProfile.h"
 #include "controllers/dubbing/DubbingJobRunner.h"
 #include "controllers/dubbing/DubbingColabModelRoutes.h"
 #include "controllers/dubbing/DubbingTranslationFixService.h"
@@ -764,6 +765,17 @@ QString DubbingController::colabCapabilityForStage(const QString &stageId)
     return {};
 }
 
+ExecutionProvider configuredSynthesisProvider(const QVariantMap &configuration)
+{
+    const QVariantMap parameters = configuration.value(QStringLiteral("parameters")).toMap();
+    ExecutionProvider provider = ExecutionProvider::LocalDev;
+    executionProviderFromId(configuration.value(
+        QStringLiteral("executionProvider"),
+        parameters.value(QStringLiteral("executionProvider"),
+                         QStringLiteral("local-dev"))).toString(), &provider);
+    return provider;
+}
+
 ColabSession *DubbingController::colabSessionForStage(const QString &stageId) const
 {
     AppController *app = AppController::instance();
@@ -1230,10 +1242,23 @@ bool DubbingController::cloneVoiceSelectionValid() const
     const QVariantMap preset = selectedCloneVoicePreset();
     const QString audioPath = PathUtils::urlToLocalPath(
         preset.value(QStringLiteral("audioPath")).toString());
-    return !preset.value(QStringLiteral("id")).toString().trimmed().isEmpty()
+    const bool validPreset = !preset.value(QStringLiteral("id")).toString().trimmed().isEmpty()
         && !audioPath.isEmpty() && QFileInfo(audioPath).isFile()
         && preset.value(QStringLiteral("valid"), true).toBool()
         && preset.value(QStringLiteral("compatible"), false).toBool();
+    if (!validPreset)
+        return false;
+
+    const QVariantMap synthesis = m_workflowNodeConfigurations
+        .value(QStringLiteral("synthesize")).toMap();
+    const ExecutionProvider provider = configuredSynthesisProvider(synthesis);
+    if (provider == ExecutionProvider::ApiGateway)
+        return false;
+    // Do not present a Local run as available when a loaded backend can only
+    // clone a reference per segment. An unloaded model is handled separately
+    // by the workflow's normal "load a TTS model" readiness state.
+    return provider != ExecutionProvider::LocalDev || !m_tts || !m_tts->isModelLoaded()
+        || localTtsSupportsSavedVoiceProfile(m_tts->familyConfig());
 }
 
 QString DubbingController::cloneVoiceSelectionError() const
@@ -1258,6 +1283,16 @@ QString DubbingController::cloneVoiceSelectionError() const
     if (!QFileInfo(PathUtils::urlToLocalPath(
             preset.value(QStringLiteral("audioPath")).toString())).isFile()) {
         return QStringLiteral("The reference audio for the selected clone voice is missing. Repair or replace that preset before generating dubbing audio.");
+    }
+    const QVariantMap synthesis = m_workflowNodeConfigurations
+        .value(QStringLiteral("synthesize")).toMap();
+    const ExecutionProvider provider = configuredSynthesisProvider(synthesis);
+    if (provider == ExecutionProvider::ApiGateway) {
+        return QStringLiteral("This API Gateway TTS route cannot reuse saved clone voices. Select a built-in voice or Direct Colab; LA Studio will not substitute a voice.");
+    }
+    if (provider == ExecutionProvider::LocalDev && m_tts && m_tts->isModelLoaded()
+        && !localTtsSupportsSavedVoiceProfile(m_tts->familyConfig())) {
+        return QStringLiteral("The active local TTS runtime cannot reuse a saved voice profile. Load Qwen3-TTS or choose Direct Colab; LA Studio will not clone the voice again for each segment.");
     }
     return {};
 }

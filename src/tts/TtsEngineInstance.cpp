@@ -2,6 +2,7 @@
 #include "TtsTextPreprocessor.h"
 #include "TtsWorker.h"
 #include "TtsRequestValidator.h"
+#include "TtsSavedVoiceProfile.h"
 #include "core/Logger.h"
 #include "core/HardwareManager.h"
 #include "controllers/models/CapabilitySettingsSchema.h"
@@ -467,7 +468,9 @@ void TtsEngineInstance::synthesize(const QString &text, int speakerId, float spe
 
     QStringList settingParts;
     for (auto it = normalizedSettings.constBegin(); it != normalizedSettings.constEnd(); ++it) {
-        settingParts.append(QStringLiteral("%1: %2").arg(it.key(), it.value().toString()));
+        const QString value = isTtsSavedVoiceProfileSetting(it.key())
+            ? QStringLiteral("[app-managed]") : it.value().toString();
+        settingParts.append(QStringLiteral("%1: %2").arg(it.key(), value));
     }
     const QString familyId = m_familyConfig.value(QStringLiteral("id")).toString();
     Logger::info("TtsEngineInstance",

@@ -1786,6 +1786,7 @@ void TestDubbingProject::audioGenerationUsesSavedCloneVoiceForEverySegment()
     QVERIFY(WavIO::saveFloat(sourcePath, source.constData(), source.size(), sampleRate));
 
     TtsEngine tts;
+    tts.setFamilyConfig({{QStringLiteral("id"), QStringLiteral("qwen3-tts-1.7b-customvoice")}});
     tts.loadModel(QStringLiteral("mock-model.onnx"));
     DubbingJobRunner runner(nullptr, &tts);
     QSignalSpy completedSpy(&runner, &DubbingJobRunner::stageCompleted);
@@ -1828,7 +1829,7 @@ void TestDubbingProject::audioGenerationUsesSavedCloneVoiceForEverySegment()
         QCOMPARE(generated.value(QStringLiteral("voiceReferencePath")).toString(),
                  QFileInfo(sourcePath).absoluteFilePath());
     }
-    QCOMPARE(tts.lastGenerationMode(), QStringLiteral("voice-cloning"));
+    QCOMPARE(tts.lastGenerationMode(), QStringLiteral("tts"));
 }
 
 void TestDubbingProject::zeroCloneVoicePresetBlocksSynthesisWithoutFallback()
@@ -1856,6 +1857,39 @@ void TestDubbingProject::zeroCloneVoicePresetBlocksSynthesisWithoutFallback()
         QStringLiteral("Select a saved clone voice")));
     QVERIFY(!runner.processing());
     QVERIFY(tts.lastGenerationMode() != QStringLiteral("voice-cloning"));
+}
+
+void TestDubbingProject::localSavedVoiceRequiresPersistentProfile()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QVector<float> samples(24000, 0.02F);
+    const QString referencePath = dir.filePath(QStringLiteral("reference.wav"));
+    QVERIFY(WavIO::saveFloat(referencePath, samples.constData(), samples.size(), 24000));
+
+    TtsEngine tts;
+    tts.setFamilyConfig({{QStringLiteral("id"), QStringLiteral("omnivoice")}});
+    tts.loadModel(QStringLiteral("mock-model.onnx"));
+    DubbingJobRunner runner(nullptr, &tts);
+    QSignalSpy errors(&runner, &DubbingJobRunner::errorOccurred);
+    runner.startAudioGeneration(
+        {QVariantMap{{QStringLiteral("id"), QStringLiteral("s1")},
+                     {QStringLiteral("startMs"), 0},
+                     {QStringLiteral("endMs"), 1000},
+                     {QStringLiteral("targetText"), QStringLiteral("No local reclone")}}},
+        dir.filePath(QStringLiteral("project.ladub.json")),
+        QVariantMap{{QStringLiteral("voiceCloningEnabled"), true},
+                    {QStringLiteral("cloneVoicePreset"),
+                     QVariantMap{{QStringLiteral("id"), QStringLiteral("preset-source")},
+                                 {QStringLiteral("name"), QStringLiteral("Saved source")},
+                                 {QStringLiteral("familyId"), QStringLiteral("omnivoice")},
+                                 {QStringLiteral("audioPath"), referencePath},
+                                 {QStringLiteral("referenceText"), QStringLiteral("Approved reference")}}}});
+
+    QCOMPARE(errors.size(), 1);
+    QVERIFY(errors.constFirst().at(0).toString().contains(
+        QStringLiteral("will not clone the voice again")));
+    QCOMPARE(tts.lastGenerationMode(), QStringLiteral("tts"));
 }
 
 void TestDubbingProject::cloneVoicePresetSelectionPersistsAndMissingPresetBlocks()
@@ -1941,6 +1975,7 @@ void TestDubbingProject::changingCloneVoicePresetAppliesToEntireNextRun()
     QVERIFY(WavIO::saveFloat(secondPath, secondReference.constData(), secondReference.size(), sampleRate));
 
     TtsEngine tts;
+    tts.setFamilyConfig({{QStringLiteral("id"), QStringLiteral("qwen3-tts-1.7b-customvoice")}});
     tts.loadModel(QStringLiteral("mock-model.onnx"));
     DubbingJobRunner runner(nullptr, &tts);
     QSignalSpy completedSpy(&runner, &DubbingJobRunner::stageCompleted);

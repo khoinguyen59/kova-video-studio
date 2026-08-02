@@ -27,6 +27,7 @@ private slots:
     void audioGenerationUsesSelectedVoiceForEverySegment();
     void selectsBestAutomaticVoiceReference();
     void audioGenerationUsesSavedCloneVoiceForEverySegment();
+    void localSavedVoiceRequiresPersistentProfile();
     void zeroCloneVoicePresetBlocksSynthesisWithoutFallback();
     void cloneVoicePresetSelectionPersistsAndMissingPresetBlocks();
     void changingCloneVoicePresetAppliesToEntireNextRun();

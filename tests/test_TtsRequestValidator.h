@@ -12,6 +12,8 @@ private slots:
     void appliesDefaultsAndNormalizesTypes();
     void rejectsMissingRequiredInputs();
     void rejectsUnsupportedAndInvalidSettings();
+    void preservesVerifiedInternalSavedVoiceProfile();
+    void permitsSavedVoiceProfilesOnlyForQwen3Tts();
 };
 
 } // namespace LAStudio

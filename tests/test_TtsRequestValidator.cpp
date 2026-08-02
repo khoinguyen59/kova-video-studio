@@ -1,6 +1,7 @@
 #include "test_TtsRequestValidator.h"
 
 #include "tts/TtsRequestValidator.h"
+#include "tts/TtsSavedVoiceProfile.h"
 
 #include <QtTest>
 
@@ -66,6 +67,27 @@ void TestTtsRequestValidator::rejectsUnsupportedAndInvalidSettings()
                                             {{QStringLiteral("lang"), QStringLiteral("vi")},
                                              {QStringLiteral("unknown"), true}}, normalized, error));
     QVERIFY(error.contains(QStringLiteral("Unsupported")));
+}
+
+void TestTtsRequestValidator::preservesVerifiedInternalSavedVoiceProfile()
+{
+    QVariantMap normalized;
+    QString error;
+    const QVariantMap savedVoice{{QLatin1String(kTtsSavedVoiceId), QStringLiteral("preset-42")},
+                                 {QLatin1String(kTtsSavedVoiceReferencePath), QStringLiteral("C:/managed/preset.wav")},
+                                 {QLatin1String(kTtsSavedVoiceReferenceText), QStringLiteral("Approved reference")}};
+    QVERIFY2(TtsRequestValidator::normalize(schema(), {}, savedVoice, normalized, error),
+             qPrintable(error));
+    for (auto it = savedVoice.cbegin(); it != savedVoice.cend(); ++it)
+        QCOMPARE(normalized.value(it.key()), it.value());
+}
+
+void TestTtsRequestValidator::permitsSavedVoiceProfilesOnlyForQwen3Tts()
+{
+    QVERIFY(localTtsSupportsSavedVoiceProfile(
+        {{QStringLiteral("id"), QStringLiteral("qwen3-tts-1.7b-customvoice")}}));
+    QVERIFY(!localTtsSupportsSavedVoiceProfile(
+        {{QStringLiteral("id"), QStringLiteral("omnivoice")}}));
 }
 
 } // namespace LAStudio

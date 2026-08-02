@@ -19,8 +19,11 @@ public:
                     QVector<float> &samples, int &sampleRate, QString &error) override;
 
 private:
+    bool applySavedVoiceProfile(const QVariantMap &settings, QString &error);
+
     void *m_session = nullptr;
     QString m_modelPath;
+    QString m_savedVoiceProfileSignature;
     bool m_codePredictorBackendEnvOverridden = false;
     bool m_restoreCodePredictorBackendEnv = false;
     QByteArray m_previousCodePredictorBackendEnv;

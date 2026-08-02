@@ -1,4 +1,5 @@
 #include "TtsRequestValidator.h"
+#include "TtsSavedVoiceProfile.h"
 
 #include <QMetaType>
 
@@ -139,6 +140,8 @@ bool TtsRequestValidator::normalize(const QVariantList &schema,
             continue;
         if (it.key() == QStringLiteral("instruct") && acceptsInstruct)
             continue;
+        if (isTtsSavedVoiceProfileSetting(it.key()))
+            continue;
 
         error = QStringLiteral("Unsupported TTS setting for the active model: '%1'.").arg(it.key());
         return false;
@@ -175,6 +178,21 @@ bool TtsRequestValidator::normalize(const QVariantList &schema,
             return false;
         }
         normalizedSettings.insert(QStringLiteral("instruct"), rawSettings.value(QStringLiteral("instruct")).toString());
+    }
+
+    // Dubbing sends a verified, app-managed saved voice through a private
+    // execution contract. Keep it outside public model schemas so it cannot
+    // appear as a generic model setting in the UI.
+    for (const char *key : {kTtsSavedVoiceId, kTtsSavedVoiceReferencePath,
+                            kTtsSavedVoiceReferenceText}) {
+        const QString settingKey = QLatin1String(key);
+        if (!rawSettings.contains(settingKey))
+            continue;
+        if (rawSettings.value(settingKey).metaType().id() != QMetaType::QString) {
+            error = QStringLiteral("Invalid internal saved-voice setting type.");
+            return false;
+        }
+        normalizedSettings.insert(settingKey, rawSettings.value(settingKey).toString());
     }
 
     return true;
