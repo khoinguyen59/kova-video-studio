@@ -1,16 +1,45 @@
 # Báo cáo tổng hợp LA Studio
 
-Cập nhật: 2026-08-01
+Cập nhật: 2026-08-02
 
 ## Baseline hiện tại
 
 | Mục | Trạng thái |
 | --- | --- |
-| Latest packaged candidate | `0.0.2.15` từ commit `3a9d5c3` |
-| Artifact | `out/LA-Studio-0.0.2.15/LA-Studio-0.0.2.15.exe` |
-| SHA-256 | `86280ADD832B1DD6CAA7A53ED6D5AC43246C63587CEFC22FCBC3ED2C498A0B3C` |
+| Latest packaged candidate | 0.0.2.16 |
+| Artifact | out/LA-Studio-0.0.2.16/LA-Studio-0.0.2.16.exe |
+| SHA-256 | DF16ADFE912EA5D2A55A266E4D215C93C944C7E12EBBB925B47AD743D10E3727 |
 | Automated suite | 39/39 CTest PASS; QML offscreen PASS ở ba viewport |
 | Distribution | Internal only; eSpeak MSI chưa ký |
+
+## Batch PaddleOCR production / package 0.0.2.16
+
+- Local CPU PaddleOCR có runtime cô lập được package cùng executable: CPython,
+  worker, 52 model files PP-OCRv6 tiny, manifest UTF-8 không BOM và metadata
+  license. Chỉ chi_sim được bundle và hiển thị Ready; ngôn ngữ khác bị chặn rõ
+  ràng trước khi chạy, thay vì báo Ready giả. Direct Colab vẫn là route độc lập
+  và dùng contract segment/timestamp/model có sẵn.
+- Dubbing dùng cùng readiness/cache của Subtitle OCR. Cache/handoff giữ source
+  hash, ROI, language, model và route; các regression STT/OCR/STT+OCR, export,
+  reload và QML route đều nằm trong full suite.
+- Root cause package đã sửa: Paddle staging trước đây chưa được gọi; sau khi
+  được nối vào package, manifest có nguy cơ BOM và license copy dùng hai ký tự
+  backslash cho TrimStart làm stage dừng muộn. Staging nay ghi UTF-8 không BOM,
+  health-check lại sau lần ghi cuối và dùng đúng một ký tự path separator; có
+  regression cho cả hai điểm.
+- Automated evidence: targeted runtime/controller/pipeline/Dubbing/QML PASS và
+  **39/39 CTest PASS** cuối cùng. Package audit PASS: FileVersion/ProductVersion
+  0.0.2.16, Qt qwindows.dll, FFmpeg/FFprobe, Paddle worker/Python/model,
+  manifest/license và health check trong chính thư mục package.
+- E2E được tái sử dụng hợp lệ vì batch chỉ đổi readiness/package, không đổi
+  engine/input/config OCR: 1.mp4 SHA
+  84f6bed3bb9d6ad42eccb0b830a873aae1998c016e361f075265d6d0eacca214,
+  PaddleOCR 3.7.0 PP-OCRv6 tiny từ upstream
+  2661c7c0ef5c613e8f93c6e93b2e052399f0f854, zh-Hans, ROI
+  0.009,0.883,0.976,0.096, interval 800 ms, confidence 50%, 1,125 samples
+  và 430 segments. Dubbing đã reuse 430 segments, không OCR lần hai.
+- Bốn output E2E còn đọc được: out/ocr-e2e-new/standalone-zh-Hans.srt,
+  dubbing-zh-Hans.srt, transcript-zh-Hans.txt và OCR_TEST_RESULT.md.
 
 ## Đã có implementation và regression
 
@@ -41,9 +70,9 @@ Cập nhật: 2026-08-01
   khoảng trắng, landscape, portrait/rotation, ROI full-width sát đáy, ROI nhỏ hợp lệ,
   ROI 0-pixel, safe-end, process failure, timeout, cancel/retry và cleanup sau OCR.
   Không có test mới bị `SKIP`.
-- Full CTest sau cùng: **39/39 PASS**. Candidate 0.0.2.15 đã audit File/Product
-  version, hash, Qt Windows platform plugin, FFmpeg/FFprobe, Tesseract 5.5.1 và
-  `runtime-manifest.json` (`healthCheckPassed: true`).
+- Full CTest sau cùng: **39/39 PASS**. Candidate 0.0.2.16 đã audit File/Product
+  version, hash, Qt Windows platform plugin, FFmpeg/FFprobe, Tesseract 5.5.1,
+  PaddleOCR CPU runtime/model/manifest/license và health check.
 
 ## Manual acceptance còn mở
 

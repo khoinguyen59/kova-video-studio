@@ -64,6 +64,16 @@ chi tiết code, log dài hoặc toàn bộ test output.
   hiển thị diagnostics/retry và không fallback toàn khung hình. Regression runtime
   FFmpeg đã stage kiểm tra Unicode, rotation, ROI sát đáy/0-pixel và retry; 39/39 PASS.
 
+### 2026-08-02
+
+- Hoàn tất package nội bộ 0.0.2.16 với PaddleOCR 3.7.0 PP-OCRv6 tiny Local CPU
+  cô lập trong package. Chỉ chi_sim được xác nhận bundle/Ready; ngôn ngữ chưa
+  bundle không còn có thể báo Ready giả.
+- Sửa pipeline staging PaddleOCR để package thực sự chứa runtime/model/worker,
+  manifest UTF-8 không BOM và metadata license; health check được chạy từ thư
+  mục package. Full automated suite 39/39 PASS; desktop/live Colab vẫn cần
+  nghiệm thu người dùng riêng.
+
 ## Quy tắc duy trì trí nhớ
 
 - Cập nhật sau mỗi task đã merge/push hoặc sau bằng chứng manual mới.

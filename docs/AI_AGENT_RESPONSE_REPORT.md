@@ -1,36 +1,63 @@
-# Phản hồi AI agent — OCR E2E tiếng Trung
+# Phản hồi AI agent — PaddleOCR production và package 0.0.2.16
 
-Ngày: 2026-08-01
+Ngày: 2026-08-02
 
 ## Kết quả
 
-PASS bằng production CLI/headless, không mở hay điều khiển GUI và không tạo package EXE.
+**PASS (automated/package).** Source đã là 0.0.2.16 và package portable nội bộ:
 
-- Input: `C:\Users\Nguyen Trong Khoi\Downloads\1.mp4`
-- SHA-256: `84f6bed3bb9d6ad42eccb0b830a873aae1998c016e361f075265d6d0eacca214`
-- Engine/model: `paddleocr-ppocrv6-tiny` 3.7.0; `PP-OCRv6_tiny_det` + `PP-OCRv6_tiny_rec`; Simplified Chinese (`zh-Hans`).
-- Upstream: `PaddlePaddle/PaddleOCR`, commit `2661c7c0ef5c613e8f93c6e93b2e052399f0f854`.
-- Full Standalone OCR: 1,125 samples, 430 segments, 561,493 ms (9m21s).
-- Dubbing nhận lại cache/artifact của Standalone: 430 segments, không OCR video lần hai.
-- Tesseract process/fallback: 0/false. Child OCR process còn sống sau run: 0.
+C:\Users\Nguyen Trong Khoi\Downloads\LA-STUDIO\out\LA-Studio-0.0.2.16\LA-Studio-0.0.2.16.exe
 
-## Root cause và chỉnh sửa
+- FileVersion và ProductVersion: 0.0.2.16.
+- SHA-256 EXE:
+  DF16ADFE912EA5D2A55A266E4D215C93C944C7E12EBBB925B47AD743D10E3727.
+- CTest cuối: **39/39 PASS**, gồm Subtitle OCR pipeline/controller/runtime,
+  Dubbing STT/OCR/STT+OCR, export/cache/reload và QML route offscreen.
+- Package audit trực tiếp từ thư mục trên PASS: Qt platforms/qwindows.dll,
+  FFmpeg/FFprobe, Python cô lập, Paddle worker, 52 model files, manifest không
+  BOM, license metadata và --health của worker (manifestVerified=true).
 
-- Runner trước đó chỉ xuất hai SRT, chưa tạo transcript TXT/Markdown theo yêu cầu mới. Đã thêm chế độ artifact-only vào `tests/OcrE2ERunner.cpp`, khai thác hai SRT đã được production parser xác nhận; nó không gọi FFmpeg, PaddleOCR hay Tesseract nên không nhận dạng lại video.
-- Đồng bộ các assertion static QML cũ trong `tests/test_SubtitleOcrRuntimeService.cpp` với local default PaddleOCR và Tesseract baseline explicit.
-- `scripts/prepare_paddle_ocr_runtime.ps1` ghi CPython embedded `.pth`/manifest bằng UTF-8 không BOM, vì BOM làm embedded Python tìm `\ufeffpython311.zip` và không nạp `encodings`. Runtime cô lập sau đó health PASS với worker/model/Python checksum.
+## Phần đã tích hợp/sửa
 
-## Lệnh/bằng chứng
+- Local CPU dùng PaddleOCR 3.7.0 PP-OCRv6 tiny thật; package chỉ hiển thị
+  chi_sim là bundle/Ready. Với language chưa bundle, UI/controller dừng trước
+  khi tạo worker và hướng dẫn chọn chi_sim, Tesseract matching language hoặc
+  Direct Colab. Không có fallback im lặng.
+- Subtitle OCR và Dubbing tiếp tục dùng chung configuration/cache/handoff:
+  source hash, ROI, language, model và route nằm trong cache key; Dubbing reuse
+  transcript artifact thay vì OCR lại.
+- Direct Colab giữ độc lập với API Gateway và contract segment/timestamp/model
+  hiện có; secret không được ghi vào source/report.
+- Root cause package: Stage-PaddleOcrRuntime chưa được gọi. Sau khi nối staging
+  vào flow, phát hiện thêm hai lỗi release-only: manifest PowerShell UTF-8 BOM
+  làm worker Python không đọc JSON, và TrimStart truyền hai backslash khiến copy
+  license dừng sau khi stage. Cả hai đã được sửa, có regression, và package
+  health-check lại manifest cuối.
 
-- Headless E2E PaddleOCR production đã hoàn tất một lần; JSON ghi `cacheReusedByDubbing=true`, `tesseractFallbackUsed=false`, `childProcessesAlive=0`.
-- Artifact-only validation: `LAStudioUnitTests.exe --ocr-e2e-artifact-report --input ... --output-root ... --elapsed-ms 561493` trả `ok=true` và xác thực SRT/TXT có timestamp, Unicode Han, count Standalone/Dubbing khớp.
-- Kiểm tra nhẹ cuối xác nhận bốn file tồn tại, khác rỗng, SHA input đúng và không còn `LAStudioUnitTests`/`ffmpeg`/`ffprobe` child process.
+## Evidence OCR đã tái sử dụng
 
-## Output có thể mở trực tiếp
+Không rerun full video vì thay đổi batch này chỉ ở readiness/UI/package, không
+đổi engine, input hay cấu hình OCR đã PASS.
 
-- `C:\Users\Nguyen Trong Khoi\Downloads\LA-STUDIO\out\ocr-e2e-new\standalone-zh-Hans.srt`
-- `C:\Users\Nguyen Trong Khoi\Downloads\LA-STUDIO\out\ocr-e2e-new\dubbing-zh-Hans.srt`
-- `C:\Users\Nguyen Trong Khoi\Downloads\LA-STUDIO\out\ocr-e2e-new\transcript-zh-Hans.txt`
-- `C:\Users\Nguyen Trong Khoi\Downloads\LA-STUDIO\out\ocr-e2e-new\OCR_TEST_RESULT.md`
+- Input: C:\Users\Nguyen Trong Khoi\Downloads\1.mp4
+- SHA-256:
+  84f6bed3bb9d6ad42eccb0b830a873aae1998c016e361f075265d6d0eacca214
+- Engine: PaddleOCR 3.7.0, PP-OCRv6 tiny det/rec, zh-Hans; upstream
+  PaddlePaddle/PaddleOCR commit
+  2661c7c0ef5c613e8f93c6e93b2e052399f0f854.
+- Config: ROI x=.009, y=.883, w=.976, h=.096; interval 800 ms; confidence
+  50%; 1,125 samples, 430 segments. Dubbing reuse 430 segments; Tesseract
+  fallback 0 and no child OCR process còn lại.
 
-Không rerun preflight/smoke/full OCR/full CTest sau khi đọc yêu cầu mới nhất; artifact hợp lệ đã được tái sử dụng. Không có package mới.
+Output đọc được:
+
+- out/ocr-e2e-new/standalone-zh-Hans.srt
+- out/ocr-e2e-new/dubbing-zh-Hans.srt
+- out/ocr-e2e-new/transcript-zh-Hans.txt
+- out/ocr-e2e-new/OCR_TEST_RESULT.md
+
+## Còn chờ nghiệm thu thủ công
+
+Chưa mở EXE/điều khiển GUI và chưa gọi Colab live. Desktop drag/drop, ROI pointer,
+file picker, chất lượng OCR trực quan và kết nối Direct Colab cần người dùng nghiệm
+thu riêng; chúng không được tính là PASS chỉ từ test headless/package.
