@@ -1,16 +1,32 @@
 # Bao cao tong hop LA Studio
 
-Cap nhat: 2026-08-02
+Cap nhat: 2026-08-03
 
 ## Baseline hien tai
 
 | Muc | Trang thai |
 | --- | --- |
-| Latest packaged candidate | `0.0.2.17` (historical, before C4 correction) |
-| Artifact | `out/LA-Studio-0.0.2.17/LA-Studio-0.0.2.17.exe` |
-| SHA-256 | `665B4FD4AD9C76774639466907AE46B553BCC713BCB3A309D97341E1EE2862C3` |
-| Current source | `main` commit `1e05fb2`; 39/39 CTest PASS after C4 correction; not yet packaged |
+| Latest packaged candidate | `0.0.2.18` |
+| Artifact | `out/LA-Studio-0.0.2.18/LA-Studio-0.0.2.18.exe` |
+| SHA-256 | `2FC962F21721E285927ADD7F6201A11FA9DA46D10242BA4787A4015F02CD8381` |
+| Current source | `main` commit `3db38db`; full CTest 39/39 PASS and package audit PASS |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
+
+## Batch 0.0.2.18: Transcript source, STT/OCR reconciliation and package completion
+
+- Dubbing Transcribe va Dubbing Direct Colab setup dung cung `transcriptConfiguration.transcriptSource`: STT only, OCR only, va STT+OCR. Route/model STT duoc persist rieng trong project va readiness sau reload dung route thuc te, khong doc template cu.
+- Colab cards/check-all chi yeu cau worker cho nguon dang active va route Direct Colab. Nguon inactive hien `Not used`; Local khong block Colab setup. Cau hinh STT/OCR da luu duoc giu khi doi mode.
+- Fusion giu STT/OCR text, confidence va provenance. Default `ask` de conflict pending; co prefer STT/OCR, batch resolution va manual final text. Conflict chua resolve chan Translate va workflow readiness.
+- AI reconciliation chi duoc bat khi route co khai bao `supportsStructuredReconciliation`; M2M100/NLLB dich thuong khong duoc coi la LLM. Suggestion dung source language, timestamp/context/confidence, luon pending user accept/reject va khong ghi de evidence.
+- `scripts/run_tests.ps1` dung CTest fixture thay vi goi aggregate EXE truc tiep. `scripts/package.ps1` tu dung runtime PaddleOCR da duoc controlled-prepared neu khong truyen override, roi van xac minh manifest/hash/health.
+
+## Bang chung 0.0.2.18
+
+- Targeted `TestDubbingProject`: **82 passed, 0 failed, 5 skipped**.
+- Full CTest tren source 0.0.2.18: **39/39 PASS**, 64.21 giay, bao gom Subtitle OCR fixture, Remote Live Preflight contract va packaged QML smoke.
+- OCR production code-only E2E tren `C:/Users/Nguyen Trong Khoi/Downloads/1.mp4`: **PASS** trong 599867 ms; PaddleOCR 3.7.0 PP-OCRv6 tiny, 1125 sampled/recognized frames, 430 cues o ca Standalone va Dubbing, Dubbing reuse cache, Tesseract fallback = false, child processes alive = 0. Artifact: `out/ocr-e2e-new/standalone-zh-Hans.srt`, `dubbing-zh-Hans.srt`, `transcript-zh-Hans.txt`, `OCR_TEST_RESULT.md`.
+- Package audit: FileVersion/ProductVersion `0.0.2.18`; 26 required runtime/license artifacts co mat, bao gom `platforms/qwindows.dll`, FFmpeg/FFprobe va isolated PaddleOCR runtime. Worker health `ok=true`, `manifestVerified=true`.
+- Khong mo GUI. Live Direct Colab worker/notebook/tunnel va manual desktop acceptance van **chua xac minh**.
 
 ## Batch 0.0.2.17: Dubbing ro rang resource, TTS va OCR ROI
 

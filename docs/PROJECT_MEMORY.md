@@ -6,7 +6,7 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 
 - Desktop local-first: STT, TTS, Voice Cloning, Voice Design, Alignment, Translation, Dubbing, LLM Chat, Download va Subtitle OCR.
 - API Gateway va Direct Colab la hai route doc lap. Token/URL Colab chi o memory session, khong persist vao project/report.
-- Package noi bo moi nhat: `0.0.2.17` la artifact lich su truoc C4 correction. Source `main` tai `1e05fb2` da 39/39 CTest PASS sau C4 nhung chua duoc package, vi khong ghi de candidate cu. Manual GUI/live Colab luon la gate rieng.
+- Package noi bo moi nhat: `0.0.2.18` tai `out/LA-Studio-0.0.2.18/LA-Studio-0.0.2.18.exe`, SHA-256 `2FC962F21721E285927ADD7F6201A11FA9DA46D10242BA4787A4015F02CD8381`. Source `main` tai `3db38db`; full CTest 39/39 va package audit PASS. Manual GUI/live Colab luon la gate rieng.
 
 ## Lich su cap san pham
 
@@ -38,6 +38,14 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 - Local Dubbing saved voice khong duoc clone lai theo segment. Chi Qwen3-TTS duoc phep vi native runtime co `crispasr_session_set_voice()` de dat va reuse profile theo signature trong session; backend clone-per-request bi chan truoc Run TTS voi huong dan chon Qwen3-TTS hoac Direct Colab.
 - Internal saved-profile fields chi di qua Dubbing-to-TTS boundary, khong persist vao project/UI va duoc mask trong log. API Gateway va Direct Colab van tach biet; Direct Colab cache profile cu khong thay doi.
 - Test targeted 6/6 va full CTest 39/39 PASS. Artifact `0.0.2.17` tao truoc correction khong bi ghi de va khong dai dien current source; can ten candidate moi duoc phep de package.
+
+### 2026-08-03 - 0.0.2.18 transcript reconciliation
+
+- `transcriptSource` la single source of truth cho STT only/OCR only/STT+OCR o Transcribe va Direct Colab setup. STT provider/model thuc te duoc persist/reload; cards, readiness va Colab validation chi danh gia nguon active va selected route.
+- STT/OCR fusion luu day du evidence. Policy `ask` default giu conflict pending; prefer STT/OCR, batch/manual resolution, AI suggestion accept/reject deu preserve original evidence. Conflict unresolved chan Translate.
+- AI reconciliation yeu cau capability structured explicit; model dich thuong khong duoc dung lam LLM va khong co fallback route im lang.
+- OCR E2E production tren `1.mp4` PASS: 1125 Paddle frames, 430 matched Standalone/Dubbing cues, cache reuse, khong Tesseract fallback hay child-process leak; artifact o `out/ocr-e2e-new`.
+- Package portable `0.0.2.18` audit FileVersion/ProductVersion, SHA, Qt/FFmpeg/PaddleOCR manifest-health va license/runtime inventory PASS. Package script tu resolve `out/paddle-ocr-runtime-ready` neu khong duoc truyen override, tranh loi empty binding.
 
 ## Quy tac duy tri
 
