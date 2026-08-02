@@ -1,63 +1,62 @@
-# Phản hồi AI agent — PaddleOCR production và package 0.0.2.16
+# Phan hoi AI agent — Dubbing/TTS/ROI va package 0.0.2.17
 
-Ngày: 2026-08-02
+Ngay: 2026-08-02
 
-## Kết quả
+## Ket qua
 
-**PASS (automated/package).** Source đã là 0.0.2.16 và package portable nội bộ:
+**PASS cho automated gates va package noi bo.** Candidate duy nhat cua batch nay:
 
-C:\Users\Nguyen Trong Khoi\Downloads\LA-STUDIO\out\LA-Studio-0.0.2.16\LA-Studio-0.0.2.16.exe
+`C:\Users\Nguyen Trong Khoi\Downloads\LA-STUDIO\out\LA-Studio-0.0.2.17\LA-Studio-0.0.2.17.exe`
 
-- FileVersion và ProductVersion: 0.0.2.16.
-- SHA-256 EXE:
-  DF16ADFE912EA5D2A55A266E4D215C93C944C7E12EBBB925B47AD743D10E3727.
-- CTest cuối: **39/39 PASS**, gồm Subtitle OCR pipeline/controller/runtime,
-  Dubbing STT/OCR/STT+OCR, export/cache/reload và QML route offscreen.
-- Package audit trực tiếp từ thư mục trên PASS: Qt platforms/qwindows.dll,
-  FFmpeg/FFprobe, Python cô lập, Paddle worker, 52 model files, manifest không
-  BOM, license metadata và --health của worker (manifestVerified=true).
+- FileVersion/ProductVersion: `0.0.2.17`.
+- SHA-256 EXE: `665B4FD4AD9C76774639466907AE46B553BCC713BCB3A309D97341E1EE2862C3`.
+- Full CTest cuoi: **39/39 PASS**. `TestRemoteExecution` da duoc sua theo contract UI TTS moi; khong con bat Dubbing phai hien thi `voice-cloning`.
+- Package audit PASS: `platforms/qwindows.dll`, FFmpeg/FFprobe, Qt DLL, eSpeak runtime, VC redist, Subtitle OCR va PaddleOCR runtime/model deu co trong candidate. Paddle worker `--health` tra `manifestVerified: true`.
+- QML route smoke cua **EXE da dong goi** chay headless `QT_QPA_PLATFORM=offscreen` va exit `0`; khong mo hay dieu khien GUI nguoi dung.
 
-## Phần đã tích hợp/sửa
+## Ma tran Dubbing: vai tro, duong chay va tai nguyen
 
-- Local CPU dùng PaddleOCR 3.7.0 PP-OCRv6 tiny thật; package chỉ hiển thị
-  chi_sim là bundle/Ready. Với language chưa bundle, UI/controller dừng trước
-  khi tạo worker và hướng dẫn chọn chi_sim, Tesseract matching language hoặc
-  Direct Colab. Không có fallback im lặng.
-- Subtitle OCR và Dubbing tiếp tục dùng chung configuration/cache/handoff:
-  source hash, ROI, language, model và route nằm trong cache key; Dubbing reuse
-  transcript artifact thay vì OCR lại.
-- Direct Colab giữ độc lập với API Gateway và contract segment/timestamp/model
-  hiện có; secret không được ghi vào source/report.
-- Root cause package: Stage-PaddleOcrRuntime chưa được gọi. Sau khi nối staging
-  vào flow, phát hiện thêm hai lỗi release-only: manifest PowerShell UTF-8 BOM
-  làm worker Python không đọc JSON, và TrimStart truyền hai backslash khiến copy
-  license dừng sau khi stage. Cả hai đã được sửa, có regression, và package
-  health-check lại manifest cuối.
+Metadata cua `DubbingWorkflowDefinition` la nguon chung cho workflow/header/inspector/controller; QML khong tu suy dien GPU tu ten model. Badge `Nen dung Colab` chi hien khi metadata cua route/model dang chon bao GPU-heavy/GPU-required.
 
-## Evidence OCR đã tái sử dụng
+| Buoc | Input -> output | Runner/thuc thi | Route duoc phep | Tai nguyen UI |
+| --- | --- | --- | --- | --- |
+| Import & Normalize | media -> working audio/media | `DubbingJobRunner`/FFmpeg | Local CPU | `CPU phu hop` |
+| Separate speech | working media -> stems | `VoiceIsolatorController` | Local, API Gateway, Direct Colab | Colab khi model/route GPU-heavy |
+| Transcribe | audio/ROI -> transcript | `DubbingTranscriptionJob`, STT va `SubtitleOcrController` | STT: Local/API/Colab; OCR: Local CPU/Direct Colab | Colab chi o STT/OCR model can GPU |
+| Reconcile/alignment | STT+OCR -> transcript co provenance/conflict | fusion + optional alignment | Local/Direct Colab | Colab chi khi bat alignment GPU |
+| Translate | source transcript -> target transcript | `DubbingTranslationJob` | Local, API Gateway, Direct Colab | badge theo model/route |
+| TTS | target text + `ttsVoiceId` -> clips | `DubbingSynthesisJob` | Local, API Gateway, Direct Colab | Colab cho TTS GPU-heavy; API khong tu thay saved voice |
+| Timing/Mix/Output | clips -> mix/video/draft | Dubbing runner + FFmpeg | Local CPU | `CPU phu hop` |
 
-Không rerun full video vì thay đổi batch này chỉ ở readiness/UI/package, không
-đổi engine, input hay cấu hình OCR đã PASS.
+## Thay doi da thuc hien
 
-- Input: C:\Users\Nguyen Trong Khoi\Downloads\1.mp4
-- SHA-256:
-  84f6bed3bb9d6ad42eccb0b830a873aae1998c016e361f075265d6d0eacca214
-- Engine: PaddleOCR 3.7.0, PP-OCRv6 tiny det/rec, zh-Hans; upstream
-  PaddlePaddle/PaddleOCR commit
-  2661c7c0ef5c613e8f93c6e93b2e052399f0f854.
-- Config: ROI x=.009, y=.883, w=.976, h=.096; interval 800 ms; confidence
-  50%; 1,125 samples, 430 segments. Dubbing reuse 430 segments; Tesseract
-  fallback 0 and no child OCR process còn lại.
+- Ten node va panel sinh am thanh trong Dubbing da thanh **TTS / Text to Speech**. Dubbing khong con co dialog, setup card hay control tao Voice Clone; Voice Cloning Studio van doc lap.
+- Selector **Giong noi** lay built-in voice cua TTS va saved preset tu `VoiceClonePresetService`. Muc saved hien ten, family, compatibility va tinh trang asset/checksum; preset thieu, hong hay khong tuong thich chan Run voi loi ro rang. Lua chon luu bang `ttsVoiceId`; project schema 12 migrate `cloneVoicePresetId` cu sang ID nay.
+- Direct Colab giu profile cua saved voice trong bo nho theo preset/model/session va reuse giua cac segment. API Gateway tu choi saved voice khi route khong ho tro thay vi fallback im lang. Dubbing khong tu chon vocals/source media/reference audio.
+- `DubbingNodeInspector.qml` va `DubbingNodeSettingsPanel.qml` hien vai tro node, resource badge va chuoi chinh xac **`Nen dung Colab`** theo metadata. Notebook link dung model hien chon.
+- Dubbing OCR/STT+OCR dung ROI normalized production cua `SubtitleOcrController`: overlay bam `VideoOutput.contentRect`, co drag inside + 8 resize handles, clamp, persist/reload qua `transcriptConfiguration`, preset/reset/preview crop nam duoi video. STT an ROI va khong dung ROI.
+- Transcribe selector va Colab setup dung cung `transcriptConfiguration.transcriptSource`: Chi STT, Chi OCR, STT + OCR. Worker/check selected chi ap dung cac source dang chon.
 
-Output đọc được:
+## Kiem thu da chay
 
-- out/ocr-e2e-new/standalone-zh-Hans.srt
-- out/ocr-e2e-new/dubbing-zh-Hans.srt
-- out/ocr-e2e-new/transcript-zh-Hans.txt
-- out/ocr-e2e-new/OCR_TEST_RESULT.md
+Targeted PASS:
 
-## Còn chờ nghiệm thu thủ công
+- `TestDubbingProject`, `TestWorkflowGraph`, `TestSubtitleOcrPipeline`, `PrepareSubtitleOcrFrameRuntime`, `TestSubtitleOcrController`, `TestSubtitleOcrRuntimeService`, `TestColabTtsRunner`, `TestColabVoiceCloneRunner`, `PrepareQmlRouteSmokeRuntime`, `QmlRouteSmoke`.
+- `TestRemoteExecution` PASS sau khi cap nhat assertion cu bat buoc chuoi `voice-cloning` trong Dubbing inspector.
 
-Chưa mở EXE/điều khiển GUI và chưa gọi Colab live. Desktop drag/drop, ROI pointer,
-file picker, chất lượng OCR trực quan và kết nối Direct Colab cần người dùng nghiệm
-thu riêng; chúng không được tính là PASS chỉ từ test headless/package.
+Full gate PASS mot lan cuoi sau targeted: **39/39 CTest**. Graphify da duoc cap nhat sau sua source.
+
+## Files chinh da thay doi
+
+- `CMakeLists.txt`
+- `src/dubbing/DubbingProject.*`, `src/dubbing/workflow/DubbingWorkflowDefinition.cpp`, `DubbingWorkflowNodes.cpp`
+- `src/controllers/dubbing/DubbingController.*`, `DubbingSynthesisJob.*`, `DubbingColabModelRoutes.h`
+- `src/controllers/shared/VoiceClonePresetService.*`, `src/controllers/app/WorkflowActivityManager.*`
+- `qml/components/dubbing/DubbingNodeInspector.qml`, `DubbingNodeSettingsPanel.qml`, `DubbingColabSetupDialog.qml`, `DubbingSourceMediaPanel.qml`, `qml/pages/DubbingPage.qml`
+- `tests/test_DubbingProject.cpp`, `tests/test_WorkflowGraph.cpp`, `tests/test_RemoteExecution.cpp`
+
+## Gioi han nghiem thu con lai
+
+Automated/package PASS khong thay the nghiem thu thu cong. Chua co bang chung thao tac chuot ROI/letterbox tren desktop that, ket noi Colab Internet that, hay chat luong audio/video dau ra that. Khong co GUI nguoi dung nao da duoc mo hay dieu khien trong batch nay.
+
+Local engine hien dung saved managed reference trong ham synthesis cua engine; khong co local persistent zero-shot voice-profile API doc lap de chung minh strict “profile khong tai tao” nhu Direct Colab. Vi vay behavior local saved voice nay can duoc nghiem thu thu cong/engine-specific truoc khi cong bo nhu mot dam bao profile-runtime. Dubbing van khong hien thi hay yeu cau user tao/cau hinh clone.
