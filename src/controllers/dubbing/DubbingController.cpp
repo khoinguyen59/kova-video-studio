@@ -10,6 +10,7 @@
 #include "controllers/shared/VoiceClonePresetService.h"
 #include "dubbing/CapCutDraftExporter.h"
 #include "dubbing/DubbingSubtitleService.h"
+#include "dubbing/DubbingTranscriptFusionService.h"
 #include "dubbing/DubbingTimingService.h"
 #include "dubbing/EspeakNgPhonemizer.h"
 #include "dubbing/media/RemoteMediaImportService.h"
@@ -182,6 +183,16 @@ DubbingController::DubbingController(SttSessionController *sttSession, TtsEngine
     });
     connect(m_translationFix, &DubbingTranslationFixService::completed,
             this, [this](const QVariantList &segments, int, int) {
+        m_project.segments = segments;
+        emit segmentsChanged();
+        emit translationFixChanged();
+        emit workflowChanged();
+        persistAfterEdit();
+    });
+    connect(m_translationFix, &DubbingTranslationFixService::reconciliationCompleted,
+            this, [this](const QVariantList &segments, int, int) {
+        // Suggestions preserve each segment's conflict evidence and remain
+        // pending until an explicit accept/reject/manual review action.
         m_project.segments = segments;
         emit segmentsChanged();
         emit translationFixChanged();
@@ -798,6 +809,11 @@ QString DubbingController::selectedColabModelForStage(const QString &stageId) co
             ? DubbingColabModelRoutes::defaultModelForNode(stageId)
             : configured;
     }
+    if (stageId == QStringLiteral("transcribe")) {
+        const QString persisted = m_project.transcriptConfiguration.value(
+            QStringLiteral("sttModelId")).toString().trimmed().toLower();
+        if (!persisted.isEmpty()) return persisted;
+    }
     const QString nodeId = stageId == QStringLiteral("alignment") ? QStringLiteral("alignment") : stageId;
     const QVariantMap configuration = m_workflowNodeConfigurations.value(
         stageId == QStringLiteral("alignment") ? QStringLiteral("transcribe") : nodeId).toMap();
@@ -832,8 +848,14 @@ bool DubbingController::stageUsesDirectColab(const QString &stageId) const
     const QString configurationNode = stageId == QStringLiteral("alignment") ? QStringLiteral("transcribe") : stageId;
     const QVariantMap configuration = m_workflowNodeConfigurations.value(configurationNode).toMap();
     const QVariantMap parameters = configuration.value(QStringLiteral("parameters")).toMap();
-    const QString provider = configuration.value(QStringLiteral("executionProvider"),
-        parameters.value(QStringLiteral("executionProvider"))).toString().trimmed().toLower();
+    const QString persistedProvider = stageId == QStringLiteral("transcribe")
+        ? m_project.transcriptConfiguration.value(QStringLiteral("sttExecutionProvider"))
+              .toString().trimmed().toLower()
+        : QString();
+    const QString provider = persistedProvider.isEmpty()
+        ? configuration.value(QStringLiteral("executionProvider"),
+              parameters.value(QStringLiteral("executionProvider"))).toString().trimmed().toLower()
+        : persistedProvider;
     if (stageId == QStringLiteral("alignment"))
         return parameters.value(QStringLiteral("refineAlignmentWithColab")).toBool();
     return provider == QStringLiteral("colab-direct");
@@ -925,6 +947,8 @@ QVariantList DubbingController::colabSetupStages() const
         {QStringLiteral("synthesize"), QStringLiteral("TTS / Text to Speech")},
         {QStringLiteral("alignment"), QStringLiteral("Forced alignment")},
     };
+    const QString transcriptSource = m_project.transcriptConfiguration.value(
+        QStringLiteral("transcriptSource"), QStringLiteral("stt")).toString().trimmed().toLower();
     QVariantList result;
     for (const auto &definition : definitions) {
         const QString stageId = definition.first;
@@ -938,12 +962,21 @@ QVariantList DubbingController::colabSetupStages() const
                 ? session->lastError() : session->verificationMessage();
         if (diagnostic.isEmpty())
             diagnostic = QStringLiteral("Not connected for this exact model.");
+        const bool activeForTranscriptSource =
+            (stageId != QStringLiteral("transcribe") || transcriptSource != QStringLiteral("ocr"))
+            && (stageId != QStringLiteral("subtitle-ocr") || transcriptSource != QStringLiteral("stt"));
+        const QString notUsedReason = activeForTranscriptSource ? QString()
+            : (stageId == QStringLiteral("transcribe")
+                   ? QStringLiteral("Not used: this project is set to OCR only.")
+                   : QStringLiteral("Not used: this project is set to STT only."));
         result.append(QVariantMap{
             {QStringLiteral("id"), stageId},
             {QStringLiteral("title"), definition.second},
             {QStringLiteral("capability"), capability},
             {QStringLiteral("modelId"), model},
             {QStringLiteral("notebookFile"), DubbingColabModelRoutes::notebookForModel(stageId, model)},
+            {QStringLiteral("activeForTranscriptSource"), activeForTranscriptSource},
+            {QStringLiteral("notUsedReason"), notUsedReason},
             {QStringLiteral("selectedForDirectColab"), stageUsesDirectColab(stageId)},
             {QStringLiteral("active"), session && session->isActive()},
             {QStringLiteral("checking"), session && session->isChecking()},
@@ -959,6 +992,13 @@ bool DubbingController::connectWorkflowColabStage(const QString &stageId, const 
                                                    const QString &workerUrl, const QString &bearerToken)
 {
     const QString normalizedStage = stageId.trimmed().toLower();
+    const QString transcriptSource = m_project.transcriptConfiguration.value(
+        QStringLiteral("transcriptSource"), QStringLiteral("stt")).toString().trimmed().toLower();
+    if ((normalizedStage == QStringLiteral("transcribe") && transcriptSource == QStringLiteral("ocr"))
+        || (normalizedStage == QStringLiteral("subtitle-ocr") && transcriptSource == QStringLiteral("stt"))) {
+        setError(QStringLiteral("This Direct Colab worker is not used by the selected transcript source."));
+        return false;
+    }
     const QString normalizedModel = modelId.trimmed().toLower();
     const QString capability = colabCapabilityForStage(normalizedStage);
     ColabSession *session = colabSessionForStage(normalizedStage);
@@ -1083,6 +1123,25 @@ QVariantMap DubbingController::dubbingOcrRoi() const
     return m_project.transcriptConfiguration.value(QStringLiteral("ocrRoi")).toMap();
 }
 
+int DubbingController::unresolvedTranscriptConflictCount() const
+{
+    int count = 0;
+    for (const QVariant &value : m_project.segments) {
+        const QVariantMap segment = value.toMap();
+        if (segment.value(QStringLiteral("fusionNeedsReview")).toBool()
+            || segment.value(QStringLiteral("fusionStatus")).toString()
+                   == QStringLiteral("conflict")) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+bool DubbingController::hasUnresolvedTranscriptConflicts() const
+{
+    return unresolvedTranscriptConflictCount() > 0;
+}
+
 bool DubbingController::dubbingOcrRoiVisible() const
 {
     const QString source = m_project.transcriptConfiguration.value(
@@ -1173,10 +1232,26 @@ QVariantMap DubbingController::effectiveTranscriptConfiguration(bool captureOcrS
          it != m_project.transcriptConfiguration.cend(); ++it) {
         parameters.insert(it.key(), it.value());
     }
+    const QString persistedSttProvider = parameters.value(
+        QStringLiteral("sttExecutionProvider")).toString().trimmed();
+    const QString persistedSttModel = parameters.value(
+        QStringLiteral("sttModelId")).toString().trimmed();
+    if (!persistedSttProvider.isEmpty()) {
+        parameters.insert(QStringLiteral("executionProvider"), persistedSttProvider);
+        selected.insert(QStringLiteral("executionProvider"), persistedSttProvider);
+    }
+    if (!persistedSttModel.isEmpty()) {
+        parameters.insert(QStringLiteral("modelId"), persistedSttModel);
+        selected.insert(QStringLiteral("modelId"), persistedSttModel);
+    }
     QString mode = parameters.value(QStringLiteral("transcriptSource"), QStringLiteral("stt"))
                        .toString().trimmed().toLower();
     if (mode != QStringLiteral("ocr") && mode != QStringLiteral("stt+ocr")) mode = QStringLiteral("stt");
     parameters.insert(QStringLiteral("transcriptSource"), mode);
+    parameters.insert(QStringLiteral("fusionPolicy"),
+                      DubbingTranscriptFusionService::normalizePolicy(
+                          parameters.value(QStringLiteral("fusionPolicy"),
+                                           QStringLiteral("ask")).toString()));
     if (captureOcrSettings && m_subtitleOcr) {
         const QVariantMap roi{{QStringLiteral("x"), m_subtitleOcr->roiX()},
                               {QStringLiteral("y"), m_subtitleOcr->roiY()},
@@ -1193,6 +1268,9 @@ QVariantMap DubbingController::effectiveTranscriptConfiguration(bool captureOcrS
     }
     m_project.transcriptConfiguration = {
         {QStringLiteral("transcriptSource"), parameters.value(QStringLiteral("transcriptSource"))},
+        {QStringLiteral("fusionPolicy"), parameters.value(QStringLiteral("fusionPolicy"))},
+        {QStringLiteral("sttExecutionProvider"), parameters.value(QStringLiteral("sttExecutionProvider"))},
+        {QStringLiteral("sttModelId"), parameters.value(QStringLiteral("sttModelId"))},
         {QStringLiteral("ocrLanguage"), parameters.value(QStringLiteral("ocrLanguage"))},
         {QStringLiteral("ocrExecutionRoute"), parameters.value(QStringLiteral("ocrExecutionRoute"))},
         {QStringLiteral("ocrLocalEngineId"), parameters.value(QStringLiteral("ocrLocalEngineId"))},
@@ -1510,8 +1588,16 @@ QVariantList DubbingController::workflowNodes() const
             state = hasSegments ? QStringLiteral("completed") : QStringLiteral("blocked");
             detail = hasSegments ? QStringLiteral("Transcript available for review") : QStringLiteral("Transcribe source media first");
         } else if (definition.id == QStringLiteral("translate")) {
-            state = !translationReady ? QStringLiteral("blocked") : (hasTargets ? QStringLiteral("completed") : (hasSegments ? QStringLiteral("ready") : QStringLiteral("missing")));
-            detail = !translationReady ? QStringLiteral("Choose a target language") : (hasTargets ? QStringLiteral("Target text available") : QStringLiteral("Translate with CrispASR"));
+            const int unresolved = unresolvedTranscriptConflictCount();
+            state = unresolved > 0 ? QStringLiteral("blocked")
+                : (!translationReady ? QStringLiteral("blocked")
+                    : (hasTargets ? QStringLiteral("completed")
+                       : (hasSegments ? QStringLiteral("ready") : QStringLiteral("missing"))));
+            detail = unresolved > 0
+                ? QStringLiteral("Resolve %1 STT/OCR conflict(s) before Translate.").arg(unresolved)
+                : (!translationReady ? QStringLiteral("Choose a target language")
+                   : (hasTargets ? QStringLiteral("Target text available")
+                                 : QStringLiteral("Translate with CrispASR")));
             provider = QStringLiteral("Local translation runtime");
         } else if (definition.id == QStringLiteral("review-translation")) {
             state = hasTargets ? QStringLiteral("completed") : QStringLiteral("blocked");
@@ -1693,19 +1779,30 @@ bool DubbingController::workflowReady() const
     const QVariantMap sttSelection = m_workflowNodeConfigurations
         .value(QStringLiteral("transcribe")).toMap();
     const QVariantMap sttParameters = sttSelection.value(QStringLiteral("parameters")).toMap();
-    ExecutionProvider sttProvider = ExecutionProvider::LocalDev;
-    const QString sttProviderId = sttSelection.value(
+    // The transcript route is independently persisted so a reopened project
+    // keeps the exact STT worker selected in the Transcribe/Colab setup UI.
+    // Do not fall back to the workflow-template default here: readiness must
+    // describe the route that will actually execute the project.
+    const QString persistedSttProvider = m_project.transcriptConfiguration.value(
+        QStringLiteral("sttExecutionProvider")).toString().trimmed();
+    const QString persistedSttModel = m_project.transcriptConfiguration.value(
+        QStringLiteral("sttModelId")).toString().trimmed();
+    const QString configuredSttProvider = sttSelection.value(
         QStringLiteral("executionProvider"), sttParameters.value(
         QStringLiteral("executionProvider"), QStringLiteral("local-dev"))).toString();
+    const QString configuredSttModel = sttSelection.value(
+        QStringLiteral("modelId"), sttParameters.value(QStringLiteral("modelId"))).toString().trimmed();
+    const QString sttProviderId = persistedSttProvider.isEmpty()
+        ? configuredSttProvider : persistedSttProvider;
+    const QString sttModelId = persistedSttModel.isEmpty()
+        ? configuredSttModel : persistedSttModel;
+    ExecutionProvider sttProvider = ExecutionProvider::LocalDev;
     const bool remoteSttSelected = executionProviderFromId(sttProviderId, &sttProvider)
         && sttProvider != ExecutionProvider::LocalDev
-        && !sttSelection.value(QStringLiteral("modelId"), sttParameters.value(
-            QStringLiteral("modelId"))).toString().trimmed().isEmpty()
+        && !sttModelId.isEmpty()
         && (sttProvider != ExecutionProvider::ColabDirect
             || DubbingColabModelRoutes::supports(
-                QStringLiteral("transcribe"),
-                sttSelection.value(QStringLiteral("modelId"), sttParameters.value(
-                    QStringLiteral("modelId"))).toString()));
+                QStringLiteral("transcribe"), sttModelId));
     const bool sttReady = remoteSttSelected || (AppController::instance() && AppController::instance()->sessionRegistry()
         && AppController::instance()->sessionRegistry()->sessionForCapability(QStringLiteral("stt"))
         && AppController::instance()->sessionRegistry()->sessionForCapability(QStringLiteral("stt"))->canProcess());
@@ -1777,6 +1874,7 @@ bool DubbingController::workflowReady() const
         && cloneVoiceSelectionValid()
         && ttsReady
         && transcriptReady
+        && !hasUnresolvedTranscriptConflicts()
         && translationReady;
 }
 
@@ -2002,13 +2100,26 @@ bool DubbingController::setWorkflowNodeParameters(const QString &nodeId, const Q
             return false;
         }
     }
-    selected.insert(QStringLiteral("parameters"), current);
-    m_workflowNodeConfigurations.insert(nodeId, selected);
     if (nodeId == QStringLiteral("transcribe")) {
         QString mode = current.value(QStringLiteral("transcriptSource"), QStringLiteral("stt"))
                            .toString().trimmed().toLower();
         if (mode != QStringLiteral("ocr") && mode != QStringLiteral("stt+ocr")) mode = QStringLiteral("stt");
         m_project.transcriptConfiguration.insert(QStringLiteral("transcriptSource"), mode);
+        if (current.contains(QStringLiteral("executionProvider"))) {
+            m_project.transcriptConfiguration.insert(
+                QStringLiteral("sttExecutionProvider"),
+                current.value(QStringLiteral("executionProvider")));
+        }
+        if (current.contains(QStringLiteral("modelId"))) {
+            m_project.transcriptConfiguration.insert(QStringLiteral("sttModelId"),
+                                                     current.value(QStringLiteral("modelId")));
+        }
+        const QString fusionPolicy = DubbingTranscriptFusionService::normalizePolicy(
+            current.value(QStringLiteral("fusionPolicy"),
+                          m_project.transcriptConfiguration.value(
+                              QStringLiteral("fusionPolicy"), QStringLiteral("ask"))).toString());
+        current.insert(QStringLiteral("fusionPolicy"), fusionPolicy);
+        m_project.transcriptConfiguration.insert(QStringLiteral("fusionPolicy"), fusionPolicy);
         for (const QString &key : {QStringLiteral("ocrLanguage"), QStringLiteral("ocrExecutionRoute"),
                                    QStringLiteral("ocrLocalEngineId"), QStringLiteral("ocrLocalEngineVersion"),
                                    QStringLiteral("ocrColabModelId"), QStringLiteral("ocrRoi"),
@@ -2019,6 +2130,8 @@ bool DubbingController::setWorkflowNodeParameters(const QString &nodeId, const Q
         }
         applyStoredSubtitleOcrConfiguration();
     }
+    selected.insert(QStringLiteral("parameters"), current);
+    m_workflowNodeConfigurations.insert(nodeId, selected);
     if (m_project.dubbingQuality == QStringLiteral("custom"))
         m_project.workflowNodeConfigurations = m_workflowNodeConfigurations;
     else
@@ -3803,6 +3916,15 @@ void DubbingController::translateSource()
         setError(QStringLiteral("Transcribe the source before translating."));
         return;
     }
+    const int unresolvedConflicts = unresolvedTranscriptConflictCount();
+    if (unresolvedConflicts > 0) {
+        Logger::warning(QStringLiteral("DubbingController"),
+                        QStringLiteral("Translation rejected: %1 STT/OCR conflict(s) still require review.")
+                            .arg(unresolvedConflicts));
+        setError(QStringLiteral("Resolve %1 STT/OCR conflict(s) before translating. The original STT and OCR evidence has been retained for review.")
+                     .arg(unresolvedConflicts));
+        return;
+    }
     if (m_project.targetLanguage.trimmed().isEmpty()) {
         Logger::warning(QStringLiteral("DubbingController"),
                         QStringLiteral("Translation rejected: target language is empty."));
@@ -4267,9 +4389,137 @@ bool DubbingController::resolveTranscriptConflict(int index, const QString &choi
     segment.insert(QStringLiteral("fusionChoice"), normalized);
     segment.insert(QStringLiteral("fusionStatus"), QStringLiteral("resolved"));
     segment.insert(QStringLiteral("fusionNeedsReview"), false);
+    segment.insert(QStringLiteral("fusionResolutionPolicy"), QStringLiteral("manual"));
     segment.insert(QStringLiteral("state"), QStringLiteral("transcribed"));
     m_project.segments[index] = segment;
     clearError();
+    emit segmentsChanged();
+    emit workflowChanged();
+    persistAfterEdit();
+    return true;
+}
+
+bool DubbingController::resolveAllTranscriptConflicts(const QString &choice)
+{
+    if (processing()) return false;
+    const QString normalized = choice.trimmed().toLower();
+    if (normalized != QStringLiteral("stt") && normalized != QStringLiteral("ocr")) return false;
+
+    int resolved = 0;
+    for (int index = 0; index < m_project.segments.size(); ++index) {
+        QVariantMap segment = m_project.segments.at(index).toMap();
+        if (segment.value(QStringLiteral("fusionStatus")).toString() != QStringLiteral("conflict"))
+            continue;
+        const QString text = segment.value(normalized == QStringLiteral("stt")
+                                               ? QStringLiteral("fusionSttText")
+                                               : QStringLiteral("fusionOcrText")).toString().trimmed();
+        if (text.isEmpty()) continue;
+        segment.insert(QStringLiteral("sourceText"), text);
+        segment.insert(QStringLiteral("fusionChoice"), normalized);
+        segment.insert(QStringLiteral("fusionStatus"), QStringLiteral("resolved"));
+        segment.insert(QStringLiteral("fusionNeedsReview"), false);
+        segment.insert(QStringLiteral("fusionResolutionPolicy"), QStringLiteral("bulk-manual"));
+        segment.insert(QStringLiteral("state"), QStringLiteral("transcribed"));
+        m_project.segments[index] = segment;
+        ++resolved;
+    }
+    if (resolved == 0) return false;
+    clearError();
+    emit segmentsChanged();
+    emit workflowChanged();
+    persistAfterEdit();
+    return true;
+}
+
+bool DubbingController::setTranscriptFusionPolicy(const QString &policy)
+{
+    if (processing()) return false;
+    const QString normalized = DubbingTranscriptFusionService::normalizePolicy(policy);
+    m_project.transcriptConfiguration.insert(QStringLiteral("fusionPolicy"), normalized);
+    QVariantMap selected = m_workflowNodeConfigurations.value(QStringLiteral("transcribe")).toMap();
+    QVariantMap parameters = selected.value(QStringLiteral("parameters")).toMap();
+    parameters.insert(QStringLiteral("fusionPolicy"), normalized);
+    selected.insert(QStringLiteral("parameters"), parameters);
+    m_workflowNodeConfigurations.insert(QStringLiteral("transcribe"), selected);
+    if (m_project.dubbingQuality == QStringLiteral("custom"))
+        m_project.workflowNodeConfigurations = m_workflowNodeConfigurations;
+    persistAfterEdit();
+    emit projectChanged();
+    emit workflowChanged();
+    return true;
+}
+
+QVariantMap DubbingController::transcriptConflictAiAvailability() const
+{
+    QString reason;
+    const bool available = DubbingTranslationFixService::reconciliationAvailable(
+        translationFixConfiguration(), &reason);
+    return {{QStringLiteral("available"), available},
+            {QStringLiteral("reason"), reason},
+            {QStringLiteral("provider"), translationFixConfiguration().value(QStringLiteral("provider"))},
+            {QStringLiteral("model"), translationFixConfiguration().value(QStringLiteral("model"))}};
+}
+
+bool DubbingController::requestTranscriptConflictAiSuggestion(int index)
+{
+    if (!m_translationFix || processing()) return false;
+    if (index >= m_project.segments.size()) return false;
+    if (index >= 0) {
+        const QVariantMap segment = m_project.segments.at(index).toMap();
+        if (!segment.value(QStringLiteral("fusionNeedsReview")).toBool()) return false;
+    } else if (!hasUnresolvedTranscriptConflicts()) {
+        return false;
+    }
+    QString reason;
+    const QVariantMap configuration = translationFixConfiguration();
+    if (!DubbingTranslationFixService::reconciliationAvailable(configuration, &reason)) {
+        setError(reason);
+        return false;
+    }
+    clearError();
+    return m_translationFix->startReconciliation(
+        m_project.sourceLanguage, m_project.segments, configuration, index);
+}
+
+bool DubbingController::acceptTranscriptConflictAiSuggestion(int index)
+{
+    if (processing() || index < 0 || index >= m_project.segments.size()) return false;
+    QVariantMap segment = m_project.segments.at(index).toMap();
+    const QString suggestion = segment.value(QStringLiteral("fusionAiSuggestion")).toString().trimmed();
+    if (segment.value(QStringLiteral("fusionStatus")).toString() != QStringLiteral("conflict")
+        || segment.value(QStringLiteral("fusionAiSuggestionStatus")).toString()
+               != QStringLiteral("pending") || suggestion.isEmpty()) {
+        return false;
+    }
+    segment.insert(QStringLiteral("sourceText"), suggestion);
+    segment.insert(QStringLiteral("fusionChoice"), QStringLiteral("ai-suggestion"));
+    segment.insert(QStringLiteral("fusionStatus"), QStringLiteral("resolved"));
+    segment.insert(QStringLiteral("fusionNeedsReview"), false);
+    segment.insert(QStringLiteral("fusionResolutionPolicy"), QStringLiteral("ai-suggest"));
+    segment.insert(QStringLiteral("fusionAiSuggestionStatus"), QStringLiteral("accepted"));
+    segment.insert(QStringLiteral("state"), QStringLiteral("transcribed"));
+    m_project.segments[index] = segment;
+    clearError();
+    emit segmentsChanged();
+    emit workflowChanged();
+    persistAfterEdit();
+    return true;
+}
+
+bool DubbingController::rejectTranscriptConflictAiSuggestion(int index)
+{
+    if (processing() || index < 0 || index >= m_project.segments.size()) return false;
+    QVariantMap segment = m_project.segments.at(index).toMap();
+    if (segment.value(QStringLiteral("fusionStatus")).toString() != QStringLiteral("conflict")
+        || segment.value(QStringLiteral("fusionAiSuggestionStatus")).toString()
+               != QStringLiteral("pending")) {
+        return false;
+    }
+    // Retain the rejected suggestion and all source evidence for later audit;
+    // rejection deliberately leaves the review gate in place.
+    segment.insert(QStringLiteral("fusionAiSuggestionStatus"), QStringLiteral("rejected"));
+    segment.insert(QStringLiteral("fusionNeedsReview"), true);
+    m_project.segments[index] = segment;
     emit segmentsChanged();
     emit workflowChanged();
     persistAfterEdit();
@@ -4347,6 +4597,18 @@ void DubbingController::updateSegment(int index, const QVariantMap &patch)
         segment.remove(QStringLiteral("referenceTranslation"));
         segment.remove(QStringLiteral("targetChunks"));
         segment.remove(QStringLiteral("pauseAligned"));
+        if (segment.value(QStringLiteral("fusionStatus")).toString()
+                == QStringLiteral("conflict")
+            || segment.value(QStringLiteral("fusionNeedsReview")).toBool()) {
+            // A direct edit is an explicit reviewer decision. Preserve both
+            // observations and any AI suggestion, but let this final text move
+            // forward instead of leaving a stale, invisible review block.
+            segment.insert(QStringLiteral("fusionChoice"), QStringLiteral("manual"));
+            segment.insert(QStringLiteral("fusionStatus"), QStringLiteral("resolved"));
+            segment.insert(QStringLiteral("fusionNeedsReview"), false);
+            segment.insert(QStringLiteral("fusionResolutionPolicy"), QStringLiteral("manual"));
+            segment.insert(QStringLiteral("state"), QStringLiteral("transcribed"));
+        }
     }
     if (targetTextChanged || speakerChanged) {
         segment.insert(QStringLiteral("state"), QStringLiteral("stale"));

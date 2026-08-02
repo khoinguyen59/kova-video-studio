@@ -257,20 +257,18 @@ if (-not $NoBuild) {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
-# 2. Run the unit tests
-$exePath = Join-Path $buildDir "LAStudioUnitTests.exe"
-if (-not (Test-Path -LiteralPath $exePath)) {
-    throw "Tests binary not found: $exePath. Please build first."
-}
-
-Write-Host ">> Running unit tests..." -ForegroundColor Cyan
-$testArgs = @()
+# 2. Run through CTest, not the aggregate test executable directly.  Several
+# tests require CTest fixtures (for example the staged FFmpeg/FFprobe runtime
+# used by Subtitle OCR); bypassing CTest makes a correct fixture-dependent test
+# fail merely because its setup never ran.
+Write-Host ">> Running CTest suite..." -ForegroundColor Cyan
+$ctestArgs = @("--test-dir", $buildDir, "--output-on-failure")
 if ($Verbose) {
-    $testArgs += "-v2"
+    $ctestArgs += "--verbose"
 }
 if ($args) {
-    $testArgs += $args
+    $ctestArgs += $args
 }
 
-& $exePath @testArgs
+& ctest @ctestArgs
 exit $LASTEXITCODE

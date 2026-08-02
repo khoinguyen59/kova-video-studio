@@ -10,9 +10,13 @@ namespace LAStudio {
 class DubbingTranscriptFusionService final
 {
 public:
+    // `ask` is intentionally the default.  The deterministic fusion layer
+    // must not make a hidden confidence-based choice when observations differ.
+    static QString normalizePolicy(const QString &policy);
     static QVariantList normalizeOcrSegments(const QVariantList &ocrSegments);
     static QVariantList fuse(const QVariantList &sttSegments,
-                             const QVariantList &ocrSegments);
+                             const QVariantList &ocrSegments,
+                             const QString &policy = QStringLiteral("ask"));
 };
 
 } // namespace LAStudio

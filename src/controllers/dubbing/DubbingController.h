@@ -69,6 +69,7 @@ class DubbingController : public QObject
     Q_PROPERTY(QVariantList workflowNodes READ workflowNodes NOTIFY workflowChanged)
     Q_PROPERTY(QVariantMap workflowNodeConfigurations READ workflowNodeConfigurations NOTIFY workflowChanged)
     Q_PROPERTY(QVariantMap transcriptConfiguration READ transcriptConfiguration NOTIFY projectChanged)
+    Q_PROPERTY(int unresolvedTranscriptConflictCount READ unresolvedTranscriptConflictCount NOTIFY segmentsChanged)
     Q_PROPERTY(QVariantMap dubbingOcrRoi READ dubbingOcrRoi NOTIFY projectChanged)
     Q_PROPERTY(bool dubbingOcrRoiVisible READ dubbingOcrRoiVisible NOTIFY projectChanged)
     Q_PROPERTY(QVariantMap subtitleConfiguration READ subtitleConfiguration NOTIFY projectChanged)
@@ -167,6 +168,7 @@ public:
     QVariantList workflowNodes() const;
     QVariantMap workflowNodeConfigurations() const { return m_workflowNodeConfigurations; }
     QVariantMap transcriptConfiguration() const { return m_project.transcriptConfiguration; }
+    int unresolvedTranscriptConflictCount() const;
     QVariantMap dubbingOcrRoi() const;
     bool dubbingOcrRoiVisible() const;
     QVariantMap subtitleConfiguration() const;
@@ -260,6 +262,12 @@ public:
     // open. The source media/project is left unchanged on validation failure.
     Q_INVOKABLE bool replaceTranscriptSegments(const QVariantList &ocrSegments);
     Q_INVOKABLE bool resolveTranscriptConflict(int index, const QString &choice);
+    Q_INVOKABLE bool resolveAllTranscriptConflicts(const QString &choice);
+    Q_INVOKABLE bool setTranscriptFusionPolicy(const QString &policy);
+    Q_INVOKABLE QVariantMap transcriptConflictAiAvailability() const;
+    Q_INVOKABLE bool requestTranscriptConflictAiSuggestion(int index = -1);
+    Q_INVOKABLE bool acceptTranscriptConflictAiSuggestion(int index);
+    Q_INVOKABLE bool rejectTranscriptConflictAiSuggestion(int index);
     Q_INVOKABLE void addSegment(qint64 startMs, qint64 endMs, const QString &sourceText = QString());
     Q_INVOKABLE void updateSegment(int index, const QVariantMap &patch);
     Q_INVOKABLE void removeSegment(int index);
@@ -372,6 +380,7 @@ private:
     void finishAutomaticSetupFailure(const QString &message);
     void appendAutomaticEvent(const QString &message, const QString &state,
                               const QString &nodeId = QString());
+    bool hasUnresolvedTranscriptConflicts() const;
     void setAutomaticStatus(const QString &message);
     void discoverInterruptedWorkflow();
     static QString visibleStepForNode(const QString &nodeId);

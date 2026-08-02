@@ -446,7 +446,9 @@ void DubbingJobRunner::finishCombinedTranscriptIfReady()
         return;
     }
     const QVariantList fused = DubbingTranscriptFusionService::fuse(
-        m_sttTranscriptSegments, m_ocrTranscriptSegments);
+        m_sttTranscriptSegments, m_ocrTranscriptSegments,
+        m_transcriptParameters.value(QStringLiteral("fusionPolicy"),
+                                     QStringLiteral("ask")).toString());
     if (fused.isEmpty()) {
         failTranscriptSource(QStringLiteral("STT + OCR"),
                              QStringLiteral("The two transcript sources could not produce a reviewable result."));

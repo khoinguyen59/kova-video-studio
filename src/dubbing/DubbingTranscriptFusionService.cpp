@@ -61,6 +61,24 @@ double confidenceOf(const QVariantMap &segment, const QString &key, double fallb
 
 } // namespace
 
+QString DubbingTranscriptFusionService::normalizePolicy(const QString &policy)
+{
+    const QString normalized = policy.trimmed().toLower();
+    if (normalized == QStringLiteral("prefer-stt")
+        || normalized == QStringLiteral("stt")) {
+        return QStringLiteral("prefer-stt");
+    }
+    if (normalized == QStringLiteral("prefer-ocr")
+        || normalized == QStringLiteral("ocr")) {
+        return QStringLiteral("prefer-ocr");
+    }
+    if (normalized == QStringLiteral("ai-suggest")
+        || normalized == QStringLiteral("ai")) {
+        return QStringLiteral("ai-suggest");
+    }
+    return QStringLiteral("ask");
+}
+
 QVariantList DubbingTranscriptFusionService::normalizeOcrSegments(const QVariantList &ocrSegments)
 {
     QVariantList result;
@@ -90,8 +108,10 @@ QVariantList DubbingTranscriptFusionService::normalizeOcrSegments(const QVariant
 }
 
 QVariantList DubbingTranscriptFusionService::fuse(const QVariantList &sttSegments,
-                                                   const QVariantList &ocrSegments)
+                                                   const QVariantList &ocrSegments,
+                                                   const QString &policy)
 {
+    const QString normalizedPolicy = normalizePolicy(policy);
     QVariantList result;
     QVector<QVariantMap> ocr;
     ocr.reserve(ocrSegments.size());
@@ -146,18 +166,40 @@ QVariantList DubbingTranscriptFusionService::fuse(const QVariantList &sttSegment
         segment.insert(QStringLiteral("fusionSimilarity"), similarity);
         segment.insert(QStringLiteral("fusionSttText"), sttText);
         segment.insert(QStringLiteral("fusionOcrText"), ocrText);
-        segment.insert(QStringLiteral("fusionChoice"), preferOcr ? QStringLiteral("ocr") : QStringLiteral("stt"));
-        segment.insert(QStringLiteral("fusionStatus"), conflict ? QStringLiteral("conflict")
-                                                                  : QStringLiteral("matched"));
-        segment.insert(QStringLiteral("fusionNeedsReview"), conflict);
+        segment.insert(QStringLiteral("fusionPolicy"), normalizedPolicy);
         segment.insert(QStringLiteral("transcriptProvenance"),
                        QVariantList{provenance(QStringLiteral("stt"), sttText, sttConfidence),
                                     provenance(QStringLiteral("ocr"), ocrText, ocrConfidence)});
         if (conflict) {
-            segment.insert(QStringLiteral("state"), QStringLiteral("needs-review"));
+            // Keep the current sourceText as the STT observation until a
+            // chosen policy or a reviewer supplies the final text.  Crucially,
+            // `fusionChoice` is pending -- it is not a covert STT decision.
+            segment.insert(QStringLiteral("fusionChoice"), QStringLiteral("pending"));
+            if (normalizedPolicy == QStringLiteral("prefer-stt")
+                || normalizedPolicy == QStringLiteral("prefer-ocr")) {
+                const bool useOcr = normalizedPolicy == QStringLiteral("prefer-ocr");
+                segment.insert(QStringLiteral("sourceText"), useOcr ? ocrText : sttText);
+                segment.insert(QStringLiteral("fusionChoice"), useOcr ? QStringLiteral("ocr")
+                                                                         : QStringLiteral("stt"));
+                segment.insert(QStringLiteral("fusionStatus"), QStringLiteral("resolved"));
+                segment.insert(QStringLiteral("fusionNeedsReview"), false);
+                segment.insert(QStringLiteral("fusionResolutionPolicy"), normalizedPolicy);
+                segment.insert(QStringLiteral("state"), QStringLiteral("transcribed"));
+            } else {
+                segment.insert(QStringLiteral("fusionStatus"), QStringLiteral("conflict"));
+                segment.insert(QStringLiteral("fusionNeedsReview"), true);
+                segment.insert(QStringLiteral("state"), QStringLiteral("needs-review"));
+            }
         } else if (preferOcr) {
+            segment.insert(QStringLiteral("fusionChoice"), QStringLiteral("ocr"));
+            segment.insert(QStringLiteral("fusionStatus"), QStringLiteral("matched"));
+            segment.insert(QStringLiteral("fusionNeedsReview"), false);
             segment.insert(QStringLiteral("sourceText"), ocrText);
             segment.insert(QStringLiteral("timingSource"), QStringLiteral("asr-with-ocr-text"));
+        } else {
+            segment.insert(QStringLiteral("fusionChoice"), QStringLiteral("stt"));
+            segment.insert(QStringLiteral("fusionStatus"), QStringLiteral("matched"));
+            segment.insert(QStringLiteral("fusionNeedsReview"), false);
         }
         result.append(segment);
     }

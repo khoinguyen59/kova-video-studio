@@ -39,6 +39,20 @@ void DubbingWorkflowAdapter::start(const QString &nodeType, const QVariantMap &i
                                      inputs.value(QStringLiteral("audio")).toString(),
                                      inputs.value(QStringLiteral("fallbackAudio")).toString(), parameters);
     } else if (nodeType == QStringLiteral("text.translate-transcript")) {
+        int unresolvedConflicts = 0;
+        for (const QVariant &value : inputs.value(QStringLiteral("transcript")).toList()) {
+            const QVariantMap segment = value.toMap();
+            if (segment.value(QStringLiteral("fusionNeedsReview")).toBool()
+                || segment.value(QStringLiteral("fusionStatus")).toString()
+                       == QStringLiteral("conflict")) {
+                ++unresolvedConflicts;
+            }
+        }
+        if (unresolvedConflicts > 0) {
+            emit failed(QStringLiteral("Resolve %1 STT/OCR conflict(s) before Translate. The workflow will not choose a source silently.")
+                            .arg(unresolvedConflicts));
+            return;
+        }
         m_runner->startTranslation(parameters.value(QStringLiteral("sourceLanguage"), QStringLiteral("auto")).toString(),
                                    parameters.value(QStringLiteral("targetLanguage")).toString(),
                                    inputs.value(QStringLiteral("transcript")).toList(), parameters);

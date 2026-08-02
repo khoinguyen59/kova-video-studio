@@ -335,6 +335,12 @@ QVariantMap DubbingTranslationFixService::normalizedConfiguration(
     result.insert(QStringLiteral("cliAgent"), cliAgent);
     result.insert(QStringLiteral("configured"),
                   configuration.value(QStringLiteral("configured"), false).toBool());
+    // Reconciliation is a structured LLM task, not ordinary translation.
+    // Keep this explicit so an arbitrary OpenAI-compatible endpoint or a
+    // machine-translation model is never assumed capable without user setup.
+    result.insert(QStringLiteral("supportsStructuredReconciliation"),
+                  configuration.value(QStringLiteral("supportsStructuredReconciliation"),
+                                      false).toBool());
     result.insert(QStringLiteral("serverUrl"),
                   configuration.value(QStringLiteral("serverUrl"),
                                       QStringLiteral("http://127.0.0.1:1234"))
@@ -356,6 +362,44 @@ QVariantMap DubbingTranslationFixService::normalizedConfiguration(
     result.insert(QStringLiteral("temperature"),
                   qBound(0.0, configuration.value(QStringLiteral("temperature"), 0.35).toDouble(), 1.5));
     return result;
+}
+
+bool DubbingTranslationFixService::reconciliationAvailable(
+    const QVariantMap &configuration, QString *reason)
+{
+    const QVariantMap normalized = normalizedConfiguration(configuration);
+    const QString provider = normalized.value(QStringLiteral("provider")).toString();
+    const auto reject = [reason](const QString &message) {
+        if (reason) *reason = message;
+        return false;
+    };
+    if (!normalized.value(QStringLiteral("configured")).toBool()) {
+        return reject(QStringLiteral("AI suggestion requires the project Translation Fix LLM to be configured. A plain translation model is not used for reconciliation."));
+    }
+    if (!normalized.value(QStringLiteral("supportsStructuredReconciliation")).toBool()) {
+        return reject(QStringLiteral("AI suggestion is disabled until this Translation Fix model is explicitly marked as supporting structured source-language reconciliation. Plain translation models are not used."));
+    }
+    if (provider == QStringLiteral("local")) {
+        return reject(QStringLiteral("The selected local Translate model is a translation runtime, not a structured reconciliation LLM. Configure Translation Fix LLM or choose a manual policy."));
+    }
+    if (provider == QStringLiteral("cli")) {
+        const QString agent = normalized.value(QStringLiteral("cliAgent")).toString();
+        if (cliExecutablePath(agent).isEmpty()) {
+            return reject(QStringLiteral("The configured Translation Fix CLI is unavailable, so AI suggestion cannot run."));
+        }
+    } else {
+        const QString base = normalizedServerBase(
+            normalized.value(QStringLiteral("serverUrl")).toString());
+        const QUrl endpoint(provider == QStringLiteral("api")
+                                ? base + QStringLiteral("/v1/chat/completions")
+                                : base + QStringLiteral("/api/v1/chat"));
+        if (!endpoint.isValid() || endpoint.host().isEmpty()
+            || normalized.value(QStringLiteral("model")).toString().trimmed().isEmpty()) {
+            return reject(QStringLiteral("The configured Translation Fix LLM route or model is incomplete."));
+        }
+    }
+    if (reason) reason->clear();
+    return true;
 }
 
 QString DubbingTranslationFixService::cliExecutablePath(const QString &cliAgent)
@@ -691,6 +735,7 @@ bool DubbingTranslationFixService::start(
     int segmentIndex)
 {
     if (m_busy || m_testing) return false;
+    m_reconciliation = false;
     m_configuration = normalizedConfiguration(configuration.isEmpty()
                                                   ? m_configuration : configuration);
     const QString provider = m_configuration.value(QStringLiteral("provider")).toString();
@@ -764,6 +809,64 @@ bool DubbingTranslationFixService::start(
                  m_configuration.value(QStringLiteral("model")).toString())
             .arg(m_eligibleIndices.size()).arg(segmentIndex).arg(m_maxAttempts)
             .arg(targetLanguage));
+    beginSegment();
+    return true;
+}
+
+bool DubbingTranslationFixService::startReconciliation(
+    const QString &sourceLanguage, const QVariantList &segments,
+    const QVariantMap &configuration, int segmentIndex)
+{
+    if (m_busy || m_testing) return false;
+    m_configuration = normalizedConfiguration(configuration.isEmpty()
+                                                  ? m_configuration : configuration);
+    QString unavailableReason;
+    if (!reconciliationAvailable(m_configuration, &unavailableReason)) {
+        setError(unavailableReason);
+        return false;
+    }
+
+    m_reconciliation = true;
+    m_segments = segments;
+    m_sourceLanguage = sourceLanguage.trimmed().isEmpty()
+        ? QStringLiteral("auto") : sourceLanguage.trimmed();
+    m_targetLanguage.clear();
+    m_eligibleIndices.clear();
+    for (int i = 0; i < m_segments.size(); ++i) {
+        if (segmentIndex >= 0 && i != segmentIndex) continue;
+        const QVariantMap segment = m_segments.at(i).toMap();
+        if (segment.value(QStringLiteral("fusionStatus")).toString()
+                == QStringLiteral("conflict")
+            && segment.value(QStringLiteral("fusionNeedsReview")).toBool()) {
+            m_eligibleIndices.append(i);
+        }
+    }
+    if (m_eligibleIndices.isEmpty()) {
+        m_reconciliation = false;
+        setError(segmentIndex >= 0
+                     ? QStringLiteral("This transcript conflict no longer needs review.")
+                     : QStringLiteral("No unresolved STT/OCR conflict is available for AI suggestion."));
+        return false;
+    }
+
+    saveConfiguration();
+    // One response per conflict creates a review suggestion; it is never
+    // retried into an automatically accepted answer.
+    m_maxAttempts = 1;
+    m_segmentPosition = 0;
+    m_fixedCount = 0;
+    m_improvedCount = 0;
+    m_unresolvedCount = 0;
+    m_suggestedCount = 0;
+    m_lastError.clear();
+    setProgress(0);
+    setBusy(true);
+    Logger::info(
+        QStringLiteral("DubbingTranscriptReconciliation"),
+        QStringLiteral("Starting provider=%1 model=%2 conflicts=%3 selectedIndex=%4 sourceLanguage=%5")
+            .arg(m_configuration.value(QStringLiteral("provider")).toString(),
+                 m_configuration.value(QStringLiteral("model")).toString())
+            .arg(m_eligibleIndices.size()).arg(segmentIndex).arg(m_sourceLanguage));
     beginSegment();
     return true;
 }
@@ -1023,6 +1126,21 @@ void DubbingTranslationFixService::beginSegment()
     }
     const QVariantMap segment =
         m_segments.at(m_eligibleIndices.at(m_segmentPosition)).toMap();
+    if (m_reconciliation) {
+        m_originalTranslation.clear();
+        m_promptTranslation.clear();
+        m_lastCandidate.clear();
+        m_bestCandidate.clear();
+        m_seenCandidates.clear();
+        m_lastCandidatePhonemes = 0;
+        m_bestCandidatePhonemes = 0;
+        m_promptPhonemes = 0;
+        m_attempt = 0;
+        setStatus(QStringLiteral("Preparing AI suggestion for conflict %1 of %2")
+                      .arg(m_segmentPosition + 1).arg(m_eligibleIndices.size()));
+        requestAttempt();
+        return;
+    }
     m_originalTranslation =
         segment.value(QStringLiteral("targetText")).toString().trimmed();
     m_promptTranslation = m_originalTranslation;
@@ -1064,7 +1182,9 @@ void DubbingTranslationFixService::requestAttempt()
     payload.insert(QStringLiteral("top_p"), 0.8);
     if (provider != QStringLiteral("api"))
         payload.insert(QStringLiteral("top_k"), 20);
-    const QString systemPrompt = translationRepairSystemPrompt();
+    const QString systemPrompt = m_reconciliation
+        ? QStringLiteral("You reconcile two conflicting transcript observations for timed dubbing. This is a text-only task: do not call tools. Return only one concise proposed source-language transcript. Preserve names, numbers, negation, meaning, and the language of the supplied source observations. Do not translate it and do not add analysis, labels, or quotes.")
+        : translationRepairSystemPrompt();
     if (provider == QStringLiteral("api")) {
         payload.insert(QStringLiteral("messages"), QJsonArray{
             QJsonObject{{QStringLiteral("role"), QStringLiteral("system")},
@@ -1092,7 +1212,8 @@ void DubbingTranslationFixService::requestAttempt()
 
     Logger::info(
         QStringLiteral("DubbingTranslationFix"),
-        QStringLiteral("Request segment=%1 attempt=%2/%3 currentPhonemes=%4")
+            QStringLiteral("Request operation=%1 segment=%2 attempt=%3/%4 currentPhonemes=%5")
+            .arg(m_reconciliation ? QStringLiteral("reconcile") : QStringLiteral("rewrite"))
             .arg(segment.value(QStringLiteral("id")).toString())
             .arg(m_attempt + 1).arg(m_maxAttempts).arg(m_lastCandidatePhonemes));
     QNetworkReply *pending = m_network->post(
@@ -1121,7 +1242,9 @@ void DubbingTranslationFixService::executeCliAttempt()
         return;
     }
 
-    const QString systemPrompt = translationRepairSystemPrompt();
+    const QString systemPrompt = m_reconciliation
+        ? QStringLiteral("You reconcile two conflicting transcript observations for timed dubbing. This is a text-only task: do not call tools. Return only one concise proposed source-language transcript. Preserve names, numbers, negation, meaning, and the language of the supplied source observations. Do not translate it and do not add analysis, labels, or quotes.")
+        : translationRepairSystemPrompt();
     const QString fullPrompt = systemPrompt + QStringLiteral("\n\n") + buildPrompt(segment);
     const QString logPath = createCliDiagnosticLogPath(cliAgent);
     const CliInvocation invocation =
@@ -1129,7 +1252,8 @@ void DubbingTranslationFixService::executeCliAttempt()
 
     Logger::info(
         QStringLiteral("DubbingTranslationFix"),
-        QStringLiteral("CLI Request agent=%1 program=%2 segment=%3 attempt=%4/%5 currentPhonemes=%6")
+            QStringLiteral("CLI Request operation=%1 agent=%2 program=%3 segment=%4 attempt=%5/%6 currentPhonemes=%7")
+            .arg(m_reconciliation ? QStringLiteral("reconcile") : QStringLiteral("rewrite"))
             .arg(cliAgent, invocation.binaryName,
                  segment.value(QStringLiteral("id")).toString())
             .arg(m_attempt + 1).arg(m_maxAttempts).arg(m_lastCandidatePhonemes));
@@ -1316,6 +1440,10 @@ void DubbingTranslationFixService::handleAttemptResponse(QNetworkReply *reply)
 
 void DubbingTranslationFixService::processCandidate(const QString &candidate)
 {
+    if (m_reconciliation) {
+        processReconciliationCandidate(candidate);
+        return;
+    }
     const QString candidateKey = candidate.simplified().toCaseFolded();
     if (m_seenCandidates.contains(candidateKey)) {
         ++m_attempt;
@@ -1413,6 +1541,47 @@ void DubbingTranslationFixService::processCandidate(const QString &candidate)
     finishSegment(false);
 }
 
+void DubbingTranslationFixService::processReconciliationCandidate(const QString &candidate)
+{
+    if (!m_reconciliation || m_segmentPosition >= m_eligibleIndices.size()) return;
+    const QString suggestion = cleanAssistantText(candidate);
+    const int index = m_eligibleIndices.at(m_segmentPosition);
+    QVariantMap segment = m_segments.at(index).toMap();
+    if (suggestion.isEmpty()) {
+        finishReconciliationSegment(false);
+        return;
+    }
+
+    // The proposal is intentionally stored beside, never instead of, STT/OCR
+    // evidence. The controller must receive an explicit accept/reject action
+    // before sourceText changes or Translate becomes available.
+    segment.insert(QStringLiteral("fusionAiSuggestion"), suggestion);
+    segment.insert(QStringLiteral("fusionAiSuggestionStatus"), QStringLiteral("pending"));
+    segment.insert(QStringLiteral("fusionAiSuggestionLanguage"), m_sourceLanguage);
+    segment.insert(QStringLiteral("fusionAiSuggestionProvider"),
+                   m_configuration.value(QStringLiteral("provider")).toString());
+    segment.insert(QStringLiteral("fusionAiSuggestionModel"),
+                   m_configuration.value(QStringLiteral("model")).toString());
+    segment.insert(QStringLiteral("fusionAiSuggestionEvidence"), QVariantMap{
+        {QStringLiteral("sttText"), segment.value(QStringLiteral("fusionSttText"))},
+        {QStringLiteral("ocrText"), segment.value(QStringLiteral("fusionOcrText"))},
+        {QStringLiteral("sttConfidence"), segment.value(QStringLiteral("sttConfidence"))},
+        {QStringLiteral("ocrConfidence"), segment.value(QStringLiteral("ocrConfidence"))},
+        {QStringLiteral("startMs"), segment.value(QStringLiteral("startMs"))},
+        {QStringLiteral("endMs"), segment.value(QStringLiteral("endMs"))}
+    });
+    segment.insert(QStringLiteral("fusionNeedsReview"), true);
+    segment.insert(QStringLiteral("fusionStatus"), QStringLiteral("conflict"));
+    segment.insert(QStringLiteral("state"), QStringLiteral("needs-review"));
+    m_segments[index] = segment;
+    Logger::info(
+        QStringLiteral("DubbingTranscriptReconciliation"),
+        QStringLiteral("Suggestion stored for segment=%1 chars=%2 sourceLanguage=%3")
+            .arg(segment.value(QStringLiteral("id")).toString())
+            .arg(suggestion.size()).arg(m_sourceLanguage));
+    finishReconciliationSegment(true);
+}
+
 void DubbingTranslationFixService::finishSegment(bool fixed, bool improved)
 {
     if (fixed) ++m_fixedCount;
@@ -1426,8 +1595,32 @@ void DubbingTranslationFixService::finishSegment(bool fixed, bool improved)
     beginSegment();
 }
 
+void DubbingTranslationFixService::finishReconciliationSegment(bool suggested)
+{
+    if (suggested) ++m_suggestedCount;
+    else ++m_unresolvedCount;
+    ++m_segmentPosition;
+    setProgress(qRound(m_segmentPosition * 100.0
+                       / qMax(1, m_eligibleIndices.size())));
+    beginSegment();
+}
+
 void DubbingTranslationFixService::finishRun()
 {
+    if (m_reconciliation) {
+        setProgress(100);
+        setStatus(QStringLiteral("Prepared %1 AI suggestion(s); %2 conflict(s) remain without a suggestion. Review is still required.")
+                      .arg(m_suggestedCount).arg(m_unresolvedCount));
+        Logger::info(
+            QStringLiteral("DubbingTranscriptReconciliation"),
+            QStringLiteral("Completed suggested=%1 unresolved=%2 total=%3")
+                .arg(m_suggestedCount).arg(m_unresolvedCount)
+                .arg(m_eligibleIndices.size()));
+        m_reconciliation = false;
+        setBusy(false);
+        emit reconciliationCompleted(m_segments, m_suggestedCount, m_unresolvedCount);
+        return;
+    }
     setProgress(100);
     setStatus(QStringLiteral("Fixed %1 segment(s); improved %2; %3 still need review.")
                   .arg(m_fixedCount).arg(m_improvedCount).arg(m_unresolvedCount));
@@ -1443,6 +1636,7 @@ void DubbingTranslationFixService::finishRun()
 QString DubbingTranslationFixService::buildPrompt(
     const QVariantMap &segment) const
 {
+    if (m_reconciliation) return buildReconciliationPrompt(segment);
     const QVariantMap budget =
         segment.value(QStringLiteral("durationBudget")).toMap();
     const int maximum = budget.value(QStringLiteral("maxUnits")).toInt();
@@ -1477,6 +1671,37 @@ QString DubbingTranslationFixService::buildPrompt(
         .arg(budget.value(QStringLiteral("targetUnits")).toInt())
         .arg(tokens.isEmpty() ? QStringLiteral("(none)") : tokens,
              direction, feedback);
+}
+
+QString DubbingTranslationFixService::buildReconciliationPrompt(
+    const QVariantMap &segment) const
+{
+    const int currentIndex = m_eligibleIndices.value(m_segmentPosition, -1);
+    QString previous;
+    QString next;
+    if (currentIndex > 0)
+        previous = m_segments.at(currentIndex - 1).toMap()
+                       .value(QStringLiteral("sourceText")).toString().trimmed();
+    if (currentIndex >= 0 && currentIndex + 1 < m_segments.size())
+        next = m_segments.at(currentIndex + 1).toMap()
+                   .value(QStringLiteral("sourceText")).toString().trimmed();
+    return QStringLiteral(
+               "Source language: %1\n"
+               "Time: %2-%3 ms\n"
+               "STT observation (confidence %4):\n%5\n\n"
+               "OCR observation (confidence %6):\n%7\n\n"
+               "Previous transcript context:\n%8\n\n"
+               "Next transcript context:\n%9\n\n"
+               "Propose one source-language transcript for a human reviewer. Do not translate it. Return only the proposed text.")
+        .arg(m_sourceLanguage,
+             segment.value(QStringLiteral("startMs")).toString(),
+             segment.value(QStringLiteral("endMs")).toString(),
+             QString::number(segment.value(QStringLiteral("sttConfidence")).toDouble(), 'f', 2),
+             segment.value(QStringLiteral("fusionSttText")).toString(),
+             QString::number(segment.value(QStringLiteral("ocrConfidence")).toDouble(), 'f', 2),
+             segment.value(QStringLiteral("fusionOcrText")).toString(),
+             previous.isEmpty() ? QStringLiteral("(none)") : previous,
+             next.isEmpty() ? QStringLiteral("(none)") : next);
 }
 
 QStringList DubbingTranslationFixService::protectedTokens(

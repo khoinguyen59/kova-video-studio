@@ -41,6 +41,13 @@ public:
     bool start(const QString &sourceLanguage, const QString &targetLanguage,
                const QVariantList &segments, const QVariantMap &configuration,
                int segmentIndex = -1);
+    // Produces review-only source-language suggestions for STT/OCR conflicts.
+    // It uses the already configured Translation Fix LLM route; plain machine
+    // translation runtimes are intentionally not treated as reconciliation LLMs.
+    bool startReconciliation(const QString &sourceLanguage,
+                             const QVariantList &segments,
+                             const QVariantMap &configuration,
+                             int segmentIndex = -1);
     void testConnection(const QVariantMap &configuration);
     void cancel();
     void clearError();
@@ -48,6 +55,8 @@ public:
     static int eligibleSegmentCount(const QVariantList &segments,
                                     const QString &targetLanguage);
     static QVariantMap normalizedConfiguration(const QVariantMap &configuration);
+    static bool reconciliationAvailable(const QVariantMap &configuration,
+                                        QString *reason = nullptr);
     static QUrl chatUrl(const QString &serverUrl);
     static QUrl modelsUrl(const QString &serverUrl);
     static QString cleanAssistantText(const QString &content);
@@ -71,6 +80,8 @@ public:
 signals:
     void stateChanged();
     void completed(const QVariantList &segments, int fixedCount, int unresolvedCount);
+    void reconciliationCompleted(const QVariantList &segments,
+                                 int suggestedCount, int unresolvedCount);
     void failed(const QString &message);
     void connectionTested(bool success, const QString &message);
 
@@ -85,9 +96,12 @@ private:
     void handleAttemptResponse(QNetworkReply *reply);
     void executeCliAttempt();
     void processCandidate(const QString &candidate);
+    void processReconciliationCandidate(const QString &candidate);
     void finishSegment(bool fixed, bool improved = false);
+    void finishReconciliationSegment(bool suggested);
     void finishRun();
     QString buildPrompt(const QVariantMap &segment) const;
+    QString buildReconciliationPrompt(const QVariantMap &segment) const;
     QStringList protectedTokens(const QString &text) const;
     bool preservesProtectedTokens(const QString &candidate,
                                   const QStringList &tokens) const;
@@ -116,6 +130,8 @@ private:
     int m_fixedCount = 0;
     int m_improvedCount = 0;
     int m_unresolvedCount = 0;
+    int m_suggestedCount = 0;
+    bool m_reconciliation = false;
     bool m_busy = false;
     bool m_testing = false;
     int m_progress = 0;

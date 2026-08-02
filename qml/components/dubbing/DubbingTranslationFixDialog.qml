@@ -46,6 +46,7 @@ Dialog {
             serverUrl: serverUrlField.text.trim(),
             model: modelField.text.trim(),
             apiKey: apiKeyField.text.trim(),
+            supportsStructuredReconciliation: structuredReconciliationBox.checked,
             maxAttempts: attemptsSpin.value,
             temperature: Number(temperatureField.text)
         }
@@ -56,6 +57,7 @@ Dialog {
         serverUrlField.text = config.serverUrl || "http://127.0.0.1:1234"
         modelField.text = config.model || "qwen3.5-2b"
         apiKeyField.text = config.apiKey || ""
+        structuredReconciliationBox.checked = !!config.supportsStructuredReconciliation
         attemptsSpin.value = config.maxAttempts || 4
         temperatureField.text = String(config.temperature !== undefined
                                        ? config.temperature : 0.35)
@@ -261,6 +263,21 @@ Dialog {
                         placeholderText: qsTr("No token for the default local server")
                         echoMode: TextInput.Password
                         enabled: !root.dubbing.translationFixing
+                    }
+
+                    CheckBox {
+                        id: structuredReconciliationBox
+                        Layout.fillWidth: true
+                        Layout.topMargin: Theme.paddingSmall
+                        text: qsTr("This LLM supports structured source-language reconciliation")
+                        enabled: !root.dubbing.translationFixing
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: qsTr("Required only for STT/OCR AI suggestions. Check this only for a text LLM that can follow a one-answer source-language reconciliation prompt; ordinary M2M100/NLLB translation models must remain unchecked.")
+                        color: Theme.textSecondary
+                        font.pixelSize: 10
+                        wrapMode: Text.WordWrap
                     }
 
                     RowLayout {

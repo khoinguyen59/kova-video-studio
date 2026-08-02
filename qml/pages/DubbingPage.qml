@@ -655,8 +655,8 @@ Item {
                                     textRole: "label"
                                     valueRole: "id"
                                     model: [
-                                        { id: "stt", label: qsTr("STT") },
-                                        { id: "ocr", label: qsTr("OCR") },
+                                        { id: "stt", label: qsTr("Chỉ STT") },
+                                        { id: "ocr", label: qsTr("Chỉ OCR") },
                                         { id: "stt+ocr", label: qsTr("STT + OCR") }
                                     ]
                                     currentIndex: {
@@ -682,6 +682,81 @@ Item {
                                     font.pixelSize: Theme.fontSmall
                                     wrapMode: Text.WordWrap
                                     Layout.preferredWidth: 260
+                                }
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Text {
+                                    text: qsTr("Conflict policy")
+                                    color: Theme.textPrimary
+                                    font.pixelSize: Theme.fontSmall
+                                }
+                                ComboBox {
+                                    id: dubbingFusionPolicyMode
+                                    Layout.preferredWidth: 210
+                                    textRole: "label"
+                                    valueRole: "id"
+                                    model: [
+                                        { id: "ask", label: qsTr("Hỏi khi xung đột") },
+                                        { id: "prefer-stt", label: qsTr("Ưu tiên STT") },
+                                        { id: "prefer-ocr", label: qsTr("Ưu tiên OCR") },
+                                        { id: "ai-suggest", label: qsTr("AI gợi ý") }
+                                    ]
+                                    currentIndex: {
+                                        var policy = dubbing.transcriptConfiguration.fusionPolicy || "ask"
+                                        for (var i = 0; i < model.length; ++i)
+                                            if (model[i].id === policy) return i
+                                        return 0
+                                    }
+                                    enabled: !dubbing.processing
+                                    onActivated: function(index) {
+                                        dubbing.setTranscriptFusionPolicy(model[index].id)
+                                    }
+                                }
+                                Text {
+                                    readonly property var aiAvailability: dubbing.transcriptConflictAiAvailability()
+                                    Layout.fillWidth: true
+                                    visible: (dubbing.transcriptConfiguration.fusionPolicy || "ask") === "ai-suggest"
+                                    text: aiAvailability.available
+                                          ? qsTr("AI only prepares a source-language suggestion; review is still required.")
+                                          : (aiAvailability.reason || qsTr("Configure Translation Fix LLM to use AI suggestion."))
+                                    color: aiAvailability.available ? Theme.textSecondary : Theme.warning
+                                    font.pixelSize: 10
+                                    wrapMode: Text.WordWrap
+                                }
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                visible: dubbing.unresolvedTranscriptConflictCount > 0
+                                spacing: Theme.paddingSmall
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: qsTr("%1 unresolved STT/OCR conflict(s) block Translate until reviewed.")
+                                          .arg(dubbing.unresolvedTranscriptConflictCount)
+                                    color: Theme.warning
+                                    font.pixelSize: 10
+                                    wrapMode: Text.WordWrap
+                                }
+                                PrimaryButton {
+                                    text: qsTr("Use STT for all")
+                                    quiet: true
+                                    enabled: !dubbing.processing
+                                    onClicked: dubbing.resolveAllTranscriptConflicts("stt")
+                                }
+                                PrimaryButton {
+                                    text: qsTr("Use OCR for all")
+                                    quiet: true
+                                    enabled: !dubbing.processing
+                                    onClicked: dubbing.resolveAllTranscriptConflicts("ocr")
+                                }
+                                PrimaryButton {
+                                    readonly property var aiAvailability: dubbing.transcriptConflictAiAvailability()
+                                    text: qsTr("Request AI")
+                                    quiet: true
+                                    enabled: !dubbing.processing && aiAvailability.available
+                                    toolTip: aiAvailability.available ? qsTr("Prepare suggestions only")
+                                                                    : (aiAvailability.reason || "")
+                                    onClicked: dubbing.requestTranscriptConflictAiSuggestion(-1)
                                 }
                             }
                             Text {
@@ -801,6 +876,22 @@ Item {
                                             }
                                             RowLayout {
                                                 PrimaryButton {
+                                                    text: qsTr("Seek")
+                                                    quiet: true
+                                                    enabled: !dubbing.processing
+                                                    onClicked: {
+                                                        root.selectedSegment = index
+                                                        sourceMediaPanel.seekToSegment(index)
+                                                    }
+                                                }
+                                                PrimaryButton {
+                                                    text: qsTr("Preview crop")
+                                                    quiet: true
+                                                    visible: (dubbing.transcriptConfiguration.transcriptSource || "stt") !== "stt"
+                                                    enabled: !dubbing.processing
+                                                    onClicked: dubbing.previewDubbingOcrCrop(modelData.startMs || 0)
+                                                }
+                                                PrimaryButton {
                                                     objectName: "dubbingUseSttConflict-" + index
                                                     text: qsTr("Use STT")
                                                     quiet: true
@@ -814,6 +905,33 @@ Item {
                                                     enabled: !dubbing.processing
                                                     onClicked: dubbing.resolveTranscriptConflict(index, "ocr")
                                                 }
+                                            }
+                                            Text {
+                                                Layout.fillWidth: true
+                                                visible: (modelData.fusionAiSuggestion || "") !== ""
+                                                text: qsTr("AI suggestion (%1): %2")
+                                                      .arg(modelData.fusionAiSuggestionLanguage || "source")
+                                                      .arg(modelData.fusionAiSuggestion || "")
+                                                color: Theme.textSecondary
+                                                font.pixelSize: Theme.fontSmall
+                                                wrapMode: Text.WordWrap
+                                            }
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                visible: (modelData.fusionAiSuggestionStatus || "") === "pending"
+                                                PrimaryButton {
+                                                    text: qsTr("Accept AI")
+                                                    quiet: true
+                                                    enabled: !dubbing.processing
+                                                    onClicked: dubbing.acceptTranscriptConflictAiSuggestion(index)
+                                                }
+                                                PrimaryButton {
+                                                    text: qsTr("Reject AI")
+                                                    quiet: true
+                                                    enabled: !dubbing.processing
+                                                    onClicked: dubbing.rejectTranscriptConflictAiSuggestion(index)
+                                                }
+                                                Item { Layout.fillWidth: true }
                                             }
                                         }
                                     }

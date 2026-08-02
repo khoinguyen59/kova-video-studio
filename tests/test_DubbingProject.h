@@ -88,6 +88,11 @@ private slots:
     void combinedTranscriptRunsSttAndSharedOcrWithoutFallback();
     void combinedTranscriptReportsOcrFailureWithoutSttFallback();
     void reviewerMustResolveFusionConflictExplicitly();
+    void transcriptModePersistsAndColabCardsUseOnlyActiveSourceAndRoute();
+    void fusionPoliciesAndBulkResolutionPreserveOriginalEvidence();
+    void unresolvedTranscriptConflictsBlockTranslationAndManualReviewPersists();
+    void aiReconciliationCapabilityAndReviewDecisionsPreserveEvidence();
+    void transcriptConflictUiAndColabSetupWireProductionController();
 };
 
 } // namespace LAStudio

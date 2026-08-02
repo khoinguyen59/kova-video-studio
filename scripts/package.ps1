@@ -887,6 +887,14 @@ if ($Preset -like "*mingw*") {
 $QtRoot = Resolve-QtRoot -Candidate $QtRoot
 $VcpkgRoot = Resolve-VcpkgRoot -Candidate $VcpkgRoot
 $LlamaCppSourceDir = Resolve-LlamaCppSourceDir -Candidate $LlamaCppSourceDir
+$PaddleRuntimeRoot = if ([string]::IsNullOrWhiteSpace($PaddleRuntimeRoot)) {
+    # The controlled preparation step writes the verified, isolated runtime
+    # here. Keep the override for release engineering, but make the normal
+    # internal package path complete instead of binding an empty argument.
+    Join-Path $RepoRoot "out\paddle-ocr-runtime-ready"
+} else {
+    [IO.Path]::GetFullPath($PaddleRuntimeRoot)
+}
 $Version = Normalize-AppVersion -Value $Version
 $ReleaseSuffix = Normalize-ReleaseSuffix -Value $ReleaseSuffix
 $applicationExecutableName = Get-VersionedApplicationExecutableName -AppVersion $Version

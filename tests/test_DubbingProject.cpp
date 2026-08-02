@@ -1356,7 +1356,14 @@ void TestDubbingProject::remoteDubbingWorkflowIsReadyWithoutLocalModels()
             QStringLiteral("sherpa-onnx-spleeter-2stems-fp16")));
     project.workflowNodeConfigurations.insert(
         QStringLiteral("transcribe"), remoteNode(
-            QStringLiteral("colab-direct"), QStringLiteral("whisper.cpp")));
+            // Simulate an older workflow template after the project has already
+            // persisted its actual transcript route in transcriptConfiguration.
+            QStringLiteral("local-dev"), QString()));
+    project.transcriptConfiguration.insert(QStringLiteral("transcriptSource"), QStringLiteral("stt"));
+    project.transcriptConfiguration.insert(QStringLiteral("sttExecutionProvider"),
+                                           QStringLiteral("colab-direct"));
+    project.transcriptConfiguration.insert(QStringLiteral("sttModelId"),
+                                           QStringLiteral("whisper.cpp"));
     project.workflowNodeConfigurations.insert(
         QStringLiteral("translate"), remoteNode(QStringLiteral("api-gateway"), QStringLiteral("gateway-translate")));
     project.workflowNodeConfigurations.insert(
@@ -1366,7 +1373,6 @@ void TestDubbingProject::remoteDubbingWorkflowIsReadyWithoutLocalModels()
 
     DubbingController controller(nullptr, nullptr);
     QVERIFY2(controller.openProject(project.projectPath), qPrintable(controller.lastError()));
-    QVERIFY(controller.customReady());
     QVERIFY(controller.workflowReady());
 }
 
@@ -3167,6 +3173,8 @@ void TestDubbingProject::exposesConflictEvidenceWithoutSilentChoice()
     const QVariantMap conflict = fused.constFirst().toMap();
     QCOMPARE(conflict.value(QStringLiteral("fusionStatus")).toString(), QStringLiteral("conflict"));
     QVERIFY(conflict.value(QStringLiteral("fusionNeedsReview")).toBool());
+    QCOMPARE(conflict.value(QStringLiteral("fusionChoice")).toString(), QStringLiteral("pending"));
+    QCOMPARE(conflict.value(QStringLiteral("fusionPolicy")).toString(), QStringLiteral("ask"));
     QCOMPARE(conflict.value(QStringLiteral("sourceText")).toString(), QStringLiteral("the red car"));
     QCOMPARE(conflict.value(QStringLiteral("fusionSttText")).toString(), QStringLiteral("the red car"));
     QCOMPARE(conflict.value(QStringLiteral("fusionOcrText")).toString(), QStringLiteral("the blue house"));
@@ -3463,6 +3471,283 @@ void TestDubbingProject::reviewerMustResolveFusionConflictExplicitly()
     QVERIFY2(DubbingProject::load(dubbing.projectPath(), reopened, &error), qPrintable(error));
     QCOMPARE(reopened.segments.constFirst().toMap().value(QStringLiteral("fusionChoice")).toString(),
              QStringLiteral("ocr"));
+}
+
+void TestDubbingProject::transcriptModePersistsAndColabCardsUseOnlyActiveSourceAndRoute()
+{
+    const auto stage = [](const QVariantList &stages, const QString &id) {
+        for (const QVariant &entry : stages) {
+            const QVariantMap value = entry.toMap();
+            if (value.value(QStringLiteral("id")).toString() == id) return value;
+        }
+        return QVariantMap{};
+    };
+
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString projectPath = directory.filePath(QStringLiteral("transcript-modes.ladub.json"));
+    DubbingController controller(nullptr, nullptr, static_cast<ModelManager *>(nullptr),
+                              static_cast<RuntimeManager *>(nullptr));
+    QVERIFY(controller.newProject(projectPath));
+    QVERIFY(controller.setWorkflowNodeParameters(QStringLiteral("transcribe"), {
+        {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+        {QStringLiteral("modelId"), QStringLiteral("whisper.cpp")},
+        {QStringLiteral("transcriptSource"), QStringLiteral("stt+ocr")},
+        {QStringLiteral("fusionPolicy"), QStringLiteral("ask")},
+        {QStringLiteral("ocrExecutionRoute"), QStringLiteral("colab-gpu")},
+        {QStringLiteral("ocrColabModelId"), QStringLiteral("pp-ocrv5-multilingual-3.1")}
+    }));
+    QCOMPARE(controller.transcriptConfiguration().value(QStringLiteral("transcriptSource")).toString(),
+             QStringLiteral("stt+ocr"));
+    QCOMPARE(controller.transcriptConfiguration().value(QStringLiteral("sttExecutionProvider")).toString(),
+             QStringLiteral("colab-direct"));
+    QCOMPARE(controller.transcriptConfiguration().value(QStringLiteral("sttModelId")).toString(),
+             QStringLiteral("whisper.cpp"));
+
+    QVariantList stages = controller.colabSetupStages();
+    QVERIFY(stage(stages, QStringLiteral("transcribe")).value(QStringLiteral("activeForTranscriptSource")).toBool());
+    QVERIFY(stage(stages, QStringLiteral("transcribe")).value(QStringLiteral("selectedForDirectColab")).toBool());
+    QVERIFY(stage(stages, QStringLiteral("subtitle-ocr")).value(QStringLiteral("activeForTranscriptSource")).toBool());
+    QVERIFY(stage(stages, QStringLiteral("subtitle-ocr")).value(QStringLiteral("selectedForDirectColab")).toBool());
+
+    QVERIFY(controller.setWorkflowNodeParameters(QStringLiteral("transcribe"), {
+        {QStringLiteral("transcriptSource"), QStringLiteral("ocr")}}));
+    stages = controller.colabSetupStages();
+    QVERIFY(!stage(stages, QStringLiteral("transcribe")).value(QStringLiteral("activeForTranscriptSource")).toBool());
+    QVERIFY(!stage(stages, QStringLiteral("transcribe")).value(QStringLiteral("selectedForDirectColab")).toBool());
+    QVERIFY(stage(stages, QStringLiteral("subtitle-ocr")).value(QStringLiteral("activeForTranscriptSource")).toBool());
+    QVERIFY(stage(stages, QStringLiteral("subtitle-ocr")).value(QStringLiteral("selectedForDirectColab")).toBool());
+
+    QVERIFY(controller.setWorkflowNodeParameters(QStringLiteral("transcribe"), {
+        {QStringLiteral("executionProvider"), QStringLiteral("local-dev")},
+        {QStringLiteral("transcriptSource"), QStringLiteral("stt")}}));
+    stages = controller.colabSetupStages();
+    QVERIFY(!stage(stages, QStringLiteral("transcribe")).value(QStringLiteral("selectedForDirectColab")).toBool());
+    QVERIFY(!stage(stages, QStringLiteral("subtitle-ocr")).value(QStringLiteral("activeForTranscriptSource")).toBool());
+    // An inactive OCR route is not allowed to make Check all selected fail.
+    QVERIFY(controller.validateAllWorkflowColabStages());
+
+    QVERIFY(controller.setWorkflowNodeParameters(QStringLiteral("transcribe"), {
+        {QStringLiteral("transcriptSource"), QStringLiteral("ocr")}}));
+    QVERIFY(!controller.validateAllWorkflowColabStages());
+
+    QVERIFY(controller.setWorkflowNodeParameters(QStringLiteral("transcribe"), {
+        {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+        {QStringLiteral("modelId"), QStringLiteral("whisper.cpp")},
+        {QStringLiteral("transcriptSource"), QStringLiteral("stt+ocr")}}));
+    QVERIFY(controller.saveProject());
+
+    DubbingController reopened(nullptr, nullptr, static_cast<ModelManager *>(nullptr),
+                               static_cast<RuntimeManager *>(nullptr));
+    QVERIFY2(reopened.openProject(projectPath), qPrintable(reopened.lastError()));
+    QCOMPARE(reopened.transcriptConfiguration().value(QStringLiteral("transcriptSource")).toString(),
+             QStringLiteral("stt+ocr"));
+    QCOMPARE(reopened.transcriptConfiguration().value(QStringLiteral("sttExecutionProvider")).toString(),
+             QStringLiteral("colab-direct"));
+    QCOMPARE(reopened.transcriptConfiguration().value(QStringLiteral("sttModelId")).toString(),
+             QStringLiteral("whisper.cpp"));
+    QCOMPARE(stage(reopened.colabSetupStages(), QStringLiteral("transcribe"))
+                 .value(QStringLiteral("modelId")).toString(), QStringLiteral("whisper.cpp"));
+}
+
+void TestDubbingProject::fusionPoliciesAndBulkResolutionPreserveOriginalEvidence()
+{
+    const QVariantList stt{QVariantMap{{QStringLiteral("id"), QStringLiteral("policy-stt")},
+                                       {QStringLiteral("startMs"), 0}, {QStringLiteral("endMs"), 1000},
+                                       {QStringLiteral("sourceText"), QStringLiteral("one red car")},
+                                       {QStringLiteral("sttConfidence"), 0.61}}};
+    const QVariantList ocr{QVariantMap{{QStringLiteral("startMs"), 0}, {QStringLiteral("endMs"), 1000},
+                                       {QStringLiteral("text"), QStringLiteral("one blue house")},
+                                       {QStringLiteral("confidence"), 0.92}}};
+    const QVariantMap asked = DubbingTranscriptFusionService::fuse(stt, ocr, QStringLiteral("ask"))
+                                  .constFirst().toMap();
+    QCOMPARE(asked.value(QStringLiteral("fusionChoice")).toString(), QStringLiteral("pending"));
+    QCOMPARE(asked.value(QStringLiteral("fusionStatus")).toString(), QStringLiteral("conflict"));
+    QVERIFY(asked.value(QStringLiteral("fusionNeedsReview")).toBool());
+    const QVariantMap preferred = DubbingTranscriptFusionService::fuse(
+        stt, ocr, QStringLiteral("prefer-ocr")).constFirst().toMap();
+    QCOMPARE(preferred.value(QStringLiteral("sourceText")).toString(), QStringLiteral("one blue house"));
+    QCOMPARE(preferred.value(QStringLiteral("fusionResolutionPolicy")).toString(),
+             QStringLiteral("prefer-ocr"));
+    QCOMPARE(preferred.value(QStringLiteral("fusionSttText")).toString(), QStringLiteral("one red car"));
+    QCOMPARE(preferred.value(QStringLiteral("fusionOcrText")).toString(), QStringLiteral("one blue house"));
+    QCOMPARE(preferred.value(QStringLiteral("transcriptProvenance")).toList().size(), 2);
+
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    DubbingController controller(nullptr, nullptr, static_cast<ModelManager *>(nullptr),
+                              static_cast<RuntimeManager *>(nullptr));
+    QVERIFY(controller.newProject(directory.filePath(QStringLiteral("bulk-review.ladub.json"))));
+    controller.addSegment(0, 1000, QStringLiteral("STT one"));
+    controller.addSegment(1100, 2100, QStringLiteral("STT two"));
+    for (int index = 0; index < 2; ++index) {
+        controller.updateSegment(index, {
+            {QStringLiteral("fusionStatus"), QStringLiteral("conflict")},
+            {QStringLiteral("fusionNeedsReview"), true},
+            {QStringLiteral("fusionSttText"), index == 0 ? QStringLiteral("STT one") : QStringLiteral("STT two")},
+            {QStringLiteral("fusionOcrText"), index == 0 ? QStringLiteral("OCR one") : QStringLiteral("OCR two")},
+            {QStringLiteral("sttConfidence"), 0.60}, {QStringLiteral("ocrConfidence"), 0.93},
+            {QStringLiteral("transcriptProvenance"), QVariantList{QVariantMap{{QStringLiteral("source"), QStringLiteral("stt")}},
+                                                                      QVariantMap{{QStringLiteral("source"), QStringLiteral("ocr")}}}}
+        });
+    }
+    QCOMPARE(controller.unresolvedTranscriptConflictCount(), 2);
+    QVERIFY(controller.resolveAllTranscriptConflicts(QStringLiteral("ocr")));
+    QCOMPARE(controller.unresolvedTranscriptConflictCount(), 0);
+    for (const QVariant &entry : controller.segments()) {
+        const QVariantMap resolved = entry.toMap();
+        QVERIFY(resolved.value(QStringLiteral("sourceText")).toString().startsWith(QStringLiteral("OCR")));
+        QCOMPARE(resolved.value(QStringLiteral("fusionResolutionPolicy")).toString(),
+                 QStringLiteral("bulk-manual"));
+        QCOMPARE(resolved.value(QStringLiteral("transcriptProvenance")).toList().size(), 2);
+    }
+    QVERIFY(controller.saveProject());
+    DubbingProject restored;
+    QString error;
+    QVERIFY2(DubbingProject::load(controller.projectPath(), restored, &error), qPrintable(error));
+    QCOMPARE(restored.segments.constFirst().toMap().value(QStringLiteral("fusionSttText")).toString(),
+             QStringLiteral("STT one"));
+    QCOMPARE(restored.segments.constFirst().toMap().value(QStringLiteral("fusionOcrText")).toString(),
+             QStringLiteral("OCR one"));
+}
+
+void TestDubbingProject::unresolvedTranscriptConflictsBlockTranslationAndManualReviewPersists()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString mediaPath = directory.filePath(QStringLiteral("source.mp4"));
+    QVERIFY(writeFixtureFile(mediaPath, QByteArrayLiteral("media fixture")));
+    DubbingProject project;
+    project.projectPath = directory.filePath(QStringLiteral("translation-block.ladub.json"));
+    project.sourceMediaPath = mediaPath;
+    project.sourceLanguage = QStringLiteral("en");
+    project.targetLanguage = QStringLiteral("vi");
+    project.segments = {QVariantMap{{QStringLiteral("id"), QStringLiteral("blocked-conflict")},
+                                    {QStringLiteral("startMs"), 0}, {QStringLiteral("endMs"), 1000},
+                                    {QStringLiteral("sourceText"), QStringLiteral("STT original")},
+                                    {QStringLiteral("fusionStatus"), QStringLiteral("conflict")},
+                                    {QStringLiteral("fusionNeedsReview"), true},
+                                    {QStringLiteral("fusionSttText"), QStringLiteral("STT original")},
+                                    {QStringLiteral("fusionOcrText"), QStringLiteral("OCR original")},
+                                    {QStringLiteral("sttConfidence"), 0.52},
+                                    {QStringLiteral("ocrConfidence"), 0.88}}};
+    QString error;
+    QVERIFY2(project.save(&error), qPrintable(error));
+
+    DubbingController controller(nullptr, nullptr, static_cast<ModelManager *>(nullptr),
+                              static_cast<RuntimeManager *>(nullptr));
+    QVERIFY2(controller.openProject(project.projectPath), qPrintable(controller.lastError()));
+    controller.translateSource();
+    QVERIFY(controller.lastError().contains(QStringLiteral("Resolve 1 STT/OCR conflict")));
+    QCOMPARE(controller.unresolvedTranscriptConflictCount(), 1);
+    controller.updateSegment(0, {{QStringLiteral("sourceText"), QStringLiteral("Reviewer final source")}});
+    QCOMPARE(controller.unresolvedTranscriptConflictCount(), 0);
+    const QVariantMap resolved = controller.segments().constFirst().toMap();
+    QCOMPARE(resolved.value(QStringLiteral("fusionChoice")).toString(), QStringLiteral("manual"));
+    QCOMPARE(resolved.value(QStringLiteral("fusionSttText")).toString(), QStringLiteral("STT original"));
+    QCOMPARE(resolved.value(QStringLiteral("fusionOcrText")).toString(), QStringLiteral("OCR original"));
+    QVERIFY(controller.saveProject());
+    DubbingProject restored;
+    QVERIFY2(DubbingProject::load(project.projectPath, restored, &error), qPrintable(error));
+    QCOMPARE(restored.segments.constFirst().toMap().value(QStringLiteral("sourceText")).toString(),
+             QStringLiteral("Reviewer final source"));
+    QCOMPARE(restored.segments.constFirst().toMap().value(QStringLiteral("fusionStatus")).toString(),
+             QStringLiteral("resolved"));
+}
+
+void TestDubbingProject::aiReconciliationCapabilityAndReviewDecisionsPreserveEvidence()
+{
+    QString reason;
+    QVERIFY(!DubbingTranslationFixService::reconciliationAvailable({
+        {QStringLiteral("configured"), true}, {QStringLiteral("provider"), QStringLiteral("local")},
+        {QStringLiteral("supportsStructuredReconciliation"), true}}, &reason));
+    QVERIFY(reason.contains(QStringLiteral("translation runtime"), Qt::CaseInsensitive));
+    QVERIFY(!DubbingTranslationFixService::reconciliationAvailable({
+        {QStringLiteral("configured"), true}, {QStringLiteral("provider"), QStringLiteral("api")},
+        {QStringLiteral("serverUrl"), QStringLiteral("https://example.invalid")},
+        {QStringLiteral("model"), QStringLiteral("unverified-model")}}, &reason));
+    QVERIFY(reason.contains(QStringLiteral("explicitly marked"), Qt::CaseInsensitive));
+    QVERIFY(DubbingTranslationFixService::reconciliationAvailable({
+        {QStringLiteral("configured"), true}, {QStringLiteral("provider"), QStringLiteral("api")},
+        {QStringLiteral("serverUrl"), QStringLiteral("https://example.invalid")},
+        {QStringLiteral("model"), QStringLiteral("structured-text-llm")},
+        {QStringLiteral("supportsStructuredReconciliation"), true}}, &reason));
+    QVERIFY(reason.isEmpty());
+
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    DubbingController controller(nullptr, nullptr, static_cast<ModelManager *>(nullptr),
+                              static_cast<RuntimeManager *>(nullptr));
+    QVERIFY(controller.newProject(directory.filePath(QStringLiteral("ai-review.ladub.json"))));
+    controller.addSegment(0, 1000, QStringLiteral("STT first"));
+    controller.addSegment(1100, 2100, QStringLiteral("STT second"));
+    for (int index = 0; index < 2; ++index) {
+        controller.updateSegment(index, {
+            {QStringLiteral("fusionStatus"), QStringLiteral("conflict")},
+            {QStringLiteral("fusionNeedsReview"), true},
+            {QStringLiteral("fusionSttText"), index == 0 ? QStringLiteral("STT first") : QStringLiteral("STT second")},
+            {QStringLiteral("fusionOcrText"), index == 0 ? QStringLiteral("OCR first") : QStringLiteral("OCR second")},
+            {QStringLiteral("fusionAiSuggestion"), index == 0 ? QStringLiteral("AI proposed first") : QStringLiteral("AI proposed second")},
+            {QStringLiteral("fusionAiSuggestionStatus"), QStringLiteral("pending")},
+            {QStringLiteral("fusionAiSuggestionLanguage"), QStringLiteral("en")},
+            {QStringLiteral("fusionAiSuggestionEvidence"), QVariantMap{{QStringLiteral("sttText"), index == 0 ? QStringLiteral("STT first") : QStringLiteral("STT second")},
+                                                                           {QStringLiteral("ocrText"), index == 0 ? QStringLiteral("OCR first") : QStringLiteral("OCR second")}}}
+        });
+    }
+    QVERIFY(controller.acceptTranscriptConflictAiSuggestion(0));
+    const QVariantMap accepted = controller.segments().at(0).toMap();
+    QCOMPARE(accepted.value(QStringLiteral("sourceText")).toString(), QStringLiteral("AI proposed first"));
+    QCOMPARE(accepted.value(QStringLiteral("fusionAiSuggestionLanguage")).toString(), QStringLiteral("en"));
+    QCOMPARE(accepted.value(QStringLiteral("fusionSttText")).toString(), QStringLiteral("STT first"));
+    QCOMPARE(accepted.value(QStringLiteral("fusionOcrText")).toString(), QStringLiteral("OCR first"));
+    QVERIFY(controller.rejectTranscriptConflictAiSuggestion(1));
+    const QVariantMap rejected = controller.segments().at(1).toMap();
+    QCOMPARE(rejected.value(QStringLiteral("fusionAiSuggestionStatus")).toString(), QStringLiteral("rejected"));
+    QVERIFY(rejected.value(QStringLiteral("fusionNeedsReview")).toBool());
+    QCOMPARE(controller.unresolvedTranscriptConflictCount(), 1);
+    QVERIFY(controller.saveProject());
+    DubbingProject restored;
+    QString error;
+    QVERIFY2(DubbingProject::load(controller.projectPath(), restored, &error), qPrintable(error));
+    QCOMPARE(restored.segments.at(0).toMap().value(QStringLiteral("fusionSttText")).toString(),
+             QStringLiteral("STT first"));
+    QCOMPARE(restored.segments.at(1).toMap().value(QStringLiteral("fusionAiSuggestionStatus")).toString(),
+             QStringLiteral("rejected"));
+}
+
+void TestDubbingProject::transcriptConflictUiAndColabSetupWireProductionController()
+{
+    const QDir sourceRoot(QStringLiteral(LASTUDIO_SOURCE_DIR));
+    QFile page(sourceRoot.filePath(QStringLiteral("qml/pages/DubbingPage.qml")));
+    QFile setup(sourceRoot.filePath(QStringLiteral("qml/components/dubbing/DubbingColabSetupDialog.qml")));
+    QFile controller(sourceRoot.filePath(QStringLiteral("src/controllers/dubbing/DubbingController.cpp")));
+    QFile service(sourceRoot.filePath(QStringLiteral("src/controllers/dubbing/DubbingTranslationFixService.cpp")));
+    QFile adapter(sourceRoot.filePath(QStringLiteral("src/dubbing/workflow/DubbingWorkflowAdapter.cpp")));
+    QVERIFY(page.open(QIODevice::ReadOnly));
+    QVERIFY(setup.open(QIODevice::ReadOnly));
+    QVERIFY(controller.open(QIODevice::ReadOnly));
+    QVERIFY(service.open(QIODevice::ReadOnly));
+    QVERIFY(adapter.open(QIODevice::ReadOnly));
+    const QString pageSource = QString::fromUtf8(page.readAll());
+    const QString setupSource = QString::fromUtf8(setup.readAll());
+    const QString controllerSource = QString::fromUtf8(controller.readAll());
+    const QString serviceSource = QString::fromUtf8(service.readAll());
+    const QString adapterSource = QString::fromUtf8(adapter.readAll());
+    QVERIFY(pageSource.contains(QStringLiteral("dubbingTranscriptSourceMode")));
+    QVERIFY(pageSource.contains(QString::fromUtf8("Chỉ STT")));
+    QVERIFY(pageSource.contains(QString::fromUtf8("Chỉ OCR")));
+    QVERIFY(pageSource.contains(QStringLiteral("setTranscriptFusionPolicy")));
+    QVERIFY(pageSource.contains(QStringLiteral("resolveAllTranscriptConflicts")));
+    QVERIFY(pageSource.contains(QStringLiteral("acceptTranscriptConflictAiSuggestion")));
+    QVERIFY(setupSource.contains(QStringLiteral("dubbingColabTranscriptSourceMode")));
+    QVERIFY(setupSource.contains(QString::fromUtf8("Không dùng")));
+    QVERIFY(setupSource.contains(QStringLiteral("activeForTranscriptSource")));
+    QVERIFY(setupSource.contains(QStringLiteral("notUsedReason")));
+    QVERIFY(controllerSource.contains(QStringLiteral("snapshotSelectedColabStagesForWorkflow")));
+    QVERIFY(controllerSource.contains(QStringLiteral("Resolve %1 STT/OCR conflict")));
+    QVERIFY(serviceSource.contains(QStringLiteral("supportsStructuredReconciliation")));
+    QVERIFY(serviceSource.contains(QStringLiteral("buildReconciliationPrompt")));
+    QVERIFY(adapterSource.contains(QStringLiteral("unresolvedConflicts")));
 }
 
 
