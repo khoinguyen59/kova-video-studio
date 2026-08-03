@@ -11,6 +11,7 @@ class TestColabSeparationRunner final : public QObject
 private slots:
     void testUsesDirectJobAndArtifactContract();
     void testCancellationDiscardsPartialArtifacts();
+    void voiceCloneReferenceUsesCachedVocalsOnly();
     void separationNotebookMatchesDirectColabContract();
 };
 

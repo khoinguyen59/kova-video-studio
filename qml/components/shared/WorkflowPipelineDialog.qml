@@ -38,6 +38,10 @@ Dialog {
     readonly property int nodeGap: 76
     readonly property int canvasPadding: 64
 
+    function configurableNodeId(item) {
+        return item && item.actionNodeId ? item.actionNodeId : (item && item.id ? item.id : "")
+    }
+
     function nodeConfigurable(nodeId) {
         var item = nodes ? nodes.find(function(entry) { return entry.id === nodeId }) : null
         return (item && item.configurable === true) || (configurableNodeIds && configurableNodeIds.indexOf(nodeId) >= 0)
@@ -217,10 +221,10 @@ Dialog {
                                                                          : Qt.rgba(stageDelegate.stateColor.r, stageDelegate.stateColor.g, stageDelegate.stateColor.b, 0.42)
                                     border.width: 1
 
-                                    HoverHandler { id: cardHover; cursorShape: root.nodeConfigurable(stageDelegate.modelData.id || "") ? Qt.PointingHandCursor : Qt.ArrowCursor }
+                                    HoverHandler { id: cardHover; cursorShape: root.nodeConfigurable(root.configurableNodeId(stageDelegate.modelData)) ? Qt.PointingHandCursor : Qt.ArrowCursor }
                                     TapHandler {
-                                        enabled: root.nodeConfigurable(stageDelegate.modelData.id || "")
-                                        onTapped: root.nodeConfigureRequested(stageDelegate.modelData.id || "")
+                                        enabled: root.nodeConfigurable(root.configurableNodeId(stageDelegate.modelData))
+                                        onTapped: root.nodeConfigureRequested(root.configurableNodeId(stageDelegate.modelData))
                                     }
 
                                     ColumnLayout {
@@ -264,12 +268,12 @@ Dialog {
                                             Text { text: stageDelegate.nodeReady ? qsTr("Ready") : (stageDelegate.nodeWaiting ? qsTr("Review") : (stageDelegate.nodeBlocked ? qsTr("Blocked") : (stageDelegate.nodeMissing ? qsTr("Missing") : qsTr("Failed")))); color: stageDelegate.stateColor; font.pixelSize: 10; font.bold: true }
                                             Item { Layout.fillWidth: true }
                                             Button {
-                                                visible: root.nodeConfigurable(stageDelegate.modelData.id || "")
+                                                visible: root.nodeConfigurable(root.configurableNodeId(stageDelegate.modelData))
                                                 text: qsTr("Configure")
                                                 implicitWidth: 76
                                                 implicitHeight: 26
                                                 padding: 0
-                                                onClicked: root.nodeConfigureRequested(stageDelegate.modelData.id || "")
+                                                onClicked: root.nodeConfigureRequested(root.configurableNodeId(stageDelegate.modelData))
                                                 contentItem: Text { anchors.fill: parent; text: parent.text + "  ›"; color: parent.hovered ? Theme.textPrimary : Theme.accentLight; font.pixelSize: 10; font.bold: true; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                                                 background: Rectangle { radius: Theme.radiusSmall; color: parent.hovered ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.18) : "transparent" }
                                             }

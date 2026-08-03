@@ -199,6 +199,28 @@ bool VoiceIsolatorController::ready() const
     return runtimeReady && (uvrReady || spleeterReady);
 }
 
+QVariantMap VoiceIsolatorController::configurationInfo() const
+{
+    QVariantMap info;
+    info.insert(QStringLiteral("route"), QStringLiteral("local"));
+    if (m_hasActiveConfig) {
+        info.insert(QStringLiteral("model"), m_activeConfig.familyId);
+        info.insert(QStringLiteral("signature"), m_activeConfig.configurationSignature);
+        info.insert(QStringLiteral("pipeline"), m_activeConfig.pipelineProfile);
+        info.insert(QStringLiteral("runtime"), m_activeConfig.runtimeId);
+        return info;
+    }
+    const bool spleeter = !spleeterVocalsPath().isEmpty() && !spleeterAccompanimentPath().isEmpty()
+        && modelPath().isEmpty();
+    const QString model = spleeter ? spleeterVocalsPath() : modelPath();
+    info.insert(QStringLiteral("model"), QFileInfo(model).fileName());
+    info.insert(QStringLiteral("signature"), model + QLatin1Char('|') + runtimePath());
+    info.insert(QStringLiteral("pipeline"), spleeter ? QStringLiteral("spleeter-2stems")
+                                                       : QStringLiteral("uvr-2stems"));
+    info.insert(QStringLiteral("runtime"), QFileInfo(runtimePath()).fileName());
+    return info;
+}
+
 void VoiceIsolatorController::setSourcePath(const QString &path) { if (m_sourcePath == path) return; m_sourcePath = path; emit stateChanged(); }
 void VoiceIsolatorController::setRuntimePath(const QString &path) { if (m_runtimePath == path && m_configurationOverrideActive) return; m_configurationOverrideActive = true; m_runtimePath = path; emit stateChanged(); }
 void VoiceIsolatorController::setModelPath(const QString &path) { if (m_modelPath == path && m_configurationOverrideActive) return; m_configurationOverrideActive = true; m_modelPath = path; emit stateChanged(); }

@@ -167,6 +167,10 @@ void ColabVoiceIsolatorController::isolate(bool)
     request.audioPath = m_sourcePath;
     request.outputRoot = m_tempDir->path();
     request.model = m_model;
+    // This stays false in production.  Carry the ColabSession's explicit
+    // loopback-test flag so controller integration tests exercise the same
+    // direct-worker boundary without weakening HTTPS validation for users.
+    request.allowInsecureLocalhost = m_session->allowsInsecureLocalhostForTests();
     request.cancellation = InferenceCancellationToken(m_cancellation);
     m_activeSessionRevision = m_sessionRevision;
     QMetaObject::invokeMethod(m_runner, "separate", Qt::QueuedConnection,

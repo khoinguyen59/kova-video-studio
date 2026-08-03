@@ -73,6 +73,7 @@ set(TEST_SOURCES
     ../src/controllers/alignment/AlignmentExecutionService.cpp
     ../src/controllers/alignment/ColabAlignmentController.cpp
     ../src/controllers/separation/ColabVoiceIsolatorController.cpp
+    ../src/controllers/separation/VoiceCloneReferenceIsolatorController.cpp
     ../src/dubbing/AlignmentRefinementService.cpp
     ../src/dubbing/DubbingSegmentNormalizer.cpp
     ../src/controllers/alignment/AlignmentTranscriptMatcher.cpp
@@ -258,6 +259,7 @@ set(TEST_SOURCES
     ../src/controllers/models/RemoteModelCatalogController.h
     ../src/controllers/alignment/ColabAlignmentController.h
     ../src/controllers/separation/ColabVoiceIsolatorController.h
+    ../src/controllers/separation/VoiceCloneReferenceIsolatorController.h
     ../src/controllers/app/AppController.h
     ../src/controllers/shared/AppUpdateService.h
     ../src/controllers/shared/ExampleManager.h

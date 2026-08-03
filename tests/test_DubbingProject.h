@@ -20,6 +20,7 @@ private slots:
     void qualityModesExposeExpectedDefaultVoiceModel();
     void standardModesResetNodeModelsOnOpen();
     void sourceSeparationExposesModelSelection();
+    void workflowStagesExposeNineProductionBackedSteps();
     void targetLanguageUpdatesVoiceNodeLanguage();
     void rejectsRerunningUnsupportedStep();
     void transcriptionRequiresReadyModel();

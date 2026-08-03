@@ -1114,6 +1114,39 @@ void TestDubbingProject::sourceSeparationExposesModelSelection()
              QStringLiteral("voice-isolation"));
 }
 
+void TestDubbingProject::workflowStagesExposeNineProductionBackedSteps()
+{
+    DubbingController controller(nullptr, nullptr);
+    const QVariantList stages = controller.workflowStages();
+    QCOMPARE(stages.size(), 9);
+    const QStringList expectedIds{
+        QStringLiteral("import"), QStringLiteral("normalize"), QStringLiteral("isolator"),
+        QStringLiteral("transcribe"), QStringLiteral("alignment-subtitle"),
+        QStringLiteral("translate"), QStringLiteral("tts"), QStringLiteral("timing-mix"),
+        QStringLiteral("export")};
+    const QStringList expectedTitles{
+        QStringLiteral("Import/Download"), QStringLiteral("Normalize"), QStringLiteral("Isolator"),
+        QStringLiteral("Transcribe/STT"), QStringLiteral("Alignment/Subtitle"),
+        QStringLiteral("Translate"), QStringLiteral("TTS"), QStringLiteral("Timing/Mix"),
+        QStringLiteral("Export/Output")};
+    for (int index = 0; index < stages.size(); ++index) {
+        const QVariantMap stage = stages.at(index).toMap();
+        QCOMPARE(stage.value(QStringLiteral("id")).toString(), expectedIds.at(index));
+        QCOMPARE(stage.value(QStringLiteral("title")).toString(), expectedTitles.at(index));
+        QVERIFY2(!stage.value(QStringLiteral("productionNodeIds")).toList().isEmpty(),
+                 "Every presentation stage must remain backed by a production node.");
+        QVERIFY(!stage.value(QStringLiteral("actionNodeId")).toString().isEmpty());
+    }
+    const QVariantMap alignment = stages.at(4).toMap();
+    QVERIFY(alignment.value(QStringLiteral("productionNodeIds")).toList()
+                .contains(QStringLiteral("review-transcript")));
+    const QVariantMap timing = stages.at(7).toMap();
+    QVERIFY(timing.value(QStringLiteral("productionNodeIds")).toList()
+                .contains(QStringLiteral("fit-timing")));
+    QVERIFY(timing.value(QStringLiteral("productionNodeIds")).toList()
+                .contains(QStringLiteral("mix")));
+}
+
 void TestDubbingProject::colabSourceSeparationDoesNotFallbackToLocal()
 {
     QTemporaryDir dir;

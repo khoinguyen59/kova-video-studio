@@ -31,6 +31,7 @@ StudioShell {
 
     property string referenceAudioPath: ""
     property string playingType: "none"
+    readonly property var referenceIsolator: AppController.voiceCloneReferenceIsolator
     property string detectedLanguage: "en"
     readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
     readonly property bool colabActive: AppController.colabVoiceClone && AppController.colabVoiceClone.colabActive
@@ -152,6 +153,13 @@ StudioShell {
         if (root.inputsLocked) return ""
         if (root.remoteFirstMode && !root.colabActive)
             return qsTr("Connect and Check the selected Direct Colab GPU worker in Cloning Settings before cloning.")
+        if (root.referenceIsolator && root.referenceIsolator.enabled && !root.referenceIsolator.resultReady) {
+            if (!root.referenceIsolator.routeReady)
+                return qsTr("Configure and Check the selected Isolator route before cleaning this reference audio.")
+            return root.referenceIsolator.processing
+                   ? qsTr("Wait for Isolator to finish creating a readable Vocals stem.")
+                   : qsTr("Run Isolator to create a Vocals-only reference before cloning.")
+        }
         if (root.colabActive) {
             if (inputText.text.trim().length === 0)
                 return qsTr("Target Prompt is required.")
@@ -349,12 +357,17 @@ StudioShell {
                                 clip: true
                                 contentWidth: availableWidth
 
+                                ColumnLayout {
+                                    width: parent.width
+                                    spacing: Theme.paddingMedium
+
                                 ReferenceInputBox {
                                     id: referenceBox
-                                    width: parent.width
+                                    Layout.fillWidth: true
                                     showTips: false
                                     showHeader: true
                                     locked: root.inputsLocked
+                                            || (root.referenceIsolator && root.referenceIsolator.processing)
                                     familyId: root.family ? root.family.id : ""
                                     requiresExactTranscript: root.colabActive
                                                              || (root.family && root.family.id
@@ -362,12 +375,137 @@ StudioShell {
                                     isPlaying: root.playingType === "reference"
                                     onAudioPathChanged: {
                                         root.referenceAudioPath = referenceBox.audioPath
+                                        if (root.referenceIsolator)
+                                            root.referenceIsolator.sourcePath = referenceBox.audioPath
                                     }
                                     onPlayClicked: {
                                         root.playingType = AppController.player.playFile(root.referenceAudioPath)
                                                            ? "reference" : "none"
                                     }
                                     onStopClicked: AppController.player.stop()
+                                }
+
+                                Rectangle {
+                                    id: referenceIsolationPanel
+                                    objectName: "voiceCloneReferenceIsolator"
+                                    Layout.fillWidth: true
+                                    implicitHeight: referenceIsolationLayout.implicitHeight + Theme.paddingMedium * 2
+                                    radius: Theme.radiusSmall
+                                    color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.07)
+                                    border.color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.30)
+                                    border.width: 1
+
+                                    ColumnLayout {
+                                        id: referenceIsolationLayout
+                                        anchors.fill: parent
+                                        anchors.margins: Theme.paddingMedium
+                                        spacing: Theme.paddingSmall
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            CheckBox {
+                                                id: cleanReferenceToggle
+                                                objectName: "cleanReferenceAudioWithIsolator"
+                                                text: qsTr("Clean reference audio with Isolator")
+                                                checked: root.referenceIsolator ? root.referenceIsolator.enabled : false
+                                                enabled: !root.inputsLocked
+                                                         && !(root.referenceIsolator && root.referenceIsolator.processing)
+                                                         && root.referenceIsolator !== null
+                                                onToggled: if (root.referenceIsolator) root.referenceIsolator.enabled = checked
+                                            }
+                                            Item { Layout.fillWidth: true }
+                                            Text {
+                                                text: root.referenceIsolator ? root.referenceIsolator.selectedRoute : ""
+                                                color: Theme.textSecondary
+                                                font.pixelSize: 10
+                                            }
+                                        }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            visible: root.referenceIsolator && root.referenceIsolator.enabled
+                                            text: root.referenceIsolator
+                                                  ? qsTr("Isolator route: %1 · model: %2")
+                                                        .arg(root.referenceIsolator.selectedRoute)
+                                                        .arg(root.referenceIsolator.selectedModel || qsTr("not selected"))
+                                                  : ""
+                                            color: root.referenceIsolator && root.referenceIsolator.routeReady ? Theme.textSecondary : Theme.warning
+                                            font.pixelSize: 10
+                                            wrapMode: Text.WordWrap
+                                        }
+                                        ProgressBar {
+                                            Layout.fillWidth: true
+                                            visible: root.referenceIsolator && root.referenceIsolator.processing
+                                            from: 0
+                                            to: 100
+                                            value: root.referenceIsolator ? root.referenceIsolator.progress : 0
+                                        }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            visible: root.referenceIsolator && root.referenceIsolator.enabled
+                                            text: root.referenceIsolator ? root.referenceIsolator.statusText : ""
+                                            color: root.referenceIsolator && root.referenceIsolator.lastError !== "" ? Theme.danger
+                                                  : (root.referenceIsolator && root.referenceIsolator.resultReady ? Theme.success : Theme.textSecondary)
+                                            font.pixelSize: 10
+                                            wrapMode: Text.WordWrap
+                                        }
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            visible: root.referenceIsolator && root.referenceIsolator.enabled
+                                            PrimaryButton {
+                                                text: root.referenceIsolator && root.referenceIsolator.processing ? qsTr("Separating…")
+                                                                                                                    : qsTr("Run Isolator")
+                                                iconName: "waves"
+                                                quiet: true
+                                                enabled: root.referenceIsolator && !root.referenceIsolator.processing
+                                                         && root.referenceAudioPath !== "" && root.referenceIsolator.routeReady
+                                                onClicked: root.referenceIsolator.start()
+                                            }
+                                            PrimaryButton {
+                                                text: qsTr("Configure Isolator")
+                                                iconName: "settings"
+                                                quiet: true
+                                                enabled: !root.inputsLocked
+                                                onClicked: AppController.workflows.openStudioRoute("studio-voice-isolator")
+                                            }
+                                            PrimaryButton {
+                                                text: qsTr("Cancel")
+                                                iconName: "stop"
+                                                quiet: true
+                                                visible: root.referenceIsolator && root.referenceIsolator.processing
+                                                onClicked: root.referenceIsolator.cancel()
+                                            }
+                                            PrimaryButton {
+                                                text: qsTr("Retry")
+                                                iconName: "refresh"
+                                                quiet: true
+                                                visible: root.referenceIsolator && !root.referenceIsolator.processing
+                                                         && root.referenceIsolator.lastError !== ""
+                                                onClicked: root.referenceIsolator.retry()
+                                            }
+                                        }
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            visible: root.referenceIsolator && root.referenceIsolator.enabled
+                                                     && root.referenceIsolator.resultReady
+                                            Text { text: qsTr("Preview:"); color: Theme.textSecondary; font.pixelSize: 10 }
+                                            PrimaryButton {
+                                                text: qsTr("Original")
+                                                quiet: true
+                                                enabled: root.referenceAudioPath !== ""
+                                                onClicked: { root.playingType = AppController.player.playFile(root.referenceAudioPath) ? "reference" : "none" }
+                                            }
+                                            PrimaryButton {
+                                                text: qsTr("Vocals")
+                                                quiet: true
+                                                onClicked: { root.playingType = AppController.player.playFile(root.referenceIsolator.vocalsPath) ? "reference-vocals" : "none" }
+                                            }
+                                            PrimaryButton {
+                                                text: qsTr("Background")
+                                                quiet: true
+                                                onClicked: { root.playingType = AppController.player.playFile(root.referenceIsolator.backgroundPath) ? "reference-background" : "none" }
+                                            }
+                                        }
+                                    }
+                                }
                                 }
                             }
                         }
@@ -612,29 +750,16 @@ StudioShell {
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: 42
                                     visible: !root.inputsLocked
-                                    enabled: {
-                                        if (root.remoteFirstMode && !root.colabActive) return false
-                                        if (root.colabActive) {
-                                            return inputText.text.trim().length > 0 && root.referenceAudioPath !== ""
-                                                && referenceBox.referenceText.trim().length > 0 && settingsPanel.colabConsent
-                                        }
-                                        var isQwen3 = root.family && root.family.id && root.family.id.indexOf("qwen3") !== -1
-                                        var baseEnabled = (root.studioController ? root.studioController.canProcess : false) && AppController.tts.modelLoaded && inputText.text.length > 0 && root.referenceAudioPath !== ""
-                                        baseEnabled = baseEnabled && !root.inputsLocked
-                                        if (isQwen3) {
-                                            return baseEnabled && referenceBox.referenceText.trim().length > 0
-                                        }
-                                        return baseEnabled
-                                    }
+                                    enabled: root.cloneBlockReason() === ""
                                     onClicked: {
                                         if (root.colabActive) {
-                                            root.activeClone.cloneVoice(VoiceCloningUtils.normalizeText(inputText.text), root.referenceAudioPath,
+                                            root.activeClone.cloneVoice(VoiceCloningUtils.normalizeText(inputText.text), root.referenceIsolator.cloneReferencePath,
                                                                         referenceBox.referenceText, root.selectedLanguageCode,
                                                                         settingsPanel.colabProfileName, settingsPanel.colabConsent,
                                                                         referenceBox.selectedSavedVoiceId)
                                         } else if (!root.remoteFirstMode) {
                                             var settings = settingsPanel.getSettingsObject(root.selectedLanguageCode, inputText.text, referenceBox.referenceText)
-                                            AppController.tts.cloneVoice(VoiceCloningUtils.normalizeText(inputText.text), root.referenceAudioPath, settings)
+                                            AppController.tts.cloneVoice(VoiceCloningUtils.normalizeText(inputText.text), root.referenceIsolator.cloneReferencePath, settings)
                                         }
                                     }
                                     AppToolTip {

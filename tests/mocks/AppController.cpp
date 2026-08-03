@@ -49,7 +49,7 @@ AppController::AppController(QObject *parent)
     m_workflows = new WorkflowActivityManager(
         m_sessionRegistry, m_tts, m_sttSession, m_alignment, nullptr,
         nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-        nullptr, nullptr, nullptr, this);
+        nullptr, nullptr, nullptr, nullptr, this);
 }
 
 AppController::~AppController()

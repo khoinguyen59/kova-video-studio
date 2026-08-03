@@ -15,6 +15,9 @@
 #include <cstring>
 
 #include "controllers/separation/ColabVoiceIsolatorController.h"
+#include "controllers/separation/VoiceCloneReferenceIsolatorController.h"
+#include "controllers/separation/VoiceIsolatorController.h"
+#include "core/Settings.h"
 #include "remote/ColabSession.h"
 #include "separation/ColabSeparationRunner.h"
 #include "test_ColabSeparationRunner.h"
@@ -70,12 +73,12 @@ private:
         QByteArray contentType = "application/json";
         if (request.startsWith("POST /v1/audio/separations ")) {
             body = R"({"job_id":"job-direct","status":"queued","progress":10})";
-        } else if (request.startsWith("GET /v1/audio/separations/job-direct ")) {
-            body = m_permanentlyQueued ? R"({"job_id":"job-direct","status":"running","progress":30})"
-                                       : R"({"job_id":"job-direct","status":"ready","progress":100})";
         } else if (request.startsWith("GET /v1/audio/separations/job-direct/artifacts/vocals ")
                    || request.startsWith("GET /v1/audio/separations/job-direct/artifacts/background ")) {
             body = tinyWav(); contentType = "audio/wav";
+        } else if (request.startsWith("GET /v1/audio/separations/job-direct ")) {
+            body = m_permanentlyQueued ? R"({"job_id":"job-direct","status":"running","progress":30})"
+                                       : R"({"job_id":"job-direct","status":"ready","progress":100})";
         } else if (request.startsWith("DELETE /v1/audio/separations/job-direct ")) {
             body = R"({"status":"cancelled"})";
         } else {
@@ -168,6 +171,60 @@ void TestColabSeparationRunner::testCancellationDiscardsPartialArtifacts()
     QVERIFY(failures.takeFirst().at(0).toString().contains(QStringLiteral("cancelled"), Qt::CaseInsensitive));
     QVERIFY(server.requests().contains("DELETE /v1/audio/separations/job-direct HTTP/1.1"));
     thread.quit(); QVERIFY(thread.wait(5000));
+}
+
+void TestColabSeparationRunner::voiceCloneReferenceUsesCachedVocalsOnly()
+{
+    SeparationMock server;
+    QVERIFY(server.start());
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString source = sourceFile(&directory);
+    QVERIFY(!source.isEmpty());
+
+    ColabSession session;
+    QString error;
+    QVERIFY2(session.setSession(server.baseUrl(), QStringLiteral("reference-isolator-token"),
+                                &error, true), qPrintable(error));
+    Settings settings;
+    VoiceIsolatorController local;
+    ColabVoiceIsolatorController colab(&session, &settings);
+    colab.useColab();
+    QVERIFY(colab.colabActive());
+
+    VoiceCloneReferenceIsolatorController reference(&local, &colab);
+    reference.setSourcePath(source);
+    reference.setEnabled(true);
+    QVERIFY2(reference.start(), qPrintable(reference.lastError()));
+    QTRY_VERIFY_WITH_TIMEOUT(!reference.processing(), 5000);
+    QVERIFY2(reference.resultReady(), qPrintable(reference.lastError()));
+    QVERIFY(QFileInfo(reference.vocalsPath()).isFile());
+    QVERIFY(QFileInfo(reference.backgroundPath()).isFile());
+    QCOMPARE(reference.cloneReferencePath(), reference.vocalsPath());
+    QVERIFY(reference.cloneReferencePath() != source);
+    QVERIFY(reference.cloneReferencePath() != reference.backgroundPath());
+    const QByteArray firstRunRequests = server.requests();
+    QVERIFY(firstRunRequests.contains("POST /v1/audio/separations HTTP/1.1"));
+
+    // Cache identity is source fingerprint + selected route/model.  Clearing
+    // the presentation state must reuse the durable Vocals artifact rather
+    // than dispatch a second separation job.
+    reference.clearResult();
+    QVERIFY2(reference.start(), qPrintable(reference.lastError()));
+    QVERIFY(reference.resultReady());
+    QCOMPARE(server.requests(), firstRunRequests);
+
+    // Turning the option off is the only path that permits the original
+    // reference.  With cleanup enabled, Background is never returned to the
+    // clone boundary.
+    reference.setEnabled(false);
+    QCOMPARE(reference.cloneReferencePath(), source);
+    reference.setEnabled(true);
+    QVERIFY(reference.resultReady());
+    QCOMPARE(reference.cloneReferencePath(), reference.vocalsPath());
+
+    colab.selectColabModel(QStringLiteral("sherpa-onnx-uvr-vocals-ft"));
+    QVERIFY(!reference.resultReady());
 }
 
 void TestColabSeparationRunner::separationNotebookMatchesDirectColabContract()

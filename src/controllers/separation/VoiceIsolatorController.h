@@ -48,6 +48,9 @@ public:
     bool ready() const;
     int threadCount() const { return m_threadCount; }
     QVariantList recentResults() const { return m_recentResults; }
+    // Non-secret selected runtime/model identity used by callers that need to
+    // bind cached output to the actual local Isolator configuration.
+    QVariantMap configurationInfo() const;
 
     void setSourcePath(const QString &path);
     void setRuntimePath(const QString &path);

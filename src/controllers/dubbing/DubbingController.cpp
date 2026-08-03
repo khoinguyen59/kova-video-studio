@@ -937,12 +937,12 @@ void DubbingController::refreshColabSetupSnapshot(const QString &stageId, bool v
 QVariantList DubbingController::colabSetupStages() const
 {
     const QList<QPair<QString, QString>> definitions{
-        {QStringLiteral("source-separate"), QStringLiteral("Source separation / voice isolation")},
-        {QStringLiteral("transcribe"), QStringLiteral("Speech to text")},
-        {QStringLiteral("subtitle-ocr"), QStringLiteral("Subtitle OCR")},
+        {QStringLiteral("source-separate"), QStringLiteral("Isolator (Vocals/Background)")},
+        {QStringLiteral("transcribe"), QStringLiteral("Transcribe/STT")},
+        {QStringLiteral("subtitle-ocr"), QStringLiteral("Alignment/Subtitle OCR")},
         {QStringLiteral("translate"), QStringLiteral("Translation")},
         {QStringLiteral("synthesize"), QStringLiteral("TTS / Text to Speech")},
-        {QStringLiteral("alignment"), QStringLiteral("Forced alignment")},
+        {QStringLiteral("alignment"), QStringLiteral("Alignment/Subtitle")},
     };
     const QString transcriptSource = m_project.transcriptConfiguration.value(
         QStringLiteral("transcriptSource"), QStringLiteral("stt")).toString().trimmed().toLower();
@@ -1565,8 +1565,8 @@ QVariantList DubbingController::workflowNodes() const
         } else if (definition.id == QStringLiteral("source-separate")) {
             const bool separated = hasMedia && !m_project.backgroundAudioPath.trimmed().isEmpty();
             state = hasMedia ? (separated ? QStringLiteral("completed") : QStringLiteral("ready")) : QStringLiteral("missing");
-            detail = separated ? QStringLiteral("Voice and background stems available")
-                               : (hasMedia ? QStringLiteral("Use original audio if separation is unavailable") : QStringLiteral("Import source media"));
+            detail = separated ? QStringLiteral("Vocals and Background stems available")
+                               : (hasMedia ? QStringLiteral("Run Isolator to create Vocals and Background stems") : QStringLiteral("Import source media"));
         } else if (definition.id == QStringLiteral("transcribe")) {
             const QString transcriptSource = m_project.transcriptConfiguration.value(
                 QStringLiteral("transcriptSource"), QStringLiteral("stt")).toString().trimmed().toLower();
@@ -1649,7 +1649,20 @@ QVariantList DubbingController::workflowNodes() const
                     || m_automaticStatusText.isEmpty()
                 ? QStringLiteral("Node is running") : m_automaticStatusText;
         }
-        QVariantMap item = node(definition.id, definition.title, state, detail, provider).toMap();
+        const auto stageTitleForNode = [](const QString &id) {
+            if (id == QStringLiteral("media-input")) return QStringLiteral("Import/Download");
+            if (id == QStringLiteral("ingest")) return QStringLiteral("Normalize");
+            if (id == QStringLiteral("source-separate")) return QStringLiteral("Isolator");
+            if (id == QStringLiteral("transcribe")) return QStringLiteral("Transcribe/STT");
+            if (id == QStringLiteral("review-transcript")) return QStringLiteral("Alignment/Subtitle");
+            if (id == QStringLiteral("translate") || id == QStringLiteral("review-translation")) return QStringLiteral("Translate");
+            if (id == QStringLiteral("assign-voices") || id == QStringLiteral("synthesize")) return QStringLiteral("TTS");
+            if (id == QStringLiteral("fit-timing") || id == QStringLiteral("review-conflicts") || id == QStringLiteral("mix")) return QStringLiteral("Timing/Mix");
+            return QStringLiteral("Export/Output");
+        };
+        const QString displayTitle = stageTitleForNode(definition.id);
+        QVariantMap item = node(definition.id, displayTitle, state, detail, provider).toMap();
+        item.insert(QStringLiteral("displayStageTitle"), displayTitle);
         item.insert(QStringLiteral("parameters"), definition.parameters);
         item.insert(QStringLiteral("typeId"), definition.typeId);
         item.insert(QStringLiteral("typeVersion"), definition.typeVersion);
@@ -1740,7 +1753,7 @@ QVariantList DubbingController::workflowNodes() const
         const auto roleForNode = [](const QString &id) {
             if (id == QStringLiteral("media-input")) return QStringLiteral("Choose the original audio or video used by the project.");
             if (id == QStringLiteral("ingest")) return QStringLiteral("Inspect media and create normalized working audio.");
-            if (id == QStringLiteral("source-separate")) return QStringLiteral("Separate voice and background stems for the mix.");
+            if (id == QStringLiteral("source-separate")) return QStringLiteral("Create Vocals and Background stems for the mix.");
             if (id == QStringLiteral("transcribe")) return QStringLiteral("Create timed text from speech, subtitles, or both.");
             if (id == QStringLiteral("review-transcript")) return QStringLiteral("Review the transcript before translation.");
             if (id == QStringLiteral("translate")) return QStringLiteral("Translate reviewed timed text into the target language.");
@@ -1772,6 +1785,104 @@ QVariantList DubbingController::workflowNodes() const
                 ocrUsesColab ? QStringLiteral("subtitle-ocr") : definition.id,
                 ocrUsesColab ? m_subtitleOcr->colabModelId() : configuredModel));
         result.append(item);
+    }
+    return result;
+}
+
+QVariantList DubbingController::workflowStages() const
+{
+    // These are intentionally not new graph nodes.  They are a stable
+    // presentation contract over the persisted node ids, which preserves
+    // existing project journals, artifacts and rerun/resume behaviour.
+    const QVariantList nodes = workflowNodes();
+    QHash<QString, QVariantMap> byId;
+    for (const QVariant &entry : nodes) {
+        const QVariantMap node = entry.toMap();
+        byId.insert(node.value(QStringLiteral("id")).toString(), node);
+    }
+
+    struct StageDefinition {
+        const char *id;
+        const char *title;
+        const char *actionNodeId;
+        const char *description;
+        QStringList nodeIds;
+    };
+    const QList<StageDefinition> definitions{
+        {"import", "Import/Download", "media-input",
+         "Choose a local media file or download/import an approved URL.",
+         {QStringLiteral("media-input")}},
+        {"normalize", "Normalize", "ingest",
+         "Probe media and create the master and analysis audio used downstream.",
+         {QStringLiteral("ingest")}},
+        {"isolator", "Isolator", "source-separate",
+         "Create real Vocals and Background stems for review and mixing.",
+         {QStringLiteral("source-separate")}},
+        {"transcribe", "Transcribe/STT", "transcribe",
+         "Create timed text from STT, Subtitle OCR, or the reviewed STT + OCR mode.",
+         {QStringLiteral("transcribe")}},
+        {"alignment-subtitle", "Alignment/Subtitle", "review-transcript",
+         "Review timed transcript and subtitle data; open subtitle editor or Alignment configuration before translation.",
+         {QStringLiteral("review-transcript")}},
+        {"translate", "Translate", "translate",
+         "Translate the reviewed timed transcript.",
+         {QStringLiteral("translate"), QStringLiteral("review-translation")}},
+        {"tts", "TTS", "synthesize",
+         "Assign a voice and synthesize the translated segments.",
+         {QStringLiteral("assign-voices"), QStringLiteral("synthesize")}},
+        {"timing-mix", "Timing/Mix", "mix",
+         "Fit speech timing, resolve timing conflicts, and mix Vocals with Background.",
+         {QStringLiteral("fit-timing"), QStringLiteral("review-conflicts"), QStringLiteral("mix")}},
+        {"export", "Export/Output", "export",
+         "Export dubbed media, subtitles, a package, or a CapCut Draft.",
+         {QStringLiteral("export")}}
+    };
+
+    const QHash<QString, int> priority{
+        {QStringLiteral("completed"), 0}, {QStringLiteral("ready"), 1},
+        {QStringLiteral("missing"), 2}, {QStringLiteral("blocked"), 3},
+        {QStringLiteral("waiting_for_input"), 4}, {QStringLiteral("running"), 5}
+    };
+    const QString activeNodeId = currentStepId();
+    QVariantList result;
+    for (const StageDefinition &definition : definitions) {
+        QVariantMap stage;
+        QVariantList productionNodes;
+        QVariantMap actionNode = byId.value(QString::fromLatin1(definition.actionNodeId));
+        QString state = QStringLiteral("completed");
+        int statePriority = -1;
+        QString detail;
+        bool active = false;
+        for (const QString &nodeId : definition.nodeIds) {
+            const QVariantMap node = byId.value(nodeId);
+            if (node.isEmpty()) continue;
+            productionNodes.append(nodeId);
+            const QString candidate = node.value(QStringLiteral("state")).toString();
+            const int candidatePriority = priority.value(candidate, 3);
+            if (candidatePriority > statePriority) {
+                statePriority = candidatePriority;
+                state = candidate;
+                detail = node.value(QStringLiteral("detail")).toString();
+            }
+            active = active || activeNodeId == nodeId;
+        }
+        if (detail.isEmpty()) detail = QString::fromLatin1(definition.description);
+        stage.insert(QStringLiteral("id"), QString::fromLatin1(definition.id));
+        stage.insert(QStringLiteral("title"), QString::fromLatin1(definition.title));
+        stage.insert(QStringLiteral("description"), QString::fromLatin1(definition.description));
+        stage.insert(QStringLiteral("actionNodeId"), QString::fromLatin1(definition.actionNodeId));
+        stage.insert(QStringLiteral("productionNodeIds"), productionNodes);
+        stage.insert(QStringLiteral("state"), state);
+        stage.insert(QStringLiteral("detail"), detail);
+        stage.insert(QStringLiteral("active"), active);
+        stage.insert(QStringLiteral("configurable"), actionNode.value(QStringLiteral("configurable")).toBool());
+        stage.insert(QStringLiteral("capabilityId"), actionNode.value(QStringLiteral("capabilityId")));
+        stage.insert(QStringLiteral("executionProvider"), actionNode.value(QStringLiteral("executionProvider")));
+        stage.insert(QStringLiteral("providerName"), actionNode.value(QStringLiteral("providerName")));
+        stage.insert(QStringLiteral("resourceText"), actionNode.value(QStringLiteral("resourceText")));
+        stage.insert(QStringLiteral("resourceReason"), actionNode.value(QStringLiteral("resourceReason")));
+        stage.insert(QStringLiteral("notebookFile"), actionNode.value(QStringLiteral("notebookFile")));
+        result.append(stage);
     }
     return result;
 }

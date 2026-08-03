@@ -8,6 +8,7 @@
 #include "controllers/llm/LlmChatController.h"
 #include "controllers/separation/ColabVoiceIsolatorController.h"
 #include "controllers/separation/VoiceIsolatorController.h"
+#include "controllers/separation/VoiceCloneReferenceIsolatorController.h"
 #include "controllers/subtitles/SubtitleOcrController.h"
 #include "controllers/translation/TranslationController.h"
 #include "controllers/tts/ColabTtsController.h"
@@ -49,6 +50,7 @@ WorkflowActivityManager::WorkflowActivityManager(ModelSessionRegistry *sessionRe
                                              ColabAlignmentController *colabAlignment,
                                              VoiceIsolatorController *voiceIsolator,
                                              ColabVoiceIsolatorController *colabVoiceIsolator,
+                                             VoiceCloneReferenceIsolatorController *voiceCloneReferenceIsolator,
                                              TranslationController *translation,
                                              SubtitleOcrController *subtitleOcr,
                                              LlmChatController *llmChat,
@@ -66,6 +68,7 @@ WorkflowActivityManager::WorkflowActivityManager(ModelSessionRegistry *sessionRe
     , m_colabAlignment(colabAlignment)
     , m_voiceIsolator(voiceIsolator)
     , m_colabVoiceIsolator(colabVoiceIsolator)
+    , m_voiceCloneReferenceIsolator(voiceCloneReferenceIsolator)
     , m_translation(translation)
     , m_subtitleOcr(subtitleOcr)
     , m_llmChat(llmChat)
@@ -125,6 +128,9 @@ WorkflowActivityManager::WorkflowActivityManager(ModelSessionRegistry *sessionRe
         connect(m_voiceIsolator, &VoiceIsolatorController::stateChanged, this, &WorkflowActivityManager::refresh);
     if (m_colabVoiceIsolator)
         connect(m_colabVoiceIsolator, &ColabVoiceIsolatorController::stateChanged, this, &WorkflowActivityManager::refresh);
+    if (m_voiceCloneReferenceIsolator)
+        connect(m_voiceCloneReferenceIsolator, &VoiceCloneReferenceIsolatorController::stateChanged,
+                this, &WorkflowActivityManager::refresh);
     if (m_translation)
         connect(m_translation, &TranslationController::processingChanged, this, &WorkflowActivityManager::refresh);
     if (m_subtitleOcr) {
@@ -172,7 +178,7 @@ QVariantList WorkflowActivityManager::activeWorkflows() const
     const QList<QVariantMap> directFeatureWorkflows{
         gatewayTtsWorkflow(), colabTtsWorkflow(), voiceCloneWorkflow(),
         voiceDesignWorkflow(), colabAlignmentWorkflow(), localVoiceIsolationWorkflow(),
-        colabVoiceIsolationWorkflow(), translationWorkflow(), subtitleOcrWorkflow(),
+        colabVoiceIsolationWorkflow(), voiceCloneReferenceIsolationWorkflow(), translationWorkflow(), subtitleOcrWorkflow(),
         llmChatWorkflow()
     };
     for (const QVariantMap &workflow : directFeatureWorkflows) {
@@ -294,6 +300,12 @@ void WorkflowActivityManager::stopWorkflow(const QString &id)
         refresh();
         return;
     }
+    if (id == QStringLiteral("voice-clone-reference-isolation-active") && m_voiceCloneReferenceIsolator) {
+        m_stoppingIds.insert(id);
+        m_voiceCloneReferenceIsolator->cancel();
+        refresh();
+        return;
+    }
     if (id == QStringLiteral("translation-active") && m_translation) {
         m_stoppingIds.insert(id);
         m_translation->cancel();
@@ -351,6 +363,10 @@ void WorkflowActivityManager::openWorkflow(const QString &id)
         emit openRequested(studioRouteForCapability(QStringLiteral("voice-isolation")));
         return;
     }
+    if (id == QStringLiteral("voice-clone-reference-isolation-active")) {
+        emit openRequested(studioRouteForCapability(QStringLiteral("voice-cloning")));
+        return;
+    }
     if (id == QStringLiteral("translation-active")) {
         emit openRequested(studioRouteForCapability(QStringLiteral("translation")));
         return;
@@ -381,6 +397,13 @@ void WorkflowActivityManager::openWorkflow(const QString &id)
             emit openRequested(studioRouteForCapability(QStringLiteral("tts")));
         }
     }
+}
+
+void WorkflowActivityManager::openStudioRoute(const QString &routeId)
+{
+    const QString normalized = routeId.trimmed();
+    if (!normalized.startsWith(QStringLiteral("studio-"))) return;
+    emit openRequested(normalized);
 }
 
 void WorkflowActivityManager::openVoiceCloningStudio()
@@ -629,6 +652,7 @@ QVariantMap WorkflowActivityManager::colabAlignmentWorkflow() const
 
 QVariantMap WorkflowActivityManager::localVoiceIsolationWorkflow() const
 {
+    if (m_voiceCloneReferenceIsolator && m_voiceCloneReferenceIsolator->processing()) return {};
     if (!m_voiceIsolator || !m_voiceIsolator->processing()) return {};
     QVariantMap workflow = makeWorkflow(QStringLiteral("voice-isolation-active"),
         QStringLiteral("voice-isolation"), QStringLiteral("Separating vocals locally"),
@@ -642,6 +666,7 @@ QVariantMap WorkflowActivityManager::localVoiceIsolationWorkflow() const
 
 QVariantMap WorkflowActivityManager::colabVoiceIsolationWorkflow() const
 {
+    if (m_voiceCloneReferenceIsolator && m_voiceCloneReferenceIsolator->processing()) return {};
     if (!m_colabVoiceIsolator || !m_colabVoiceIsolator->processing()) return {};
     QVariantMap workflow = makeWorkflow(QStringLiteral("colab-voice-isolation-active"),
         QStringLiteral("voice-isolation"), QStringLiteral("Separating vocals on Direct Colab GPU"),
@@ -650,6 +675,23 @@ QVariantMap WorkflowActivityManager::colabVoiceIsolationWorkflow() const
     addExecutionDetails(&workflow, QStringLiteral("Direct Colab GPU"),
                         m_colabVoiceIsolator->model(), QStringLiteral("fixed"),
                         m_colabVoiceIsolator->lastError());
+    return workflow;
+}
+
+QVariantMap WorkflowActivityManager::voiceCloneReferenceIsolationWorkflow() const
+{
+    if (!m_voiceCloneReferenceIsolator || !m_voiceCloneReferenceIsolator->processing()) return {};
+    const QString route = m_voiceCloneReferenceIsolator->selectedRoute();
+    QVariantMap workflow = makeWorkflow(QStringLiteral("voice-clone-reference-isolation-active"),
+        QStringLiteral("voice-cloning"), QStringLiteral("Cleaning Voice Clone reference with Isolator"),
+        studioRouteForCapability(QStringLiteral("voice-cloning")), QStringLiteral("waves"),
+        m_voiceCloneReferenceIsolator->progress(), false,
+        m_voiceCloneReferenceIsolator->statusText().isEmpty()
+            ? QStringLiteral("Separating Vocals and Background")
+            : m_voiceCloneReferenceIsolator->statusText(), true);
+    addExecutionDetails(&workflow, route, m_voiceCloneReferenceIsolator->selectedModel(),
+                        route == QStringLiteral("Direct Colab GPU") ? QStringLiteral("fixed") : QString(),
+                        m_voiceCloneReferenceIsolator->lastError());
     return workflow;
 }
 

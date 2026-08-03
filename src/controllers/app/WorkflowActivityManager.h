@@ -22,6 +22,7 @@ class ColabVoiceDesignController;
 class ColabAlignmentController;
 class VoiceIsolatorController;
 class ColabVoiceIsolatorController;
+class VoiceCloneReferenceIsolatorController;
 class TranslationController;
 class SubtitleOcrController;
 class LlmChatController;
@@ -51,6 +52,7 @@ public:
                              ColabAlignmentController *colabAlignment = nullptr,
                              VoiceIsolatorController *voiceIsolator = nullptr,
                              ColabVoiceIsolatorController *colabVoiceIsolator = nullptr,
+                             VoiceCloneReferenceIsolatorController *voiceCloneReferenceIsolator = nullptr,
                              TranslationController *translation = nullptr,
                              SubtitleOcrController *subtitleOcr = nullptr,
                              LlmChatController *llmChat = nullptr,
@@ -65,6 +67,9 @@ public:
 
     Q_INVOKABLE void stopWorkflow(const QString &id);
     Q_INVOKABLE void openWorkflow(const QString &id);
+    // Used by production-backed cross-studio actions (for example Dubbing's
+    // Alignment/Subtitle stage) without pretending an inactive job exists.
+    Q_INVOKABLE void openStudioRoute(const QString &routeId);
     Q_INVOKABLE void openVoiceCloningStudio();
 
 signals:
@@ -86,6 +91,7 @@ private:
     QVariantMap colabAlignmentWorkflow() const;
     QVariantMap localVoiceIsolationWorkflow() const;
     QVariantMap colabVoiceIsolationWorkflow() const;
+    QVariantMap voiceCloneReferenceIsolationWorkflow() const;
     QVariantMap translationWorkflow() const;
     QVariantMap subtitleOcrWorkflow() const;
     QVariantMap llmChatWorkflow() const;
@@ -120,6 +126,7 @@ private:
     ColabAlignmentController *m_colabAlignment = nullptr;
     VoiceIsolatorController *m_voiceIsolator = nullptr;
     ColabVoiceIsolatorController *m_colabVoiceIsolator = nullptr;
+    VoiceCloneReferenceIsolatorController *m_voiceCloneReferenceIsolator = nullptr;
     TranslationController *m_translation = nullptr;
     SubtitleOcrController *m_subtitleOcr = nullptr;
     LlmChatController *m_llmChat = nullptr;

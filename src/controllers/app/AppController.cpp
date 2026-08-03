@@ -78,6 +78,8 @@ AppController::AppController(QObject *parent)
     m_colabAlignment = new ColabAlignmentController(m_colabAlignmentSession, m_settings, this);
     m_voiceIsolator = new VoiceIsolatorController(this);
     m_colabVoiceIsolator = new ColabVoiceIsolatorController(m_colabSeparationSession, m_settings, this);
+    m_voiceCloneReferenceIsolator = new VoiceCloneReferenceIsolatorController(
+        m_voiceIsolator, m_colabVoiceIsolator, this);
     Logger::info(QStringLiteral("App"), QStringLiteral("Initializing model session registry."));
     m_sessionRegistry = new ModelSessionRegistry(m_stt, m_tts, m_translationEngine, m_llmEngine, m_alignment, m_voiceIsolator, this);
     m_translation = new TranslationController(m_translationEngine,
@@ -132,7 +134,7 @@ AppController::AppController(QObject *parent)
     m_workflows = new WorkflowActivityManager(
         m_sessionRegistry, m_tts, m_sttSession, m_alignment, m_dubbing,
         m_gatewayTts, m_colabTts, m_colabVoiceClone, m_colabVoiceDesign,
-        m_colabAlignment, m_voiceIsolator, m_colabVoiceIsolator,
+        m_colabAlignment, m_voiceIsolator, m_colabVoiceIsolator, m_voiceCloneReferenceIsolator,
         m_translation, m_subtitleOcr, m_llmChat, this);
     m_apiServer = new ApiServerService(m_settings, m_tts, m_stt, this);
     Logger::info(QStringLiteral("App"), QStringLiteral("Application services initialized."));

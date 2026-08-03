@@ -6,7 +6,7 @@ include(cmake/RuntimeAbi.cmake)
 # automation may override it with -DLASTUDIO_VERSION=<major.minor.release.build>.
 # Internal builds use four numeric fields so each artifact has an unambiguous,
 # monotonically ordered label: 0.0.0.1 ... 0.0.0.9, then 0.0.1.0.
-set(LASTUDIO_VERSION "0.0.2.19" CACHE STRING "LA Studio application version")
+set(LASTUDIO_VERSION "0.0.2.20" CACHE STRING "LA Studio application version")
 if(NOT LASTUDIO_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$")
     message(FATAL_ERROR "LASTUDIO_VERSION must use MAJOR.MINOR.RELEASE.BUILD format; got '${LASTUDIO_VERSION}'")
 endif()
@@ -177,6 +177,7 @@ set(LASTUDIO_SOURCES
     src/controllers/alignment/AlignmentExecutionService.cpp
     src/controllers/alignment/ColabAlignmentController.cpp
     src/controllers/separation/ColabVoiceIsolatorController.cpp
+    src/controllers/separation/VoiceCloneReferenceIsolatorController.cpp
     src/dubbing/AlignmentRefinementService.cpp
     src/dubbing/DubbingSegmentNormalizer.cpp
     src/controllers/alignment/AlignmentTranscriptMatcher.cpp
@@ -366,6 +367,7 @@ set(LASTUDIO_HEADERS
     src/controllers/alignment/AlignmentExecutionService.h
     src/controllers/alignment/ColabAlignmentController.h
     src/controllers/separation/ColabVoiceIsolatorController.h
+    src/controllers/separation/VoiceCloneReferenceIsolatorController.h
     src/dubbing/AlignmentRefinementService.h
     src/dubbing/DubbingSegmentNormalizer.h
     src/controllers/alignment/AlignmentTranscriptMatcher.h

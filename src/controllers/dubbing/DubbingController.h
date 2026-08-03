@@ -67,6 +67,10 @@ class DubbingController : public QObject
     Q_PROPERTY(QString downloadedMediaPath READ downloadedMediaPath NOTIFY linkImportChanged)
     Q_PROPERTY(QString downloadedMediaFileName READ downloadedMediaFileName NOTIFY linkImportChanged)
     Q_PROPERTY(QVariantList workflowNodes READ workflowNodes NOTIFY workflowChanged)
+    // Presentation-only aggregation of the durable workflow node ids.  The
+    // serialized graph deliberately keeps its existing ids so projects made
+    // by earlier releases can still resume and rerun their production nodes.
+    Q_PROPERTY(QVariantList workflowStages READ workflowStages NOTIFY workflowChanged)
     Q_PROPERTY(QVariantMap workflowNodeConfigurations READ workflowNodeConfigurations NOTIFY workflowChanged)
     Q_PROPERTY(QVariantMap transcriptConfiguration READ transcriptConfiguration NOTIFY projectChanged)
     Q_PROPERTY(int unresolvedTranscriptConflictCount READ unresolvedTranscriptConflictCount NOTIFY segmentsChanged)
@@ -167,6 +171,7 @@ public:
     QString downloadedMediaPath() const { return m_downloadedMediaPath; }
     QString downloadedMediaFileName() const;
     QVariantList workflowNodes() const;
+    QVariantList workflowStages() const;
     QVariantMap workflowNodeConfigurations() const { return m_workflowNodeConfigurations; }
     QVariantMap transcriptConfiguration() const { return m_project.transcriptConfiguration; }
     int unresolvedTranscriptConflictCount() const;

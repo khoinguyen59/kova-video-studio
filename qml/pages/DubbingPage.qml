@@ -87,15 +87,43 @@ Item {
     }
 
     function stepTitle(stepId) {
-        if (stepId === "import") return qsTr("Import")
+        if (stepId === "import" || stepId === "media-input") return qsTr("Import/Download")
         if (stepId === "ingest") return qsTr("Normalize")
-        if (stepId === "source-separate") return qsTr("Separate speech")
-        if (stepId === "transcribe") return qsTr("Transcribe")
+        if (stepId === "source-separate") return qsTr("Isolator")
+        if (stepId === "transcribe") return qsTr("Transcribe/STT")
+        if (stepId === "review-transcript" || stepId === "alignment-subtitle") return qsTr("Alignment/Subtitle")
         if (stepId === "translate") return qsTr("Translate")
-        if (stepId === "synthesize") return qsTr("Generate voice")
-        if (stepId === "mix") return qsTr("Mix audio")
-        if (stepId === "export") return qsTr("Export")
+        if (stepId === "synthesize") return qsTr("TTS")
+        if (stepId === "fit-timing" || stepId === "review-conflicts" || stepId === "mix" || stepId === "timing-mix") return qsTr("Timing/Mix")
+        if (stepId === "export") return qsTr("Export/Output")
         return qsTr("Completed")
+    }
+
+    function stageIdForNode(nodeId) {
+        if (nodeId === "media-input" || nodeId === "import") return "import"
+        if (nodeId === "ingest") return "normalize"
+        if (nodeId === "source-separate") return "isolator"
+        if (nodeId === "transcribe") return "transcribe"
+        if (nodeId === "review-transcript" || nodeId === "alignment-subtitle") return "alignment-subtitle"
+        if (nodeId === "translate" || nodeId === "review-translation") return "translate"
+        if (nodeId === "assign-voices" || nodeId === "synthesize") return "tts"
+        if (nodeId === "fit-timing" || nodeId === "review-conflicts" || nodeId === "mix" || nodeId === "timing-mix") return "timing-mix"
+        if (nodeId === "export") return "export"
+        return nodeId
+    }
+
+    function actionNodeForStage(stageId) {
+        var stages = dubbing.workflowStages || []
+        for (var i = 0; i < stages.length; ++i)
+            if (stages[i].id === stageId) return stages[i].actionNodeId || stageId
+        return stageId
+    }
+
+    function workflowStage(stageId) {
+        var stages = dubbing.workflowStages || []
+        for (var i = 0; i < stages.length; ++i)
+            if (stages[i].id === stageId) return stages[i]
+        return null
     }
 
     function workflowNode(nodeId) {
@@ -106,7 +134,7 @@ Item {
     }
 
     function nextNodeId(nodeId) {
-        var next = {"import": "ingest", "ingest": "source-separate", "source-separate": "transcribe", "transcribe": "translate", "translate": "synthesize", "synthesize": "mix", "mix": "export"}
+        var next = {"import": "ingest", "ingest": "source-separate", "source-separate": "transcribe", "transcribe": "alignment-subtitle", "review-transcript": "translate", "translate": "synthesize", "synthesize": "mix", "mix": "export"}
         return next[nodeId] || ""
     }
 
@@ -117,6 +145,11 @@ Item {
     function runNextNode(nodeId) {
         var next = nextNodeId(nodeId)
         if (next === "") return
+        if (next === "alignment-subtitle") {
+            root.reviewStepId = "review-transcript"
+            subtitleEditorDialog.open()
+            return
+        }
         root.reviewStepId = next
         // "Next" means execute the next workflow node, not only highlight it.
         // rerunStep also provides controller-side diagnostics for rejected runs.
@@ -127,7 +160,7 @@ Item {
         if (stepId === "import") return dubbing.sourceMediaPath.length > 0
         if (stepId === "ingest") return dubbing.normalizedAudioPath.length > 0
         if (stepId === "source-separate") return dubbing.vocalsPath.length > 0 && dubbing.backgroundPath.length > 0
-        if (stepId === "transcribe") return dubbing.segments.length > 0
+        if (stepId === "transcribe" || stepId === "review-transcript" || stepId === "alignment-subtitle") return dubbing.segments.length > 0
         if (stepId === "translate") {
             if (dubbing.segments.length === 0) return false
             for (var i = 0; i < dubbing.segments.length; ++i)
@@ -140,7 +173,7 @@ Item {
                 if (!(dubbing.segments[j].clipPath || "")) return false
             return true
         }
-        if (stepId === "mix") return dubbing.previewPath.length > 0
+        if (stepId === "mix" || stepId === "timing-mix") return dubbing.previewPath.length > 0
         if (stepId === "export") return dubbing.exportPath.length > 0
         return false
     }
@@ -424,13 +457,15 @@ Item {
         DubbingWorkflowHeader {
             dubbing: root.dubbing
             steps: [
-                { stepId: "import", title: qsTr("Import"), iconName: "folder", complete: root.stepComplete("import"), active: root.dubbing.currentStepId === "import" },
-                { stepId: "ingest", title: qsTr("Normalize"), iconName: "activity", complete: root.stepComplete("ingest"), active: root.dubbing.currentStepId === "ingest" },
-                { stepId: "source-separate", title: qsTr("Separate"), iconName: "waves", complete: root.stepComplete("source-separate"), active: root.dubbing.currentStepId === "source-separate" },
-                { stepId: "transcribe", title: qsTr("Transcribe"), iconName: "mic", complete: root.stepComplete("transcribe"), active: root.dubbing.currentStepId === "transcribe" },
-                { stepId: "translate", title: qsTr("Translate"), iconName: "translate", complete: root.stepComplete("translate"), active: root.dubbing.currentStepId === "translate" },
-                { stepId: "synthesize", title: qsTr("Voice"), iconName: "volume", complete: root.stepComplete("synthesize"), active: root.dubbing.currentStepId === "synthesize" },
-                { stepId: "export", title: qsTr("Output"), iconName: "download", complete: root.stepComplete("export"), active: ["mix", "export", "completed"].indexOf(root.dubbing.currentStepId) >= 0 }
+                { stepId: "import", title: qsTr("Import/Download"), iconName: "folder", complete: (root.workflowStage("import") || {}).state === "completed", active: root.stageIdForNode(root.dubbing.currentStepId) === "import" },
+                { stepId: "normalize", title: qsTr("Normalize"), iconName: "activity", complete: (root.workflowStage("normalize") || {}).state === "completed", active: root.stageIdForNode(root.dubbing.currentStepId) === "normalize" },
+                { stepId: "isolator", title: qsTr("Isolator"), iconName: "waves", complete: (root.workflowStage("isolator") || {}).state === "completed", active: root.stageIdForNode(root.dubbing.currentStepId) === "isolator" },
+                { stepId: "transcribe", title: qsTr("Transcribe/STT"), iconName: "mic", complete: (root.workflowStage("transcribe") || {}).state === "completed", active: root.stageIdForNode(root.dubbing.currentStepId) === "transcribe" },
+                { stepId: "alignment-subtitle", title: qsTr("Alignment/Subtitle"), iconName: "alignment", complete: (root.workflowStage("alignment-subtitle") || {}).state === "completed", active: root.stageIdForNode(root.dubbing.currentStepId) === "alignment-subtitle" },
+                { stepId: "translate", title: qsTr("Translate"), iconName: "translate", complete: (root.workflowStage("translate") || {}).state === "completed", active: root.stageIdForNode(root.dubbing.currentStepId) === "translate" },
+                { stepId: "tts", title: qsTr("TTS"), iconName: "volume", complete: (root.workflowStage("tts") || {}).state === "completed", active: root.stageIdForNode(root.dubbing.currentStepId) === "tts" },
+                { stepId: "timing-mix", title: qsTr("Timing/Mix"), iconName: "clock", complete: (root.workflowStage("timing-mix") || {}).state === "completed", active: root.stageIdForNode(root.dubbing.currentStepId) === "timing-mix" },
+                { stepId: "export", title: qsTr("Export/Output"), iconName: "download", complete: (root.workflowStage("export") || {}).state === "completed", active: root.stageIdForNode(root.dubbing.currentStepId) === "export" }
             ]
             statusText: root.dubbing.processing
                         ? (root.dubbing.progressAvailable
@@ -441,7 +476,7 @@ Item {
             historyOpen: root.isHistoryOpen
             settingsOpen: root.isNodeInspectorOpen
             onStepSelected: function(stepId) {
-                if (!root.dubbing.processing) root.reviewStepId = stepId
+                if (!root.dubbing.processing) root.reviewStepId = root.actionNodeForStage(stepId)
             }
             onHistoryToggled: root.isHistoryOpen = !root.isHistoryOpen
             onSettingsToggled: root.isNodeInspectorOpen = !root.isNodeInspectorOpen
@@ -1027,6 +1062,62 @@ Item {
                         onRunRequested: root.runStep(nodeId)
                         onNextRequested: root.runNextNode(nodeId)
                     }
+                    Panel {
+                        visible: root.displayedStepId === "review-transcript"
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: visible ? alignmentSubtitleActions.implicitHeight + Theme.paddingLarge * 2 : 0
+                        ColumnLayout {
+                            id: alignmentSubtitleActions
+                            anchors.fill: parent
+                            anchors.margins: Theme.paddingLarge
+                            spacing: Theme.paddingSmall
+                            Text {
+                                text: qsTr("ALIGNMENT / SUBTITLE")
+                                color: Theme.textPrimary
+                                font.pixelSize: Theme.fontLarge
+                                font.bold: true
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: qsTr("This production stage uses the timed transcript created by STT and/or Subtitle OCR. Review or import subtitle cues before translating; Alignment Studio can refine timestamp alignment when needed.")
+                                color: Theme.textSecondary
+                                font.pixelSize: Theme.fontSmall
+                                wrapMode: Text.WordWrap
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: dubbing.segments.length > 0
+                                      ? qsTr("%1 timed subtitle/transcript segments are available for review.").arg(dubbing.segments.length)
+                                      : qsTr("Run Transcribe/STT before opening transcript or subtitle review.")
+                                color: dubbing.segments.length > 0 ? Theme.success : Theme.warning
+                                font.pixelSize: Theme.fontSmall
+                                wrapMode: Text.WordWrap
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                PrimaryButton {
+                                    text: qsTr("Open subtitle editor")
+                                    iconName: "edit"
+                                    enabled: !dubbing.processing && dubbing.segments.length > 0
+                                    onClicked: subtitleEditorDialog.open()
+                                }
+                                PrimaryButton {
+                                    text: qsTr("Open Alignment Studio")
+                                    iconName: "alignment"
+                                    quiet: true
+                                    enabled: !dubbing.processing && dubbing.normalizedAudioPath !== "" && dubbing.segments.length > 0
+                                    onClicked: AppController.workflows.openStudioRoute("studio-alignment")
+                                }
+                                Item { Layout.fillWidth: true }
+                                PrimaryButton {
+                                    text: qsTr("Continue to Translate")
+                                    iconName: "chevron-right"
+                                    enabled: !dubbing.processing && dubbing.segments.length > 0
+                                    onClicked: root.runNextNode("review-transcript")
+                                }
+                            }
+                        }
+                    }
                     RowLayout { Layout.fillWidth: true
                         ColumnLayout { Layout.fillWidth: true; spacing: 1
                             Text { text: root.stepTitle(root.displayedStepId).toUpperCase(); color: Theme.textPrimary; font.pixelSize: Theme.fontLarge; font.bold: true }
@@ -1327,11 +1418,11 @@ Item {
 
     WorkflowPipelineDialog {
         id: workflowDialog
-        nodes: dubbing.workflowNodes; workflowReady: dubbing.workflowReady; statusText: dubbing.workflowStatusText
+        nodes: dubbing.workflowStages; workflowReady: dubbing.workflowReady; statusText: dubbing.workflowStatusText
         allowIncompleteRun: dubbing.dubbingQuality === "custom"
         busy: dubbing.processing; progress: dubbing.progress / 100.0; progressAvailable: dubbing.progressAvailable; dialogTitle: qsTr("Dubbing workflow")
         reviewWaiting: dubbing.workflowWaitingForInput
-        description: qsTr("Review the media, transcription, translation, voice, timing, and output stages.")
+        description: qsTr("Review the production-backed import, normalize, isolator, transcript, subtitle, translation, TTS, timing/mix, and export stages.")
         onPrepareRequested: dubbing.prepareWorkflow()
         onRunRequested: automaticPreflightDialog.openPreflight()
         onApproveRequested: dubbing.approveWorkflowReview()
