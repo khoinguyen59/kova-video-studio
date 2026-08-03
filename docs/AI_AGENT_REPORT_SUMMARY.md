@@ -1,16 +1,38 @@
 # Bao cao tong hop LA Studio
 
-Cap nhat: 2026-08-03
+Cap nhat: 2026-08-04
 
 ## Baseline hien tai
 
 | Muc | Trang thai |
 | --- | --- |
-| Latest packaged candidate | `0.0.2.19` |
-| Artifact | `out/LA-Studio-0.0.2.19/LA-Studio-0.0.2.19.exe` |
-| SHA-256 | `4960CC603BB67586E3BA506B7933830F802734CCBA9420081CBD3E0430D1F41D` |
-| Current source | `main` commit `3debeab`; full CTest 39/39 PASS and package audit PASS |
+| Latest packaged candidate | `0.0.2.20` |
+| Artifact | `out/LA-Studio-0.0.2.20/LA-Studio-0.0.2.20.exe` |
+| SHA-256 | `338B035A711BE68743EFC98F500FA4A36C2EA9712F264C0F63C5751464BB2F7B` |
+| Current source | `main`; full CTest 39/39 PASS and package audit PASS |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
+
+## Batch 0.0.2.20: Dubbing stage clarity and Voice Clone reference Isolator
+
+- Dubbing now presents exactly nine production-backed UI stages: Import/Download,
+  Normalize, Isolator, Transcribe/STT, Alignment/Subtitle, Translate, TTS,
+  Timing/Mix and Export/Output. The presentation mapping retains durable
+  workflow node IDs, project data and resume/rerun behavior.
+- Alignment/Subtitle opens the existing subtitle editor and routes to Alignment
+  Studio; it is not a placeholder. Voice Cloning has `Clean reference audio
+  with Isolator`, reusing the existing Local or Direct Colab route/model.
+- Enabled cleanup only exposes decoded Vocals to clone/train, preserves
+  Original/Background for preview, caches by source/configuration fingerprint,
+  and reports real progress/cancel/retry/error through Activity.
+
+### Evidence 0.0.2.20
+
+- QML lint PASS; targeted Dubbing, Colab separation and offscreen QML smoke:
+  4/4 PASS. Full CTest: 39/39 PASS in 69.47 seconds.
+- Package audit PASS: FileVersion/ProductVersion `0.0.2.20`, SHA above,
+  staged Qt Windows/offscreen plugins, runtime host, FFmpeg/FFprobe,
+  OCR/Tesseract, Paddle health (`ok=true`, `manifestVerified=true`) and
+  third-party notices verified.
 
 ## Batch 0.0.2.19: Direct Colab / Dubbing preflight / Activity
 

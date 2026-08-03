@@ -6,7 +6,7 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 
 - Desktop local-first: STT, TTS, Voice Cloning, Voice Design, Alignment, Translation, Dubbing, LLM Chat, Download va Subtitle OCR.
 - API Gateway va Direct Colab la hai route doc lap. Token/URL Colab chi o memory session, khong persist vao project/report.
-- Package noi bo moi nhat: `0.0.2.19` tai `out/LA-Studio-0.0.2.19/LA-Studio-0.0.2.19.exe`, SHA-256 `4960CC603BB67586E3BA506B7933830F802734CCBA9420081CBD3E0430D1F41D`. Source `main` tai `3debeab`; full CTest 39/39 va package audit PASS. Manual GUI/live Colab luon la gate rieng.
+- Package noi bo moi nhat: `0.0.2.20` tai `out/LA-Studio-0.0.2.20/LA-Studio-0.0.2.20.exe`, SHA-256 `338B035A711BE68743EFC98F500FA4A36C2EA9712F264C0F63C5751464BB2F7B`. Full CTest 39/39 va package audit PASS. Manual GUI/live Colab luon la gate rieng.
 
 ## Lich su cap san pham
 
@@ -73,6 +73,23 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   package `0.0.2.19` passed staged runtime/license audit. Pinned bsdtar
   packaging suppresses CMake developer warnings only; non-zero configure/build
   exit codes still fail packaging.
+
+### 2026-08-04 - 0.0.2.20 Dubbing and Voice Clone reference cleanup
+
+- Dubbing presentation is a non-destructive mapping over durable workflow
+  nodes: nine named stages retain legacy project node IDs, artifacts and
+  resume/rerun semantics. Alignment/Subtitle routes to the existing subtitle
+  review/editor and Alignment Studio.
+- Voice Cloning may clean its reference with the existing Isolator. The
+  enabled path only exposes a decoded Vocals stem to clone/train, preserves
+  original/background for preview, records route/model activity, supports
+  cancellation/retry and invalidates cache when source/model/route changes.
+- Direct Colab separation propagates the existing loopback-test-only transport
+  flag to its runner; production remains HTTPS-only. A synchronous state-reset
+  ownership race in reference cleanup was fixed and covered by integration
+  regression.
+- `0.0.2.20` package audit passed with PE FileVersion/ProductVersion,
+  SHA-256, Qt/FFmpeg/OCR/Paddle runtime and license inventory verified.
 
 ## Quy tac duy tri
 
