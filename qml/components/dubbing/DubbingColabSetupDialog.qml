@@ -323,6 +323,13 @@ Dialog {
                                 Layout.fillWidth: true
                                 session: stageCard.stageSession
                                 showDisconnected: true
+                                useExternalActions: true
+                                onCheckRequested: {
+                                    root.dubbing.checkWorkflowColabStage(stageCard.stageId)
+                                }
+                                onDisconnectRequested: {
+                                    root.dubbing.disconnectWorkflowColabStage(stageCard.stageId)
+                                }
                             }
                             Text {
                                 Layout.fillWidth: true
@@ -332,30 +339,11 @@ Dialog {
                                 font.pixelSize: 10
                                 wrapMode: Text.WordWrap
                             }
-                            RowLayout {
+                            Text {
                                 Layout.fillWidth: true
-                                spacing: Theme.paddingSmall
-                                PrimaryButton {
-                                    text: qsTr("Check connection")
-                                    iconName: "activity"
-                                    quiet: true
-                                    enabled: stageCard.sourceActive && stageCard.stageSession && stageCard.stageSession.active && !stageCard.stageSession.checking
-                                    onClicked: root.dubbing.checkWorkflowColabStage(stageCard.stageId)
-                                }
-                                PrimaryButton {
-                                    text: qsTr("Disconnect")
-                                    iconName: "close"
-                                    quiet: true
-                                    visible: stageCard.stageSession && stageCard.stageSession.active
-                                    enabled: stageCard.stageSession && !stageCard.stageSession.checking
-                                    onClicked: root.dubbing.disconnectWorkflowColabStage(stageCard.stageId)
-                                }
-                                Item { Layout.fillWidth: true }
-                                Text {
-                                    text: stageCard.modelData.snapshotValid ? qsTr("Session snapshot valid") : qsTr("No valid session snapshot")
-                                    color: stageCard.modelData.snapshotValid ? Theme.success : Theme.textSecondary
-                                    font.pixelSize: 10
-                                }
+                                text: stageCard.modelData.snapshotValid ? qsTr("Session snapshot valid") : qsTr("No valid session snapshot")
+                                color: stageCard.modelData.snapshotValid ? Theme.success : Theme.textSecondary
+                                font.pixelSize: 10
                             }
                         }
                     }

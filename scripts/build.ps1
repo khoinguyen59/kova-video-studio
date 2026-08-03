@@ -400,10 +400,13 @@ if ($Preset -like "*mingw*") {
 } else {
     $cmakeArgs += "-DVCPKG_TARGET_TRIPLET=x64-windows"
     # CMake can otherwise select a stray ld.exe from a developer's PATH even
-    # after vcvars has initialized MSVC. Pin the linker discovered from the
-    # MSVC environment so a Windows MSVC preset always uses link.exe.
+    # after vcvars has initialized MSVC. Pin both the linker and static
+    # librarian from the MSVC environment: a stale MinGW ar.exe cannot create
+    # an MSVC .lib archive and used to break an otherwise valid configure.
     $linkerCommand = Get-Command "link.exe" -ErrorAction Stop
+    $archiverCommand = Get-Command "lib.exe" -ErrorAction Stop
     $cmakeArgs += "-DCMAKE_LINKER=$($linkerCommand.Source.Replace('\', '/'))"
+    $cmakeArgs += "-DCMAKE_AR=$($archiverCommand.Source.Replace('\', '/'))"
 }
 
 if ($Clean) {
@@ -415,6 +418,37 @@ if ($Clean) {
 
 $buildDir = Join-Path $RepoRoot "out\build\$Preset"
 Remove-StaleCMakeBuildDirectory -BuildDirectory $buildDir -ExpectedSourceDirectory $RepoRoot
+if ($Preset -notlike "*mingw*" -and (Test-Path -LiteralPath $buildDir)) {
+    # The compiler probe persists CMAKE_AR in CMakeCXXCompiler.cmake.  If an
+    # older MSVC build inherited MinGW's ar.exe from PATH, merely passing
+    # -DCMAKE_AR on the next configure is too late: Ninja will still issue
+    # GNU ar with MSVC flags. Reset only this repository-owned build cache.
+    $compilerInfo = Get-ChildItem -LiteralPath (Join-Path $buildDir "CMakeFiles") `
+        -Recurse -Filter "CMakeCXXCompiler.cmake" -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($null -ne $compilerInfo) {
+        $archiverMatch = Select-String -LiteralPath $compilerInfo.FullName `
+            -Pattern '^set\(CMAKE_AR "([^"]+)"\)' | Select-Object -First 1
+        if ($null -ne $archiverMatch) {
+            $configuredArchiver = $archiverMatch.Matches[0].Groups[1].Value
+            $expectedArchiver = (Get-Command "lib.exe" -ErrorAction Stop).Source
+            $sameArchiver = [string]::Equals(
+                [IO.Path]::GetFullPath($configuredArchiver),
+                [IO.Path]::GetFullPath($expectedArchiver),
+                [System.StringComparison]::OrdinalIgnoreCase)
+            if (-not $sameArchiver) {
+                $resolvedRepo = (Resolve-Path -LiteralPath $RepoRoot).Path.TrimEnd('\', '/')
+                $resolvedBuild = (Resolve-Path -LiteralPath $buildDir).Path
+                if (-not $resolvedBuild.StartsWith($resolvedRepo + '\',
+                                                    [System.StringComparison]::OrdinalIgnoreCase)) {
+                    throw "Refusing to reset a CMake toolchain outside this repository: $resolvedBuild"
+                }
+                Write-Host ">> Resetting stale CMake toolchain cache with archiver '$configuredArchiver'..." -ForegroundColor Yellow
+                Remove-Item -LiteralPath $resolvedBuild -Recurse -Force
+            }
+        }
+    }
+}
 
 Write-Host ">> Configuring CMake preset: $Preset" -ForegroundColor Cyan
 cmake --preset $Preset $cmakeArgs

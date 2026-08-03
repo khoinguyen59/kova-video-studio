@@ -224,6 +224,8 @@ void TestRemoteExecution::temporaryColabWorkerVerifiesCudaCapabilityAndExactMode
     QCOMPARE(session.verificationState(), QStringLiteral("ready"));
     QCOMPARE(session.expectedCapability(), QStringLiteral("tts"));
     QCOMPARE(session.expectedModel(), QStringLiteral("kokoro"));
+    QCOMPARE(session.expectedVariant(), QStringLiteral("fixed"));
+    QVERIFY(!session.verifiedAt().isEmpty());
     QCOMPARE(session.reportedGpu(), QStringLiteral("Test GPU"));
     QVERIFY(session.verificationMessage().contains(QStringLiteral("tts / kokoro")));
     QString routeError;
@@ -250,6 +252,29 @@ void TestRemoteExecution::temporaryColabWorkerVerifiesCudaCapabilityAndExactMode
              QByteArrayLiteral("GET /v1/capabilities HTTP/1.1"));
     for (const QByteArray &request : requests)
         QVERIFY(request.toLower().contains("authorization: bearer verified-token"));
+}
+
+void TestRemoteExecution::temporaryColabWorkerRejectsWrongVariant()
+{
+    CatalogMock server({
+        QByteArrayLiteral(
+            R"({"status":"ready","ready":true,"device":"cuda","gpu":"Test GPU","model":"kokoro","variant":"fp16","cpu_fallback":false})"),
+    });
+    QVERIFY(server.start());
+
+    ColabSession session;
+    QSignalSpy finished(&session, &ColabSession::verificationFinished);
+    QString error;
+    QVERIFY2(session.beginVerifiedSession(
+                 server.baseUrl(), QStringLiteral("variant-token"),
+                 QStringLiteral("tts"), QStringLiteral("kokoro"), &error, true,
+                 QStringLiteral("fixed")),
+             qPrintable(error));
+    QTRY_COMPARE(finished.count(), 1);
+    QVERIFY(!finished.constFirst().at(0).toBool());
+    QVERIFY(!session.isActive());
+    QVERIFY(session.lastError().contains(QStringLiteral("Wrong Colab configuration")));
+    QVERIFY(!session.lastError().contains(QStringLiteral("variant-token")));
 }
 
 void TestRemoteExecution::staleTranslationPatchContractIsRejected()
@@ -451,9 +476,11 @@ void TestRemoteExecution::everyGpuFeatureSurfacesVerifiedColabSessionState()
         QStringLiteral("qml/components/voiceisolator/VoiceIsolatorStudioView.qml"),
         QStringLiteral("qml/components/alignment/AlignmentSetupPanel.qml"),
         QStringLiteral("qml/components/translation/TranslationStudioView.qml"),
+        QStringLiteral("qml/pages/SubtitleOcrPage.qml"),
         QStringLiteral("qml/components/llm/LlmChatStudioView.qml"),
         QStringLiteral("qml/components/dubbing/DubbingNodeSettingsPanel.qml"),
         QStringLiteral("qml/components/dubbing/DubbingNodeInspector.qml"),
+        QStringLiteral("qml/components/dubbing/DubbingColabSetupDialog.qml"),
     };
     for (const QString &relativePath : featurePanels) {
         QFile file(sourceRoot.filePath(relativePath));
@@ -470,7 +497,124 @@ void TestRemoteExecution::everyGpuFeatureSurfacesVerifiedColabSessionState()
     QVERIFY(source.contains(QStringLiteral("v1/capabilities")));
     QVERIFY(source.contains(QStringLiteral("cpu_fallback")));
     QVERIFY(source.contains(QStringLiteral("Wrong Colab model")));
+    QVERIFY(source.contains(QStringLiteral("Wrong Colab configuration")));
     QVERIFY(source.contains(QStringLiteral("contract_version")));
+
+    QFile sharedStatus(sourceRoot.filePath(QStringLiteral("qml/components/base/ColabSessionStatus.qml")));
+    QVERIFY(sharedStatus.open(QIODevice::ReadOnly));
+    const QString sharedStatusSource = QString::fromUtf8(sharedStatus.readAll());
+    QVERIFY(sharedStatusSource.contains(QStringLiteral("Check connection")));
+    QVERIFY(sharedStatusSource.contains(QStringLiteral("Disconnect")));
+    QVERIFY(sharedStatusSource.contains(QStringLiteral("expectedVariant")));
+    QVERIFY(sharedStatusSource.contains(QStringLiteral("verifiedAt")));
+    QVERIFY(sharedStatusSource.contains(QStringLiteral("checkRequested")));
+    QVERIFY(sharedStatusSource.contains(QStringLiteral("disconnectRequested")));
+    QVERIFY(sharedStatusSource.contains(QStringLiteral(".arg(root.session.workerUrl)")));
+    QVERIFY(sharedStatusSource.contains(QStringLiteral(".arg(root.session.expectedVariant)")));
+}
+
+void TestRemoteExecution::voiceCloneUiMakesConsentAndRequiredInputsActionable()
+{
+    const QDir sourceRoot(QStringLiteral(LASTUDIO_SOURCE_DIR));
+    QFile settings(sourceRoot.filePath(QStringLiteral("qml/components/voicecloning/VoiceSettingsPanel.qml")));
+    QVERIFY(settings.open(QIODevice::ReadOnly));
+    const QString settingsSource = QString::fromUtf8(settings.readAll());
+    QVERIFY(settingsSource.contains(QStringLiteral("component ConsentCheckBox: CheckBox")));
+    QVERIFY(settingsSource.contains(QStringLiteral("focusPolicy: Qt.StrongFocus")));
+    QVERIFY(settingsSource.contains(QStringLiteral("implicitHeight: 46")));
+    QVERIFY(settingsSource.contains(QStringLiteral("ScrollView")));
+    QVERIFY(settingsSource.contains(QStringLiteral("qmlSmokeConsentLayoutCheck")));
+    QVERIFY(settingsSource.contains(QStringLiteral("I have permission to clone this voice (required)")));
+
+    QFile studio(sourceRoot.filePath(QStringLiteral("qml/components/voicecloning/VoiceCloningStudioView.qml")));
+    QVERIFY(studio.open(QIODevice::ReadOnly));
+    const QString studioSource = QString::fromUtf8(studio.readAll());
+    QVERIFY(studioSource.contains(QStringLiteral("function cloneBlockReason()")));
+    QVERIFY(studioSource.contains(QStringLiteral("Target Prompt is required.")));
+    QVERIFY(studioSource.contains(QStringLiteral("Confirm that you have permission")));
+    QVERIFY(studioSource.contains(QStringLiteral("qmlSmokeVoiceCloneLayoutCheck")));
+
+    QFile reference(sourceRoot.filePath(QStringLiteral("qml/components/voicecloning/ReferenceInputBox.qml")));
+    QVERIFY(reference.open(QIODevice::ReadOnly));
+    const QString referenceSource = QString::fromUtf8(reference.readAll());
+    QVERIFY(referenceSource.contains(QStringLiteral("requiresExactTranscript")));
+    QVERIFY(referenceSource.contains(QStringLiteral("Reference Transcript is required for this route/model.")));
+
+    QFile main(sourceRoot.filePath(QStringLiteral("qml/Main.qml")));
+    QVERIFY(main.open(QIODevice::ReadOnly));
+    const QString mainSource = QString::fromUtf8(main.readAll());
+    QVERIFY(mainSource.contains(QStringLiteral("qmlSmokeVoiceCloneLayoutSizeIndex")));
+    QVERIFY(mainSource.contains(QStringLiteral("qmlSmokeVoiceCloneLayoutCheck")));
+    QVERIFY(mainSource.contains(QStringLiteral("voiceCloneSizes")));
+}
+
+void TestRemoteExecution::settingsControlsExposeDescriptionsAndKeyboardFocus()
+{
+    const QDir sourceRoot(QStringLiteral(LASTUDIO_SOURCE_DIR));
+
+    QFile toggle(sourceRoot.filePath(QStringLiteral("qml/components/shared/settings/ToggleRow.qml")));
+    QVERIFY(toggle.open(QIODevice::ReadOnly));
+    const QString toggleSource = QString::fromUtf8(toggle.readAll());
+    QVERIFY(toggleSource.contains(QStringLiteral("property string description")));
+    QVERIFY(toggleSource.contains(QStringLiteral("focusPolicy: Qt.StrongFocus")));
+    QVERIFY(toggleSource.contains(QStringLiteral("toggle.description")));
+
+    QFile parameters(sourceRoot.filePath(QStringLiteral("qml/components/shared/settings/ModelParameterControls.qml")));
+    QVERIFY(parameters.open(QIODevice::ReadOnly));
+    const QString parameterSource = QString::fromUtf8(parameters.readAll());
+    QVERIFY(parameterSource.contains(QStringLiteral("Range: %1")));
+    QVERIFY(parameterSource.contains(QStringLiteral("Default: %1")));
+
+    for (const QString &relativePath : {QStringLiteral("qml/components/voicecloning/VoiceSettingsPanel.qml"),
+                                        QStringLiteral("qml/components/voicedesign/VoiceDesignSettingsPanel.qml"),
+                                        QStringLiteral("qml/components/tts/TtsSettingsPanel.qml")}) {
+        QFile panel(sourceRoot.filePath(relativePath));
+        QVERIFY2(panel.open(QIODevice::ReadOnly), qPrintable(relativePath));
+        const QString panelSource = QString::fromUtf8(panel.readAll());
+        QVERIFY2(panelSource.contains(QStringLiteral("Reduce steady background noise")),
+                 qPrintable(relativePath));
+        QVERIFY2(panelSource.contains(QStringLiteral("Normalize prompt text")),
+                 qPrintable(relativePath));
+        QVERIFY2(panelSource.contains(QStringLiteral("Fixed seed (whole number")),
+                 qPrintable(relativePath));
+    }
+
+    QFile collapsible(sourceRoot.filePath(QStringLiteral("qml/components/shared/settings/CollapsibleSettingsSection.qml")));
+    QVERIFY(collapsible.open(QIODevice::ReadOnly));
+    const QString collapsibleSource = QString::fromUtf8(collapsible.readAll());
+    QVERIFY(collapsibleSource.contains(QStringLiteral("chevron-right")));
+    QVERIFY(collapsibleSource.contains(QStringLiteral("Qt.PointingHandCursor")));
+}
+
+void TestRemoteExecution::workflowActivityOnlyDisplaysMeasuredProgress()
+{
+    const QDir sourceRoot(QStringLiteral(LASTUDIO_SOURCE_DIR));
+    QFile manager(sourceRoot.filePath(QStringLiteral("src/controllers/app/WorkflowActivityManager.cpp")));
+    QVERIFY(manager.open(QIODevice::ReadOnly));
+    const QString managerSource = QString::fromUtf8(manager.readAll());
+    for (const QString &workflow : {QStringLiteral("gatewayTtsWorkflow"),
+                                    QStringLiteral("colabTtsWorkflow"),
+                                    QStringLiteral("voiceCloneWorkflow"),
+                                    QStringLiteral("voiceDesignWorkflow"),
+                                    QStringLiteral("colabAlignmentWorkflow"),
+                                    QStringLiteral("localVoiceIsolationWorkflow"),
+                                    QStringLiteral("colabVoiceIsolationWorkflow"),
+                                    QStringLiteral("translationWorkflow"),
+                                    QStringLiteral("subtitleOcrWorkflow"),
+                                    QStringLiteral("llmChatWorkflow")}) {
+        QVERIFY2(managerSource.contains(workflow), qPrintable(workflow));
+    }
+    QVERIFY(managerSource.contains(QStringLiteral("progressAvailable")));
+    QVERIFY(managerSource.contains(QStringLiteral("addExecutionDetails")));
+    QVERIFY(managerSource.contains(QStringLiteral("Direct Colab GPU")));
+    QVERIFY(managerSource.contains(QStringLiteral("API Gateway")));
+
+    QFile popup(sourceRoot.filePath(QStringLiteral("qml/components/WorkflowPopup.qml")));
+    QVERIFY(popup.open(QIODevice::ReadOnly));
+    const QString popupSource = QString::fromUtf8(popup.readAll());
+    QVERIFY(popupSource.contains(QStringLiteral("function executionDetails")));
+    QVERIFY(popupSource.contains(QStringLiteral("qsTr(\"Working\")")));
+    QVERIFY(popupSource.contains(QStringLiteral("modelData.progressAvailable !== false")));
 }
 
 void TestRemoteExecution::everyGpuControllerUsesExactVerifiedColabRoute()
@@ -1124,12 +1268,15 @@ void TestRemoteExecution::colabNotebooksAdvertiseCapabilityContractVersion()
             || source.contains("\\\"device\\\": \\\"cuda\\\"");
         const bool hasNoCpuFallback = source.contains("'cpu_fallback': False")
             || source.contains("\\\"cpu_fallback\\\": False");
+        const bool hasFixedVariant = source.contains("'variant': 'fixed'")
+            || source.contains("\\\"variant\\\": \\\"fixed\\\"");
         QVERIFY2(hasHealth, qPrintable(notebook.file));
         QVERIFY2(hasCapabilities, qPrintable(notebook.file));
         QVERIFY2(hasContractVersion, qPrintable(notebook.file));
         QVERIFY2(hasReady, qPrintable(notebook.file));
         QVERIFY2(hasCuda, qPrintable(notebook.file));
         QVERIFY2(hasNoCpuFallback, qPrintable(notebook.file));
+        QVERIFY2(hasFixedVariant, qPrintable(notebook.file));
         QVERIFY2(source.contains(notebook.capability.toUtf8()), qPrintable(notebook.file));
         QVERIFY2(source.contains(notebook.model.toUtf8()), qPrintable(notebook.file));
         QVERIFY2(source.contains(notebook.endpoint.toUtf8()), qPrintable(notebook.file));

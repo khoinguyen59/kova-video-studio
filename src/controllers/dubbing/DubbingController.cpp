@@ -29,6 +29,7 @@
 #include "core/ModelManager.h"
 #include "core/RuntimeManager.h"
 #include "remote/ExecutionProvider.h"
+#include "remote/ColabSession.h"
 
 #include <QFileInfo>
 #include <QFile>
@@ -475,9 +476,7 @@ QString DubbingController::stage() const
 int DubbingController::progress() const
 {
     if (m_automaticSetupActive) {
-        const auto *app = AppController::instance();
-        const QVariantList downloads = app && app->downloads()
-            ? app->downloads()->activeDownloads() : QVariantList();
+        const QVariantList downloads = automaticSetupDownloads();
         if (downloads.isEmpty()) return 0;
         qint64 received = 0;
         qint64 total = 0;
@@ -498,9 +497,7 @@ int DubbingController::progress() const
 bool DubbingController::progressAvailable() const
 {
     if (m_automaticSetupActive) {
-        const auto *app = AppController::instance();
-        const QVariantList downloads = app && app->downloads()
-            ? app->downloads()->activeDownloads() : QVariantList();
+        const QVariantList downloads = automaticSetupDownloads();
         qint64 total = 0;
         for (const QVariant &entry : downloads)
             total += entry.toMap().value(QStringLiteral("bytesTotal")).toLongLong();
@@ -974,6 +971,11 @@ QVariantList DubbingController::colabSetupStages() const
             {QStringLiteral("title"), definition.second},
             {QStringLiteral("capability"), capability},
             {QStringLiteral("modelId"), model},
+            // Current exact-model notebooks each expose one immutable GPU
+            // configuration.  Make that explicit in every Dubbing surface;
+            // it is not a Local CPU model-file variant.
+            {QStringLiteral("variant"), session && !session->expectedVariant().isEmpty()
+                ? session->expectedVariant() : QStringLiteral("fixed")},
             {QStringLiteral("notebookFile"), DubbingColabModelRoutes::notebookForModel(stageId, model)},
             {QStringLiteral("activeForTranscriptSource"), activeForTranscriptSource},
             {QStringLiteral("notUsedReason"), notUsedReason},
@@ -2160,6 +2162,166 @@ QString DubbingController::workflowStatusText() const
     return QStringLiteral("Configure media, transcript, target text, and a TTS model");
 }
 
+QVariantMap DubbingController::automaticPreflight() const
+{
+    QVariantList issues;
+    auto addIssue = [&issues](const QString &id, const QString &message) {
+        issues.append(QVariantMap{{QStringLiteral("id"), id},
+                                  {QStringLiteral("message"), message}});
+    };
+
+    if (m_project.sourceMediaPath.trimmed().isEmpty())
+        addIssue(QStringLiteral("source-media"),
+                 QStringLiteral("Import source media before starting Automatic dubbing."));
+    if (!workflowGraphValid())
+        addIssue(QStringLiteral("workflow-graph"),
+                 QStringLiteral("The default Dubbing workflow definition is invalid."));
+
+    if (m_project.dubbingQuality == QStringLiteral("custom")) {
+        const QVariantMap issue = firstCustomSetupIssue();
+        if (!issue.isEmpty()) {
+            addIssue(issue.value(QStringLiteral("nodeId")).toString(),
+                     issue.value(QStringLiteral("message")).toString());
+        }
+        if (!cloneVoiceSelectionValid())
+            addIssue(QStringLiteral("tts-voice"), cloneVoiceSelectionError());
+    } else if (!m_project.ttsVoiceId.trimmed().isEmpty() && !cloneVoiceSelectionValid()) {
+        addIssue(QStringLiteral("tts-voice"), cloneVoiceSelectionError());
+    }
+
+    QVariantList selectedWorkers;
+    for (const QVariant &value : colabSetupStages()) {
+        const QVariantMap stage = value.toMap();
+        if (!stage.value(QStringLiteral("selectedForDirectColab")).toBool()
+            || !stage.value(QStringLiteral("activeForTranscriptSource"), true).toBool()) {
+            continue;
+        }
+        selectedWorkers.append(stage);
+        if (!stage.value(QStringLiteral("verified")).toBool()) {
+            addIssue(QStringLiteral("colab-") + stage.value(QStringLiteral("id")).toString(),
+                     QStringLiteral("Check the Direct Colab worker for %1 (%2).")
+                         .arg(stage.value(QStringLiteral("title")).toString(),
+                              stage.value(QStringLiteral("modelId")).toString()));
+        }
+    }
+
+    QVariantList nodes;
+    for (const QVariant &value : workflowNodes()) {
+        const QVariantMap node = value.toMap();
+        const QString nodeId = node.value(QStringLiteral("id")).toString();
+        QVariantMap configuration = m_workflowNodeConfigurations.value(nodeId).toMap();
+        const QVariantMap parameters = configuration.value(QStringLiteral("parameters")).toMap();
+        nodes.append(QVariantMap{
+            {QStringLiteral("id"), nodeId},
+            {QStringLiteral("title"), node.value(QStringLiteral("title"), nodeId)},
+            {QStringLiteral("executionProvider"), configuration.value(
+                QStringLiteral("executionProvider"),
+                parameters.value(QStringLiteral("executionProvider"), QStringLiteral("local-dev")))},
+            {QStringLiteral("modelId"), parameters.value(QStringLiteral("modelId"))}
+        });
+    }
+
+    return QVariantMap{
+        {QStringLiteral("ready"), issues.isEmpty()},
+        {QStringLiteral("issues"), issues},
+        {QStringLiteral("nodes"), nodes},
+        {QStringLiteral("selectedWorkers"), selectedWorkers},
+        {QStringLiteral("transcriptSource"), m_project.transcriptConfiguration.value(
+            QStringLiteral("transcriptSource"), QStringLiteral("stt"))},
+        {QStringLiteral("fingerprint"), automaticPreflightFingerprint()}
+    };
+}
+
+QString DubbingController::automaticPreflightFingerprint() const
+{
+    QVariantMap snapshot;
+    snapshot.insert(QStringLiteral("sourceMedia"), m_project.sourceMediaPath);
+    snapshot.insert(QStringLiteral("transcript"), m_project.transcriptConfiguration);
+    snapshot.insert(QStringLiteral("quality"), m_project.dubbingQuality);
+    snapshot.insert(QStringLiteral("ttsVoice"), m_project.ttsVoiceId);
+    snapshot.insert(QStringLiteral("nodes"), m_workflowNodeConfigurations);
+
+    QVariantList workers;
+    for (const QVariant &value : colabSetupStages()) {
+        const QVariantMap stage = value.toMap();
+        if (!stage.value(QStringLiteral("selectedForDirectColab")).toBool()
+            || !stage.value(QStringLiteral("activeForTranscriptSource"), true).toBool()) {
+            continue;
+        }
+        const QString stageId = stage.value(QStringLiteral("id")).toString();
+        ColabSession *session = colabSessionForStage(stageId);
+        workers.append(QVariantMap{
+            {QStringLiteral("id"), stageId},
+            {QStringLiteral("capability"), stage.value(QStringLiteral("capability"))},
+            {QStringLiteral("model"), stage.value(QStringLiteral("modelId"))},
+            {QStringLiteral("verified"), stage.value(QStringLiteral("verified"))},
+            {QStringLiteral("workerUrl"), session ? session->workerUrl() : QString()},
+            {QStringLiteral("variant"), session ? session->expectedVariant() : QString()},
+            {QStringLiteral("verifiedAt"), session ? session->verifiedAt() : QString()}
+        });
+    }
+    snapshot.insert(QStringLiteral("workers"), workers);
+    return QString::fromUtf8(QJsonDocument::fromVariant(snapshot).toJson(QJsonDocument::Compact));
+}
+
+QSet<QString> DubbingController::activeDownloadKeys() const
+{
+    QSet<QString> keys;
+    const auto *app = AppController::instance();
+    const QVariantList downloads = app && app->downloads()
+        ? app->downloads()->activeDownloads() : QVariantList();
+    for (const QVariant &entry : downloads) {
+        const QVariantMap download = entry.toMap();
+        const QString identifier = download.value(QStringLiteral("identifier")).toString();
+        const QString filename = download.value(QStringLiteral("filename")).toString();
+        if (!identifier.isEmpty() && !filename.isEmpty())
+            keys.insert(identifier + QStringLiteral("::") + filename);
+    }
+    return keys;
+}
+
+void DubbingController::captureNewAutomaticDownloads(const QSet<QString> &before)
+{
+    const QSet<QString> current = activeDownloadKeys();
+    for (const QString &key : current) {
+        if (!before.contains(key))
+            m_automaticDownloadKeys.insert(key);
+    }
+}
+
+QVariantList DubbingController::automaticSetupDownloads() const
+{
+    QVariantList scoped;
+    if (m_automaticDownloadKeys.isEmpty()) return scoped;
+    const auto *app = AppController::instance();
+    const QVariantList active = app && app->downloads()
+        ? app->downloads()->activeDownloads() : QVariantList();
+    for (const QVariant &entry : active) {
+        const QVariantMap download = entry.toMap();
+        const QString key = download.value(QStringLiteral("identifier")).toString()
+            + QStringLiteral("::") + download.value(QStringLiteral("filename")).toString();
+        if (m_automaticDownloadKeys.contains(key))
+            scoped.append(download);
+    }
+    return scoped;
+}
+
+bool DubbingController::approveAutomaticPreflight()
+{
+    const QVariantMap preflight = automaticPreflight();
+    if (!preflight.value(QStringLiteral("ready")).toBool()) {
+        const QVariantList issues = preflight.value(QStringLiteral("issues")).toList();
+        const QString detail = issues.isEmpty() ? QStringLiteral("Automatic preflight is blocked.")
+            : issues.constFirst().toMap().value(QStringLiteral("message")).toString();
+        setError(detail);
+        return false;
+    }
+    m_automaticPreflightFingerprint = preflight.value(QStringLiteral("fingerprint")).toString();
+    clearError();
+    emit workflowChanged();
+    return true;
+}
+
 QString DubbingController::workflowId() const
 {
     return QString::fromLatin1(DubbingWorkflowDefinition::Id);
@@ -2444,11 +2606,13 @@ bool DubbingController::ensureAutomaticModel(const QString &nodeId,
 
     if (!familyItem.value(QStringLiteral("ready")).toBool()) {
         if (!m_automaticDownloadsQueued.contains(capabilityId)) {
+            const QSet<QString> downloadsBefore = activeDownloadKeys();
             if (!app->downloadInstall()->enqueueRecommendedSetup(familyItem)) {
                 finishAutomaticSetupFailure(
                     QStringLiteral("Could not start the %1 model download.").arg(capabilityId));
                 return false;
             }
+            captureNewAutomaticDownloads(downloadsBefore);
             m_automaticDownloadsQueued.insert(capabilityId);
             appendAutomaticEvent(
                 QStringLiteral("Downloading the default %1 model and runtime").arg(capabilityId),
@@ -2531,10 +2695,12 @@ bool DubbingController::ensureAutomaticAdaptiveModel()
     const QVariantMap item = model->itemForFamily(familyId);
     if (!item.value(QStringLiteral("ready")).toBool()) {
         if (!m_automaticDownloadsQueued.contains(QStringLiteral("llm-chat"))) {
+            const QSet<QString> downloadsBefore = activeDownloadKeys();
             if (!app->downloadInstall()->enqueueRecommendedSetup(item)) {
                 finishAutomaticSetupFailure(QStringLiteral("Could not start the Adaptive LLM download."));
                 return false;
             }
+            captureNewAutomaticDownloads(downloadsBefore);
             m_automaticDownloadsQueued.insert(QStringLiteral("llm-chat"));
             appendAutomaticEvent(QStringLiteral("Downloading the default Adaptive LLM"),
                                  QStringLiteral("downloading"), QStringLiteral("translate"));
@@ -2605,6 +2771,7 @@ void DubbingController::finishAutomaticSetupFailure(const QString &message)
     m_automaticSetupActive = false;
     m_automaticOutputPath.clear();
     m_automaticDownloadsQueued.clear();
+    m_automaticDownloadKeys.clear();
     m_automaticConfiguredNodes.clear();
     setWorkflowMode(QStringLiteral("idle"));
     setError(message);
@@ -2627,6 +2794,7 @@ void DubbingController::advanceAutomaticSetup()
         const QString outputPath = m_automaticOutputPath;
         m_automaticSetupActive = false;
         m_automaticDownloadsQueued.clear();
+        m_automaticDownloadKeys.clear();
         m_automaticConfiguredNodes.clear();
         setAutomaticStatus(QStringLiteral("Starting independent remote workflow routes."));
         appendAutomaticEvent(QStringLiteral("Using configured API Gateway and direct Colab routes"),
@@ -2688,6 +2856,7 @@ void DubbingController::advanceAutomaticSetup()
     const QString outputPath = m_automaticOutputPath;
     m_automaticSetupActive = false;
     m_automaticDownloadsQueued.clear();
+    m_automaticDownloadKeys.clear();
     m_automaticConfiguredNodes.clear();
     setAutomaticStatus(QStringLiteral("Models ready. Starting the dubbing workflow."));
     appendAutomaticEvent(QStringLiteral("All required models are ready"),
@@ -2804,6 +2973,18 @@ bool DubbingController::startAutomaticWorkflow(const QString &outputPath)
         setError(QStringLiteral("Import source media before generating the final dub."));
         return false;
     }
+    const QString currentPreflight = automaticPreflightFingerprint();
+    if (m_automaticPreflightFingerprint.isEmpty()
+        || m_automaticPreflightFingerprint != currentPreflight) {
+        m_automaticPreflightFingerprint.clear();
+        setError(QStringLiteral(
+            "Review Automatic preflight after changing media, route, model, variant, or Colab worker."));
+        emit workflowChanged();
+        return false;
+    }
+    // Approval is single-use. A retry returns to the review screen so the
+    // operator always sees current worker health before another full run.
+    m_automaticPreflightFingerprint.clear();
     if (m_project.dubbingQuality == QStringLiteral("custom")) {
         const QVariantMap issue = firstCustomSetupIssue();
         if (!issue.isEmpty()) {
@@ -2851,6 +3032,7 @@ bool DubbingController::startAutomaticWorkflow(const QString &outputPath)
     m_automaticSetupActive = true;
     m_automaticEvents.clear();
     m_automaticDownloadsQueued.clear();
+    m_automaticDownloadKeys.clear();
     m_automaticConfiguredNodes.clear();
     setAutomaticStatus(QStringLiteral("Checking required models and runtimes"));
     appendAutomaticEvent(QStringLiteral("Checking required models and runtimes"),
@@ -2867,6 +3049,7 @@ void DubbingController::pauseAutomaticWorkflow()
     m_automaticSetupActive = false;
     m_automaticOutputPath.clear();
     m_automaticDownloadsQueued.clear();
+    m_automaticDownloadKeys.clear();
     m_automaticConfiguredNodes.clear();
     if (m_translationFix) m_translationFix->cancel();
     if (m_workflowRunner && m_workflowRunner->running()) m_workflowRunner->cancel();
@@ -3971,6 +4154,7 @@ void DubbingController::cancelProcessing()
     m_automaticSetupActive = false;
     m_automaticOutputPath.clear();
     m_automaticDownloadsQueued.clear();
+    m_automaticDownloadKeys.clear();
     m_automaticConfiguredNodes.clear();
     m_pendingExportPath.clear();
     if (m_translationFix) m_translationFix->cancel();

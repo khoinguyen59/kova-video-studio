@@ -6,8 +6,14 @@ import LAStudio
 CheckBox {
     id: toggle
 
+    // Keep toggles discoverable on keyboard-only and high-DPI workflows.  A
+    // description is optional, but when supplied it makes a setting's effect
+    // explicit instead of presenting a bare, ambiguous label.
+    property string description: ""
+
     Layout.fillWidth: true
-    implicitHeight: 34
+    implicitHeight: Math.max(34, content.implicitHeight + Theme.paddingSmall)
+    focusPolicy: Qt.StrongFocus
     indicator: Rectangle {
         implicitWidth: 38
         implicitHeight: 20
@@ -30,12 +36,27 @@ CheckBox {
         }
     }
 
-    contentItem: Text {
-        text: toggle.text
-        color: toggle.enabled ? Theme.textPrimary : Theme.textSecondary
-        font.pixelSize: Theme.fontSmall
-        verticalAlignment: Text.AlignVCenter
-        rightPadding: toggle.indicator.width + Theme.paddingMedium
+    contentItem: Column {
+        id: content
+        width: Math.max(0, toggle.availableWidth - toggle.indicator.width - Theme.paddingMedium)
+        spacing: 2
+
+        Text {
+            width: parent.width
+            text: toggle.text
+            color: toggle.enabled ? Theme.textPrimary : Theme.textSecondary
+            font.pixelSize: Theme.fontSmall
+            wrapMode: Text.WordWrap
+        }
+
+        Text {
+            width: parent.width
+            visible: toggle.description !== ""
+            text: toggle.description
+            color: Theme.textSecondary
+            font.pixelSize: 10
+            wrapMode: Text.WordWrap
+        }
     }
 
     HoverHandler { cursorShape: Qt.PointingHandCursor }

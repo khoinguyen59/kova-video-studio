@@ -15,6 +15,16 @@ class ModelSessionRegistry;
 class SttSessionController;
 class TtsEngine;
 class DubbingController;
+class GatewayTtsController;
+class ColabTtsController;
+class ColabVoiceCloneController;
+class ColabVoiceDesignController;
+class ColabAlignmentController;
+class VoiceIsolatorController;
+class ColabVoiceIsolatorController;
+class TranslationController;
+class SubtitleOcrController;
+class LlmChatController;
 
 class WorkflowActivityManager : public QObject {
     Q_OBJECT
@@ -34,6 +44,16 @@ public:
                              SttSessionController *sttSession,
                              AlignmentExecutionService *alignment,
                              DubbingController *dubbing = nullptr,
+                             GatewayTtsController *gatewayTts = nullptr,
+                             ColabTtsController *colabTts = nullptr,
+                             ColabVoiceCloneController *colabVoiceClone = nullptr,
+                             ColabVoiceDesignController *colabVoiceDesign = nullptr,
+                             ColabAlignmentController *colabAlignment = nullptr,
+                             VoiceIsolatorController *voiceIsolator = nullptr,
+                             ColabVoiceIsolatorController *colabVoiceIsolator = nullptr,
+                             TranslationController *translation = nullptr,
+                             SubtitleOcrController *subtitleOcr = nullptr,
+                             LlmChatController *llmChat = nullptr,
                              QObject *parent = nullptr);
 
     QVariantList activeWorkflows() const;
@@ -59,6 +79,16 @@ private:
     QVariantMap sttWorkflow() const;
     QVariantMap alignmentWorkflow() const;
     QVariantMap dubbingWorkflow() const;
+    QVariantMap gatewayTtsWorkflow() const;
+    QVariantMap colabTtsWorkflow() const;
+    QVariantMap voiceCloneWorkflow() const;
+    QVariantMap voiceDesignWorkflow() const;
+    QVariantMap colabAlignmentWorkflow() const;
+    QVariantMap localVoiceIsolationWorkflow() const;
+    QVariantMap colabVoiceIsolationWorkflow() const;
+    QVariantMap translationWorkflow() const;
+    QVariantMap subtitleOcrWorkflow() const;
+    QVariantMap llmChatWorkflow() const;
     QVariantList sessionItems(IModelSession *session) const;
     QVariantMap makeWorkflow(const QString &id,
                              const QString &type,
@@ -83,6 +113,16 @@ private:
     SttSessionController *m_sttSession = nullptr;
     AlignmentExecutionService *m_alignment = nullptr;
     DubbingController *m_dubbing = nullptr;
+    GatewayTtsController *m_gatewayTts = nullptr;
+    ColabTtsController *m_colabTts = nullptr;
+    ColabVoiceCloneController *m_colabVoiceClone = nullptr;
+    ColabVoiceDesignController *m_colabVoiceDesign = nullptr;
+    ColabAlignmentController *m_colabAlignment = nullptr;
+    VoiceIsolatorController *m_voiceIsolator = nullptr;
+    ColabVoiceIsolatorController *m_colabVoiceIsolator = nullptr;
+    TranslationController *m_translation = nullptr;
+    SubtitleOcrController *m_subtitleOcr = nullptr;
+    LlmChatController *m_llmChat = nullptr;
     mutable QHash<QString, QDateTime> m_startedAtById;
     mutable QSet<QString> m_stoppingIds;
 };

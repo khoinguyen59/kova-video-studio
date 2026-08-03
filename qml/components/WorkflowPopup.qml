@@ -27,6 +27,14 @@ Popup {
         return qsTr("%1h %2m").arg(hours).arg(minutes % 60)
     }
 
+    function executionDetails(workflow) {
+        var parts = []
+        if (workflow.executionRoute) parts.push(qsTr("Route: %1").arg(workflow.executionRoute))
+        if (workflow.model) parts.push(qsTr("Model: %1").arg(workflow.model))
+        if (workflow.variant) parts.push(qsTr("Variant: %1").arg(workflow.variant))
+        return parts.join("  â€¢  ")
+    }
+
     background: Rectangle {
         color: Theme.surface
         radius: Theme.radiusMedium
@@ -296,7 +304,7 @@ Popup {
                         readonly property bool progressAvailable: workflowRow.modelData.progressAvailable !== false
 
                         Layout.fillWidth: true
-                        height: 104
+                        height: workflowRow.modelData.error ? 142 : 122
                         radius: Theme.radiusSmall
                         color: rowHover.hovered ? Qt.rgba(1, 1, 1, 0.025) : Qt.rgba(1, 1, 1, 0.012)
                         border.color: Qt.rgba(1, 1, 1, 0.07)
@@ -351,11 +359,29 @@ Popup {
 
                                 Text {
                                     Layout.fillWidth: true
+                                    visible: root.executionDetails(workflowRow.modelData) !== ""
+                                    text: root.executionDetails(workflowRow.modelData)
+                                    color: Theme.textSecondary
+                                    font.pixelSize: 10
+                                    elide: Text.ElideRight
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
                                     text: workflowRow.modelData.status === "cancelling"
                                           ? workflowRow.modelData.statusLabel
                                           : (workflowRow.modelData.stageLabel || workflowRow.modelData.statusLabel)
                                     color: Theme.textSecondary
                                     font.pixelSize: Theme.fontSmall
+                                    elide: Text.ElideRight
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    visible: workflowRow.modelData.error !== ""
+                                    text: workflowRow.modelData.error
+                                    color: Theme.danger
+                                    font.pixelSize: 10
                                     elide: Text.ElideRight
                                 }
 

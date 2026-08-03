@@ -46,7 +46,10 @@ AppController::AppController(QObject *parent)
     m_voiceDesignPresets = new VoiceDesignPresetService(this);
     m_sttSession = new SttSessionController(this);
     m_updates = new AppUpdateService(m_downloads, this);
-    m_workflows = new WorkflowActivityManager(m_sessionRegistry, m_tts, m_sttSession, m_alignment, nullptr, this);
+    m_workflows = new WorkflowActivityManager(
+        m_sessionRegistry, m_tts, m_sttSession, m_alignment, nullptr,
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+        nullptr, nullptr, nullptr, this);
 }
 
 AppController::~AppController()

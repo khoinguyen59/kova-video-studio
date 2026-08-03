@@ -391,6 +391,7 @@ ColumnLayout {
                 ToggleRow {
                     id: denoiseToggle
                     text: "Denoise"
+                    description: "Reduce steady background noise in the generated audio. Recommended: on."
                     checked: root.denoise
                     enabled: !root.locked
                     onCheckedChanged: {
@@ -402,6 +403,7 @@ ColumnLayout {
                 ToggleRow {
                     id: preprocessToggle
                     text: "Preprocess prompt"
+                    description: "Normalize prompt text before synthesis. Recommended: on."
                     checked: root.preprocessPrompt
                     enabled: !root.locked
                     onCheckedChanged: {
@@ -413,6 +415,7 @@ ColumnLayout {
                 ToggleRow {
                     id: randomSeedToggle
                     text: "Random seed"
+                    description: "Use a new seed for each run. Turn off to reproduce a result with a fixed seed."
                     checked: root.randomSeed
                     enabled: !root.locked
                     onCheckedChanged: {
@@ -428,6 +431,7 @@ ColumnLayout {
                     enabled: !root.locked
                     text: root.customSeed.toString()
                     color: Theme.textPrimary
+                    placeholderText: "Fixed seed (whole number, e.g. 42)"
                     placeholderTextColor: Theme.textSecondary
                     validator: IntValidator { bottom: 0 }
                     background: Rectangle {

@@ -960,6 +960,9 @@ void TestDubbingProject::automaticWorkflowLocksSettingsUntilPaused()
     DubbingController controller(nullptr, nullptr);
     QVERIFY(controller.newProject(dir.filePath(QStringLiteral("project.ladub.json"))));
     QVERIFY(controller.importMedia(mediaPath));
+    QVERIFY2(controller.automaticPreflight().value(QStringLiteral("ready")).toBool(),
+             qPrintable(controller.automaticPreflight().value(QStringLiteral("issues")).toString()));
+    QVERIFY(controller.approveAutomaticPreflight());
     QVERIFY(controller.startAutomaticWorkflow(dir.filePath(QStringLiteral("dubbed.mp4"))));
     QVERIFY(controller.automaticSetupActive());
     QVERIFY(controller.processing());
@@ -981,6 +984,37 @@ void TestDubbingProject::automaticWorkflowLocksSettingsUntilPaused()
     QVERIFY(controller.automaticStatusText().contains(QStringLiteral("Paused")));
 }
 
+void TestDubbingProject::automaticWorkflowRequiresFreshPreflightApproval()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString mediaPath = dir.filePath(QStringLiteral("source.mp4"));
+    QFile media(mediaPath);
+    QVERIFY(media.open(QIODevice::WriteOnly));
+    QVERIFY(media.write("video-placeholder") > 0);
+    media.close();
+
+    DubbingController controller(nullptr, nullptr);
+    QVERIFY(controller.newProject(dir.filePath(QStringLiteral("project.ladub.json"))));
+    QVERIFY(controller.importMedia(mediaPath));
+    const QString output = dir.filePath(QStringLiteral("dubbed.mp4"));
+
+    QVERIFY(!controller.startAutomaticWorkflow(output));
+    QVERIFY(controller.lastError().contains(QStringLiteral("Automatic preflight")));
+
+    QVERIFY(controller.approveAutomaticPreflight());
+    QVERIFY(controller.setWorkflowNodeParameters(QStringLiteral("translate"), {
+        {QStringLiteral("executionProvider"), QStringLiteral("api-gateway")},
+        {QStringLiteral("modelId"), QStringLiteral("review-model")}
+    }));
+    QVERIFY(!controller.startAutomaticWorkflow(output));
+    QVERIFY(controller.lastError().contains(QStringLiteral("Automatic preflight")));
+
+    QVERIFY(controller.approveAutomaticPreflight());
+    QVERIFY(controller.startAutomaticWorkflow(output));
+    controller.pauseAutomaticWorkflow();
+}
+
 void TestDubbingProject::customWorkflowOpensFirstMissingNodeSetup()
 {
     QTemporaryDir dir;
@@ -996,14 +1030,15 @@ void TestDubbingProject::customWorkflowOpensFirstMissingNodeSetup()
     QVERIFY(controller.importMedia(mediaPath));
     controller.setDubbingQuality(QStringLiteral("custom"));
 
+    const QVariantMap preflight = controller.automaticPreflight();
+    QVERIFY(!preflight.value(QStringLiteral("ready")).toBool());
+    QVERIFY(preflight.value(QStringLiteral("issues")).toList().constFirst().toMap()
+                .value(QStringLiteral("message")).toString().contains(QStringLiteral("Custom")));
     QSignalSpy setupSpy(&controller, &DubbingController::workflowSetupRequired);
     QVERIFY(!controller.startAutomaticWorkflow(
         dir.filePath(QStringLiteral("dubbed.mp4"))));
-    QCOMPARE(setupSpy.count(), 1);
-    const QList<QVariant> arguments = setupSpy.takeFirst();
-    QCOMPARE(arguments.at(0).toString(), QStringLiteral("source-separate"));
-    QCOMPARE(arguments.at(1).toString(), QStringLiteral("node-model"));
-    QVERIFY(arguments.at(2).toString().contains(QStringLiteral("Custom")));
+    QCOMPARE(setupSpy.count(), 0);
+    QVERIFY(controller.lastError().contains(QStringLiteral("Automatic preflight")));
     QVERIFY(!controller.processing());
     QCOMPARE(controller.workflowMode(), QStringLiteral("idle"));
 }
@@ -1475,7 +1510,23 @@ void TestDubbingProject::dubbingUiUsesExactModelWorkers()
     QVERIFY(colabSetupSource.contains(
         QStringLiteral("subtitle-ocr\") return AppController.colabSubtitleOcrSession")));
     QVERIFY(colabSetupSource.contains(
-        QStringLiteral("enabled: stageCard.stageSession && !stageCard.stageSession.checking")));
+        QStringLiteral("onCheckRequested:")));
+    QVERIFY(colabSetupSource.contains(
+        QStringLiteral("root.dubbing.checkWorkflowColabStage(stageCard.stageId)")));
+
+    QFile automaticPreflight(
+        QStringLiteral(LASTUDIO_SOURCE_DIR)
+        + QStringLiteral("/qml/components/dubbing/DubbingAutomaticPreflightDialog.qml"));
+    QVERIFY(automaticPreflight.open(QIODevice::ReadOnly));
+    const QString automaticPreflightSource = QString::fromUtf8(automaticPreflight.readAll());
+    QVERIFY(automaticPreflightSource.contains(QStringLiteral("Automatic (recommended)")));
+    QVERIFY(automaticPreflightSource.contains(QStringLiteral("Review one by one")));
+    QVERIFY(automaticPreflightSource.contains(QStringLiteral("Routes & models")));
+    QVERIFY(automaticPreflightSource.contains(QStringLiteral("Colab workers")));
+    QVERIFY(automaticPreflightSource.contains(QStringLiteral("Start Automatic Dubbing")));
+    QVERIFY(automaticPreflightSource.contains(QStringLiteral("approveAutomaticPreflight")));
+    QVERIFY(automaticPreflightSource.contains(QStringLiteral("fixed notebook configuration")));
+    QVERIFY(automaticPreflightSource.contains(QStringLiteral("required property int index")));
 
     QFile dubbingController(
         QStringLiteral(LASTUDIO_SOURCE_DIR)
@@ -1486,6 +1537,10 @@ void TestDubbingProject::dubbingUiUsesExactModelWorkers()
         QStringLiteral("snapshotSelectedColabStagesForWorkflow")));
     QVERIFY(controllerSource.contains(
         QStringLiteral("hasVerifiedRoute(capability, model")));
+    QVERIFY(controllerSource.contains(
+        QStringLiteral("m_automaticPreflightFingerprint")));
+    QVERIFY(controllerSource.contains(
+        QStringLiteral("automaticPreflightFingerprint")));
 
     QFile voiceLibrary(
         QStringLiteral(LASTUDIO_SOURCE_DIR)

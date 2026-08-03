@@ -16,6 +16,7 @@ ColumnLayout {
     property bool showTips: true
     property bool showHeader: true
     property bool locked: false
+    property bool requiresExactTranscript: false
     property string familyId: ""
     property var savedVoices: []
     property int selectedSavedVoiceIndex: -1
@@ -273,6 +274,13 @@ ColumnLayout {
                 font.bold: true
                 Layout.fillWidth: true
             }
+            Text {
+                visible: root.requiresExactTranscript
+                text: "*"
+                color: Theme.danger
+                font.pixelSize: Theme.fontMedium
+                font.bold: true
+            }
             PrimaryButton {
                 text: "Import .txt"
                 iconName: "folder"
@@ -285,7 +293,9 @@ ColumnLayout {
         }
 
         Text {
-            text: "Helps the model align the reference audio correctly."
+            text: root.requiresExactTranscript
+                  ? "Required: type the exact words spoken in the reference audio."
+                  : "Helps the model align the reference audio correctly."
             color: Theme.textSecondary
             font.pixelSize: 11
         }
@@ -294,7 +304,8 @@ ColumnLayout {
             Layout.fillWidth: true
             Layout.preferredHeight: 100
             color: Theme.surface
-            border.color: Theme.surfaceAlt
+            border.color: root.requiresExactTranscript && root.audioPath !== ""
+                          && root.referenceText.trim() === "" ? Theme.danger : Theme.surfaceAlt
             border.width: 1
             radius: Theme.radiusSmall
 
@@ -309,6 +320,16 @@ ColumnLayout {
 
                 onTextChanged: root.referenceText = text
             }
+        }
+
+        Text {
+            Layout.fillWidth: true
+            visible: root.requiresExactTranscript && root.audioPath !== ""
+                     && root.referenceText.trim() === ""
+            text: "Reference Transcript is required for this route/model."
+            color: Theme.danger
+            font.pixelSize: Theme.fontSmall
+            wrapMode: Text.WordWrap
         }
     }
 

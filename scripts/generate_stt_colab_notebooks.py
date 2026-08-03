@@ -74,6 +74,7 @@ def health():
         "device": "cuda",
         "gpu": torch.cuda.get_device_name(0),
         "model": MODEL_ID,
+        "variant": "fixed",
         "upstream_model": UPSTREAM_MODEL,
         "worker_revision": WORKER_REVISION,
         "cpu_fallback": False,
@@ -99,6 +100,7 @@ def capabilities(authorization: str | None = Header(default=None)):
             "models": [{{
                 "id": MODEL_ID,
                 "name": MODEL_NAME,
+                "variant": "fixed",
                 "upstream_model": UPSTREAM_MODEL,
                 "loaded": True,
                 "device": "cuda",

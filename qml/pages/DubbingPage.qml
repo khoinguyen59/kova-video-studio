@@ -446,7 +446,7 @@ Item {
             onHistoryToggled: root.isHistoryOpen = !root.isHistoryOpen
             onSettingsToggled: root.isNodeInspectorOpen = !root.isNodeInspectorOpen
             onGenerateRequested: {
-                root.dubbing.startAutomaticWorkflow(root.defaultExportPath())
+                automaticPreflightDialog.openPreflight()
             }
             onPauseRequested: root.dubbing.pauseAutomaticWorkflow()
             onStopRequested: root.dubbing.cancelProcessing()
@@ -1165,6 +1165,15 @@ Item {
         dubbing: root.dubbing
     }
 
+    DubbingAutomaticPreflightDialog {
+        id: automaticPreflightDialog
+        dubbing: root.dubbing
+        onStepByStepRequested: root.dubbing.startStepByStep()
+        onNodeModelRequested: function(nodeId) { nodeModelDialog.openFor(nodeId) }
+        onColabSetupRequested: dubbingColabSetupDialog.open()
+        onAutomaticStartRequested: root.dubbing.startAutomaticWorkflow(root.defaultExportPath())
+    }
+
     DubbingTranslationFixDialog {
         id: translationFixDialog
         parent: Overlay.overlay
@@ -1324,7 +1333,7 @@ Item {
         reviewWaiting: dubbing.workflowWaitingForInput
         description: qsTr("Review the media, transcription, translation, voice, timing, and output stages.")
         onPrepareRequested: dubbing.prepareWorkflow()
-        onRunRequested: dubbing.startAutomaticWorkflow(defaultExportPath())
+        onRunRequested: automaticPreflightDialog.openPreflight()
         onApproveRequested: dubbing.approveWorkflowReview()
         onRejectRequested: dubbing.rejectWorkflowReview(qsTr("Rejected from workflow review"))
         nodeConfigurations: dubbing.workflowNodeConfigurations

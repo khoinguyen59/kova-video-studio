@@ -140,6 +140,7 @@ def health(_: None = Depends(authorize)):
         "device": "cuda",
         "gpu": torch.cuda.get_device_name(0),
         "model": MODEL_ID,
+        "variant": "fixed",
         "upstream_model": UPSTREAM_MODEL,
         "worker_revision": WORKER_REVISION,
         "response_contract": RESPONSE_CONTRACT,
@@ -158,6 +159,7 @@ def capabilities(_: None = Depends(authorize)):
             "models": [{
                 "id": MODEL_ID,
                 "name": MODEL_NAME,
+                "variant": "fixed",
                 "upstream_model": UPSTREAM_MODEL,
                 "languages": SUPPORTED_LANGUAGES,
                 "device": "cuda",
@@ -441,6 +443,7 @@ def health(_: None = Depends(authorize)):
         "device": "cuda",
         "gpu": torch.cuda.get_device_name(0),
         "model": MODEL_ID,
+        "variant": "fixed",
         "upstream_model": UPSTREAM_MODEL,
         "cpu_fallback": False,
     }
@@ -455,6 +458,7 @@ def capabilities(_: None = Depends(authorize)):
             "models": [{
                 "id": MODEL_ID,
                 "name": MODEL_NAME,
+                "variant": "fixed",
                 "upstream_model": UPSTREAM_MODEL,
                 "device": "cuda",
                 "loaded": True,

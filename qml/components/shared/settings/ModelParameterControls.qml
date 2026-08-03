@@ -31,6 +31,17 @@ ColumnLayout {
             property var choices: item.choices || item.options || []
             property bool syncingChoiceIndex: false
 
+            function parameterDetails() {
+                var details = []
+                if (item.description)
+                    details.push(item.description)
+                if (item.min !== undefined && item.max !== undefined)
+                    details.push(qsTr("Range: %1–%2").arg(item.min).arg(item.max))
+                if (item["default"] !== undefined)
+                    details.push(qsTr("Default: %1").arg(item["default"]))
+                return details.join(" • ")
+            }
+
             function resolveChoiceIndex() {
                 if (!choices || item.type !== "choice" || choices.length === 0) return -1
                 var currentVal = root.dynamicSettings[item.id]
@@ -130,7 +141,7 @@ ColumnLayout {
             }
 
             Text {
-                text: item.description || ""
+                text: parameterDetails()
                 color: Theme.textSecondary
                 font.pixelSize: 10
                 wrapMode: Text.WordWrap
@@ -148,9 +159,19 @@ ColumnLayout {
             visible: item.type === "bool"
             property var item: modelData
 
+            function parameterDetails() {
+                var details = []
+                if (item.description)
+                    details.push(item.description)
+                if (item["default"] !== undefined)
+                    details.push(qsTr("Default: %1").arg(item["default"]))
+                return details.join(" • ")
+            }
+
             ToggleRow {
                 Layout.fillWidth: true
                 text: item.name || item.id
+                description: parent.parameterDetails()
                 checked: root.dynamicSettings[item.id] !== undefined
                          ? !!root.dynamicSettings[item.id]
                          : !!item.default
@@ -161,14 +182,6 @@ ColumnLayout {
                 }
             }
 
-            Text {
-                text: item.description || ""
-                color: Theme.textSecondary
-                font.pixelSize: 10
-                wrapMode: Text.WordWrap
-                visible: text !== ""
-                Layout.fillWidth: true
-            }
         }
     }
 }

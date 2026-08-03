@@ -148,6 +148,42 @@ StudioShell {
         return count + " samples"
     }
 
+    function cloneBlockReason() {
+        if (root.inputsLocked) return ""
+        if (root.remoteFirstMode && !root.colabActive)
+            return qsTr("Connect and Check the selected Direct Colab GPU worker in Cloning Settings before cloning.")
+        if (root.colabActive) {
+            if (inputText.text.trim().length === 0)
+                return qsTr("Target Prompt is required.")
+            if (root.referenceAudioPath === "")
+                return qsTr("Reference Voice audio is required.")
+            if (referenceBox.referenceText.trim().length === 0)
+                return qsTr("Reference Transcript is required and must match the spoken reference audio.")
+            if (!settingsPanel.colabConsent)
+                return qsTr("Confirm that you have permission to clone this voice.")
+            return ""
+        }
+        if (!(root.studioController ? root.studioController.canProcess : false)
+                || !AppController.tts.modelLoaded)
+            return qsTr("Load a Local CPU model/runtime, or select Direct Colab GPU in Cloning Settings.")
+        if (inputText.text.trim().length === 0)
+            return qsTr("Target Prompt is required.")
+        if (root.referenceAudioPath === "")
+            return qsTr("Reference Voice audio is required.")
+        var isQwen3 = root.family && root.family.id && root.family.id.indexOf("qwen3") !== -1
+        if (isQwen3 && referenceBox.referenceText.trim().length === 0)
+            return qsTr("This Local CPU model requires the Reference Transcript.")
+        return ""
+    }
+
+    function qmlSmokeVoiceCloneLayoutCheck() {
+        return !!settingsPanel && !!referenceBox
+            && settingsPanel.qmlSmokeConsentLayoutCheck
+            && settingsPanel.qmlSmokeConsentLayoutCheck()
+            && referenceBox.width > 0 && referenceBox.height > 0
+            && inputText.width > 0 && inputText.height > 0
+    }
+
     function applyExample(example) {
         if (!example || root.inputsLocked) return
         var inputs = example.inputs || {}
@@ -320,6 +356,9 @@ StudioShell {
                                     showHeader: true
                                     locked: root.inputsLocked
                                     familyId: root.family ? root.family.id : ""
+                                    requiresExactTranscript: root.colabActive
+                                                             || (root.family && root.family.id
+                                                                 && root.family.id.indexOf("qwen3") !== -1)
                                     isPlaying: root.playingType === "reference"
                                     onAudioPathChanged: {
                                         root.referenceAudioPath = referenceBox.audioPath
@@ -424,6 +463,13 @@ StudioShell {
                                                     Layout.fillWidth: true
                                                 }
 
+                                                Text {
+                                                    text: "*"
+                                                    color: Theme.danger
+                                                    font.pixelSize: Theme.fontMedium
+                                                    font.bold: true
+                                                }
+
                                                 PrimaryButton {
                                                     id: examplesButton
                                                     text: qsTr("Examples (%1)").arg(root.availableExamples.length)
@@ -476,13 +522,18 @@ StudioShell {
                                                         ScrollBar.vertical.policy: ScrollBar.AsNeeded
                                                         ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
-                                                        AppTextArea {
-                                                            id: inputText
+                                                    AppTextArea {
+                                                        id: inputText
                                                             width: promptTextScroll.availableWidth
                                                             height: Math.max(promptTextScroll.availableHeight, contentHeight + topPadding + bottomPadding)
                                                             placeholderText: qsTr("Enter the text you want the cloned voice to say...")
                                                             font.pixelSize: Theme.fontMedium
-                                                            background: Rectangle { color: "transparent" }
+                                                        background: Rectangle {
+                                                            color: "transparent"
+                                                            border.width: root.colabActive && inputText.text.trim().length === 0 ? 1 : 0
+                                                            border.color: Theme.danger
+                                                            radius: Theme.radiusSmall
+                                                        }
                                                             readOnly: root.inputsLocked
                                                             onTextChanged: languageDetectTimer.restart()
                                                         }
@@ -586,6 +637,10 @@ StudioShell {
                                             AppController.tts.cloneVoice(VoiceCloningUtils.normalizeText(inputText.text), root.referenceAudioPath, settings)
                                         }
                                     }
+                                    AppToolTip {
+                                        text: root.cloneBlockReason()
+                                        visible: parent.hovered && !parent.enabled && text !== ""
+                                    }
                                 }
 
                                 PrimaryButton {
@@ -600,6 +655,15 @@ StudioShell {
                                         else AppController.tts.cancelProcessing()
                                     }
                                 }
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                visible: !root.inputsLocked && root.cloneBlockReason() !== ""
+                                text: root.cloneBlockReason()
+                                color: Theme.warning
+                                font.pixelSize: Theme.fontSmall
+                                wrapMode: Text.WordWrap
                             }
                         }
                     }

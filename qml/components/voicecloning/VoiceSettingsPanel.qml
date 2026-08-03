@@ -36,6 +36,61 @@ ColumnLayout {
         }
     }
 
+    // Consent is intentionally a real checkbox, not a generic toggle.  The
+    // square indicator remains on the left at narrow widths and the whole row
+    // is keyboard-focusable/clickable, which makes the required legal action
+    // unambiguous before a clone request is sent.
+    component ConsentCheckBox: CheckBox {
+        id: consentBox
+        Layout.fillWidth: true
+        implicitHeight: 46
+        focusPolicy: Qt.StrongFocus
+        padding: Theme.paddingSmall
+        spacing: Theme.paddingSmall
+
+        indicator: Rectangle {
+            implicitWidth: 22
+            implicitHeight: 22
+            x: consentBox.leftPadding
+            y: (consentBox.height - height) / 2
+            radius: 4
+            color: consentBox.checked ? Theme.accent : Qt.rgba(1, 1, 1, 0.04)
+            border.width: consentBox.activeFocus ? 2 : 1
+            border.color: consentBox.activeFocus ? Theme.accentLight
+                         : (consentBox.checked ? Theme.accentLight : Qt.rgba(1, 1, 1, 0.42))
+
+            Text {
+                anchors.centerIn: parent
+                visible: consentBox.checked
+                text: "✓"
+                color: "white"
+                font.bold: true
+                font.pixelSize: 15
+            }
+        }
+
+        contentItem: Text {
+            text: consentBox.text
+            leftPadding: consentBox.indicator.width + consentBox.spacing
+            rightPadding: Theme.paddingSmall
+            color: consentBox.enabled ? Theme.textPrimary : Theme.textSecondary
+            font.pixelSize: Theme.fontSmall
+            verticalAlignment: Text.AlignVCenter
+            wrapMode: Text.WordWrap
+        }
+
+        background: Rectangle {
+            radius: Theme.radiusSmall
+            color: consentBox.hovered || consentBox.activeFocus
+                   ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.10)
+                   : "transparent"
+            border.width: consentBox.activeFocus ? 1 : 0
+            border.color: Qt.rgba(Theme.accentLight.r, Theme.accentLight.g, Theme.accentLight.b, 0.65)
+        }
+
+        HoverHandler { cursorShape: Qt.PointingHandCursor }
+    }
+
     property var capabilitySchema: []
     property var basicSchema: []
     property var advancedSchema: []
@@ -52,6 +107,12 @@ ColumnLayout {
             }
         }
         return result
+    }
+
+    function qmlSmokeConsentLayoutCheck() {
+        return colabSettingsScroll.width > 0 && colabSettingsScroll.height > 0
+            && colabConsentCheck.visible && colabConsentCheck.width > 0
+            && colabConsentCheck.height >= 40
     }
 
     function refreshCapabilityMetadata() {
@@ -163,6 +224,8 @@ ColumnLayout {
     Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1, 1, 1, 0.07) }
 
     ScrollView {
+        id: colabSettingsScroll
+        objectName: "voiceCloneSettingsScroll"
         Layout.fillWidth: true
         Layout.fillHeight: true
         clip: true
@@ -179,6 +242,13 @@ ColumnLayout {
                 Text { Layout.fillWidth: true; text: qsTr("This direct temporary worker is independent of API Gateway. The notebook and worker must match the model selected in the gallery."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
                 Text { text: qsTr("Selected model"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 Text { Layout.fillWidth: true; text: AppController.colabVoiceClone.model; color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WrapAnywhere }
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("Colab configuration: fixed exact-notebook configuration. Local CPU model files and variants do not change this GPU worker.")
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSmall
+                    wrapMode: Text.WordWrap
+                }
                 ColabNotebookLink { notebookFile: AppController.colabVoiceClone.colabNotebookFile }
                 Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 ColabField {
@@ -197,15 +267,17 @@ ColumnLayout {
                 ColabSessionStatus {
                     session: AppController.colabVoiceCloneSession
                 }
-                Text { text: qsTr("Profile name"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                Text { text: qsTr("Profile name (optional)"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 ColabField {
                     text: root.colabProfileName
                     placeholderText: qsTr("Voice profile name")
                     enabled: !root.locked
                     onTextChanged: root.colabProfileName = text
                 }
-                ToggleRow {
-                    text: qsTr("I have permission to clone this voice")
+                ConsentCheckBox {
+                    id: colabConsentCheck
+                    objectName: "voiceCloneConsent"
+                    text: qsTr("I have permission to clone this voice (required)")
                     checked: root.colabConsent
                     enabled: !root.locked
                     onCheckedChanged: root.colabConsent = checked
@@ -219,8 +291,8 @@ ColumnLayout {
                     text: AppController.colabVoiceCloneSession.checking
                           ? qsTr("Verifying CUDA and exact model...")
                           : (root.remoteFirstMode
-                          ? (AppController.colabVoiceClone.colabActive ? qsTr("Direct Colab GPU voice cloning active") : (AppController.colabVoiceClone.colabConnected ? qsTr("Use direct Colab GPU voice cloning") : qsTr("Connect direct Colab GPU voice cloning")))
-                          : (AppController.colabVoiceClone.colabActive ? qsTr("Use local voice cloning") : (AppController.colabVoiceClone.colabConnected ? qsTr("Use Colab GPU voice cloning") : qsTr("Connect Colab GPU voice cloning"))))
+                          ? (AppController.colabVoiceClone.colabActive ? qsTr("Direct Colab GPU selected") : (AppController.colabVoiceClone.colabConnected ? qsTr("Select direct Colab GPU route") : qsTr("Connect direct Colab GPU worker")))
+                          : (AppController.colabVoiceClone.colabActive ? qsTr("Switch to Local CPU voice cloning") : (AppController.colabVoiceClone.colabConnected ? qsTr("Select direct Colab GPU route") : qsTr("Connect direct Colab GPU worker"))))
                     iconName: root.remoteFirstMode || !AppController.colabVoiceClone.colabActive ? "cloud" : "close"
                     onClicked: {
                         if (AppController.colabVoiceClone.colabActive && !root.remoteFirstMode) {
@@ -319,6 +391,7 @@ ColumnLayout {
                 ToggleRow {
                     id: denoiseToggle
                     text: qsTr("Denoise")
+                    description: qsTr("Reduce steady background noise in the generated audio. Recommended: on.")
                     checked: true
                     enabled: !root.locked
                     onCheckedChanged: {
@@ -330,6 +403,7 @@ ColumnLayout {
                 ToggleRow {
                     id: preprocessToggle
                     text: qsTr("Preprocess prompt")
+                    description: qsTr("Normalize prompt text before synthesis. Recommended: on.")
                     checked: true
                     enabled: !root.locked
                     onCheckedChanged: {
@@ -341,6 +415,7 @@ ColumnLayout {
                 ToggleRow {
                     id: randomSeedToggle
                     text: qsTr("Random seed")
+                    description: qsTr("Use a new seed for each run. Turn off to reproduce a result with a fixed seed.")
                     checked: true
                     enabled: !root.locked
                     onCheckedChanged: {
@@ -356,6 +431,7 @@ ColumnLayout {
                     enabled: !root.locked
                     text: "42"
                     color: Theme.textPrimary
+                    placeholderText: qsTr("Fixed seed (whole number, e.g. 42)")
                     placeholderTextColor: Theme.textSecondary
                     validator: IntValidator { bottom: 0 }
                     background: Rectangle {

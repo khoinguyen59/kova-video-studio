@@ -161,6 +161,7 @@ def health(authorization: str | None = Header(default=None)):
         "device": "cuda",
         "gpu": torch.cuda.get_device_name(0),
         "model": MODEL_ID,
+        "variant": "fixed",
         "upstream_model": UPSTREAM_MODEL,
         "cpu_fallback": False,
     }
@@ -176,6 +177,7 @@ def capabilities(authorization: str | None = Header(default=None)):
             "models": [{
                 "id": MODEL_ID,
                 "name": MODEL_NAME,
+                "variant": "fixed",
                 "upstream_model": UPSTREAM_MODEL,
                 "formats": ["wav"],
                 "reference_formats": ["wav", "mp3", "flac"],
@@ -366,6 +368,7 @@ def health(authorization: str | None = Header(default=None)):
         "device": "cuda",
         "gpu": torch.cuda.get_device_name(0),
         "model": MODEL_ID,
+        "variant": "fixed",
         "upstream_model": UPSTREAM_MODEL,
         "cpu_fallback": False,
     }
@@ -381,6 +384,7 @@ def capabilities(authorization: str | None = Header(default=None)):
             "models": [{
                 "id": MODEL_ID,
                 "name": MODEL_NAME,
+                "variant": "fixed",
                 "upstream_model": UPSTREAM_MODEL,
                 "formats": ["wav"],
                 "device": "cuda",

@@ -475,6 +475,7 @@ ColumnLayout {
                 ToggleRow {
                     id: denoiseToggle
                     text: qsTr("Denoise")
+                    description: qsTr("Reduce steady background noise in the generated audio. Recommended: on.")
                     checked: true
                     enabled: !root.locked
                     onCheckedChanged: {
@@ -486,6 +487,7 @@ ColumnLayout {
                 ToggleRow {
                     id: preprocessToggle
                     text: qsTr("Preprocess prompt")
+                    description: qsTr("Normalize prompt text before synthesis. Recommended: on.")
                     checked: true
                     enabled: !root.locked
                     onCheckedChanged: {
@@ -497,6 +499,7 @@ ColumnLayout {
                 ToggleRow {
                     id: randomSeedToggle
                     text: qsTr("Random seed")
+                    description: qsTr("Use a new seed for each run. Turn off to reproduce a result with a fixed seed.")
                     checked: true
                     enabled: !root.locked
                     onCheckedChanged: {
@@ -512,6 +515,7 @@ ColumnLayout {
                     enabled: !root.locked
                     text: "42"
                     color: Theme.textPrimary
+                    placeholderText: qsTr("Fixed seed (whole number, e.g. 42)")
                     placeholderTextColor: Theme.textSecondary
                     validator: IntValidator { bottom: 0 }
                     background: Rectangle {

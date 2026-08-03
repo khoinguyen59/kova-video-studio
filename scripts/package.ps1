@@ -460,7 +460,11 @@ function Ensure-Bsdtar {
     $bsdtarBuildDir = Join-Path $RepositoryRoot "out\build\bsdtar-$Triplet"
     $prefixPath = $vcpkgPrefix.Replace('\', '/')
     Write-Host ">> Building pinned bsdtar $version" -ForegroundColor Cyan
-    & cmake -S $sourceRoot -B $bsdtarBuildDir -G Ninja `
+    # libarchive's optional-package probes can emit developer warnings on
+    # newer CMake releases.  This is a pinned third-party runtime build, and
+    # those diagnostics are not build failures; suppress only developer
+    # warnings while preserving the explicit exit-code gate below.
+    & cmake -Wno-dev -S $sourceRoot -B $bsdtarBuildDir -G Ninja `
         "-DCMAKE_BUILD_TYPE=Release" `
         "-DCMAKE_PREFIX_PATH=$prefixPath" `
         "-DENABLE_TAR=ON" `

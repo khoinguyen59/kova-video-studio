@@ -13,6 +13,15 @@ namespace LAStudio {
 
 namespace {
 
+QString normalizedVariant(const QString &value)
+{
+    const QString normalized = value.trimmed().toLower();
+    // Existing exact-model notebooks predate the optional variant field.  They
+    // intentionally expose one immutable configuration, represented by
+    // "fixed" instead of pretending that Local CPU file variants apply.
+    return normalized.isEmpty() ? QStringLiteral("fixed") : normalized;
+}
+
 QString requiredResponseContract(const QString &capability)
 {
     // v3 retries blank exact-model output, then returns a non-empty source
@@ -85,11 +94,12 @@ bool ColabSession::isActive() const
 }
 
 bool ColabSession::hasVerifiedRoute(const QString &capability, const QString &model,
-                                    QString *errorMessage) const
+                                    QString *errorMessage, const QString &variant) const
 {
     if (errorMessage) errorMessage->clear();
     const QString requiredCapability = capability.trimmed().toLower();
     const QString requiredModel = model.trimmed().toLower();
+    const QString requiredVariant = normalizedVariant(variant);
     if (requiredCapability.isEmpty() || requiredModel.isEmpty()) {
         if (errorMessage) {
             *errorMessage = QStringLiteral("An exact Colab capability and model are required before dispatching work.");
@@ -126,6 +136,14 @@ bool ColabSession::hasVerifiedRoute(const QString &capability, const QString &mo
         }
         return false;
     }
+    if (m_expectedVariant != requiredVariant) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral(
+                "Wrong Colab configuration: this worker was checked for variant '%1', but '%2' is required.")
+                                .arg(m_expectedVariant, requiredVariant);
+        }
+        return false;
+    }
     return true;
 }
 
@@ -138,11 +156,12 @@ bool ColabSession::connectTemporaryWorker(const QString &workerUrl,
 bool ColabSession::connectTemporaryWorker(const QString &workerUrl,
                                           const QString &bearerToken,
                                           const QString &expectedCapability,
-                                          const QString &expectedModel)
+                                          const QString &expectedModel,
+                                          const QString &expectedVariant)
 {
     QString error;
     if (!beginVerifiedSession(workerUrl, bearerToken, expectedCapability,
-                              expectedModel, &error)) {
+                              expectedModel, &error, false, expectedVariant)) {
         setLastError(error);
         return false;
     }
@@ -164,7 +183,8 @@ bool ColabSession::checkConnection()
     QString error;
     const bool started = beginVerifiedSession(m_endpoint.toString(), m_bearerToken,
                                               m_expectedCapability, m_expectedModel,
-                                              &error, m_allowInsecureLocalhostForTests);
+                                              &error, m_allowInsecureLocalhostForTests,
+                                              m_expectedVariant);
     if (!started) setLastError(error);
     return started;
 }
@@ -179,13 +199,15 @@ bool ColabSession::beginVerifiedSession(const QString &workerUrl,
                                         const QString &expectedCapability,
                                         const QString &expectedModel,
                                         QString *errorMessage,
-                                        bool allowInsecureLocalhost)
+                                        bool allowInsecureLocalhost,
+                                        const QString &expectedVariant)
 {
     const RemoteEndpointValidation validated = validateRemoteEndpoint(
         workerUrl, RemoteEndpointKind::ColabWorker, allowInsecureLocalhost);
     const QString normalizedToken = bearerToken.trimmed();
     const QString capability = expectedCapability.trimmed().toLower();
     const QString model = expectedModel.trimmed().toLower();
+    const QString variant = normalizedVariant(expectedVariant);
     if (!validated.isValid()) {
         if (errorMessage) *errorMessage = validated.error;
         return false;
@@ -203,14 +225,19 @@ bool ColabSession::beginVerifiedSession(const QString &workerUrl,
     }
 
     const bool endpointChanged = m_endpoint != validated.normalizedUrl;
+    const bool tokenChanged = m_bearerToken != normalizedToken;
+    const bool routeChanged = m_expectedCapability != capability
+        || m_expectedModel != model || m_expectedVariant != variant;
     cancelVerification();
     const quint64 generation = ++m_verificationGeneration;
     m_endpoint = validated.normalizedUrl;
     m_bearerToken = normalizedToken;
     m_expectedCapability = capability;
     m_expectedModel = model;
+    m_expectedVariant = variant;
     m_allowInsecureLocalhostForTests = allowInsecureLocalhost;
     m_reportedGpu.clear();
+    m_verifiedAt = {};
     m_verified = false;
     m_checking = true;
     m_verificationState = QStringLiteral("checking");
@@ -219,7 +246,7 @@ bool ColabSession::beginVerifiedSession(const QString &workerUrl,
         : QStringLiteral("Checking CUDA worker for %1 / %2...")
               .arg(capability, model);
     setLastError({});
-    if (endpointChanged) emit sessionChanged();
+    if (endpointChanged || tokenChanged || routeChanged) emit sessionChanged();
     emit verificationChanged();
     requestVerificationDocument(VerificationStage::Health, generation);
     return true;
@@ -248,8 +275,10 @@ bool ColabSession::setSession(const QString &workerUrl, const QString &bearerTok
     m_bearerToken = normalizedToken;
     m_expectedCapability.clear();
     m_expectedModel.clear();
+    m_expectedVariant.clear();
     m_allowInsecureLocalhostForTests = allowInsecureLocalhost;
     m_reportedGpu.clear();
+    m_verifiedAt = {};
     m_checking = false;
     m_verified = true;
     m_verificationState = QStringLiteral("trusted");
@@ -273,7 +302,9 @@ void ColabSession::clear()
     m_bearerToken.clear();
     m_expectedCapability.clear();
     m_expectedModel.clear();
+    m_expectedVariant.clear();
     m_reportedGpu.clear();
+    m_verifiedAt = {};
     m_allowInsecureLocalhostForTests = false;
     m_checking = false;
     m_verified = false;
@@ -402,6 +433,15 @@ void ColabSession::handleVerificationReply(QNetworkReply *reply,
                              generation);
             return;
         }
+        const QString reportedVariant = normalizedVariant(
+            root.value(QStringLiteral("variant")).toString());
+        if (!m_expectedVariant.isEmpty() && reportedVariant != m_expectedVariant) {
+            failVerification(QStringLiteral(
+                "Wrong Colab configuration: app selected variant '%1' but worker loaded '%2'")
+                                 .arg(m_expectedVariant, reportedVariant),
+                             generation);
+            return;
+        }
         m_reportedGpu = root.value(QStringLiteral("gpu")).toString().trimmed();
         m_verificationMessage = QStringLiteral("CUDA health passed; checking exact capability...");
         emit verificationChanged();
@@ -452,6 +492,15 @@ void ColabSession::handleVerificationReply(QNetworkReply *reply,
                                         .trimmed().toLower();
             if (!m_expectedModel.isEmpty() && modelId != m_expectedModel) continue;
             modelFound = true;
+            const QString reportedVariant = normalizedVariant(
+                model.value(QStringLiteral("variant")).toString());
+            if (!m_expectedVariant.isEmpty() && reportedVariant != m_expectedVariant) {
+                failVerification(QStringLiteral(
+                    "Wrong Colab configuration: exact model '%1' has variant '%2', but '%3' was selected")
+                                     .arg(m_expectedModel, reportedVariant, m_expectedVariant),
+                                 generation);
+                return;
+            }
             const QString device = model.value(QStringLiteral("device")).toString()
                                        .trimmed().toLower();
             // The feature is bound to this one model, not to a generic
@@ -511,6 +560,7 @@ void ColabSession::failVerification(const QString &message, quint64 generation)
     m_bearerToken.clear();
     m_checking = false;
     m_verified = false;
+    m_verifiedAt = {};
     m_verificationState = QStringLiteral("failed");
     m_verificationMessage = message;
     setLastError(message);
@@ -524,11 +574,12 @@ void ColabSession::finishVerification(quint64 generation)
     if (generation != m_verificationGeneration) return;
     m_checking = false;
     m_verified = true;
+    m_verifiedAt = QDateTime::currentDateTimeUtc();
     m_verificationState = QStringLiteral("ready");
     m_verificationMessage = m_expectedCapability.isEmpty()
         ? QStringLiteral("Verified direct Colab CUDA worker")
-        : QStringLiteral("Verified CUDA worker for %1 / %2%3")
-              .arg(m_expectedCapability, m_expectedModel,
+        : QStringLiteral("Verified CUDA worker for %1 / %2 / %3%4")
+              .arg(m_expectedCapability, m_expectedModel, m_expectedVariant,
                    m_reportedGpu.isEmpty()
                        ? QString()
                        : QStringLiteral(" on %1").arg(m_reportedGpu));

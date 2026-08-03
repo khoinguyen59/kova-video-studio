@@ -129,7 +129,11 @@ AppController::AppController(QObject *parent)
                                  m_colabAlignmentSession);
     m_updates = new AppUpdateService(m_downloads, this);
     m_examples = new ExampleManager(this);
-    m_workflows = new WorkflowActivityManager(m_sessionRegistry, m_tts, m_sttSession, m_alignment, m_dubbing, this);
+    m_workflows = new WorkflowActivityManager(
+        m_sessionRegistry, m_tts, m_sttSession, m_alignment, m_dubbing,
+        m_gatewayTts, m_colabTts, m_colabVoiceClone, m_colabVoiceDesign,
+        m_colabAlignment, m_voiceIsolator, m_colabVoiceIsolator,
+        m_translation, m_subtitleOcr, m_llmChat, this);
     m_apiServer = new ApiServerService(m_settings, m_tts, m_stt, this);
     Logger::info(QStringLiteral("App"), QStringLiteral("Application services initialized."));
 

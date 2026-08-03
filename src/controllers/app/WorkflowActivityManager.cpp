@@ -3,7 +3,17 @@
 #include "IModelSession.h"
 #include "ModelSessionRegistry.h"
 #include "controllers/alignment/AlignmentExecutionService.h"
+#include "controllers/alignment/ColabAlignmentController.h"
 #include "controllers/dubbing/DubbingController.h"
+#include "controllers/llm/LlmChatController.h"
+#include "controllers/separation/ColabVoiceIsolatorController.h"
+#include "controllers/separation/VoiceIsolatorController.h"
+#include "controllers/subtitles/SubtitleOcrController.h"
+#include "controllers/translation/TranslationController.h"
+#include "controllers/tts/ColabTtsController.h"
+#include "controllers/tts/ColabVoiceCloneController.h"
+#include "controllers/tts/ColabVoiceDesignController.h"
+#include "controllers/tts/GatewayTtsController.h"
 #include "SttSessionController.h"
 #include "tts/TtsEngine.h"
 
@@ -12,11 +22,36 @@
 
 namespace LAStudio {
 
+namespace {
+
+void addExecutionDetails(QVariantMap *workflow, const QString &route,
+                         const QString &model = {}, const QString &variant = {},
+                         const QString &error = {})
+{
+    if (!workflow) return;
+    workflow->insert(QStringLiteral("executionRoute"), route);
+    workflow->insert(QStringLiteral("model"), model);
+    workflow->insert(QStringLiteral("variant"), variant);
+    workflow->insert(QStringLiteral("error"), error);
+}
+
+} // namespace
+
 WorkflowActivityManager::WorkflowActivityManager(ModelSessionRegistry *sessionRegistry,
                                              TtsEngine *tts,
                                              SttSessionController *sttSession,
                                              AlignmentExecutionService *alignment,
                                              DubbingController *dubbing,
+                                             GatewayTtsController *gatewayTts,
+                                             ColabTtsController *colabTts,
+                                             ColabVoiceCloneController *colabVoiceClone,
+                                             ColabVoiceDesignController *colabVoiceDesign,
+                                             ColabAlignmentController *colabAlignment,
+                                             VoiceIsolatorController *voiceIsolator,
+                                             ColabVoiceIsolatorController *colabVoiceIsolator,
+                                             TranslationController *translation,
+                                             SubtitleOcrController *subtitleOcr,
+                                             LlmChatController *llmChat,
                                              QObject *parent)
     : QObject(parent)
     , m_sessionRegistry(sessionRegistry)
@@ -24,6 +59,16 @@ WorkflowActivityManager::WorkflowActivityManager(ModelSessionRegistry *sessionRe
     , m_sttSession(sttSession)
     , m_alignment(alignment)
     , m_dubbing(dubbing)
+    , m_gatewayTts(gatewayTts)
+    , m_colabTts(colabTts)
+    , m_colabVoiceClone(colabVoiceClone)
+    , m_colabVoiceDesign(colabVoiceDesign)
+    , m_colabAlignment(colabAlignment)
+    , m_voiceIsolator(voiceIsolator)
+    , m_colabVoiceIsolator(colabVoiceIsolator)
+    , m_translation(translation)
+    , m_subtitleOcr(subtitleOcr)
+    , m_llmChat(llmChat)
 {
     if (m_sessionRegistry) {
         for (IModelSession *session : m_sessionRegistry->sessions()) {
@@ -58,6 +103,37 @@ WorkflowActivityManager::WorkflowActivityManager(ModelSessionRegistry *sessionRe
     if (m_dubbing) {
         connect(m_dubbing, &DubbingController::processingChanged, this, &WorkflowActivityManager::refresh);
     }
+    if (m_gatewayTts) {
+        connect(m_gatewayTts, &GatewayTtsController::processingChanged, this, &WorkflowActivityManager::refresh);
+        connect(m_gatewayTts, &GatewayTtsController::progressChanged, this, &WorkflowActivityManager::refresh);
+    }
+    if (m_colabTts) {
+        connect(m_colabTts, &ColabTtsController::processingChanged, this, &WorkflowActivityManager::refresh);
+        connect(m_colabTts, &ColabTtsController::progressChanged, this, &WorkflowActivityManager::refresh);
+    }
+    if (m_colabVoiceClone) {
+        connect(m_colabVoiceClone, &ColabVoiceCloneController::processingChanged, this, &WorkflowActivityManager::refresh);
+        connect(m_colabVoiceClone, &ColabVoiceCloneController::progressChanged, this, &WorkflowActivityManager::refresh);
+    }
+    if (m_colabVoiceDesign) {
+        connect(m_colabVoiceDesign, &ColabVoiceDesignController::processingChanged, this, &WorkflowActivityManager::refresh);
+        connect(m_colabVoiceDesign, &ColabVoiceDesignController::progressChanged, this, &WorkflowActivityManager::refresh);
+    }
+    if (m_colabAlignment)
+        connect(m_colabAlignment, &ColabAlignmentController::stateChanged, this, &WorkflowActivityManager::refresh);
+    if (m_voiceIsolator)
+        connect(m_voiceIsolator, &VoiceIsolatorController::stateChanged, this, &WorkflowActivityManager::refresh);
+    if (m_colabVoiceIsolator)
+        connect(m_colabVoiceIsolator, &ColabVoiceIsolatorController::stateChanged, this, &WorkflowActivityManager::refresh);
+    if (m_translation)
+        connect(m_translation, &TranslationController::processingChanged, this, &WorkflowActivityManager::refresh);
+    if (m_subtitleOcr) {
+        connect(m_subtitleOcr, &SubtitleOcrController::processingChanged, this, &WorkflowActivityManager::refresh);
+        connect(m_subtitleOcr, &SubtitleOcrController::progressChanged, this, &WorkflowActivityManager::refresh);
+        connect(m_subtitleOcr, &SubtitleOcrController::sourceImportChanged, this, &WorkflowActivityManager::refresh);
+    }
+    if (m_llmChat)
+        connect(m_llmChat, &LlmChatController::generatingChanged, this, &WorkflowActivityManager::refresh);
 
     auto *elapsedTimer = new QTimer(this);
     elapsedTimer->setInterval(1000);
@@ -91,6 +167,17 @@ QVariantList WorkflowActivityManager::activeWorkflows() const
     const QVariantMap dubbing = dubbingWorkflow();
     if (!dubbing.isEmpty()) {
         workflows.append(dubbing);
+    }
+
+    const QList<QVariantMap> directFeatureWorkflows{
+        gatewayTtsWorkflow(), colabTtsWorkflow(), voiceCloneWorkflow(),
+        voiceDesignWorkflow(), colabAlignmentWorkflow(), localVoiceIsolationWorkflow(),
+        colabVoiceIsolationWorkflow(), translationWorkflow(), subtitleOcrWorkflow(),
+        llmChatWorkflow()
+    };
+    for (const QVariantMap &workflow : directFeatureWorkflows) {
+        if (!workflow.isEmpty())
+            workflows.append(workflow);
     }
 
     updateActiveStartTimes(workflows);
@@ -164,6 +251,67 @@ void WorkflowActivityManager::stopWorkflow(const QString &id)
             refresh();
         }
     }
+
+    if (id == QStringLiteral("gateway-tts-active") && m_gatewayTts) {
+        m_stoppingIds.insert(id);
+        m_gatewayTts->cancelProcessing();
+        refresh();
+        return;
+    }
+    if (id == QStringLiteral("colab-tts-active") && m_colabTts) {
+        m_stoppingIds.insert(id);
+        m_colabTts->cancelProcessing();
+        refresh();
+        return;
+    }
+    if (id == QStringLiteral("voice-clone-active") && m_colabVoiceClone) {
+        m_stoppingIds.insert(id);
+        m_colabVoiceClone->cancelProcessing();
+        refresh();
+        return;
+    }
+    if (id == QStringLiteral("voice-design-active") && m_colabVoiceDesign) {
+        m_stoppingIds.insert(id);
+        m_colabVoiceDesign->cancelProcessing();
+        refresh();
+        return;
+    }
+    if (id == QStringLiteral("colab-alignment-active") && m_colabAlignment) {
+        m_stoppingIds.insert(id);
+        m_colabAlignment->cancel();
+        refresh();
+        return;
+    }
+    if (id == QStringLiteral("voice-isolation-active") && m_voiceIsolator) {
+        m_stoppingIds.insert(id);
+        m_voiceIsolator->cancel();
+        refresh();
+        return;
+    }
+    if (id == QStringLiteral("colab-voice-isolation-active") && m_colabVoiceIsolator) {
+        m_stoppingIds.insert(id);
+        m_colabVoiceIsolator->cancel();
+        refresh();
+        return;
+    }
+    if (id == QStringLiteral("translation-active") && m_translation) {
+        m_stoppingIds.insert(id);
+        m_translation->cancel();
+        refresh();
+        return;
+    }
+    if (id == QStringLiteral("subtitle-ocr-active") && m_subtitleOcr) {
+        m_stoppingIds.insert(id);
+        if (m_subtitleOcr->sourceImporting()) m_subtitleOcr->cancelSourceImport();
+        else m_subtitleOcr->cancel();
+        refresh();
+        return;
+    }
+    if (id == QStringLiteral("llm-chat-active") && m_llmChat) {
+        m_stoppingIds.insert(id);
+        m_llmChat->stopGeneration();
+        refresh();
+    }
 }
 
 void WorkflowActivityManager::openWorkflow(const QString &id)
@@ -180,6 +328,39 @@ void WorkflowActivityManager::openWorkflow(const QString &id)
 
     if (id == QStringLiteral("dubbing-active")) {
         emit openRequested(QStringLiteral("studio-dubbing"));
+        return;
+    }
+
+    if (id == QStringLiteral("gateway-tts-active") || id == QStringLiteral("colab-tts-active")) {
+        emit openRequested(studioRouteForCapability(QStringLiteral("tts")));
+        return;
+    }
+    if (id == QStringLiteral("voice-clone-active")) {
+        emit openRequested(studioRouteForCapability(QStringLiteral("voice-cloning")));
+        return;
+    }
+    if (id == QStringLiteral("voice-design-active")) {
+        emit openRequested(studioRouteForCapability(QStringLiteral("voice-design")));
+        return;
+    }
+    if (id == QStringLiteral("colab-alignment-active")) {
+        emit openRequested(studioRouteForCapability(QStringLiteral("forced-alignment")));
+        return;
+    }
+    if (id == QStringLiteral("voice-isolation-active") || id == QStringLiteral("colab-voice-isolation-active")) {
+        emit openRequested(studioRouteForCapability(QStringLiteral("voice-isolation")));
+        return;
+    }
+    if (id == QStringLiteral("translation-active")) {
+        emit openRequested(studioRouteForCapability(QStringLiteral("translation")));
+        return;
+    }
+    if (id == QStringLiteral("subtitle-ocr-active")) {
+        emit openRequested(studioRouteForCapability(QStringLiteral("subtitle-ocr")));
+        return;
+    }
+    if (id == QStringLiteral("llm-chat-active")) {
+        emit openRequested(studioRouteForCapability(QStringLiteral("llm-chat")));
         return;
     }
 
@@ -306,15 +487,26 @@ QVariantMap WorkflowActivityManager::sttWorkflow() const
         return {};
     }
 
-    return makeWorkflow(QStringLiteral("stt-active"),
+    const bool hasMeasuredProgress = m_sttSession->progressAvailable();
+    QVariantMap workflow = makeWorkflow(QStringLiteral("stt-active"),
                         QStringLiteral("stt"),
                         QStringLiteral("Transcribing audio"),
                         studioRouteForCapability(QStringLiteral("stt")),
                         QStringLiteral("waves"),
                         m_sttSession->progress(),
-                        false,
+                        !hasMeasuredProgress,
                         QStringLiteral("Speech to text"),
                         true);
+    workflow.insert(QStringLiteral("progressAvailable"), hasMeasuredProgress);
+    const QString route = m_sttSession->colabActive() ? QStringLiteral("Direct Colab GPU")
+        : (m_sttSession->gatewayActive() ? QStringLiteral("API Gateway")
+                                         : QStringLiteral("Local CPU"));
+    const QString model = m_sttSession->colabActive() ? m_sttSession->colabModel()
+        : (m_sttSession->gatewayActive() ? m_sttSession->gatewayModel() : QString());
+    addExecutionDetails(&workflow, route, model,
+                        m_sttSession->colabActive() ? QStringLiteral("fixed") : QString(),
+                        m_sttSession->inputError());
+    return workflow;
 }
 
 QVariantMap WorkflowActivityManager::alignmentWorkflow() const
@@ -323,7 +515,7 @@ QVariantMap WorkflowActivityManager::alignmentWorkflow() const
         return {};
     }
 
-    return makeWorkflow(QStringLiteral("alignment-active"),
+    QVariantMap workflow = makeWorkflow(QStringLiteral("alignment-active"),
                         QStringLiteral("forced-alignment"),
                         QStringLiteral("Aligning transcript"),
                         studioRouteForCapability(QStringLiteral("forced-alignment")),
@@ -332,6 +524,10 @@ QVariantMap WorkflowActivityManager::alignmentWorkflow() const
                         true,
                         m_alignment->statusText().isEmpty() ? QStringLiteral("Alignment") : m_alignment->statusText(),
                         true);
+    // The local aligner exposes state but no completed-unit counter.
+    workflow.insert(QStringLiteral("progressAvailable"), false);
+    addExecutionDetails(&workflow, QStringLiteral("Local CPU"));
+    return workflow;
 }
 
 QVariantMap WorkflowActivityManager::dubbingWorkflow() const
@@ -351,6 +547,182 @@ QVariantMap WorkflowActivityManager::dubbingWorkflow() const
     workflow.insert(QStringLiteral("workflowVersion"), m_dubbing->workflowVersion());
     workflow.insert(QStringLiteral("runId"), m_dubbing->workflowRunId());
     workflow.insert(QStringLiteral("nodeRunId"), m_dubbing->workflowNodeRunId());
+    addExecutionDetails(&workflow,
+        m_dubbing->workflowMode() == QStringLiteral("automatic")
+            ? QStringLiteral("Automatic workflow") : QStringLiteral("Step-by-step workflow"));
+    return workflow;
+}
+
+QVariantMap WorkflowActivityManager::gatewayTtsWorkflow() const
+{
+    if (!m_gatewayTts || !m_gatewayTts->processing()) return {};
+    QVariantMap workflow = makeWorkflow(QStringLiteral("gateway-tts-active"),
+        QStringLiteral("tts"), QStringLiteral("Generating speech via API Gateway"),
+        studioRouteForCapability(QStringLiteral("tts")), QStringLiteral("volume"),
+        0, true, QStringLiteral("Waiting for API Gateway audio"), true);
+    // OpenAI-compatible TTS responds with the completed audio payload only;
+    // no intermediate count exists to display truthfully.
+    workflow.insert(QStringLiteral("progressAvailable"), false);
+    addExecutionDetails(&workflow, QStringLiteral("API Gateway"), m_gatewayTts->gatewayModel());
+    return workflow;
+}
+
+QVariantMap WorkflowActivityManager::colabTtsWorkflow() const
+{
+    if (!m_colabTts || !m_colabTts->processing()) return {};
+    QVariantMap workflow = makeWorkflow(QStringLiteral("colab-tts-active"),
+        QStringLiteral("tts"), QStringLiteral("Generating speech on Direct Colab GPU"),
+        studioRouteForCapability(QStringLiteral("tts")), QStringLiteral("volume"),
+        0, true, QStringLiteral("Waiting for CUDA worker audio"), true);
+    workflow.insert(QStringLiteral("progressAvailable"), false);
+    addExecutionDetails(&workflow, QStringLiteral("Direct Colab GPU"),
+                        m_colabTts->colabModel(), QStringLiteral("fixed"));
+    return workflow;
+}
+
+QVariantMap WorkflowActivityManager::voiceCloneWorkflow() const
+{
+    if (!m_colabVoiceClone || !m_colabVoiceClone->processing()) return {};
+    const QString stage = m_colabVoiceClone->progressStage();
+    QVariantMap workflow = makeWorkflow(QStringLiteral("voice-clone-active"),
+        QStringLiteral("voice-cloning"), QStringLiteral("Cloning voice on Direct Colab GPU"),
+        studioRouteForCapability(QStringLiteral("voice-cloning")), QStringLiteral("mic"),
+        m_colabVoiceClone->progress(), true,
+        stage.isEmpty() ? QStringLiteral("Waiting for CUDA worker job") : stage, true);
+    // Voice-clone job percentages are only available after the worker emits
+    // one. Until then the activity list says Working rather than showing 0%
+    // as an invented progress measure.
+    workflow.insert(QStringLiteral("progressAvailable"), !stage.isEmpty());
+    addExecutionDetails(&workflow, QStringLiteral("Direct Colab GPU"),
+                        m_colabVoiceClone->model(), QStringLiteral("fixed"));
+    return workflow;
+}
+
+QVariantMap WorkflowActivityManager::voiceDesignWorkflow() const
+{
+    if (!m_colabVoiceDesign || !m_colabVoiceDesign->processing()) return {};
+    QVariantMap workflow = makeWorkflow(QStringLiteral("voice-design-active"),
+        QStringLiteral("voice-design"), QStringLiteral("Designing voice on Direct Colab GPU"),
+        studioRouteForCapability(QStringLiteral("voice-design")), QStringLiteral("spark"),
+        0, true, QStringLiteral("Waiting for CUDA worker audio"), true);
+    workflow.insert(QStringLiteral("progressAvailable"), false);
+    addExecutionDetails(&workflow, QStringLiteral("Direct Colab GPU"),
+                        m_colabVoiceDesign->model(), QStringLiteral("fixed"));
+    return workflow;
+}
+
+QVariantMap WorkflowActivityManager::colabAlignmentWorkflow() const
+{
+    if (!m_colabAlignment || !m_colabAlignment->processing()) return {};
+    QVariantMap workflow = makeWorkflow(QStringLiteral("colab-alignment-active"),
+        QStringLiteral("forced-alignment"), QStringLiteral("Aligning on Direct Colab GPU"),
+        studioRouteForCapability(QStringLiteral("forced-alignment")), QStringLiteral("sliders"),
+        m_colabAlignment->progress(), true,
+        m_colabAlignment->statusText().isEmpty() ? QStringLiteral("Waiting for CUDA worker")
+                                                  : m_colabAlignment->statusText(), true);
+    workflow.insert(QStringLiteral("progressAvailable"), false);
+    addExecutionDetails(&workflow, QStringLiteral("Direct Colab GPU"),
+                        m_colabAlignment->model(), QStringLiteral("fixed"),
+                        m_colabAlignment->errorMessage());
+    return workflow;
+}
+
+QVariantMap WorkflowActivityManager::localVoiceIsolationWorkflow() const
+{
+    if (!m_voiceIsolator || !m_voiceIsolator->processing()) return {};
+    QVariantMap workflow = makeWorkflow(QStringLiteral("voice-isolation-active"),
+        QStringLiteral("voice-isolation"), QStringLiteral("Separating vocals locally"),
+        studioRouteForCapability(QStringLiteral("voice-isolation")), QStringLiteral("waves"),
+        m_voiceIsolator->progress(), false, QStringLiteral("Source separation"), true);
+    addExecutionDetails(&workflow, QStringLiteral("Local CPU"),
+                        QFileInfo(m_voiceIsolator->modelPath()).fileName(), QString(),
+                        m_voiceIsolator->lastError());
+    return workflow;
+}
+
+QVariantMap WorkflowActivityManager::colabVoiceIsolationWorkflow() const
+{
+    if (!m_colabVoiceIsolator || !m_colabVoiceIsolator->processing()) return {};
+    QVariantMap workflow = makeWorkflow(QStringLiteral("colab-voice-isolation-active"),
+        QStringLiteral("voice-isolation"), QStringLiteral("Separating vocals on Direct Colab GPU"),
+        studioRouteForCapability(QStringLiteral("voice-isolation")), QStringLiteral("waves"),
+        m_colabVoiceIsolator->progress(), false, QStringLiteral("Source separation"), true);
+    addExecutionDetails(&workflow, QStringLiteral("Direct Colab GPU"),
+                        m_colabVoiceIsolator->model(), QStringLiteral("fixed"),
+                        m_colabVoiceIsolator->lastError());
+    return workflow;
+}
+
+QVariantMap WorkflowActivityManager::translationWorkflow() const
+{
+    if (!m_translation || !m_translation->processing()) return {};
+    const bool measured = !m_translation->gatewayActive();
+    QVariantMap workflow = makeWorkflow(QStringLiteral("translation-active"),
+        QStringLiteral("translation"), QStringLiteral("Translating text"),
+        studioRouteForCapability(QStringLiteral("translation")), QStringLiteral("translate"),
+        m_translation->progress(), !measured,
+        m_translation->statusText().isEmpty() ? QStringLiteral("Translation")
+                                               : m_translation->statusText(), true);
+    workflow.insert(QStringLiteral("progressAvailable"), measured);
+    const QString route = m_translation->colabActive() ? QStringLiteral("Direct Colab GPU")
+        : (m_translation->gatewayActive() ? QStringLiteral("API Gateway")
+                                           : QStringLiteral("Local CPU"));
+    const QString model = m_translation->colabActive() ? m_translation->colabModel()
+        : (m_translation->gatewayActive() ? m_translation->gatewayModel() : QString());
+    addExecutionDetails(&workflow, route, model,
+                        m_translation->colabActive() ? QStringLiteral("fixed") : QString(),
+                        m_translation->errorText());
+    return workflow;
+}
+
+QVariantMap WorkflowActivityManager::subtitleOcrWorkflow() const
+{
+    if (!m_subtitleOcr || (!m_subtitleOcr->processing() && !m_subtitleOcr->sourceImporting())) return {};
+    if (m_subtitleOcr->sourceImporting()) {
+        const qint64 total = m_subtitleOcr->sourceImportTotalBytes();
+        const bool measured = total > 0;
+        const int percent = measured ? qBound(0, int(m_subtitleOcr->sourceImportReceivedBytes() * 100 / total), 100) : 0;
+        QVariantMap workflow = makeWorkflow(QStringLiteral("subtitle-ocr-active"),
+            QStringLiteral("subtitle-ocr"), QStringLiteral("Importing subtitle OCR source"),
+            studioRouteForCapability(QStringLiteral("subtitle-ocr")), QStringLiteral("subtitle"),
+            percent, !measured, m_subtitleOcr->sourceImportStatus(), true);
+        workflow.insert(QStringLiteral("progressAvailable"), measured);
+        addExecutionDetails(&workflow, QStringLiteral("Media ingest"),
+                            m_subtitleOcr->executionRoute(), QString(),
+                            m_subtitleOcr->sourceImportError());
+        return workflow;
+    }
+    QVariantMap workflow = makeWorkflow(QStringLiteral("subtitle-ocr-active"),
+        QStringLiteral("subtitle-ocr"), QStringLiteral("Recognizing subtitles"),
+        studioRouteForCapability(QStringLiteral("subtitle-ocr")), QStringLiteral("subtitle"),
+        m_subtitleOcr->progress(), !m_subtitleOcr->progressAvailable(),
+        m_subtitleOcr->phase(), true);
+    workflow.insert(QStringLiteral("progressAvailable"), m_subtitleOcr->progressAvailable());
+    const bool colab = m_subtitleOcr->executionRoute() == QStringLiteral("colab-direct");
+    addExecutionDetails(&workflow, colab ? QStringLiteral("Direct Colab GPU")
+                                         : QStringLiteral("Local CPU"),
+                        colab ? m_subtitleOcr->colabModelId()
+                              : m_subtitleOcr->localEngineId(),
+                        colab ? QStringLiteral("fixed") : QString(), m_subtitleOcr->error());
+    return workflow;
+}
+
+QVariantMap WorkflowActivityManager::llmChatWorkflow() const
+{
+    if (!m_llmChat || !m_llmChat->generating()) return {};
+    QVariantMap workflow = makeWorkflow(QStringLiteral("llm-chat-active"),
+        QStringLiteral("llm-chat"), QStringLiteral("Generating chat response"),
+        studioRouteForCapability(QStringLiteral("llm-chat")), QStringLiteral("chat"),
+        0, true, QStringLiteral("Receiving model response"), true);
+    workflow.insert(QStringLiteral("progressAvailable"), false);
+    const QString route = m_llmChat->colabActive() ? QStringLiteral("Direct Colab GPU")
+        : (m_llmChat->gatewayActive() ? QStringLiteral("API Gateway")
+                                       : QStringLiteral("Local CPU"));
+    const QString model = m_llmChat->colabActive() ? m_llmChat->colabModel()
+        : (m_llmChat->gatewayActive() ? m_llmChat->gatewayModel() : QString());
+    addExecutionDetails(&workflow, route, model,
+                        m_llmChat->colabActive() ? QStringLiteral("fixed") : QString(),
+                        m_llmChat->errorText());
     return workflow;
 }
 
@@ -380,6 +752,7 @@ QVariantMap WorkflowActivityManager::makeWorkflow(const QString &id,
     workflow.insert(QStringLiteral("statusLabel"), statusLabel(stopping));
     workflow.insert(QStringLiteral("progress"), qBound(0, progress, 100));
     workflow.insert(QStringLiteral("progressEstimated"), progressEstimated);
+    workflow.insert(QStringLiteral("progressAvailable"), true);
     workflow.insert(QStringLiteral("stageLabel"), stageLabel);
     workflow.insert(QStringLiteral("cancellable"), cancellable);
     workflow.insert(QStringLiteral("pausable"), false);

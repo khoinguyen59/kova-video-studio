@@ -108,6 +108,7 @@ class DubbingController : public QObject
     Q_PROPERTY(bool automaticSetupActive READ automaticSetupActive NOTIFY workflowChanged)
     Q_PROPERTY(QString automaticStatusText READ automaticStatusText NOTIFY workflowChanged)
     Q_PROPERTY(QVariantList automaticEvents READ automaticEvents NOTIFY workflowChanged)
+    Q_PROPERTY(QVariantMap automaticPreflight READ automaticPreflight NOTIFY workflowChanged)
     Q_PROPERTY(QVariantList ttsVoiceOptions READ ttsVoiceOptions NOTIFY cloneVoiceSelectionChanged)
     Q_PROPERTY(QString selectedTtsVoiceId READ selectedTtsVoiceId NOTIFY cloneVoiceSelectionChanged)
     Q_PROPERTY(bool ttsVoiceSelectionValid READ ttsVoiceSelectionValid NOTIFY cloneVoiceSelectionChanged)
@@ -207,6 +208,7 @@ public:
     bool automaticSetupActive() const { return m_automaticSetupActive; }
     QString automaticStatusText() const { return m_automaticStatusText; }
     QVariantList automaticEvents() const { return m_automaticEvents; }
+    QVariantMap automaticPreflight() const;
     QVariantList cloneVoicePresets() const { return m_cloneVoicePresets; }
     QString selectedCloneVoicePresetId() const { return m_project.ttsVoiceId; }
     QString cloneVoicePresetFamily() const;
@@ -278,6 +280,10 @@ public:
     Q_INVOKABLE QString defaultWorkflowModelFamily(const QString &nodeId) const;
     Q_INVOKABLE void prepareWorkflow();
     Q_INVOKABLE bool runWorkflow(const QString &outputPath = QString());
+    // Automatic runs are explicitly approved from the preflight wizard.  The
+    // approval is bound to a non-secret configuration fingerprint so changing
+    // a route/model/worker requires review and Check again before execution.
+    Q_INVOKABLE bool approveAutomaticPreflight();
     Q_INVOKABLE bool startAutomaticWorkflow(const QString &outputPath);
     Q_INVOKABLE void pauseAutomaticWorkflow();
     Q_INVOKABLE void startStepByStep();
@@ -393,6 +399,10 @@ private:
     ColabSession *colabSessionForStage(const QString &stageId) const;
     static QString colabCapabilityForStage(const QString &stageId);
     QString selectedColabModelForStage(const QString &stageId) const;
+    QString automaticPreflightFingerprint() const;
+    QSet<QString> activeDownloadKeys() const;
+    void captureNewAutomaticDownloads(const QSet<QString> &before);
+    QVariantList automaticSetupDownloads() const;
     bool stageUsesDirectColab(const QString &stageId) const;
     bool snapshotSelectedColabStagesForWorkflow();
     void observeColabSession(const QString &stageId, ColabSession *session);
@@ -446,7 +456,12 @@ private:
     QString m_automaticStatusText;
     QVariantList m_automaticEvents;
     QSet<QString> m_automaticDownloadsQueued;
+    // Only bytes from downloads queued by this Automatic run are eligible for
+    // a percentage.  Other gallery downloads must never make Dubbing show a
+    // misleading 5% or 8% progress bar.
+    QSet<QString> m_automaticDownloadKeys;
     QSet<QString> m_automaticConfiguredNodes;
+    QString m_automaticPreflightFingerprint;
     VoiceClonePresetService *m_voiceClonePresetsService = nullptr;
     QMetaObject::Connection m_cloneVoicePresetsConnection;
     QVariantList m_cloneVoicePresets;

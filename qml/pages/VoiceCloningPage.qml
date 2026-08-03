@@ -35,7 +35,9 @@ StudioPageFrame {
             families: studioController.families
             selectedFamilyId: studioController.selectedFamilyId
             studioReady: studioController.studioReady || AppController.colabVoiceClone.colabActive
-            studioTitle: studioController.studioHeaderTitle
+            studioTitle: AppController.colabVoiceClone.colabActive
+                         ? qsTr("Voice Cloning · Direct Colab GPU")
+                         : studioController.studioHeaderTitle
             modalSelectionTitle: studioController.modalSelectionTitle
             modalSelectionValue: studioController.modalSelectionValue
             modalSelectionDetail: studioController.modalSelectionDetail

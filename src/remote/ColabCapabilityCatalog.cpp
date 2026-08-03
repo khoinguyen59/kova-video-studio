@@ -80,6 +80,13 @@ void appendModel(QVariantList *models, QSet<QString> *seen, const QString &capab
     entry.insert(QStringLiteral("provider"), QStringLiteral("colab-direct"));
     entry.insert(QStringLiteral("capability"), capabilityId);
     entry.insert(QStringLiteral("modelId"), modelId);
+    // Exact-model notebooks currently expose one immutable GPU configuration.
+    // Make that explicit in catalog consumers instead of leaking Local CPU
+    // quantization/file choices into the Direct Colab route.
+    entry.insert(QStringLiteral("variant"),
+                 model.value(QStringLiteral("variant")).toString().trimmed().isEmpty()
+                     ? QStringLiteral("fixed")
+                     : model.value(QStringLiteral("variant")).toString().trimmed().toLower());
     entry.insert(QStringLiteral("displayName"), model.value(QStringLiteral("name")).toString().trimmed().isEmpty()
                      ? modelId : model.value(QStringLiteral("name")).toString().trimmed());
     entry.insert(QStringLiteral("device"), device);

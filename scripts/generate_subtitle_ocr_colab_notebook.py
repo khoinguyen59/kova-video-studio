@@ -149,6 +149,7 @@ def health(_: None = Depends(authorize)):
         "device": "cuda",
         "gpu": torch.cuda.get_device_name(0),
         "model": MODEL_ID,
+        "variant": "fixed",
         "upstream_model": UPSTREAM_MODEL,
         "upstream_version": UPSTREAM_VERSION,
         "license": LICENSE,
@@ -169,6 +170,7 @@ def capabilities(_: None = Depends(authorize)):
             "models": [{
                 "id": MODEL_ID,
                 "name": MODEL_NAME,
+                "variant": "fixed",
                 "upstream_model": UPSTREAM_MODEL,
                 "upstream_version": UPSTREAM_VERSION,
                 "license": LICENSE,

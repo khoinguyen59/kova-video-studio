@@ -27,6 +27,8 @@ ApplicationWindow {
     property bool qmlSmokeHomeLayoutResizePending: false
     property int qmlSmokeDubbingLayoutSizeIndex: 0
     property bool qmlSmokeDubbingLayoutResizePending: false
+    property int qmlSmokeVoiceCloneLayoutSizeIndex: 0
+    property bool qmlSmokeVoiceCloneLayoutResizePending: false
     title: appName + " - " + appVersion
     color: Theme.background
 
@@ -188,6 +190,8 @@ ApplicationWindow {
         qmlSmokeHomeLayoutResizePending = false
         qmlSmokeDubbingLayoutSizeIndex = 0
         qmlSmokeDubbingLayoutResizePending = false
+        qmlSmokeVoiceCloneLayoutSizeIndex = 0
+        qmlSmokeVoiceCloneLayoutResizePending = false
         qmlSmokeTimer.start()
     }
 
@@ -236,6 +240,26 @@ ApplicationWindow {
         if (routeIndex === 1 && sttLoader.item
                 && sttLoader.item.qmlSmokePendingSelectionIsolated) {
             return sttLoader.item.qmlSmokePendingSelectionIsolated()
+        }
+        if (routeIndex === 3 && voiceCloningLoader.item
+                && voiceCloningLoader.item.qmlSmokeVoiceCloneLayoutCheck) {
+            var voiceCloneSizes = [
+                { width: 1024, height: 720 },
+                { width: 1280, height: 800 },
+                { width: 1600, height: 900 }
+            ]
+            if (qmlSmokeVoiceCloneLayoutResizePending) {
+                qmlSmokeVoiceCloneLayoutResizePending = false
+                return voiceCloningLoader.item.qmlSmokeVoiceCloneLayoutCheck() ? 0 : -1
+            }
+            if (qmlSmokeVoiceCloneLayoutSizeIndex < voiceCloneSizes.length) {
+                var voiceCloneSize = voiceCloneSizes[qmlSmokeVoiceCloneLayoutSizeIndex++]
+                root.width = voiceCloneSize.width
+                root.height = voiceCloneSize.height
+                qmlSmokeVoiceCloneLayoutResizePending = true
+                return 0
+            }
+            return 1
         }
         if (routeIndex === 8 && dubbingLoader.item
                 && dubbingLoader.item.qmlSmokeTranscriptSourceCheck) {

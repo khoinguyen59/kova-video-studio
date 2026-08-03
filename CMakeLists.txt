@@ -6,7 +6,7 @@ include(cmake/RuntimeAbi.cmake)
 # automation may override it with -DLASTUDIO_VERSION=<major.minor.release.build>.
 # Internal builds use four numeric fields so each artifact has an unambiguous,
 # monotonically ordered label: 0.0.0.1 ... 0.0.0.9, then 0.0.1.0.
-set(LASTUDIO_VERSION "0.0.2.18" CACHE STRING "LA Studio application version")
+set(LASTUDIO_VERSION "0.0.2.19" CACHE STRING "LA Studio application version")
 if(NOT LASTUDIO_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$")
     message(FATAL_ERROR "LASTUDIO_VERSION must use MAJOR.MINOR.RELEASE.BUILD format; got '${LASTUDIO_VERSION}'")
 endif()
@@ -550,6 +550,7 @@ qt_add_qml_module(LAStudio
         qml/components/dubbing/DubbingExportDialog.qml
         qml/components/dubbing/DubbingSubtitleEditor.qml
         qml/components/dubbing/DubbingColabSetupDialog.qml
+        qml/components/dubbing/DubbingAutomaticPreflightDialog.qml
         qml/components/dubbing/DubbingTranslationFixDialog.qml
         qml/components/dubbing/DubbingQualityDialog.qml
         qml/components/dubbing/DubbingHistoryPanel.qml

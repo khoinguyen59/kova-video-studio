@@ -14,11 +14,15 @@ private slots:
     void colabSessionIsMemoryOnlyAndCanBeCleared();
     void temporaryColabWorkerWrapperValidatesAndRemainsEphemeral();
     void temporaryColabWorkerVerifiesCudaCapabilityAndExactModel();
+    void temporaryColabWorkerRejectsWrongVariant();
     void staleTranslationPatchContractIsRejected();
     void staleSttWorkerRevisionIsRejected();
     void temporaryColabWorkerRejectsCpuWrongModelAndWrongCapability();
     void newerColabVerificationSupersedesStaleRequest();
     void everyGpuFeatureSurfacesVerifiedColabSessionState();
+    void voiceCloneUiMakesConsentAndRequiredInputsActionable();
+    void settingsControlsExposeDescriptionsAndKeyboardFocus();
+    void workflowActivityOnlyDisplaysMeasuredProgress();
     void everyGpuControllerUsesExactVerifiedColabRoute();
     void appControllerScopesColabSessionsPerCapability();
     void gatewayCredentialUsesDedicatedSecureStoreEntry();

@@ -15,6 +15,7 @@ private slots:
     void rejectsUnknownAndDuplicateSegmentPatches();
     void importingMediaDoesNotStartProcessing();
     void automaticWorkflowLocksSettingsUntilPaused();
+    void automaticWorkflowRequiresFreshPreflightApproval();
     void customWorkflowOpensFirstMissingNodeSetup();
     void qualityModesExposeExpectedDefaultVoiceModel();
     void standardModesResetNodeModelsOnOpen();
