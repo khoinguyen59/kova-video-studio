@@ -6,11 +6,55 @@ Cap nhat: 2026-08-03
 
 | Muc | Trang thai |
 | --- | --- |
-| Latest packaged candidate | `0.0.2.18` |
-| Artifact | `out/LA-Studio-0.0.2.18/LA-Studio-0.0.2.18.exe` |
-| SHA-256 | `2FC962F21721E285927ADD7F6201A11FA9DA46D10242BA4787A4015F02CD8381` |
-| Current source | `main` commit `3db38db`; full CTest 39/39 PASS and package audit PASS |
+| Latest packaged candidate | `0.0.2.19` |
+| Artifact | `out/LA-Studio-0.0.2.19/LA-Studio-0.0.2.19.exe` |
+| SHA-256 | `4960CC603BB67586E3BA506B7933830F802734CCBA9420081CBD3E0430D1F41D` |
+| Current source | `main` commit `3debeab`; full CTest 39/39 PASS and package audit PASS |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
+
+## Batch 0.0.2.19: Direct Colab / Dubbing preflight / Activity
+
+- Direct Colab now carries an exact `capability + model + variant` contract.
+  Every current exact-model notebook declares `variant: fixed`; Local CPU
+  files/quantization are not presented as Colab configuration. Replacing URL,
+  token, model or variant clears verification immediately.
+- `ColabSessionStatus` is the shared Check/Disconnect/status surface for STT,
+  TTS, cloning, design, alignment, separation, translation, OCR, LLM and
+  Dubbing nodes. It shows the sanitized worker URL, capability/model/variant
+  and verification time; token remains session memory only.
+- Automatic Dubbing opens a preflight wizard (automatic or step-by-step,
+  routes/models, only required workers, Check, Review, one-use approval).
+  Any configuration change invalidates the approval.
+- Voice Clone now uses a real keyboard-focusable consent checkbox, visible
+  required-field reasons and responsive settings scroll. Shared settings
+  toggles now have focus, descriptions, model metadata range/default hints and
+  explicit Advanced affordance.
+- Activity covers real long-running feature controllers. It shows route/model/
+  variant/errors and renders `Working` when no measured counter exists;
+  Dubbing counts only downloads started by that run, eliminating unrelated
+  fixed 5%/8% reports.
+
+### Root causes fixed
+
+- The prior remote contract checked family/model but did not retain variant.
+- QML offscreen smoke found an invalid chained `String.arg()` call and an
+  unscoped `Repeater` index in the new preflight dialog; both were corrected.
+- The package's pinned bsdtar dependency emitted a CMake developer warning
+  that PowerShell treated as an error despite a successful exit code; the
+  scoped third-party configure now suppresses only developer warnings and
+  retains the exit-code gate.
+
+### Evidence 0.0.2.19
+
+- QML lint PASS.
+- Targeted `TestRemoteExecution`, `TestDubbingProject`, and offscreen
+  `QmlRouteSmoke`: 4/4 PASS.
+- Generated notebooks: 32/32 PASS; exact controller/UI/notebook bindings:
+  31/31 PASS.
+- Full CTest: 39/39 PASS in 68.36 seconds.
+- Portable package audit PASS: FileVersion/ProductVersion `0.0.2.19`, staged
+  runtime manifest (19 required artifacts), Qt Windows/offscreen plugins,
+  FFmpeg, eSpeak, Subtitle OCR/Paddle manifests and licenses present.
 
 ## Batch 0.0.2.18: Transcript source, STT/OCR reconciliation and package completion
 

@@ -6,7 +6,7 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 
 - Desktop local-first: STT, TTS, Voice Cloning, Voice Design, Alignment, Translation, Dubbing, LLM Chat, Download va Subtitle OCR.
 - API Gateway va Direct Colab la hai route doc lap. Token/URL Colab chi o memory session, khong persist vao project/report.
-- Package noi bo moi nhat: `0.0.2.18` tai `out/LA-Studio-0.0.2.18/LA-Studio-0.0.2.18.exe`, SHA-256 `2FC962F21721E285927ADD7F6201A11FA9DA46D10242BA4787A4015F02CD8381`. Source `main` tai `3db38db`; full CTest 39/39 va package audit PASS. Manual GUI/live Colab luon la gate rieng.
+- Package noi bo moi nhat: `0.0.2.19` tai `out/LA-Studio-0.0.2.19/LA-Studio-0.0.2.19.exe`, SHA-256 `4960CC603BB67586E3BA506B7933830F802734CCBA9420081CBD3E0430D1F41D`. Source `main` tai `3debeab`; full CTest 39/39 va package audit PASS. Manual GUI/live Colab luon la gate rieng.
 
 ## Lich su cap san pham
 
@@ -46,6 +46,33 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 - AI reconciliation yeu cau capability structured explicit; model dich thuong khong duoc dung lam LLM va khong co fallback route im lang.
 - OCR E2E production tren `1.mp4` PASS: 1125 Paddle frames, 430 matched Standalone/Dubbing cues, cache reuse, khong Tesseract fallback hay child-process leak; artifact o `out/ocr-e2e-new`.
 - Package portable `0.0.2.18` audit FileVersion/ProductVersion, SHA, Qt/FFmpeg/PaddleOCR manifest-health va license/runtime inventory PASS. Package script tu resolve `out/paddle-ocr-runtime-ready` neu khong duoc truyen override, tranh loi empty binding.
+
+### 2026-08-03 - 0.0.2.19 Direct Colab and workflow readiness
+
+- Direct Colab session now verifies and retains exact capability, model and
+  variant. All current exact-model notebooks advertise the fixed variant;
+  Local CPU file variants do not leak into the Colab route. Replacing any
+  connection/model/variant input invalidates the old verification.
+- One shared Colab status component exposes Check connection, Disconnect,
+  sanitized worker identity and verified timestamp across all Direct Colab
+  studios and Dubbing nodes. Token/URL stay in session memory and are absent
+  from project persistence, logs and handoff reports.
+- Automatic Dubbing requires a configuration/review/check preflight and a
+  fresh one-use approval. Step-by-step remains supported with the same route
+  readiness rule.
+- Voice Clone consent is a real focusable checkbox. Required controls show a
+  local reason; settings are scrollable at narrow sizes. Shared toggles and
+  metadata controls now make descriptions, ranges/defaults and Advanced state
+  explicit.
+- Activity uses real controller lifecycle and only measured progress. It no
+  longer borrows unrelated download progress for Dubbing or displays invented
+  5%/8% values. QML smoke caught and the source fixed an invalid status string
+  formatter and missing Repeater index before packaging.
+- Release validation: QML lint, targeted Colab/Dubbing/QML smoke, notebook
+  contract 32/32, binding audit 31/31 and full CTest 39/39 PASS. Portable
+  package `0.0.2.19` passed staged runtime/license audit. Pinned bsdtar
+  packaging suppresses CMake developer warnings only; non-zero configure/build
+  exit codes still fail packaging.
 
 ## Quy tac duy tri
 
