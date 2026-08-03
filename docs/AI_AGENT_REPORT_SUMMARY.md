@@ -6,11 +6,34 @@ Cap nhat: 2026-08-04
 
 | Muc | Trang thai |
 | --- | --- |
-| Latest packaged candidate | `0.0.2.20` |
-| Artifact | `out/LA-Studio-0.0.2.20/LA-Studio-0.0.2.20.exe` |
-| SHA-256 | `338B035A711BE68743EFC98F500FA4A36C2EA9712F264C0F63C5751464BB2F7B` |
+| Latest packaged candidate | `0.0.2.21` |
+| Artifact | `out/LA-Studio-0.0.2.21/LA-Studio-0.0.2.21.exe` |
+| SHA-256 | `CDEF6AA0D54A7BE50F8F7F04DC157532AE8F2E96BE1E59B4D1E37E4B4F5431CE` |
 | Current source | `main`; full CTest 39/39 PASS and package audit PASS |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
+
+## Batch 0.0.2.21: Dubbing entry gate and automatic setup
+
+- Opening Dubbing now requires an explicit Automatic or Step-by-step choice.
+  The modal cannot be escaped, clicked outside, or closed into the workspace;
+  the only non-selection path leaves Dubbing. Existing project mode is saved
+  without deleting transcripts, artifacts, node configuration, or resume state.
+- Automatic opens a five-page setup wizard before the workspace: source and
+  target language, stages/routes/models, Direct Colab workers, review, start.
+  Language fields update persisted project SSoT and missing fields keep focus
+  on the required control. Each stage card and review item show the actual
+  route, model, variant, language, readiness, and block reason.
+- Direct Colab setup is shown only for active Direct Colab nodes. Approval is
+  single-use and is invalidated by source/target language, route, model,
+  variant, media, or worker changes.
+
+### Evidence 0.0.2.21
+
+- Targeted Dubbing controller/QML regression: 5 passed, 0 failed. QML lint
+  PASS. Full CTest: 39/39 PASS in 31.97 seconds.
+- Portable package audit PASS: FileVersion/ProductVersion `0.0.2.21`, Qt
+  Windows/offscreen plugins, RuntimeHost, FFmpeg/FFprobe, Tesseract, and a
+  staged PaddleOCR health check (`ok=true`, `manifestVerified=true`) verified.
 
 ## Batch 0.0.2.20: Dubbing stage clarity and Voice Clone reference Isolator
 

@@ -6,9 +6,22 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 
 - Desktop local-first: STT, TTS, Voice Cloning, Voice Design, Alignment, Translation, Dubbing, LLM Chat, Download va Subtitle OCR.
 - API Gateway va Direct Colab la hai route doc lap. Token/URL Colab chi o memory session, khong persist vao project/report.
-- Package noi bo moi nhat: `0.0.2.20` tai `out/LA-Studio-0.0.2.20/LA-Studio-0.0.2.20.exe`, SHA-256 `338B035A711BE68743EFC98F500FA4A36C2EA9712F264C0F63C5751464BB2F7B`. Full CTest 39/39 va package audit PASS. Manual GUI/live Colab luon la gate rieng.
+- Package noi bo moi nhat: `0.0.2.21` tai `out/LA-Studio-0.0.2.21/LA-Studio-0.0.2.21.exe`, SHA-256 `CDEF6AA0D54A7BE50F8F7F04DC157532AE8F2E96BE1E59B4D1E37E4B4F5431CE`. Full CTest 39/39 va package audit PASS. Manual GUI/live Colab luon la gate rieng.
 
 ## Lich su cap san pham
+
+### 2026-08-04 - 0.0.2.21 Dubbing entry and automatic setup
+
+- Dubbing is now protected by a mandatory, non-dismissible entry gate. The
+  persisted Automatic/Step choice is durable project state only; changing it
+  cannot destroy prior workflow artifacts or configuration.
+- Automatic setup owns the route before workspace entry: source/target
+  language SSoT, active stage route/model/variant cards, Direct Colab-only
+  worker checks, review, and one-use approval. Language/route/model/worker
+  changes invalidate approval. Step-by-step starts at Import for a new project.
+- Regression: QML lint, targeted Dubbing gate/preflight coverage and full CTest
+  39/39 PASS. Portable package audit verified version, Qt, media/OCR runtimes
+  and Paddle health. No GUI or live Colab acceptance was claimed.
 
 ### Truoc 2026-07-30
 
