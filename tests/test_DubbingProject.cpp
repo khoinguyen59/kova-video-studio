@@ -826,6 +826,7 @@ void TestDubbingProject::roundTripsVersionedJson()
     original.sourceLanguage = QStringLiteral("en");
     original.targetLanguage = QStringLiteral("vi");
     original.dubbingQuality = QStringLiteral("custom");
+    original.workflowEntryMode = QStringLiteral("automatic");
     original.cloneVoicePresetId = QStringLiteral("saved-clone-voice");
     original.durationControl.insert(QStringLiteral("autoRewrite"), false);
     original.workflowNodeConfigurations.insert(
@@ -852,6 +853,7 @@ void TestDubbingProject::roundTripsVersionedJson()
     QCOMPARE(loaded.sourceMediaPath, original.sourceMediaPath);
     QCOMPARE(loaded.targetLanguage, original.targetLanguage);
     QCOMPARE(loaded.dubbingQuality, QStringLiteral("custom"));
+    QCOMPARE(loaded.workflowEntryMode, QStringLiteral("automatic"));
     QCOMPARE(loaded.cloneVoicePresetId, QStringLiteral("saved-clone-voice"));
     QVERIFY(!loaded.durationControl.value(QStringLiteral("autoRewrite")).toBool());
     QCOMPARE(loaded.workflowNodeConfigurations.value(QStringLiteral("translate")).toMap()
@@ -982,6 +984,89 @@ void TestDubbingProject::automaticWorkflowLocksSettingsUntilPaused()
     QVERIFY(!controller.settingsLocked());
     QCOMPARE(controller.workflowMode(), QStringLiteral("paused"));
     QVERIFY(controller.automaticStatusText().contains(QStringLiteral("Paused")));
+}
+
+void TestDubbingProject::dubbingEntryGatePersistsChoiceWithoutMutatingProject()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString projectPath = dir.filePath(QStringLiteral("project.ladub.json"));
+    DubbingController controller(nullptr, nullptr);
+    QVERIFY(controller.newProject(projectPath));
+    controller.addSegment(0, 1000, QStringLiteral("preserved transcript"));
+    const QVariantList beforeSegments = controller.segments();
+
+    controller.beginDubbingEntry();
+    QVERIFY(controller.dubbingEntryGateActive());
+    QVERIFY(!controller.runCurrentStep());
+    QVERIFY(controller.lastError().contains(QStringLiteral("entry mode")));
+    QVERIFY(controller.chooseDubbingEntryMode(QStringLiteral("automatic")));
+    QVERIFY(!controller.dubbingEntryGateActive());
+    QCOMPARE(controller.savedDubbingEntryMode(), QStringLiteral("automatic"));
+    QCOMPARE(controller.segments(), beforeSegments);
+    QCOMPARE(controller.workflowMode(), QStringLiteral("idle"));
+    QVERIFY(!controller.processing());
+
+    controller.beginDubbingEntry();
+    QVERIFY(controller.chooseDubbingEntryMode(QStringLiteral("step")));
+    controller.startStepByStep();
+    QCOMPARE(controller.workflowMode(), QStringLiteral("step"));
+    QCOMPARE(controller.currentStepId(), QStringLiteral("media-input"));
+    QCOMPARE(controller.segments(), beforeSegments);
+    QVERIFY(controller.saveProject());
+
+    DubbingProject reopened;
+    QString error;
+    QVERIFY2(DubbingProject::load(projectPath, reopened, &error), qPrintable(error));
+    QCOMPARE(reopened.workflowEntryMode, QStringLiteral("step"));
+    QCOMPARE(reopened.segments, beforeSegments);
+}
+
+void TestDubbingProject::automaticPreflightUsesPersistedLanguageSingleSourceOfTruth()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    DubbingController controller(nullptr, nullptr);
+    QVERIFY(controller.newProject(dir.filePath(QStringLiteral("project.ladub.json"))));
+    controller.setSourceLanguage(QStringLiteral("zh"));
+    controller.setTargetLanguage(QStringLiteral("vi"));
+    const QVariantMap preflight = controller.automaticPreflight();
+    QCOMPARE(preflight.value(QStringLiteral("sourceLanguage")).toString(), QStringLiteral("zh"));
+    QCOMPARE(preflight.value(QStringLiteral("targetLanguage")).toString(), QStringLiteral("vi"));
+    bool sawTranscribe = false;
+    bool sawTranslate = false;
+    bool sawTts = false;
+    for (const QVariant &entry : preflight.value(QStringLiteral("nodes")).toList()) {
+        const QVariantMap node = entry.toMap();
+        const QString id = node.value(QStringLiteral("id")).toString();
+        if (id == QStringLiteral("transcribe")) {
+            sawTranscribe = true;
+            QCOMPARE(node.value(QStringLiteral("languageSummary")).toString(), QStringLiteral("zh"));
+        } else if (id == QStringLiteral("translate")) {
+            sawTranslate = true;
+            QCOMPARE(node.value(QStringLiteral("languageSummary")).toString(), QStringLiteral("zh â†’ vi"));
+        } else if (id == QStringLiteral("synthesize")) {
+            sawTts = true;
+            QCOMPARE(node.value(QStringLiteral("languageSummary")).toString(), QStringLiteral("vi"));
+        } else if (id == QStringLiteral("ingest") || id == QStringLiteral("source-separate")) {
+            QVERIFY(!node.value(QStringLiteral("requiresLanguage")).toBool());
+        }
+    }
+    QVERIFY(sawTranscribe);
+    QVERIFY(sawTranslate);
+    QVERIFY(sawTts);
+
+    const QString mediaPath = dir.filePath(QStringLiteral("source.mp4"));
+    QFile media(mediaPath);
+    QVERIFY(media.open(QIODevice::WriteOnly));
+    QVERIFY(media.write("video-placeholder") > 0);
+    media.close();
+    QVERIFY(controller.importMedia(mediaPath));
+    QVERIFY(controller.automaticPreflight().value(QStringLiteral("ready")).toBool());
+    QVERIFY(controller.approveAutomaticPreflight());
+    controller.setSourceLanguage(QStringLiteral("ja"));
+    QVERIFY(!controller.startAutomaticWorkflow(dir.filePath(QStringLiteral("dubbed.mp4"))));
+    QVERIFY(controller.lastError().contains(QStringLiteral("Review Automatic preflight")));
 }
 
 void TestDubbingProject::automaticWorkflowRequiresFreshPreflightApproval()
@@ -1552,9 +1637,8 @@ void TestDubbingProject::dubbingUiUsesExactModelWorkers()
         + QStringLiteral("/qml/components/dubbing/DubbingAutomaticPreflightDialog.qml"));
     QVERIFY(automaticPreflight.open(QIODevice::ReadOnly));
     const QString automaticPreflightSource = QString::fromUtf8(automaticPreflight.readAll());
-    QVERIFY(automaticPreflightSource.contains(QStringLiteral("Automatic (recommended)")));
-    QVERIFY(automaticPreflightSource.contains(QStringLiteral("Review one by one")));
-    QVERIFY(automaticPreflightSource.contains(QStringLiteral("Routes & models")));
+    QVERIFY(automaticPreflightSource.contains(QStringLiteral("Source & language")));
+    QVERIFY(automaticPreflightSource.contains(QStringLiteral("Stages, routes & models")));
     QVERIFY(automaticPreflightSource.contains(QStringLiteral("Colab workers")));
     QVERIFY(automaticPreflightSource.contains(QStringLiteral("Start Automatic Dubbing")));
     QVERIFY(automaticPreflightSource.contains(QStringLiteral("approveAutomaticPreflight")));
@@ -1644,6 +1728,47 @@ void TestDubbingProject::dubbingUiUsesExactModelWorkers()
         QStringLiteral("Subtitle OCR controller is unavailable.")));
     QVERIFY(runnerSource.contains(
         QStringLiteral("DubbingTranscriptFusionService::fuse")));
+}
+
+void TestDubbingProject::dubbingEntryAndAutomaticSetupCannotBypassConfiguration()
+{
+    QFile entryGate(QStringLiteral(LASTUDIO_SOURCE_DIR)
+                    + QStringLiteral("/qml/components/dubbing/DubbingEntryGateDialog.qml"));
+    QVERIFY(entryGate.open(QIODevice::ReadOnly));
+    const QString gate = QString::fromUtf8(entryGate.readAll());
+    QVERIFY(gate.contains(QStringLiteral("closePolicy: Popup.NoAutoClose")));
+    QVERIFY(gate.contains(QStringLiteral("Leave Dubbing")));
+    QVERIFY(gate.contains(QStringLiteral("Automatic")));
+    QVERIFY(gate.contains(QStringLiteral("Review one by one")));
+    QVERIFY(!gate.contains(QStringLiteral("name: \"close\"")));
+
+    QFile preflight(QStringLiteral(LASTUDIO_SOURCE_DIR)
+                    + QStringLiteral("/qml/components/dubbing/DubbingAutomaticPreflightDialog.qml"));
+    QVERIFY(preflight.open(QIODevice::ReadOnly));
+    const QString wizard = QString::fromUtf8(preflight.readAll());
+    QVERIFY(wizard.contains(QStringLiteral("closePolicy: Popup.NoAutoClose")));
+    QVERIFY(wizard.contains(QStringLiteral("Back to mode selection")));
+    QVERIFY(wizard.contains(QStringLiteral("Spoken/source language *")));
+    QVERIFY(wizard.contains(QStringLiteral("Output/target language *")));
+    QVERIFY(wizard.contains(QStringLiteral("root.dubbing.sourceLanguage = currentValue")));
+    QVERIFY(wizard.contains(QStringLiteral("root.dubbing.targetLanguage = currentValue")));
+    QVERIFY(wizard.contains(QStringLiteral("function advanceFromCurrentPage()")));
+    QVERIFY(wizard.contains(QStringLiteral("sourceLanguageBox.forceActiveFocus()")));
+    QVERIFY(wizard.contains(QStringLiteral("targetLanguageBox.forceActiveFocus()")));
+    QVERIFY(wizard.contains(QStringLiteral("Variant: %1")));
+    QVERIFY(wizard.contains(QStringLiteral("visible: (root.preflight.selectedWorkers || []).length > 0")));
+    QVERIFY(wizard.contains(QStringLiteral("Reviewed stage configuration")));
+    QVERIFY(wizard.contains(QStringLiteral("modelData.detail ||")));
+    QVERIFY(!wizard.contains(QStringLiteral("CloseOnEscape")));
+
+    QFile page(QStringLiteral(LASTUDIO_SOURCE_DIR) + QStringLiteral("/qml/pages/DubbingPage.qml"));
+    QVERIFY(page.open(QIODevice::ReadOnly));
+    const QString pageSource = QString::fromUtf8(page.readAll());
+    QVERIFY(pageSource.contains(QStringLiteral("dubbing.beginDubbingEntry()")));
+    QVERIFY(pageSource.contains(QStringLiteral("dubbingEntryGate.openGate()")));
+    QVERIFY(pageSource.contains(QStringLiteral("chooseDubbingEntryMode(\"automatic\")")));
+    QVERIFY(pageSource.contains(QStringLiteral("chooseDubbingEntryMode(\"step\")")));
+    QVERIFY(!pageSource.contains(QStringLiteral("Component.onCompleted: dubbing.resetStandardWorkflowNodeModels()")));
 }
 
 void TestDubbingProject::dubbingTranscriptionWaitsForFreshDecodedAudio()

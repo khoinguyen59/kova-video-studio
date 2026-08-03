@@ -13,7 +13,7 @@ namespace LAStudio {
 class DubbingProject
 {
 public:
-    static constexpr int CurrentSchemaVersion = 12;
+    static constexpr int CurrentSchemaVersion = 13;
 
     QString projectPath;
     QString sourceMediaPath;
@@ -28,6 +28,11 @@ public:
     QString sourceLanguage = QStringLiteral("en");
     QString targetLanguage = QStringLiteral("vi");
     QString dubbingQuality = QStringLiteral("adaptive");
+    // This is a durable operator choice, separate from the transient workflow
+    // runner state.  It is deliberately retained when a project is reopened
+    // so the Dubbing entry gate can ask the operator to confirm or change it
+    // without touching transcripts, subtitles, artifacts or node selections.
+    QString workflowEntryMode;
     // The selected TTS voice is project configuration.  This is either a
     // built-in voice ID or the durable ID of a saved Voice Cloning-library
     // preset; transient worker profile IDs are deliberately never persisted.

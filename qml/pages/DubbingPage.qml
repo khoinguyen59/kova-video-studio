@@ -12,7 +12,12 @@ Item {
     id: root
     anchors.fill: parent
 
-    Component.onCompleted: dubbing.resetStandardWorkflowNodeModels()
+    // The loader is recreated on every route visit.  Gate the workspace before
+    // any model reset, workflow setup or stage action can happen.
+    Component.onCompleted: {
+        dubbing.beginDubbingEntry()
+        dubbingEntryGate.openGate()
+    }
 
     property var dubbing: AppController.dubbing
     property int selectedSegment: -1
@@ -1256,13 +1261,32 @@ Item {
         dubbing: root.dubbing
     }
 
+    DubbingEntryGateDialog {
+        id: dubbingEntryGate
+        dubbing: root.dubbing
+        onAutomaticRequested: {
+            if (!root.dubbing.chooseDubbingEntryMode("automatic")) return
+            close()
+            automaticPreflightDialog.openPreflight()
+        }
+        onStepByStepRequested: {
+            if (!root.dubbing.chooseDubbingEntryMode("step")) return
+            close()
+            root.dubbing.startStepByStep()
+        }
+        onLeaveDubbingRequested: {
+            close()
+            AppController.workflows.openStudioRoute("welcome")
+        }
+    }
+
     DubbingAutomaticPreflightDialog {
         id: automaticPreflightDialog
         dubbing: root.dubbing
-        onStepByStepRequested: root.dubbing.startStepByStep()
+        outputPath: root.defaultExportPath()
+        onBackToEntryRequested: dubbingEntryGate.openGate()
         onNodeModelRequested: function(nodeId) { nodeModelDialog.openFor(nodeId) }
         onColabSetupRequested: dubbingColabSetupDialog.open()
-        onAutomaticStartRequested: root.dubbing.startAutomaticWorkflow(root.defaultExportPath())
     }
 
     DubbingTranslationFixDialog {

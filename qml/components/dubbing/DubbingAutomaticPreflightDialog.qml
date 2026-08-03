@@ -12,14 +12,14 @@ Dialog {
     id: root
 
     required property var dubbing
+    required property string outputPath
     property int currentPage: 0
     readonly property var preflight: root.dubbing ? root.dubbing.automaticPreflight : ({})
     readonly property bool ready: root.preflight.ready === true
 
-    signal stepByStepRequested()
+    signal backToEntryRequested()
     signal nodeModelRequested(string nodeId)
     signal colabSetupRequested()
-    signal automaticStartRequested()
 
     parent: Overlay.overlay
     anchors.centerIn: parent
@@ -28,7 +28,10 @@ Dialog {
     modal: true
     padding: 0
     title: ""
-    closePolicy: Popup.CloseOnEscape
+    // The Automatic setup is part of the mandatory entry flow.  It may only
+    // return to that gate explicitly, never leak the workspace via Escape,
+    // the close button, or an outside click.
+    closePolicy: Popup.NoAutoClose
 
     function openPreflight() {
         currentPage = 0
@@ -36,9 +39,25 @@ Dialog {
     }
 
     function requestAutomaticStart() {
-        if (!root.dubbing.approveAutomaticPreflight()) return
-        root.close()
-        root.automaticStartRequested()
+        if (!root.dubbing.approveAutomaticPreflight()) {
+            root.currentPage = 4
+            return
+        }
+        if (root.dubbing.startAutomaticWorkflow(root.outputPath)) root.close()
+    }
+
+    function advanceFromCurrentPage() {
+        // Do not infer an Auto value for a model that has not advertised it.
+        // Keep missing required language visible and focused on this page.
+        if (currentPage === 0 && !root.preflight.sourceLanguage) {
+            sourceLanguageBox.forceActiveFocus()
+            return
+        }
+        if (currentPage === 0 && !root.preflight.targetLanguage) {
+            targetLanguageBox.forceActiveFocus()
+            return
+        }
+        currentPage += 1
     }
 
     background: Rectangle {
@@ -79,13 +98,6 @@ Dialog {
                     wrapMode: Text.WordWrap
                 }
             }
-            Button {
-                implicitWidth: 32
-                implicitHeight: 32
-                onClicked: root.close()
-                contentItem: LineIcon { anchors.centerIn: parent; name: "close"; color: Theme.textSecondary; width: 16; height: 16 }
-                background: Rectangle { radius: Theme.radiusSmall; color: parent.hovered ? Qt.rgba(1, 1, 1, 0.06) : "transparent" }
-            }
         }
 
         Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.surfaceAlt }
@@ -98,7 +110,7 @@ Dialog {
             spacing: Theme.paddingSmall
 
             Repeater {
-                model: [qsTr("Mode"), qsTr("Routes & models"), qsTr("Colab workers"), qsTr("Review")]
+                model: [qsTr("Source & language"), qsTr("Stages, routes & models"), qsTr("Colab workers"), qsTr("Review"), qsTr("Start")]
                 delegate: Rectangle {
                     required property int index
                     required property string modelData
@@ -128,45 +140,53 @@ Dialog {
             Layout.margins: Theme.paddingLarge
             currentIndex: root.currentPage
 
-            ColumnLayout {
-                spacing: Theme.paddingLarge
-                Item { Layout.fillHeight: true }
-                Text {
-                    Layout.fillWidth: true
-                    text: qsTr("How would you like to run this project?")
-                    color: Theme.textPrimary
-                    font.pixelSize: Theme.fontXLarge
-                    font.bold: true
-                    horizontalAlignment: Text.AlignHCenter
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: qsTr("Automatic checks every configured stage before it begins. Step-by-step leaves you in control of each individual stage.")
-                    color: Theme.textSecondary
-                    horizontalAlignment: Text.AlignHCenter
-                    wrapMode: Text.WordWrap
-                }
-                RowLayout {
-                    Layout.alignment: Qt.AlignHCenter
+            ScrollView {
+                clip: true
+                contentWidth: availableWidth
+                ColumnLayout {
+                    width: parent.width
                     spacing: Theme.paddingMedium
-                    PrimaryButton {
-                        text: qsTr("Automatic (recommended)")
-                        iconName: "play"
-                        implicitWidth: 230
-                        onClicked: root.currentPage = 1
+                    Text { text: qsTr("Source and language"); color: Theme.textPrimary; font.pixelSize: Theme.fontLarge; font.bold: true }
+                    Text {
+                        Layout.fillWidth: true
+                        text: qsTr("These project languages are the single source of truth for STT, OCR/subtitle alignment, translation and TTS. They are saved with the project.")
+                        color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap
                     }
-                    PrimaryButton {
-                        text: qsTr("Review one by one")
-                        iconName: "workflow"
-                        quiet: true
-                        implicitWidth: 210
-                        onClicked: {
-                            root.close()
-                            root.stepByStepRequested()
+                    Rectangle {
+                        Layout.fillWidth: true; implicitHeight: sourceLanguageColumn.implicitHeight + Theme.paddingMedium * 2
+                        radius: Theme.radiusSmall; color: Qt.rgba(1, 1, 1, 0.025); border.color: root.preflight.sourceLanguage ? Qt.rgba(1, 1, 1, 0.10) : Theme.danger
+                        ColumnLayout {
+                            id: sourceLanguageColumn; anchors.fill: parent; anchors.margins: Theme.paddingMedium
+                            Text { text: qsTr("Spoken/source language *"); color: root.preflight.sourceLanguage ? Theme.textPrimary : Theme.danger; font.bold: true }
+                            Text { text: qsTr("Used by Transcribe/STT, OCR/subtitle alignment and the source side of Translate."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                            ComboBox {
+                                id: sourceLanguageBox; Layout.fillWidth: true
+                                model: [{ code: "en", name: "English (en)" }, { code: "vi", name: "Vietnamese (vi)" }, { code: "zh", name: "Chinese (zh)" }, { code: "ja", name: "Japanese (ja)" }, { code: "ko", name: "Korean (ko)" }]
+                                textRole: "name"; valueRole: "code"
+                                Component.onCompleted: currentIndex = indexOfValue(root.preflight.sourceLanguage)
+                                onActivated: root.dubbing.sourceLanguage = currentValue
+                            }
+                            Text { visible: !root.preflight.sourceLanguage; text: qsTr("Choose the source language. Auto-detect is not silently selected."); color: Theme.danger; font.pixelSize: Theme.fontSmall }
+                        }
+                    }
+                    Rectangle {
+                        Layout.fillWidth: true; implicitHeight: targetLanguageColumn.implicitHeight + Theme.paddingMedium * 2
+                        radius: Theme.radiusSmall; color: Qt.rgba(1, 1, 1, 0.025); border.color: root.preflight.targetLanguage ? Qt.rgba(1, 1, 1, 0.10) : Theme.danger
+                        ColumnLayout {
+                            id: targetLanguageColumn; anchors.fill: parent; anchors.margins: Theme.paddingMedium
+                            Text { text: qsTr("Output/target language *"); color: root.preflight.targetLanguage ? Theme.textPrimary : Theme.danger; font.bold: true }
+                            Text { text: qsTr("Used by Translate and TTS. Saved voices remain validated against the selected TTS model family."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                            ComboBox {
+                                id: targetLanguageBox; Layout.fillWidth: true
+                                model: [{ code: "vi", name: "Vietnamese (vi)" }, { code: "en", name: "English (en)" }, { code: "zh", name: "Chinese (zh)" }, { code: "ja", name: "Japanese (ja)" }, { code: "ko", name: "Korean (ko)" }]
+                                textRole: "name"; valueRole: "code"
+                                Component.onCompleted: currentIndex = indexOfValue(root.preflight.targetLanguage)
+                                onActivated: root.dubbing.targetLanguage = currentValue
+                            }
+                            Text { visible: !root.preflight.targetLanguage; text: qsTr("Choose the output language before continuing."); color: Theme.danger; font.pixelSize: Theme.fontSmall }
                         }
                     }
                 }
-                Item { Layout.fillHeight: true }
             }
 
             ScrollView {
@@ -210,8 +230,22 @@ Dialog {
                                     Text {
                                         Layout.fillWidth: true
                                         text: qsTr("Route: %1   •   Model: %2")
-                                            .arg(modelData.executionProvider || "local-dev")
+                                            .arg(modelData.route || qsTr("Local"))
                                             .arg(modelData.modelId || qsTr("workflow default"))
+                                        color: Theme.textSecondary
+                                        font.pixelSize: Theme.fontSmall
+                                        elide: Text.ElideRight
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: modelData.languageSummary || qsTr("No language required")
+                                        color: Theme.textSecondary
+                                        font.pixelSize: Theme.fontSmall
+                                        elide: Text.ElideRight
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: qsTr("Variant: %1").arg(modelData.variant || qsTr("default"))
                                         color: Theme.textSecondary
                                         font.pixelSize: Theme.fontSmall
                                         elide: Text.ElideRight
@@ -222,6 +256,14 @@ Dialog {
                                     quiet: true
                                     enabled: !root.dubbing.processing
                                     onClicked: root.nodeModelRequested(modelData.id)
+                                }
+                                Text {
+                                    text: modelData.state === "blocked" || modelData.state === "missing"
+                                          ? qsTr("Blocked") : qsTr("Ready")
+                                    color: modelData.state === "blocked" || modelData.state === "missing"
+                                           ? Theme.warning : Theme.success
+                                    font.pixelSize: Theme.fontSmall
+                                    font.bold: true
                                 }
                             }
                         }
@@ -305,6 +347,7 @@ Dialog {
                     text: qsTr("Configure / Check Direct Colab workers")
                     iconName: "cloud"
                     Layout.fillWidth: true
+                    visible: (root.preflight.selectedWorkers || []).length > 0
                     onClicked: root.colabSetupRequested()
                 }
             }
@@ -367,6 +410,55 @@ Dialog {
                             }
                         }
                     }
+                    Text {
+                        text: qsTr("Reviewed stage configuration")
+                        color: Theme.textPrimary
+                        font.bold: true
+                    }
+                    Repeater {
+                        model: root.preflight.nodes || []
+                        delegate: Rectangle {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            implicitHeight: reviewNode.implicitHeight + Theme.paddingSmall * 2
+                            radius: Theme.radiusSmall
+                            color: Qt.rgba(1, 1, 1, 0.025)
+                            border.color: Qt.rgba(1, 1, 1, 0.09)
+                            ColumnLayout {
+                                id: reviewNode
+                                anchors.fill: parent
+                                anchors.margins: Theme.paddingSmall
+                                Text { text: modelData.title; color: Theme.textPrimary; font.bold: true }
+                                Text { Layout.fillWidth: true; text: modelData.route || qsTr("Local"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                                Text { Layout.fillWidth: true; text: modelData.modelId || qsTr("workflow default"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                                Text { Layout.fillWidth: true; text: modelData.languageSummary || qsTr("No language required"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                                Text { Layout.fillWidth: true; text: modelData.detail || (modelData.state === "blocked" ? qsTr("Blocked") : qsTr("Ready")); color: modelData.state === "blocked" ? Theme.warning : Theme.success; font.pixelSize: Theme.fontSmall }
+                            }
+                        }
+                    }
+                }
+            }
+
+            ScrollView {
+                clip: true
+                contentWidth: availableWidth
+                ColumnLayout {
+                    width: parent.width
+                    spacing: Theme.paddingMedium
+                    Text { text: qsTr("Start automatic workflow"); color: Theme.textPrimary; font.pixelSize: Theme.fontLarge; font.bold: true }
+                    Text { Layout.fillWidth: true; text: root.ready ? qsTr("Review is complete. Starting closes this setup and begins the configured workflow.") : qsTr("Start remains unavailable until every active stage, required language and Direct Colab worker is ready."); color: root.ready ? Theme.success : Theme.warning; wrapMode: Text.WordWrap }
+                    Repeater {
+                        model: root.preflight.nodes || []
+                        delegate: Rectangle {
+                            required property var modelData
+                            Layout.fillWidth: true; implicitHeight: summaryRow.implicitHeight + Theme.paddingSmall * 2
+                            radius: Theme.radiusSmall; color: Qt.rgba(1,1,1,0.025); border.color: Qt.rgba(1,1,1,0.09)
+                            ColumnLayout { id: summaryRow; anchors.fill: parent; anchors.margins: Theme.paddingSmall
+                                Text { text: modelData.title; color: Theme.textPrimary; font.bold: true }
+                                Text { Layout.fillWidth: true; text: qsTr("%1 · %2 · %3").arg(modelData.route || qsTr("Local")).arg(modelData.modelId || qsTr("workflow default")).arg(modelData.languageSummary || qsTr("No language required")); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -383,15 +475,21 @@ Dialog {
                 visible: root.currentPage > 0
                 onClicked: root.currentPage -= 1
             }
+            PrimaryButton {
+                visible: root.currentPage === 0
+                text: qsTr("Back to mode selection")
+                quiet: true
+                onClicked: { root.close(); root.backToEntryRequested() }
+            }
             Item { Layout.fillWidth: true }
             PrimaryButton {
-                visible: root.currentPage < 3
+                visible: root.currentPage < 4
                 text: qsTr("Next")
                 iconName: "chevron-right"
-                onClicked: root.currentPage += 1
+                onClicked: root.advanceFromCurrentPage()
             }
             PrimaryButton {
-                visible: root.currentPage === 3
+                visible: root.currentPage === 4
                 text: qsTr("Start Automatic Dubbing")
                 iconName: "play"
                 enabled: root.ready && !root.dubbing.processing

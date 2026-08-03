@@ -93,6 +93,10 @@ class DubbingController : public QObject
     Q_PROPERTY(bool workflowRecoveryAvailable READ workflowRecoveryAvailable NOTIFY workflowChanged)
     Q_PROPERTY(QVariantMap workflowRecovery READ workflowRecovery NOTIFY workflowChanged)
     Q_PROPERTY(QString workflowMode READ workflowMode NOTIFY workflowChanged)
+    // The entry gate is intentionally distinct from workflowMode: entering a
+    // tab must never create, resume, or mutate a workflow merely to show UI.
+    Q_PROPERTY(bool dubbingEntryGateActive READ dubbingEntryGateActive NOTIFY workflowChanged)
+    Q_PROPERTY(QString savedDubbingEntryMode READ savedDubbingEntryMode NOTIFY projectChanged)
     Q_PROPERTY(QString currentStepId READ currentStepId NOTIFY workflowChanged)
     Q_PROPERTY(QVariantMap currentStepOutput READ currentStepOutput NOTIFY workflowChanged)
     Q_PROPERTY(QString lastCompletedStepId READ lastCompletedStepId NOTIFY workflowChanged)
@@ -194,6 +198,8 @@ public:
     bool workflowRecoveryAvailable() const { return !m_workflowRecovery.isEmpty(); }
     QVariantMap workflowRecovery() const { return m_workflowRecovery; }
     QString workflowMode() const { return m_workflowMode; }
+    bool dubbingEntryGateActive() const { return m_dubbingEntryGateActive; }
+    QString savedDubbingEntryMode() const { return m_project.workflowEntryMode; }
     QString currentStepId() const;
     QVariantMap currentStepOutput() const;
     QString lastCompletedStepId() const { return m_lastCompletedStepId; }
@@ -282,6 +288,9 @@ public:
     Q_INVOKABLE void setSpeakerVoice(int speakerIndex, const QVariantMap &voice);
     Q_INVOKABLE void clearError();
     Q_INVOKABLE void resetStandardWorkflowNodeModels();
+    Q_INVOKABLE void beginDubbingEntry();
+    Q_INVOKABLE bool chooseDubbingEntryMode(const QString &mode);
+    Q_INVOKABLE void reopenDubbingEntryGate();
     Q_INVOKABLE QString defaultWorkflowModelFamily(const QString &nodeId) const;
     Q_INVOKABLE void prepareWorkflow();
     Q_INVOKABLE bool runWorkflow(const QString &outputPath = QString());
@@ -427,6 +436,7 @@ private:
     QVariantMap m_workflowRecovery;
     QString m_activeReviewId;
     QString m_workflowMode = QStringLiteral("idle");
+    bool m_dubbingEntryGateActive = false;
     QString m_currentStepId = QStringLiteral("import");
     QVariantMap m_stepOutputs;
     QString m_lastCompletedStepId;

@@ -14,6 +14,8 @@ private slots:
     void mergesSegmentPatchesByStableId();
     void rejectsUnknownAndDuplicateSegmentPatches();
     void importingMediaDoesNotStartProcessing();
+    void dubbingEntryGatePersistsChoiceWithoutMutatingProject();
+    void automaticPreflightUsesPersistedLanguageSingleSourceOfTruth();
     void automaticWorkflowLocksSettingsUntilPaused();
     void automaticWorkflowRequiresFreshPreflightApproval();
     void customWorkflowOpensFirstMissingNodeSetup();
@@ -80,6 +82,7 @@ private slots:
     void remoteDubbingWorkflowIsReadyWithoutLocalModels();
     void dubbingColabModelsMapToExactNotebooks();
     void dubbingUiUsesExactModelWorkers();
+    void dubbingEntryAndAutomaticSetupCannotBypassConfiguration();
     void dubbingTranscriptionWaitsForFreshDecodedAudio();
     void normalizesOcrOnlyTranscriptWithProvenance();
     void fusesMatchingAndShiftedTranscriptWithoutDuplicates();

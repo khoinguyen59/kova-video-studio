@@ -2284,6 +2284,14 @@ QVariantMap DubbingController::automaticPreflight() const
     if (m_project.sourceMediaPath.trimmed().isEmpty())
         addIssue(QStringLiteral("source-media"),
                  QStringLiteral("Import source media before starting Automatic dubbing."));
+    // sourceLanguage/targetLanguage are the project's single source of truth.
+    // The wizard never keeps a parallel, display-only copy of them.
+    if (m_project.sourceLanguage.trimmed().isEmpty())
+        addIssue(QStringLiteral("source-language"),
+                 QStringLiteral("Choose the spoken/source language for Transcribe and Translate."));
+    if (m_project.targetLanguage.trimmed().isEmpty())
+        addIssue(QStringLiteral("target-language"),
+                 QStringLiteral("Choose the output language for Translate and TTS."));
     if (!workflowGraphValid())
         addIssue(QStringLiteral("workflow-graph"),
                  QStringLiteral("The default Dubbing workflow definition is invalid."));
@@ -2322,13 +2330,37 @@ QVariantMap DubbingController::automaticPreflight() const
         const QString nodeId = node.value(QStringLiteral("id")).toString();
         QVariantMap configuration = m_workflowNodeConfigurations.value(nodeId).toMap();
         const QVariantMap parameters = configuration.value(QStringLiteral("parameters")).toMap();
+        const QString providerId = configuration.value(
+            QStringLiteral("executionProvider"), parameters.value(
+            QStringLiteral("executionProvider"), QStringLiteral("local-dev"))).toString();
+        const QString route = providerId == QStringLiteral("colab-direct")
+            ? QStringLiteral("Direct Colab")
+            : providerId == QStringLiteral("api-gateway")
+                ? QStringLiteral("API Gateway") : QStringLiteral("Local");
+        const bool requiresSourceLanguage = nodeId == QStringLiteral("transcribe")
+            || nodeId == QStringLiteral("review-transcript")
+            || nodeId == QStringLiteral("translate");
+        const bool requiresTargetLanguage = nodeId == QStringLiteral("translate")
+            || nodeId == QStringLiteral("synthesize");
+        QString languageSummary;
+        if (nodeId == QStringLiteral("translate"))
+            languageSummary = QStringLiteral("%1 â†’ %2").arg(m_project.sourceLanguage, m_project.targetLanguage);
+        else if (requiresSourceLanguage)
+            languageSummary = m_project.sourceLanguage;
+        else if (requiresTargetLanguage)
+            languageSummary = m_project.targetLanguage;
         nodes.append(QVariantMap{
             {QStringLiteral("id"), nodeId},
             {QStringLiteral("title"), node.value(QStringLiteral("title"), nodeId)},
-            {QStringLiteral("executionProvider"), configuration.value(
-                QStringLiteral("executionProvider"),
-                parameters.value(QStringLiteral("executionProvider"), QStringLiteral("local-dev")))},
-            {QStringLiteral("modelId"), parameters.value(QStringLiteral("modelId"))}
+            {QStringLiteral("executionProvider"), providerId},
+            {QStringLiteral("route"), route},
+            {QStringLiteral("modelId"), configuration.value(
+                QStringLiteral("modelId"), parameters.value(QStringLiteral("modelId")))},
+            {QStringLiteral("variant"), parameters.value(QStringLiteral("variant"))},
+            {QStringLiteral("requiresLanguage"), requiresSourceLanguage || requiresTargetLanguage},
+            {QStringLiteral("languageSummary"), languageSummary},
+            {QStringLiteral("state"), node.value(QStringLiteral("state"))},
+            {QStringLiteral("detail"), node.value(QStringLiteral("detail"))}
         });
     }
 
@@ -2337,6 +2369,8 @@ QVariantMap DubbingController::automaticPreflight() const
         {QStringLiteral("issues"), issues},
         {QStringLiteral("nodes"), nodes},
         {QStringLiteral("selectedWorkers"), selectedWorkers},
+        {QStringLiteral("sourceLanguage"), m_project.sourceLanguage},
+        {QStringLiteral("targetLanguage"), m_project.targetLanguage},
         {QStringLiteral("transcriptSource"), m_project.transcriptConfiguration.value(
             QStringLiteral("transcriptSource"), QStringLiteral("stt"))},
         {QStringLiteral("fingerprint"), automaticPreflightFingerprint()}
@@ -2347,6 +2381,8 @@ QString DubbingController::automaticPreflightFingerprint() const
 {
     QVariantMap snapshot;
     snapshot.insert(QStringLiteral("sourceMedia"), m_project.sourceMediaPath);
+    snapshot.insert(QStringLiteral("sourceLanguage"), m_project.sourceLanguage);
+    snapshot.insert(QStringLiteral("targetLanguage"), m_project.targetLanguage);
     snapshot.insert(QStringLiteral("transcript"), m_project.transcriptConfiguration);
     snapshot.insert(QStringLiteral("quality"), m_project.dubbingQuality);
     snapshot.insert(QStringLiteral("ttsVoice"), m_project.ttsVoiceId);
@@ -2985,6 +3021,10 @@ void DubbingController::advanceAutomaticSetup()
 
 bool DubbingController::runWorkflow(const QString &outputPath)
 {
+    if (m_dubbingEntryGateActive) {
+        setError(QStringLiteral("Choose an entry mode before running the Dubbing workflow."));
+        return false;
+    }
     if (!m_workflowRunner || m_workflowRunner->running()) return false;
     if (workflowRecoveryAvailable()) {
         setError(QStringLiteral("Resume or discard the interrupted workflow before starting a new run."));
@@ -3074,6 +3114,10 @@ bool DubbingController::runWorkflow(const QString &outputPath)
 
 bool DubbingController::startAutomaticWorkflow(const QString &outputPath)
 {
+    if (m_dubbingEntryGateActive) {
+        setError(QStringLiteral("Choose an entry mode before starting Dubbing."));
+        return false;
+    }
     if (processing()) return false;
     const QString destination = PathUtils::urlToLocalPath(outputPath).trimmed();
     if (destination.isEmpty()) {
@@ -3182,13 +3226,15 @@ void DubbingController::startStepByStep()
                      .arg(m_project.sourceMediaPath, m_project.masterAudioPath,
                           m_project.backgroundAudioPath)
                      .arg(m_project.segments.size()));
+    setWorkflowMode(QStringLiteral("step"));
     if (m_project.sourceMediaPath.isEmpty()) {
-        Logger::warning(QStringLiteral("DubbingController"),
-                        QStringLiteral("Step-by-step rejected: source media is empty."));
-        setError(QStringLiteral("Import source media before starting the step-by-step workflow."));
+        // A new project is allowed into the step-by-step workspace, but it is
+        // parked at its first valid action (Import).  It must not synthesize a
+        // graph or run a stage before the operator supplies media.
+        setCurrentStep(QStringLiteral("media-input"));
+        clearError();
         return;
     }
-    setWorkflowMode(QStringLiteral("step"));
     const QString transcriptSource = m_project.transcriptConfiguration.value(
         QStringLiteral("transcriptSource"), QStringLiteral("stt")).toString().trimmed().toLower();
     if (m_project.masterAudioPath.isEmpty()) setCurrentStep(QStringLiteral("ingest"));
@@ -3215,6 +3261,10 @@ void DubbingController::startStepByStep()
 
 bool DubbingController::runCurrentStep(const QString &outputPath)
 {
+    if (m_dubbingEntryGateActive) {
+        setError(QStringLiteral("Choose an entry mode before running a Dubbing stage."));
+        return false;
+    }
     if (m_workflowMode != QStringLiteral("step")) startStepByStep();
     if (processing()) return false;
     const QString step = m_currentStepId;
@@ -3250,6 +3300,10 @@ bool DubbingController::runCurrentStep(const QString &outputPath)
 
 bool DubbingController::rerunStep(const QString &stepId, const QString &outputPath)
 {
+    if (m_dubbingEntryGateActive) {
+        setError(QStringLiteral("Choose an entry mode before running a Dubbing stage."));
+        return false;
+    }
     if (processing()) {
         Logger::warning(QStringLiteral("DubbingController"),
                         QStringLiteral("Run request rejected while busy requestedStep=%1 activeStep=%2 runnerStage=%3 progress=%4")
@@ -3778,6 +3832,45 @@ bool DubbingController::importMedia(const QString &pathOrUrl)
     emit segmentsChanged();
     emit workflowChanged();
     persistAfterEdit();
+    return true;
+}
+
+void DubbingController::beginDubbingEntry()
+{
+    // This is called whenever the Dubbing route is loaded.  Do not reset a
+    // project here: reopening the tab must preserve its work and only require
+    // the operator to choose/confirm how it will be operated.
+    m_dubbingEntryGateActive = true;
+    m_automaticPreflightFingerprint.clear();
+    emit workflowChanged();
+}
+
+void DubbingController::reopenDubbingEntryGate()
+{
+    m_dubbingEntryGateActive = true;
+    m_automaticPreflightFingerprint.clear();
+    emit workflowChanged();
+}
+
+bool DubbingController::chooseDubbingEntryMode(const QString &mode)
+{
+    const QString selected = mode.trimmed().toLower();
+    if (selected != QStringLiteral("automatic") && selected != QStringLiteral("step")) {
+        setError(QStringLiteral("Choose Automatic or Step-by-step before using Dubbing."));
+        return false;
+    }
+
+    // Persist only the operator's choice.  No workflow graph, media, segment,
+    // subtitle, generated artifact, or node configuration is changed here.
+    if (m_project.workflowEntryMode != selected) {
+        m_project.workflowEntryMode = selected;
+        persistAfterEdit();
+        emit projectChanged();
+    }
+    m_dubbingEntryGateActive = false;
+    m_automaticPreflightFingerprint.clear();
+    clearError();
+    emit workflowChanged();
     return true;
 }
 
