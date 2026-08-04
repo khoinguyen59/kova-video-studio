@@ -161,6 +161,10 @@ public:
     QString stage() const;
     int progress() const;
     bool progressAvailable() const;
+    // Activity is a presentation surface: expose the current aggregate user
+    // stage rather than leaking graph node ids such as "model-setup" or
+    // "source-separate" into the popup.
+    QVariantMap activityStageInfo() const;
     QString lastError() const;
     QString previewPath() const;
     QString dubbedVocalPath() const;
@@ -467,6 +471,7 @@ private:
     std::unique_ptr<CapabilityFamilyModel> m_automaticLlmModel;
     bool m_automaticSetupActive = false;
     bool m_automaticAdvanceScheduled = false;
+    QString m_automaticSetupNodeId;
     QString m_automaticOutputPath;
     QString m_automaticStatusText;
     QVariantList m_automaticEvents;

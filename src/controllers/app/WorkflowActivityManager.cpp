@@ -105,6 +105,11 @@ WorkflowActivityManager::WorkflowActivityManager(ModelSessionRegistry *sessionRe
     }
     if (m_dubbing) {
         connect(m_dubbing, &DubbingController::processingChanged, this, &WorkflowActivityManager::refresh);
+        // Automatic setup changes its selected stage and measured-download
+        // state through workflowChanged.  Refresh immediately instead of
+        // waiting for the one-second elapsed timer to repaint the Activity
+        // card with a stale generic "model-setup" label.
+        connect(m_dubbing, &DubbingController::workflowChanged, this, &WorkflowActivityManager::refresh);
     }
     if (m_gatewayTts) {
         connect(m_gatewayTts, &GatewayTtsController::processingChanged, this, &WorkflowActivityManager::refresh);
@@ -560,14 +565,27 @@ QVariantMap WorkflowActivityManager::alignmentWorkflow() const
 QVariantMap WorkflowActivityManager::dubbingWorkflow() const
 {
     if (!m_dubbing || !m_dubbing->processing()) return {};
+    const QVariantMap stageInfo = m_dubbing->activityStageInfo();
+    const QString stageTitle = stageInfo.value(QStringLiteral("title"),
+                                               QStringLiteral("Dubbing")).toString();
+    const int stageIndex = stageInfo.value(QStringLiteral("index")).toInt();
+    const int stageCount = stageInfo.value(QStringLiteral("count")).toInt();
+    QString stageLabel = stageTitle;
+    if (stageIndex > 0 && stageCount > 0) {
+        stageLabel += QStringLiteral(" (%1/%2)").arg(stageIndex).arg(stageCount);
+    }
+    const QString setupStatus = stageInfo.value(QStringLiteral("status")).toString().trimmed();
+    if (!setupStatus.isEmpty() && setupStatus != stageTitle) {
+        stageLabel += QStringLiteral(" — %1").arg(setupStatus);
+    }
     QVariantMap workflow = makeWorkflow(QStringLiteral("dubbing-active"),
                         QStringLiteral("dubbing"),
-                        QStringLiteral("Running dubbing workflow"),
+                        QStringLiteral("Dubbing — %1").arg(stageTitle),
                         QStringLiteral("studio-dubbing"),
                         QStringLiteral("waves"),
                         m_dubbing->progress(),
                         !m_dubbing->progressAvailable(),
-                        m_dubbing->stage().isEmpty() ? QStringLiteral("Dubbing") : m_dubbing->stage(),
+                        stageLabel,
                         true);
     workflow.insert(QStringLiteral("progressAvailable"), m_dubbing->progressAvailable());
     workflow.insert(QStringLiteral("workflowId"), m_dubbing->workflowId());
@@ -575,8 +593,11 @@ QVariantMap WorkflowActivityManager::dubbingWorkflow() const
     workflow.insert(QStringLiteral("runId"), m_dubbing->workflowRunId());
     workflow.insert(QStringLiteral("nodeRunId"), m_dubbing->workflowNodeRunId());
     addExecutionDetails(&workflow,
-        m_dubbing->workflowMode() == QStringLiteral("automatic")
-            ? QStringLiteral("Automatic workflow") : QStringLiteral("Step-by-step workflow"));
+        stageInfo.value(QStringLiteral("route"),
+                        m_dubbing->workflowMode() == QStringLiteral("automatic")
+                            ? QStringLiteral("Automatic workflow")
+                            : QStringLiteral("Step-by-step workflow")).toString(),
+        stageInfo.value(QStringLiteral("model")).toString());
     return workflow;
 }
 

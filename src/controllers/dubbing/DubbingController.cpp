@@ -147,6 +147,19 @@ bool replaceCopy(const QString &source, const QString &destination, QString *err
     return true;
 }
 
+QString activityNodeId(const QString &stage)
+{
+    const QString normalized = stage.trimmed().toLower();
+    if (normalized == QStringLiteral("import")) return QStringLiteral("media-input");
+    if (normalized == QStringLiteral("source-separation")) return QStringLiteral("source-separate");
+    if (normalized == QStringLiteral("transcription")) return QStringLiteral("transcribe");
+    if (normalized == QStringLiteral("translation") || normalized == QStringLiteral("translation-fix"))
+        return QStringLiteral("translate");
+    if (normalized == QStringLiteral("tts")) return QStringLiteral("synthesize");
+    if (normalized == QStringLiteral("timing")) return QStringLiteral("fit-timing");
+    return normalized;
+}
+
 } // namespace
 
 DubbingController::DubbingController(SttSessionController *sttSession, TtsEngine *tts,
@@ -471,6 +484,67 @@ QString DubbingController::stage() const
         && !m_workflowRunner->activeNodeId().isEmpty())
         return m_workflowRunner->activeNodeId();
     return m_runner->stage();
+}
+
+QVariantMap DubbingController::activityStageInfo() const
+{
+    QString nodeId;
+    if (m_automaticSetupActive) {
+        nodeId = m_automaticSetupNodeId;
+    } else if (m_translationFix && m_translationFix->busy()) {
+        nodeId = QStringLiteral("translate");
+    } else if (m_workflowRunner && m_workflowRunner->running()) {
+        nodeId = m_workflowRunner->activeNodeId();
+    } else {
+        nodeId = activityNodeId(m_runner ? m_runner->stage() : QString());
+    }
+
+    QVariantMap result;
+    result.insert(QStringLiteral("nodeId"), nodeId);
+    const QVariantList stages = workflowStages();
+    for (int index = 0; index < stages.size(); ++index) {
+        const QVariantMap candidate = stages.at(index).toMap();
+        const QString actionNodeId = candidate.value(QStringLiteral("actionNodeId")).toString();
+        bool matches = nodeId == actionNodeId;
+        for (const QVariant &productionNode : candidate.value(
+                 QStringLiteral("productionNodeIds")).toList()) {
+            matches = matches || nodeId == productionNode.toString();
+        }
+        if (!matches) continue;
+
+        result.insert(QStringLiteral("stageId"), candidate.value(QStringLiteral("id")));
+        result.insert(QStringLiteral("title"), candidate.value(QStringLiteral("title")));
+        result.insert(QStringLiteral("index"), index + 1);
+        result.insert(QStringLiteral("count"), stages.size());
+
+        const QVariantMap configuration = m_workflowNodeConfigurations.value(actionNodeId).toMap();
+        const QVariantMap parameters = configuration.value(QStringLiteral("parameters")).toMap();
+        const QString provider = configuration.value(
+            QStringLiteral("executionProvider"), parameters.value(
+                QStringLiteral("executionProvider"))).toString().trimmed().toLower();
+        const QString model = configuration.value(
+            QStringLiteral("modelId"), parameters.value(QStringLiteral("modelId"))).toString().trimmed();
+        if (provider == QStringLiteral("colab-direct"))
+            result.insert(QStringLiteral("route"), QStringLiteral("Direct Colab GPU"));
+        else if (provider == QStringLiteral("api-gateway"))
+            result.insert(QStringLiteral("route"), QStringLiteral("API Gateway"));
+        else if (!provider.isEmpty() || !model.isEmpty()
+                 || actionNodeId == QStringLiteral("ingest")
+                 || actionNodeId == QStringLiteral("media-input"))
+            result.insert(QStringLiteral("route"), QStringLiteral("Local CPU"));
+        result.insert(QStringLiteral("model"), model);
+        break;
+    }
+
+    if (result.value(QStringLiteral("title")).toString().isEmpty()) {
+        result.insert(QStringLiteral("title"),
+                      m_automaticSetupActive ? QStringLiteral("Preparing workflow")
+                                             : QStringLiteral("Dubbing"));
+        result.insert(QStringLiteral("count"), stages.size());
+    }
+    if (m_automaticSetupActive)
+        result.insert(QStringLiteral("status"), m_automaticStatusText);
+    return result;
 }
 
 int DubbingController::progress() const
@@ -2805,15 +2879,79 @@ bool DubbingController::ensureAutomaticModel(const QString &nodeId,
                                              const QString &capabilityId,
                                              bool loadSession)
 {
-    CapabilityFamilyModel *model = automaticModel(capabilityId);
     AppController *app = AppController::instance();
-    if (!model || !app || !app->downloadInstall() || !app->sessionRegistry()) {
+    if (!app || !app->downloadInstall() || !app->sessionRegistry()) {
         finishAutomaticSetupFailure(
             QStringLiteral("Automatic model setup is unavailable for %1.").arg(capabilityId));
         return false;
     }
 
     QVariantMap configuration = m_workflowNodeConfigurations.value(nodeId).toMap();
+    m_automaticSetupNodeId = nodeId;
+    const QVariantMap configuredParameters = configuration.value(QStringLiteral("parameters")).toMap();
+    const QString providerId = configuration.value(
+        QStringLiteral("executionProvider"), configuredParameters.value(
+            QStringLiteral("executionProvider"), QStringLiteral("local-dev")))
+        .toString().trimmed().toLower();
+    ExecutionProvider provider = ExecutionProvider::LocalDev;
+    if (!executionProviderFromId(providerId, &provider)) {
+        finishAutomaticSetupFailure(
+            QStringLiteral("Unknown execution provider for %1.").arg(visibleStepForNode(nodeId)));
+        return false;
+    }
+    const QString configuredModel = configuration.value(
+        QStringLiteral("modelId"), configuredParameters.value(QStringLiteral("modelId")))
+        .toString().trimmed().toLower();
+
+    // The Automatic wizard has already captured an explicit provider for each
+    // model node.  Do not use a global remote-first preference to decide this
+    // boundary: selecting Direct Colab or API Gateway must never enqueue a
+    // local model/runtime download as a hidden fallback.
+    if (provider == ExecutionProvider::ColabDirect) {
+        const QString capability = colabCapabilityForStage(nodeId);
+        ColabSession *session = colabSessionForStage(nodeId);
+        QString routeError;
+        if (configuredModel.isEmpty()
+            || !DubbingColabModelRoutes::supports(nodeId, configuredModel)
+            || !session || !session->hasVerifiedRoute(capability, configuredModel, &routeError)) {
+            const QString detail = routeError.trimmed().isEmpty()
+                ? QStringLiteral("Connect and check the exact Direct Colab worker in Automatic setup.")
+                : routeError;
+            finishAutomaticSetupFailure(
+                QStringLiteral("Direct Colab is not ready for %1: %2")
+                    .arg(visibleStepForNode(nodeId), detail));
+            return false;
+        }
+        setAutomaticStatus(QStringLiteral("Using verified Direct Colab worker for %1")
+                               .arg(visibleStepForNode(nodeId)));
+        appendAutomaticEvent(QStringLiteral("Direct Colab worker ready for %1 (%2)")
+                                 .arg(visibleStepForNode(nodeId), configuredModel),
+                             QStringLiteral("completed"), nodeId);
+        return true;
+    }
+    if (provider == ExecutionProvider::ApiGateway) {
+        Settings *settings = m_settings ? m_settings : app->settings();
+        if (configuredModel.isEmpty() || !settings || settings->gatewayUrl().trimmed().isEmpty()
+            || !settings->gatewayApiKeyConfigured()) {
+            finishAutomaticSetupFailure(
+                QStringLiteral("API Gateway is not ready for %1. Configure its URL, key, and exact model in Automatic setup.")
+                    .arg(visibleStepForNode(nodeId)));
+            return false;
+        }
+        setAutomaticStatus(QStringLiteral("Using configured API Gateway for %1")
+                               .arg(visibleStepForNode(nodeId)));
+        appendAutomaticEvent(QStringLiteral("API Gateway ready for %1 (%2)")
+                                 .arg(visibleStepForNode(nodeId), configuredModel),
+                             QStringLiteral("completed"), nodeId);
+        return true;
+    }
+
+    CapabilityFamilyModel *model = automaticModel(capabilityId);
+    if (!model) {
+        finishAutomaticSetupFailure(
+            QStringLiteral("Automatic model setup is unavailable for %1.").arg(capabilityId));
+        return false;
+    }
     QVariantMap recommendation;
     if (configuration.isEmpty()) {
         recommendation = model->configurationForFamily(
@@ -2932,6 +3070,7 @@ bool DubbingController::ensureAutomaticModel(const QString &nodeId,
 
 bool DubbingController::ensureAutomaticAdaptiveModel()
 {
+    m_automaticSetupNodeId = QStringLiteral("translate");
     if (m_project.dubbingQuality == QStringLiteral("custom")) {
         const bool rewriteEnabled =
             m_project.durationControl.value(QStringLiteral("enabled"), true).toBool()
@@ -3006,6 +3145,19 @@ void DubbingController::prepareAutomaticVoiceRuntime()
     if (m_workflowMode != QStringLiteral("automatic")
         || !m_workflowRunner || !m_workflowRunner->running())
         return;
+    const QVariantMap synthesis = m_workflowNodeConfigurations
+                                      .value(QStringLiteral("synthesize")).toMap();
+    if (configuredSynthesisProvider(synthesis) != ExecutionProvider::LocalDev) {
+        const QVariantMap parameters = synthesis.value(QStringLiteral("parameters")).toMap();
+        const QString model = synthesis.value(
+            QStringLiteral("modelId"), parameters.value(QStringLiteral("modelId"))).toString();
+        setAutomaticStatus(QStringLiteral("Using selected remote TTS route%1")
+                               .arg(model.trimmed().isEmpty()
+                                        ? QString() : QStringLiteral(" (%1)").arg(model)));
+        appendAutomaticEvent(QStringLiteral("Remote TTS route remains selected"),
+                             QStringLiteral("completed"), QStringLiteral("synthesize"));
+        return;
+    }
     AppController *app = AppController::instance();
     if (!app || !app->sessionRegistry()) return;
     for (const QString &capabilityId : {QStringLiteral("stt"),
@@ -3038,6 +3190,7 @@ void DubbingController::finishAutomaticSetupFailure(const QString &message)
     m_automaticDownloadsQueued.clear();
     m_automaticDownloadKeys.clear();
     m_automaticConfiguredNodes.clear();
+    m_automaticSetupNodeId.clear();
     setWorkflowMode(QStringLiteral("idle"));
     setError(message);
     setAutomaticStatus(message);
@@ -3049,6 +3202,8 @@ void DubbingController::finishAutomaticSetupFailure(const QString &message)
 void DubbingController::advanceAutomaticSetup()
 {
     if (!m_automaticSetupActive) return;
+    if (m_automaticSetupNodeId.isEmpty())
+        m_automaticSetupNodeId = QStringLiteral("source-separate");
     // Remote-first automatic runs use the graph's explicit per-node routes.
     // They never probe, load, or download a local model as a fallback. A
     // missing Gateway model or Colab worker therefore fails at the selected
@@ -3061,6 +3216,7 @@ void DubbingController::advanceAutomaticSetup()
         m_automaticDownloadsQueued.clear();
         m_automaticDownloadKeys.clear();
         m_automaticConfiguredNodes.clear();
+        m_automaticSetupNodeId.clear();
         setAutomaticStatus(QStringLiteral("Starting independent remote workflow routes."));
         appendAutomaticEvent(QStringLiteral("Using configured API Gateway and direct Colab routes"),
                              QStringLiteral("completed"));
@@ -3123,6 +3279,7 @@ void DubbingController::advanceAutomaticSetup()
     m_automaticDownloadsQueued.clear();
     m_automaticDownloadKeys.clear();
     m_automaticConfiguredNodes.clear();
+    m_automaticSetupNodeId.clear();
     setAutomaticStatus(QStringLiteral("Models ready. Starting the dubbing workflow."));
     appendAutomaticEvent(QStringLiteral("All required models are ready"),
                          QStringLiteral("completed"));
@@ -3307,6 +3464,7 @@ bool DubbingController::startAutomaticWorkflow(const QString &outputPath)
     m_automaticDownloadsQueued.clear();
     m_automaticDownloadKeys.clear();
     m_automaticConfiguredNodes.clear();
+    m_automaticSetupNodeId = QStringLiteral("source-separate");
     setAutomaticStatus(QStringLiteral("Checking required models and runtimes"));
     appendAutomaticEvent(QStringLiteral("Checking required models and runtimes"),
                          QStringLiteral("running"));
@@ -3324,6 +3482,7 @@ void DubbingController::pauseAutomaticWorkflow()
     m_automaticDownloadsQueued.clear();
     m_automaticDownloadKeys.clear();
     m_automaticConfiguredNodes.clear();
+    m_automaticSetupNodeId.clear();
     if (m_translationFix) m_translationFix->cancel();
     if (m_workflowRunner && m_workflowRunner->running()) m_workflowRunner->cancel();
     if (m_runner) m_runner->cancel();
@@ -4474,6 +4633,7 @@ void DubbingController::cancelProcessing()
     m_automaticDownloadsQueued.clear();
     m_automaticDownloadKeys.clear();
     m_automaticConfiguredNodes.clear();
+    m_automaticSetupNodeId.clear();
     m_pendingExportPath.clear();
     if (m_translationFix) m_translationFix->cancel();
     if (m_workflowRunner && m_workflowRunner->running()) m_workflowRunner->cancel();

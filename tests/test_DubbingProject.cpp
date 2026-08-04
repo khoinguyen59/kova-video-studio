@@ -21,6 +21,7 @@
 #include "dubbing/AudioTimelineMixer.h"
 #include "dubbing/media/AtomicMediaCommit.h"
 #include "controllers/app/AppController.h"
+#include "controllers/app/WorkflowActivityManager.h"
 #include "audio/WavIO.h"
 #include "core/Settings.h"
 #include "core/PathUtils.h"
@@ -1224,6 +1225,109 @@ void TestDubbingProject::automaticPreflightReadinessMatrixRejectsFalseReadyState
              QStringLiteral("ready"));
     QCOMPARE(preflight.value(QStringLiteral("selectedWorkers")).toList().size(), 1);
     app->colabSeparationSession()->disconnectTemporaryWorker();
+}
+
+void TestDubbingProject::automaticSetupKeepsVerifiedDirectColabRouteAndReportsCurrentStage()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString mediaPath = directory.filePath(QStringLiteral("source.wav"));
+    const QVector<float> samples(1600, 0.1F);
+    QVERIFY(WavIO::saveFloat(mediaPath, samples.constData(), samples.size(), 16000));
+
+    AppController *app = AppController::instance();
+    QVERIFY(app != nullptr);
+    QVERIFY(app->settings() != nullptr);
+    const bool previousRemoteFirst = app->settings()->remoteFirstMode();
+    app->settings()->setRemoteFirstMode(false);
+
+    const QString separationModel = QStringLiteral("sherpa-onnx-spleeter-2stems-fp16");
+    const QString sttModel = QStringLiteral("whisper.cpp");
+    const QString translationModel = QStringLiteral("m2m100-418m");
+    const QString ttsModel = QStringLiteral("kokoro");
+    ExactRouteWorkerMock separationWorker(QStringLiteral("voice-isolation"), separationModel);
+    ExactRouteWorkerMock sttWorker(QStringLiteral("stt"), sttModel);
+    ExactRouteWorkerMock translationWorker(QStringLiteral("translation"), translationModel);
+    ExactRouteWorkerMock ttsWorker(QStringLiteral("tts"), ttsModel);
+    QVERIFY(separationWorker.start());
+    QVERIFY(sttWorker.start());
+    QVERIFY(translationWorker.start());
+    QVERIFY(ttsWorker.start());
+
+    ColabSessionReset resetSeparation(app->colabSeparationSession());
+    ColabSessionReset resetStt(app->colabSttSession());
+    ColabSessionReset resetTranslation(app->colabTranslationSession());
+    ColabSessionReset resetTts(app->colabTtsSession());
+    QString routeError;
+    QVERIFY2(app->colabSeparationSession()->beginVerifiedSession(
+        separationWorker.workerUrl(), QStringLiteral("test-token"), QStringLiteral("voice-isolation"),
+        separationModel, &routeError, true), qPrintable(routeError));
+    QVERIFY2(app->colabSttSession()->beginVerifiedSession(
+        sttWorker.workerUrl(), QStringLiteral("test-token"), QStringLiteral("stt"),
+        sttModel, &routeError, true), qPrintable(routeError));
+    QVERIFY2(app->colabTranslationSession()->beginVerifiedSession(
+        translationWorker.workerUrl(), QStringLiteral("test-token"), QStringLiteral("translation"),
+        translationModel, &routeError, true), qPrintable(routeError));
+    QVERIFY2(app->colabTtsSession()->beginVerifiedSession(
+        ttsWorker.workerUrl(), QStringLiteral("test-token"), QStringLiteral("tts"),
+        ttsModel, &routeError, true), qPrintable(routeError));
+    QTRY_VERIFY(app->colabSeparationSession()->hasVerifiedRoute(
+        QStringLiteral("voice-isolation"), separationModel, &routeError));
+    QTRY_VERIFY(app->colabSttSession()->hasVerifiedRoute(
+        QStringLiteral("stt"), sttModel, &routeError));
+    QTRY_VERIFY(app->colabTranslationSession()->hasVerifiedRoute(
+        QStringLiteral("translation"), translationModel, &routeError));
+    QTRY_VERIFY(app->colabTtsSession()->hasVerifiedRoute(
+        QStringLiteral("tts"), ttsModel, &routeError));
+
+    DubbingController controller(app->sttSession(), app->tts(), app->translationEngine(),
+                                 app->models(), app->runtimes());
+    controller.setRemoteServices(app->settings(), app->colabTranslationSession(),
+                                 app->colabTtsSession(), app->colabVoiceCloneSession(),
+                                 app->colabSeparationSession(), app->colabAlignmentSession());
+    QVERIFY(controller.newProject(directory.filePath(QStringLiteral("direct-colab.ladub.json"))));
+    controller.setDubbingQuality(QStringLiteral("fast"));
+    QVERIFY(controller.importMedia(mediaPath));
+    controller.setSourceLanguage(QStringLiteral("en"));
+    controller.setTargetLanguage(QStringLiteral("vi"));
+    for (const auto &configuration : {
+             qMakePair(QStringLiteral("source-separate"), separationModel),
+             qMakePair(QStringLiteral("transcribe"), sttModel),
+             qMakePair(QStringLiteral("translate"), translationModel),
+             qMakePair(QStringLiteral("synthesize"), ttsModel)}) {
+        QVERIFY(controller.setWorkflowNodeParameters(configuration.first, {
+            {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+            {QStringLiteral("modelId"), configuration.second}
+        }));
+    }
+    QVERIFY2(controller.automaticPreflight().value(QStringLiteral("ready")).toBool(),
+             qPrintable(controller.automaticPreflight().value(QStringLiteral("issues")).toString()));
+    QVERIFY(controller.approveAutomaticPreflight());
+
+    WorkflowActivityManager activity(nullptr, nullptr, nullptr, nullptr, &controller);
+    QVERIFY(controller.startAutomaticWorkflow(directory.filePath(QStringLiteral("dubbed.mp4"))));
+    const QVariantList setupRows = activity.activeWorkflows();
+    QVERIFY(!setupRows.isEmpty());
+    const QVariantMap setup = setupRows.constFirst().toMap();
+    QCOMPARE(setup.value(QStringLiteral("title")).toString(), QStringLiteral("Dubbing — Isolator"));
+    QVERIFY(setup.value(QStringLiteral("stageLabel")).toString().contains(QStringLiteral("Isolator (3/8)")));
+    QCOMPARE(setup.value(QStringLiteral("executionRoute")).toString(), QStringLiteral("Direct Colab GPU"));
+
+    // This is the regression boundary: with remote-first disabled, the old
+    // implementation enqueued the local sherpa runtime and remained in
+    // model-setup.  A verified selected worker now advances without a local
+    // download or silently changing the route.
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.automaticSetupActive(), 3000);
+    bool sawDirectPreparation = false;
+    for (const QVariant &event : controller.automaticEvents()) {
+        const QVariantMap value = event.toMap();
+        sawDirectPreparation = sawDirectPreparation
+            || (value.value(QStringLiteral("nodeId")).toString() == QStringLiteral("source-separate")
+                && value.value(QStringLiteral("message")).toString().contains(QStringLiteral("Direct Colab worker ready")));
+    }
+    QVERIFY(sawDirectPreparation);
+    controller.cancelProcessing();
+    app->settings()->setRemoteFirstMode(previousRemoteFirst);
 }
 
 void TestDubbingProject::automaticWorkflowRequiresFreshPreflightApproval()

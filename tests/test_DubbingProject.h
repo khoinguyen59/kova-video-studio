@@ -19,6 +19,7 @@ private slots:
     void automaticPreflightExposesActionableSourceAndStageStates();
     void automaticPreflightFixTargetsAndNoOpConfigurationsAreExplicit();
     void automaticPreflightReadinessMatrixRejectsFalseReadyStates();
+    void automaticSetupKeepsVerifiedDirectColabRouteAndReportsCurrentStage();
     void automaticWorkflowDoesNotStartWithUnresolvedPreflight();
     void automaticWorkflowRequiresFreshPreflightApproval();
     void customWorkflowOpensFirstMissingNodeSetup();
