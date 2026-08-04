@@ -36,11 +36,12 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   are repaired. Full CTest 39/39 PASS in 86.87s and portable package audit
   PASS. Live notebook/desktop acceptance is not claimed.
 
-### 2026-08-05 - Follow-up on the reported 0.0.2.27 Spleeter crash
+### 2026-08-05 - Follow-up Direct Colab code audit
 
-- Screenshot header proved the user was running `0.0.2.27`. The error is from
-  the remote Direct Colab Spleeter CUDA worker, not an accidental local route:
-  the direct runner returns before the Local resolver branch can execute.
+- This was a source/protocol audit, not desktop evidence about the user's
+  current EXE or Colab session. The direct runner returns before the Local
+  resolver branch can execute, so a `colab-direct` Spleeter selection cannot
+  invoke Local source separation.
 - The old package's notebook embeds the heuristic `sherpa_onnx` CUDA worker.
   The fixed 0.0.2.28 notebook/worker uses a pinned revision, SHA checks,
   explicit DEFAULT cuDNN algorithm, startup probe and bounded chunks. A fresh

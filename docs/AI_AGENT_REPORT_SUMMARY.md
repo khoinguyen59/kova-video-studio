@@ -32,12 +32,12 @@ Cap nhat: 2026-08-05
   verifies version, hash, Qt, FFmpeg, RuntimeHost, OCR manifests, notebook and
   worker templates. Live Colab/manual desktop testing remains a separate gate.
 
-## Post-package Dubbing verification: reported 0.0.2.27 CUDA error
+## Post-package Dubbing code verification
 
-- The reported desktop screenshot is version `0.0.2.27`. Its
-  `CUDNN_FE_HEURISTIC_QUERY_FAILED` comes from the Direct Colab Spleeter
-  worker, not Local inference: the `colab-direct` runner sends the request to
-  `ColabSeparationRunner` and returns before the Local resolver branch.
+- Code audit, not desktop/live-service evidence: the `colab-direct` runner
+  sends the request to `ColabSeparationRunner` and returns before the Local
+  resolver branch. A Direct Colab Spleeter selection therefore cannot execute
+  the Local source-separation path.
 - Package `0.0.2.27` contains the older inline `sherpa_onnx` CUDA worker. The
   audited `0.0.2.28` package contains the pinned, SHA-checked worker templates
   with a startup probe, explicit DEFAULT cuDNN search and bounded 20-second

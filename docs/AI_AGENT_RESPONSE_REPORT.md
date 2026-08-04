@@ -1,21 +1,21 @@
-# AI agent response - Dubbing Direct Colab verification
+# AI agent response - Dubbing Direct Colab code verification
 
 Date: 2026-08-05
 
-## Finding from the reported failure
+## Code-path finding
 
-The screenshot is from **LA Studio 0.0.2.27**, not 0.0.2.28.  Its
-`CUDNN_FE_HEURISTIC_QUERY_FAILED` stack is emitted by the remote Spleeter
-CUDA worker. It is **not** evidence that LA Studio selected a Local route:
+This audit does not use a user screenshot, infer a running EXE version, or
+claim a live-worker outcome. It traces the source and its loopback protocol
+tests. A selected Direct Colab Spleeter route is not allowed to execute Local
+source separation:
 
 - `DubbingJobRunner::startSourceSeparation()` sends a verified
   `colab-direct` selection only to `ColabSeparationRunner`, then returns.
   The Local separation branch is below that return and cannot run for the same
   request.
-- The 0.0.2.27 notebook embedded the old `sherpa_onnx` CUDA wrapper, which
-  sends the long decoded source through one heuristic cuDNN execution plan.
-  This is the path that can produce the exact `CUDNN_FE_HEURISTIC_QUERY_FAILED`
-  shown in the screenshot.
+- The archived 0.0.2.27 package has an older inline `sherpa_onnx` CUDA worker,
+  while 0.0.2.28 ships a different bounded ONNX Runtime CUDA worker. This is
+  a package comparison only; it is not an assertion about the user's session.
 
 No app source was changed and no package was produced in this verification
 task.
@@ -34,11 +34,10 @@ Use the already-audited package:
   `cudnn_conv_algo_search=DEFAULT`, and processes long audio in 20-second
   cores with 1.5-second context. It reports `cpu_fallback: false`.
 
-Do not reuse the old 0.0.2.27 Colab runtime or URL. Close it, start 0.0.2.28,
-open the Spleeter notebook from that version, select a GPU runtime, Run all,
-and continue only after it prints `Exact CUDA worker passed startup probe`.
-Paste that newly printed URL and token into Colab setup, press Check Colab, and
-then run Isolator.
+For a future manual acceptance run, use a fresh worker created by the 0.0.2.28
+notebook, wait for `Exact CUDA worker passed startup probe`, then paste its URL
+and token into Colab setup and press Check Colab. That is a manual procedure,
+not an outcome claimed by this report.
 
 ## Verification executed
 
