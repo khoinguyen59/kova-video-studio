@@ -314,6 +314,11 @@ void TestColabSeparationRunner::separationNotebookMatchesDirectColabContract()
         QVERIFY2(source.contains(expected.artifactUrl), qPrintable(expected.notebook));
         QVERIFY(source.contains(QStringLiteral("MODEL_ID = \"%1\"").arg(expected.model)));
         if (expected.model == QStringLiteral("sherpa-onnx-spleeter-2stems-fp16")) {
+            const QRegularExpression pinnedWorkerCommit(
+                QStringLiteral(R"(WORKER_COMMIT = "[0-9a-f]{40}")"));
+            QVERIFY2(pinnedWorkerCommit.match(source).hasMatch(),
+                     "The Spleeter notebook must download audited worker files from an immutable commit.");
+            QVERIFY(!source.contains(QStringLiteral("WORKER_COMMIT = \"main\"")));
             QVERIFY(source.contains(QStringLiteral("CUDAExecutionProvider")));
         } else {
             QVERIFY(source.contains(QStringLiteral("provider=\"cuda\"")));
