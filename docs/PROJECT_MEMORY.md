@@ -6,7 +6,7 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 
 - Desktop local-first: STT, TTS, Voice Cloning, Voice Design, Alignment, Translation, Dubbing, LLM Chat, Download va Subtitle OCR.
 - API Gateway va Direct Colab la hai route doc lap. Token/URL Colab chi o memory session, khong persist vao project/report.
-- Package noi bo moi nhat: `0.0.2.24` tai `out/LA-Studio-0.0.2.24/LA-Studio-0.0.2.24.exe`, SHA-256 `4254932A08D3FD2D44E2D924328FD9F67C0CCAF8EE48B3E1D1C2170A9FB32319`. FileVersion/ProductVersion `0.0.2.24`, QML lint, full CTest 39/39 va package audit PASS. Manual GUI/live Colab luon la gate rieng.
+- Package noi bo moi nhat: `0.0.2.25` tai `out/LA-Studio-0.0.2.25/LA-Studio-0.0.2.25.exe`, SHA-256 `78F1671A5810EEF6D519A4E1A97F17E467F234DCF54EE6917ED111FDF4E579B7`. FileVersion/ProductVersion `0.0.2.25`, QML lint, full CTest 39/39, package QML smoke va package audit PASS. Manual GUI/live Colab luon la gate rieng.
 - `0.0.2.23` duoc giu nguyen nhung khong duoc chap nhan: audit bat thieu evidence trace route/model/worker truoc-sau. `0.0.2.24` bo sung trace va package moi, khong ghi de candidate cu.
 - `0.0.2.21` khong duoc chap nhan cho Dubbing Automatic: gate/preflight co
   dead-end media va no-op Configure. `0.0.2.22` sua duong ingest truoc gate,
@@ -15,6 +15,25 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   offscreen khong co native active window.
 
 ## Lich su cap san pham
+
+### 2026-08-05 - 0.0.2.25 Direct Colab route and Activity correction
+
+- Loi user report khong phai checksum sai: wizard da chon/verify Direct Colab
+  nhung Automatic lai dung `remoteFirstMode` global va quay ve local Sherpa
+  setup. Downloader dung da chan runtime asset thieu SHA-256. `ensureAutomaticModel`
+  bay gio giu provider da luu theo tung node; Direct Colab exact worker va API
+  Gateway khong the silently fallback sang local. Remote TTS cung khong load
+  local runtime an.
+- Activity map internal `model-setup`/production node ve 8 stage nguoi dung:
+  title, vi tri nhu `Isolator (3/8)`, route va exact model. % chi hien khi
+  worker/download gui counter that; khong dat % gia. `workflowChanged` refresh
+  card ngay khi setup doi stage.
+- Regression dung 4 exact-model Direct Colab mocks voi `remoteFirstMode=false`
+  chung minh Automatic thoat setup ma khong enqueue Sherpa local, va Activity
+  bao Isolator 3/8/Direct Colab. QML lint PASS; targeted 7/7, CTest 39/39
+  PASS (36.02s), package offscreen QML smoke 18 trace event PASS. Artifact
+  `0.0.2.25` da audit Qt/FFmpeg/RuntimeHost/runtime-license manifest; khong
+  claim live Colab/manual desktop PASS.
 
 ### 2026-08-05 - 0.0.2.24 Automatic Dubbing eight-stage contract
 

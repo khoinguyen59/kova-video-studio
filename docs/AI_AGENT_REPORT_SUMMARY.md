@@ -1,16 +1,45 @@
 # Bao cao tong hop LA Studio
 
-Cap nhat: 2026-08-04
+Cap nhat: 2026-08-05
 
 ## Baseline hien tai
 
 | Muc | Trang thai |
 | --- | --- |
-| Latest packaged candidate | `0.0.2.24` |
-| Artifact | `out/LA-Studio-0.0.2.24/LA-Studio-0.0.2.24.exe` |
-| SHA-256 | `4254932A08D3FD2D44E2D924328FD9F67C0CCAF8EE48B3E1D1C2170A9FB32319` |
-| Current source | `main` source commit `6ef65b8`; QML lint PASS, full CTest 39/39 PASS and package audit PASS |
+| Latest packaged candidate | `0.0.2.25` |
+| Artifact | `out/LA-Studio-0.0.2.25/LA-Studio-0.0.2.25.exe` |
+| SHA-256 | `78F1671A5810EEF6D519A4E1A97F17E467F234DCF54EE6917ED111FDF4E579B7` |
+| Current source | `main` source commit `0038c28`; QML lint PASS, full CTest 39/39 PASS and package audit PASS |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
+
+## Batch 0.0.2.25: Direct Colab route preservation and truthful Activity stage
+
+- Root cause of the reported Automatic Dubbing failure: after the wizard had
+  verified a selected Direct Colab worker, `DubbingController` still entered
+  the local automatic setup path whenever the unrelated global
+  `remoteFirstMode` preference was false. It therefore tried to install the
+  local Sherpa runtime. The secure downloader correctly refused that catalog
+  asset because it has no SHA-256; the route selection was what was wrong.
+- Automatic setup now resolves the saved provider per model node. A verified
+  exact Direct Colab capability/model or configured API Gateway is retained;
+  neither can silently enqueue or load a local runtime. Remote TTS is likewise
+  left on its selected route. Local remains explicit and the downloader's
+  checksum guard remains enabled.
+- Activity no longer leaks `model-setup` or a generic `Running dubbing
+  workflow` row. It maps internal nodes to the existing eight user stages and
+  reports the current title, for example `Dubbing - Isolator`,
+  `Isolator (3/8)`, plus the exact selected route/model. A numeric percentage
+  is only rendered when a download or worker emits a real counter; otherwise
+  `Working` is retained rather than inventing a fixed 5% or 8%.
+- Regression: one new controller/Activity test starts four independently
+  verified exact-model Direct Colab mock workers while `remoteFirstMode=false`.
+  It proves that Automatic leaves setup without a local Sherpa download and
+  that Activity reports Isolator stage 3/8 on Direct Colab.
+- Evidence: QML lint PASS; targeted Dubbing/remote/QML tests 7/7 PASS; full
+  CTest 39/39 PASS in 36.02 seconds; package QML smoke PASS with 18 interaction
+  trace events. Portable package source/FileVersion/ProductVersion `0.0.2.25`,
+  Qt Windows/offscreen plugins, Multimedia, FFmpeg/FFprobe, RuntimeHost and
+  staging/license manifests (19 required artifacts) were verified.
 
 ## Batch 0.0.2.24: Automatic Dubbing eight-stage contract
 
