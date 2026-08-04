@@ -6,7 +6,8 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 
 - Desktop local-first: STT, TTS, Voice Cloning, Voice Design, Alignment, Translation, Dubbing, LLM Chat, Download va Subtitle OCR.
 - API Gateway va Direct Colab la hai route doc lap. Token/URL Colab chi o memory session, khong persist vao project/report.
-- Package noi bo moi nhat: `0.0.2.22` tai `out/LA-Studio-0.0.2.22/LA-Studio-0.0.2.22.exe`, SHA-256 `E71F98802368577B16B28EDAAE807A70216ADD6A7CFE5DCE611A055D993CE2E4`. FileVersion/ProductVersion `0.0.2.22`, QML lint, full CTest 39/39 va package audit PASS. Manual GUI/live Colab luon la gate rieng.
+- Package noi bo moi nhat: `0.0.2.24` tai `out/LA-Studio-0.0.2.24/LA-Studio-0.0.2.24.exe`, SHA-256 `4254932A08D3FD2D44E2D924328FD9F67C0CCAF8EE48B3E1D1C2170A9FB32319`. FileVersion/ProductVersion `0.0.2.24`, QML lint, full CTest 39/39 va package audit PASS. Manual GUI/live Colab luon la gate rieng.
+- `0.0.2.23` duoc giu nguyen nhung khong duoc chap nhan: audit bat thieu evidence trace route/model/worker truoc-sau. `0.0.2.24` bo sung trace va package moi, khong ghi de candidate cu.
 - `0.0.2.21` khong duoc chap nhan cho Dubbing Automatic: gate/preflight co
   dead-end media va no-op Configure. `0.0.2.22` sua duong ingest truoc gate,
   state/action card va Review Fix, co production-shell offscreen trace 15
@@ -14,6 +15,30 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   offscreen khong co native active window.
 
 ## Lich su cap san pham
+
+### 2026-08-05 - 0.0.2.24 Automatic Dubbing eight-stage contract
+
+- Automatic preflight dung mot presentation contract 8 stage: Import/Download
+  (`media-input`), Normalize (`ingest`), Isolator (`source-separate`),
+  Transcribe/STT (`transcribe`), Alignment/Subtitle (`review-transcript`,
+  `fit-timing`, `review-conflicts`), Translate (`translate`,
+  `review-translation`), TTS (`assign-voices`, `synthesize`) va
+  Export/Output (`mix`, `export`). Timing/Mix khong con la user card nhung
+  production node/algorithm van duoc giu.
+- Preflight readiness khong con false Ready/default mo ho: Normalize hien ro
+  local preprocessing va no model required sau khi media hop le; Isolator va
+  tat ca model stage can route + exact model, Local runtime/model resolve,
+  API Gateway credential rieng hoac Direct Colab exact worker verified.
+- Configure mo sub-dialog thuoc wizard, khong dieu huong ra workspace; route
+  chon truoc picker. Worker page chi hien Direct Colab stage, URL/token session
+  memory only; doi route/model huy worker verification cu.
+- Regression co readiness matrix va QML shell trace 18 event. Trace ghi exact
+  `Local/No model/0 workers -> Direct Colab/exact models/2 workers ->
+  Local/exact models/0 workers`, ben canh click Configure cho ca 8 stage.
+- QML lint PASS, QmlRouteSmoke 2/2 PASS, full CTest 39/39 PASS (25.57s).
+  Package portable audit PASS: PE/source version 0.0.2.24, SHA o tren, 19
+  required staged artifacts, Qt/FFmpeg/Tesseract/Paddle/eSpeak va licenses.
+  Khong mo GUI hay live Colab; do van la manual gate.
 
 ### 2026-08-04 - 0.0.2.22 Dubbing Automatic repair
 

@@ -6,11 +6,57 @@ Cap nhat: 2026-08-04
 
 | Muc | Trang thai |
 | --- | --- |
-| Latest packaged candidate | `0.0.2.22` |
-| Artifact | `out/LA-Studio-0.0.2.22/LA-Studio-0.0.2.22.exe` |
-| SHA-256 | `E71F98802368577B16B28EDAAE807A70216ADD6A7CFE5DCE611A055D993CE2E4` |
-| Current source | `main` source commit `355be6c`; QML lint PASS, full CTest 39/39 PASS and package audit PASS |
+| Latest packaged candidate | `0.0.2.24` |
+| Artifact | `out/LA-Studio-0.0.2.24/LA-Studio-0.0.2.24.exe` |
+| SHA-256 | `4254932A08D3FD2D44E2D924328FD9F67C0CCAF8EE48B3E1D1C2170A9FB32319` |
+| Current source | `main` source commit `6ef65b8`; QML lint PASS, full CTest 39/39 PASS and package audit PASS |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
+
+## Batch 0.0.2.24: Automatic Dubbing eight-stage contract
+
+- `0.0.2.22` is superseded and `0.0.2.23` is deliberately not accepted: its
+  first package was produced before the interaction trace contained route/model/
+  worker state transitions. It is preserved but is not release evidence.
+- Automatic Dubbing now has one controller-owned presentation contract with
+  exactly eight unique stages: Import/Download, Normalize, Isolator,
+  Transcribe/STT, Alignment/Subtitle, Translate, TTS and Export/Output. QML
+  consumes that aggregate contract; it does not hide or deduplicate internal
+  nodes by title.
+
+| Presentation stage | Production nodes retained internally |
+| --- | --- |
+| Import/Download | `media-input` |
+| Normalize | `ingest` |
+| Isolator | `source-separate` |
+| Transcribe/STT | `transcribe` |
+| Alignment/Subtitle | `review-transcript`, `fit-timing`, `review-conflicts` |
+| Translate | `translate`, `review-translation` |
+| TTS | `assign-voices`, `synthesize` |
+| Export/Output | `mix`, `export` |
+
+- Timing/Mix are no longer user cards or headers. Their production behavior
+  remains in Alignment/Subtitle and Export/Output respectively. Normalize
+  explicitly reports local preprocessing, effective source/working format and
+  `No model required`; it is Ready only with valid source media. Model stages
+  cannot report Ready from a template/default: Local uses the configuration
+  resolver, API Gateway needs its own configured URL/key, and Direct Colab
+  needs a verified exact capability/model worker.
+- Configure stays inside the preflight wizard as an owned dialog. Route is
+  selected before its picker, Save/Apply/Cancel preserve the wizard context,
+  and Direct Colab stages alone appear on its worker page. Changing route or
+  exact model clears the prior worker state; URL/token remain session-memory
+  only.
+- Regression evidence: QML lint PASS; targeted QML route/offscreen smoke 2/2
+  PASS; full CTest **39/39 PASS** in 25.57 seconds. The controller readiness
+  matrix covers missing/valid media, Local without/with resolved runtime-model,
+  Direct Colab without/with an asynchronously verified exact worker. The
+  production-shell trace contains 18 ordered events, including the exact
+  `Local -> Direct Colab (2 workers) -> Local (0 workers)` route/model states.
+- Portable internal package audit PASS: source/FileVersion/ProductVersion
+  `0.0.2.24`, staging and license manifests (19 required artifacts), Qt
+  platform/QML/Multimedia DLLs, FFmpeg/FFprobe, Tesseract/Paddle runtime and
+  eSpeak runtime verified. No GUI or live Colab worker was opened; those remain
+  manual acceptance gates.
 
 ## Batch 0.0.2.22: Dubbing Automatic repair and clean package
 
