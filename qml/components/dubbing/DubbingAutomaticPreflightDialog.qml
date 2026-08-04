@@ -30,6 +30,7 @@ Dialog {
     signal sourceBrowseRequested()
     signal sourceLinkImportRequested(string url)
     signal issueFixRequested(string issueId)
+    signal adaptiveLlmSetupRequested()
 
     parent: Overlay.overlay
     anchors.centerIn: parent
@@ -76,7 +77,10 @@ Dialog {
         focusIssueId = issueId
         if (issueId === "source-media" || issueId === "source-language" || issueId === "target-language")
             currentPage = 0
-        else if (issueId.indexOf("colab-") === 0)
+        else if (issueId === "adaptive-llm") {
+            adaptiveLlmSetupRequested()
+            currentPage = root.dubbing.adaptiveProvider === "colab-direct" ? 2 : 1
+        } else if (issueId.indexOf("colab-") === 0)
             currentPage = 2
         else
             currentPage = 1
@@ -388,6 +392,13 @@ Dialog {
                                     quiet: true
                                     enabled: !root.dubbing.processing
                                     onClicked: root.openStageSetup(modelData)
+                                }
+                                PrimaryButton {
+                                    visible: modelData.adaptiveSetupRequired === true
+                                    text: qsTr("Configure LLM")
+                                    quiet: true
+                                    enabled: !root.dubbing.processing
+                                    onClicked: root.adaptiveLlmSetupRequested()
                                 }
                                 Text {
                                     visible: !modelData.setupAction || modelData.setupAction === "none"

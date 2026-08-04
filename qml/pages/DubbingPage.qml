@@ -1527,6 +1527,7 @@ Item {
             mediaFileDialog.open()
         }
         onSourceLinkImportRequested: function(url) { dubbing.importMediaFromLink(url) }
+        onAdaptiveLlmSetupRequested: qualityDialog.openForMode("adaptive")
     }
 
     DubbingTranslationFixDialog {

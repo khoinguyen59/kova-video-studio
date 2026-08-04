@@ -20,6 +20,7 @@ private slots:
     void automaticPreflightFixTargetsAndNoOpConfigurationsAreExplicit();
     void automaticPreflightReadinessMatrixRejectsFalseReadyStates();
     void automaticSetupKeepsVerifiedDirectColabRouteAndReportsCurrentStage();
+    void directColabAdaptiveLlmClearsLocalStateAndNeverFallsBack();
     void automaticWorkflowDoesNotStartWithUnresolvedPreflight();
     void automaticWorkflowRequiresFreshPreflightApproval();
     void customWorkflowOpensFirstMissingNodeSetup();

@@ -5,6 +5,7 @@
 #include "core/SecureCredentialStore.h"
 #include "dubbing/DubbingDuration.h"
 #include "dubbing/EspeakNgPhonemizer.h"
+#include "remote/ColabSession.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -323,7 +324,8 @@ QVariantMap DubbingTranslationFixService::normalizedConfiguration(
     QString provider = configuration.value(QStringLiteral("provider"),
                                            QStringLiteral("lmstudio"))
                            .toString().trimmed().toLower();
-    if (provider != QStringLiteral("api") && provider != QStringLiteral("local") && provider != QStringLiteral("cli"))
+    if (provider != QStringLiteral("api") && provider != QStringLiteral("local")
+        && provider != QStringLiteral("cli") && provider != QStringLiteral("colab-direct"))
         provider = QStringLiteral("lmstudio");
     result.insert(QStringLiteral("provider"), provider);
 
@@ -342,21 +344,31 @@ QVariantMap DubbingTranslationFixService::normalizedConfiguration(
                   configuration.value(QStringLiteral("supportsStructuredReconciliation"),
                                       false).toBool());
     result.insert(QStringLiteral("serverUrl"),
-                  configuration.value(QStringLiteral("serverUrl"),
-                                      QStringLiteral("http://127.0.0.1:1234"))
-                      .toString().trimmed());
+                  provider == QStringLiteral("colab-direct")
+                      ? QString()
+                      : configuration.value(QStringLiteral("serverUrl"),
+                                            QStringLiteral("http://127.0.0.1:1234"))
+                            .toString().trimmed());
     result.insert(QStringLiteral("model"),
                   configuration.value(QStringLiteral("model"),
                                       QStringLiteral("qwen3.5-2b"))
                       .toString().trimmed());
-    result.insert(QStringLiteral("runtimeId"),
-                  configuration.value(QStringLiteral("runtimeId")).toString().trimmed());
-    result.insert(QStringLiteral("runtimeVersion"),
-                  configuration.value(QStringLiteral("runtimeVersion")).toString().trimmed());
-    result.insert(QStringLiteral("selectedFiles"),
-                  configuration.value(QStringLiteral("selectedFiles")).toMap());
-    result.insert(QStringLiteral("apiKey"),
-                  configuration.value(QStringLiteral("apiKey")).toString().trimmed());
+    // A remote route must never retain a local runtime/model selection.  It
+    // otherwise makes a later Automatic run look local and can enqueue a
+    // download after the user explicitly chose Colab or the API Gateway.
+    const bool localProvider = provider == QStringLiteral("local");
+    result.insert(QStringLiteral("runtimeId"), localProvider
+                      ? configuration.value(QStringLiteral("runtimeId")).toString().trimmed()
+                      : QString());
+    result.insert(QStringLiteral("runtimeVersion"), localProvider
+                      ? configuration.value(QStringLiteral("runtimeVersion")).toString().trimmed()
+                      : QString());
+    result.insert(QStringLiteral("selectedFiles"), localProvider
+                      ? configuration.value(QStringLiteral("selectedFiles")).toMap()
+                      : QVariantMap());
+    result.insert(QStringLiteral("apiKey"), provider == QStringLiteral("colab-direct")
+                      ? QString()
+                      : configuration.value(QStringLiteral("apiKey")).toString().trimmed());
     result.insert(QStringLiteral("maxAttempts"),
                   qBound(1, configuration.value(QStringLiteral("maxAttempts"), 4).toInt(), 8));
     result.insert(QStringLiteral("temperature"),
@@ -382,12 +394,12 @@ bool DubbingTranslationFixService::reconciliationAvailable(
     if (provider == QStringLiteral("local")) {
         return reject(QStringLiteral("The selected local Translate model is a translation runtime, not a structured reconciliation LLM. Configure Translation Fix LLM or choose a manual policy."));
     }
-    if (provider == QStringLiteral("cli")) {
+    else if (provider == QStringLiteral("cli")) {
         const QString agent = normalized.value(QStringLiteral("cliAgent")).toString();
         if (cliExecutablePath(agent).isEmpty()) {
             return reject(QStringLiteral("The configured Translation Fix CLI is unavailable, so AI suggestion cannot run."));
         }
-    } else {
+    } else if (provider != QStringLiteral("colab-direct")) {
         const QString base = normalizedServerBase(
             normalized.value(QStringLiteral("serverUrl")).toString());
         const QUrl endpoint(provider == QStringLiteral("api")
@@ -698,14 +710,21 @@ bool DubbingTranslationFixService::isCloserToBudget(
 void DubbingTranslationFixService::saveConfiguration()
 {
     QSettings settings(settingsPath(), QSettings::IniFormat);
+    const bool directColab = m_configuration.value(QStringLiteral("provider"))
+        .toString() == QStringLiteral("colab-direct");
     settings.setValue(QStringLiteral("dubbing/adaptiveProvider"),
                       m_configuration.value(QStringLiteral("provider")));
     settings.setValue(QStringLiteral("dubbing/adaptiveCliAgent"),
                       m_configuration.value(QStringLiteral("cliAgent")));
     settings.setValue(QStringLiteral("dubbing/adaptiveConfigured"),
                       m_configuration.value(QStringLiteral("configured")));
-    settings.setValue(QStringLiteral("dubbing/translationFixServerUrl"),
-                      m_configuration.value(QStringLiteral("serverUrl")));
+    // Colab URL/token are intentionally memory-only.  More importantly, a
+    // Direct Colab choice must not erase a separately configured API Gateway
+    // endpoint or credential that the user may choose again later.
+    if (!directColab) {
+        settings.setValue(QStringLiteral("dubbing/translationFixServerUrl"),
+                          m_configuration.value(QStringLiteral("serverUrl")));
+    }
     settings.setValue(QStringLiteral("dubbing/translationFixModel"),
                       m_configuration.value(QStringLiteral("model")));
     settings.setValue(QStringLiteral("dubbing/adaptiveRuntimeId"),
@@ -714,12 +733,14 @@ void DubbingTranslationFixService::saveConfiguration()
                       m_configuration.value(QStringLiteral("runtimeVersion")));
     settings.setValue(QStringLiteral("dubbing/adaptiveSelectedFiles"),
                       m_configuration.value(QStringLiteral("selectedFiles")));
-    QString credentialError;
-    if (!SecureCredentialStore::write(settings, QStringLiteral("dubbing-translation-fix"),
-                                      m_configuration.value(QStringLiteral("apiKey")).toString(),
-                                      &credentialError)) {
-        Logger::error(QStringLiteral("DubbingTranslationFixService"),
-                      QStringLiteral("Translation API credential was not persisted: %1").arg(credentialError));
+    if (!directColab) {
+        QString credentialError;
+        if (!SecureCredentialStore::write(settings, QStringLiteral("dubbing-translation-fix"),
+                                          m_configuration.value(QStringLiteral("apiKey")).toString(),
+                                          &credentialError)) {
+            Logger::error(QStringLiteral("DubbingTranslationFixService"),
+                          QStringLiteral("Translation API credential was not persisted: %1").arg(credentialError));
+        }
     }
     settings.remove(QStringLiteral("dubbing/translationFixApiKey"));
     settings.setValue(QStringLiteral("dubbing/translationFixMaxAttempts"),
@@ -743,7 +764,18 @@ bool DubbingTranslationFixService::start(
         setError(QStringLiteral("Local translation models do not use the remote rewrite service."));
         return false;
     }
-    if (provider == QStringLiteral("cli")) {
+    if (provider == QStringLiteral("colab-direct")) {
+        QString routeError;
+        if (!m_directColabSession
+            || !m_directColabSession->hasVerifiedRoute(
+                QStringLiteral("llm-chat"),
+                m_configuration.value(QStringLiteral("model")).toString(), &routeError)) {
+            setError(routeError.isEmpty()
+                         ? QStringLiteral("Connect and check the exact Direct Colab Adaptive LLM worker before rewriting translations.")
+                         : routeError);
+            return false;
+        }
+    } else if (provider == QStringLiteral("cli")) {
         const QString cliAgent = m_configuration.value(QStringLiteral("cliAgent"), QStringLiteral("claude")).toString();
         QString binName = QStringLiteral("claude");
         if (cliAgent == QStringLiteral("codex")) binName = QStringLiteral("codex");
@@ -813,6 +845,11 @@ bool DubbingTranslationFixService::start(
     return true;
 }
 
+void DubbingTranslationFixService::setDirectColabSession(ColabSession *session)
+{
+    m_directColabSession = session;
+}
+
 bool DubbingTranslationFixService::startReconciliation(
     const QString &sourceLanguage, const QVariantList &segments,
     const QVariantMap &configuration, int segmentIndex)
@@ -878,6 +915,22 @@ void DubbingTranslationFixService::testConnection(
     m_configuration = normalizedConfiguration(configuration.isEmpty()
                                                   ? m_configuration : configuration);
     const QString provider = m_configuration.value(QStringLiteral("provider")).toString();
+    if (provider == QStringLiteral("colab-direct")) {
+        QString routeError;
+        const bool ready = m_directColabSession
+            && m_directColabSession->hasVerifiedRoute(
+                QStringLiteral("llm-chat"),
+                m_configuration.value(QStringLiteral("model")).toString(), &routeError);
+        saveConfiguration();
+        emit stateChanged();
+        emit connectionTested(
+            ready,
+            ready ? QStringLiteral("Verified Direct Colab Adaptive LLM worker is ready.")
+                  : (routeError.isEmpty()
+                         ? QStringLiteral("Connect and check the exact Direct Colab Adaptive LLM worker.")
+                         : routeError));
+        return;
+    }
     if (provider == QStringLiteral("local")) {
         saveConfiguration();
         emit connectionTested(true, QStringLiteral("Local LA Studio model selected."));
@@ -1167,25 +1220,27 @@ void DubbingTranslationFixService::requestAttempt()
 
     const QVariantMap segment =
         m_segments.at(m_eligibleIndices.at(m_segmentPosition)).toMap();
+    const bool directColab = provider == QStringLiteral("colab-direct");
+    const bool openAiCompatible = provider == QStringLiteral("api") || directColab;
     QJsonObject payload;
     payload.insert(QStringLiteral("model"),
                    m_configuration.value(QStringLiteral("model")).toString());
     payload.insert(QStringLiteral("temperature"),
                    m_configuration.value(QStringLiteral("temperature")).toDouble());
-    payload.insert(provider == QStringLiteral("api") ? QStringLiteral("max_tokens")
-                                                       : QStringLiteral("max_output_tokens"), 384);
+    payload.insert(openAiCompatible ? QStringLiteral("max_tokens")
+                                    : QStringLiteral("max_output_tokens"), 384);
     payload.insert(QStringLiteral("stream"), false);
-    if (provider != QStringLiteral("api")) {
+    if (!openAiCompatible) {
         payload.insert(QStringLiteral("store"), false);
         payload.insert(QStringLiteral("reasoning"), QStringLiteral("off"));
     }
     payload.insert(QStringLiteral("top_p"), 0.8);
-    if (provider != QStringLiteral("api"))
+    if (!openAiCompatible)
         payload.insert(QStringLiteral("top_k"), 20);
     const QString systemPrompt = m_reconciliation
         ? QStringLiteral("You reconcile two conflicting transcript observations for timed dubbing. This is a text-only task: do not call tools. Return only one concise proposed source-language transcript. Preserve names, numbers, negation, meaning, and the language of the supplied source observations. Do not translate it and do not add analysis, labels, or quotes.")
         : translationRepairSystemPrompt();
-    if (provider == QStringLiteral("api")) {
+    if (openAiCompatible) {
         payload.insert(QStringLiteral("messages"), QJsonArray{
             QJsonObject{{QStringLiteral("role"), QStringLiteral("system")},
                         {QStringLiteral("content"), systemPrompt}},
@@ -1196,16 +1251,19 @@ void DubbingTranslationFixService::requestAttempt()
         payload.insert(QStringLiteral("input"), buildPrompt(segment));
     }
 
-    const QString base = normalizedServerBase(
-        m_configuration.value(QStringLiteral("serverUrl")).toString());
-    QNetworkRequest request(QUrl(provider == QStringLiteral("api")
+    const QString base = directColab && m_directColabSession
+        ? normalizedServerBase(m_directColabSession->endpoint().toString())
+        : normalizedServerBase(m_configuration.value(QStringLiteral("serverUrl")).toString());
+    QNetworkRequest request(QUrl(openAiCompatible
                                      ? base + QStringLiteral("/v1/chat/completions")
                                      : base + QStringLiteral("/api/v1/chat")));
     request.setHeader(QNetworkRequest::ContentTypeHeader,
                       QStringLiteral("application/json"));
     request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("LA-Studio"));
     request.setRawHeader("Accept", "application/json");
-    const QString apiKey = m_configuration.value(QStringLiteral("apiKey")).toString();
+    const QString apiKey = directColab && m_directColabSession
+        ? m_directColabSession->bearerTokenForRequest()
+        : m_configuration.value(QStringLiteral("apiKey")).toString();
     if (!apiKey.isEmpty())
         request.setRawHeader("Authorization", QByteArray("Bearer ") + apiKey.toUtf8());
     request.setTransferTimeout(120000);
@@ -1402,8 +1460,11 @@ void DubbingTranslationFixService::handleAttemptResponse(QNetworkReply *reply)
         reply->deleteLater();
         const QString provider = m_configuration.value(QStringLiteral("provider")).toString();
         setError(QStringLiteral("%1 request failed (HTTP %2): %3")
-                     .arg(provider == QStringLiteral("api")
-                              ? QStringLiteral("LLM API") : QStringLiteral("LM Studio"))
+                     .arg(provider == QStringLiteral("api") || provider == QStringLiteral("colab-direct")
+                              ? (provider == QStringLiteral("colab-direct")
+                                     ? QStringLiteral("Direct Colab LLM")
+                                     : QStringLiteral("LLM API"))
+                              : QStringLiteral("LM Studio"))
                      .arg(status).arg(detail));
         return;
     }
@@ -1411,7 +1472,7 @@ void DubbingTranslationFixService::handleAttemptResponse(QNetworkReply *reply)
     const QJsonObject root = QJsonDocument::fromJson(body).object();
     QString content;
     const QString provider = m_configuration.value(QStringLiteral("provider")).toString();
-    if (provider == QStringLiteral("api")) {
+    if (provider == QStringLiteral("api") || provider == QStringLiteral("colab-direct")) {
         const QJsonArray choices = root.value(QStringLiteral("choices")).toArray();
         if (!choices.isEmpty())
             content = choices.first().toObject().value(QStringLiteral("message"))
@@ -1431,7 +1492,9 @@ void DubbingTranslationFixService::handleAttemptResponse(QNetworkReply *reply)
     if (candidate.isEmpty()) {
         setError(provider == QStringLiteral("api")
                      ? QStringLiteral("LLM API returned an empty translation.")
-                     : QStringLiteral("LM Studio returned an empty translation."));
+                     : provider == QStringLiteral("colab-direct")
+                         ? QStringLiteral("Direct Colab LLM returned an empty translation.")
+                         : QStringLiteral("LM Studio returned an empty translation."));
         return;
     }
 

@@ -14,6 +14,8 @@ class QProcess;
 
 namespace LAStudio {
 
+class ColabSession;
+
 class DubbingTranslationFixService final : public QObject
 {
     Q_OBJECT
@@ -37,6 +39,9 @@ public:
     QString lastError() const { return m_lastError; }
     QVariantMap configuration() const { return m_configuration; }
     void setConfiguration(const QVariantMap &configuration);
+    // The temporary Direct Colab credentials remain in this session.  They
+    // are deliberately not copied into the persisted rewrite configuration.
+    void setDirectColabSession(ColabSession *session);
 
     bool start(const QString &sourceLanguage, const QString &targetLanguage,
                const QVariantList &segments, const QVariantMap &configuration,
@@ -111,6 +116,7 @@ private:
     QNetworkAccessManager *m_network = nullptr;
     QPointer<QNetworkReply> m_reply;
     QPointer<QProcess> m_cliProcess;
+    QPointer<ColabSession> m_directColabSession;
     QVariantMap m_configuration;
     QVariantList m_segments;
     QList<int> m_eligibleIndices;

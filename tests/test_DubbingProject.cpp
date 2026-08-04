@@ -227,14 +227,21 @@ public:
                     const QByteArray request = pending.left(headerEnd + 4);
                     const QByteArray firstLine = request.left(request.indexOf("\r\n"));
                     QByteArray response;
+                    const QString workerRevision = m_capability == QStringLiteral("stt")
+                        ? QStringLiteral("stt-2026-07-30.2")
+                        : (m_capability == QStringLiteral("translation")
+                               ? QStringLiteral("translation-2026-07-30.3")
+                               : QString());
+                    const QString responseContract = m_capability == QStringLiteral("translation")
+                        ? QStringLiteral("translation-patches-v3") : QString();
                     if (firstLine.startsWith("GET /health ")) {
                         response = QStringLiteral(
-                            R"({"status":"ready","ready":true,"device":"cuda","model":"%1","cpu_fallback":false})")
-                                       .arg(m_model).toUtf8();
+                            R"({"status":"ready","ready":true,"device":"cuda","model":"%1","variant":"fixed","worker_revision":"%2","response_contract":"%3","cpu_fallback":false})")
+                                       .arg(m_model, workerRevision, responseContract).toUtf8();
                     } else if (firstLine.startsWith("GET /v1/capabilities ")) {
                         response = QStringLiteral(
-                            R"({"contract_version":1,"device":"cuda","capabilities":[{"id":"%1","models":[{"id":"%2","device":"cuda","loaded":true}]}]})")
-                                       .arg(m_capability, m_model).toUtf8();
+                            R"({"contract_version":1,"device":"cuda","worker_revision":"%1","response_contract":"%2","capabilities":[{"id":"%3","models":[{"id":"%4","variant":"fixed","device":"cuda","loaded":true,"response_contract":"%2"}]}]})")
+                                       .arg(workerRevision, responseContract, m_capability, m_model).toUtf8();
                     } else {
                         socket->write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
                         socket->disconnectFromHost();
@@ -454,13 +461,9 @@ void TestDubbingProject::normalizesLmStudioTranslationFixConfiguration()
     QVERIFY(config.value(QStringLiteral("configured")).toBool());
     QCOMPARE(config.value(QStringLiteral("model")).toString(),
              QStringLiteral("qwen3.5-2b"));
-    QCOMPARE(config.value(QStringLiteral("runtimeId")).toString(),
-             QStringLiteral("llama-win-x86_64-cuda-12.4"));
-    QCOMPARE(config.value(QStringLiteral("runtimeVersion")).toString(),
-             QStringLiteral("b10036"));
-    QCOMPARE(config.value(QStringLiteral("selectedFiles")).toMap()
-                 .value(QStringLiteral("model")).toString(),
-             QStringLiteral("Qwen3.5-2B-Q8_0.gguf"));
+    QCOMPARE(config.value(QStringLiteral("runtimeId")).toString(), QString());
+    QCOMPARE(config.value(QStringLiteral("runtimeVersion")).toString(), QString());
+    QVERIFY(config.value(QStringLiteral("selectedFiles")).toMap().isEmpty());
     QCOMPARE(config.value(QStringLiteral("maxAttempts")).toInt(), 8);
     QCOMPARE(config.value(QStringLiteral("temperature")).toDouble(), 1.5);
     QCOMPARE(
@@ -491,6 +494,25 @@ void TestDubbingProject::normalizesLmStudioTranslationFixConfiguration()
     QCOMPARE(cliConfig.value(QStringLiteral("cliAgent")).toString(), QStringLiteral("codex"));
     QCOMPARE(cliConfig.value(QStringLiteral("model")).toString(), QStringLiteral("gpt-4o"));
     QVERIFY(cliConfig.value(QStringLiteral("configured")).toBool());
+
+    const QVariantMap directConfig =
+        DubbingTranslationFixService::normalizedConfiguration({
+            {QStringLiteral("provider"), QStringLiteral("colab-direct")},
+            {QStringLiteral("configured"), true},
+            {QStringLiteral("serverUrl"), QStringLiteral("https://stale-local-worker.invalid")},
+            {QStringLiteral("apiKey"), QStringLiteral("must-not-persist")},
+            {QStringLiteral("model"), QStringLiteral("qwen3.5-2b")},
+            {QStringLiteral("runtimeId"), QStringLiteral("llama-cpu")},
+            {QStringLiteral("runtimeVersion"), QStringLiteral("b10036")},
+            {QStringLiteral("selectedFiles"), QVariantMap{{QStringLiteral("model"), QStringLiteral("stale.gguf")}}}
+        });
+    QCOMPARE(directConfig.value(QStringLiteral("provider")).toString(), QStringLiteral("colab-direct"));
+    QVERIFY(directConfig.value(QStringLiteral("configured")).toBool());
+    QCOMPARE(directConfig.value(QStringLiteral("serverUrl")).toString(), QString());
+    QCOMPARE(directConfig.value(QStringLiteral("apiKey")).toString(), QString());
+    QCOMPARE(directConfig.value(QStringLiteral("runtimeId")).toString(), QString());
+    QCOMPARE(directConfig.value(QStringLiteral("runtimeVersion")).toString(), QString());
+    QVERIFY(directConfig.value(QStringLiteral("selectedFiles")).toMap().isEmpty());
 }
 
 void TestDubbingProject::remoteTranslationRoutesDoNotFallbackBetweenGatewayAndColab()
@@ -1285,6 +1307,7 @@ void TestDubbingProject::automaticSetupKeepsVerifiedDirectColabRouteAndReportsCu
     controller.setRemoteServices(app->settings(), app->colabTranslationSession(),
                                  app->colabTtsSession(), app->colabVoiceCloneSession(),
                                  app->colabSeparationSession(), app->colabAlignmentSession());
+    const QVariantMap priorAdaptiveConfiguration = controller.translationFixConfiguration();
     QVERIFY(controller.newProject(directory.filePath(QStringLiteral("direct-colab.ladub.json"))));
     controller.setDubbingQuality(QStringLiteral("fast"));
     QVERIFY(controller.importMedia(mediaPath));
@@ -1327,6 +1350,174 @@ void TestDubbingProject::automaticSetupKeepsVerifiedDirectColabRouteAndReportsCu
     }
     QVERIFY(sawDirectPreparation);
     controller.cancelProcessing();
+    controller.setAdaptiveConfiguration(priorAdaptiveConfiguration);
+    app->settings()->setRemoteFirstMode(previousRemoteFirst);
+}
+
+void TestDubbingProject::directColabAdaptiveLlmClearsLocalStateAndNeverFallsBack()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString mediaPath = directory.filePath(QStringLiteral("source.wav"));
+    const QVector<float> samples(1600, 0.1F);
+    QVERIFY(WavIO::saveFloat(mediaPath, samples.constData(), samples.size(), 16000));
+
+    AppController *app = AppController::instance();
+    QVERIFY(app && app->settings());
+    const bool previousRemoteFirst = app->settings()->remoteFirstMode();
+    app->settings()->setRemoteFirstMode(false);
+
+    const QString separationModel = QStringLiteral("sherpa-onnx-spleeter-2stems-fp16");
+    const QString sttModel = QStringLiteral("whisper.cpp");
+    const QString translationModel = QStringLiteral("m2m100-418m");
+    const QString ttsModel = QStringLiteral("kokoro");
+    const QString llmModel = QStringLiteral("qwen3.5-2b");
+    ExactRouteWorkerMock separationWorker(QStringLiteral("voice-isolation"), separationModel);
+    ExactRouteWorkerMock sttWorker(QStringLiteral("stt"), sttModel);
+    ExactRouteWorkerMock translationWorker(QStringLiteral("translation"), translationModel);
+    ExactRouteWorkerMock ttsWorker(QStringLiteral("tts"), ttsModel);
+    ExactRouteWorkerMock llmWorker(QStringLiteral("llm-chat"), llmModel);
+    QVERIFY(separationWorker.start());
+    QVERIFY(sttWorker.start());
+    QVERIFY(translationWorker.start());
+    QVERIFY(ttsWorker.start());
+    QVERIFY(llmWorker.start());
+
+    ColabSessionReset resetSeparation(app->colabSeparationSession());
+    ColabSessionReset resetStt(app->colabSttSession());
+    ColabSessionReset resetTranslation(app->colabTranslationSession());
+    ColabSessionReset resetTts(app->colabTtsSession());
+    ColabSessionReset resetChat(app->colabChatSession());
+
+    // Reopen a legacy Local selection containing the exact root fields that
+    // previously survived a switch to Colab and later triggered a download.
+    DubbingProject legacy;
+    legacy.projectPath = directory.filePath(QStringLiteral("adaptive-colab.ladub.json"));
+    legacy.sourceMediaPath = mediaPath;
+    legacy.dubbingQuality = QStringLiteral("adaptive");
+    legacy.workflowNodeConfigurations.insert(QStringLiteral("source-separate"), QVariantMap{
+        {QStringLiteral("executionProvider"), QStringLiteral("local-dev")},
+        {QStringLiteral("modelId"), separationModel},
+        {QStringLiteral("familyId"), separationModel},
+        {QStringLiteral("runtimeId"), QStringLiteral("sherpa-onnx-win-x86_64-cpu")},
+        {QStringLiteral("runtimeVersion"), QStringLiteral("v1.13.4")},
+        {QStringLiteral("selectedFiles"), QVariantMap{{QStringLiteral("model"), QStringLiteral("stale.gguf")}}},
+        {QStringLiteral("configurationSignature"), QStringLiteral("stale-local-signature")},
+        {QStringLiteral("parameters"), QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("local-dev")}}}
+    });
+    QString saveError;
+    QVERIFY2(legacy.save(&saveError), qPrintable(saveError));
+
+    DubbingController controller(app->sttSession(), app->tts(), app->translationEngine(),
+                                 app->models(), app->runtimes());
+    controller.setRemoteServices(app->settings(), app->colabTranslationSession(),
+                                 app->colabTtsSession(), app->colabVoiceCloneSession(),
+                                 app->colabSeparationSession(), app->colabAlignmentSession());
+    const QVariantMap priorAdaptiveConfiguration = controller.translationFixConfiguration();
+    QVERIFY2(controller.openProject(legacy.projectPath), qPrintable(controller.lastError()));
+    controller.setSourceLanguage(QStringLiteral("en"));
+    controller.setTargetLanguage(QStringLiteral("vi"));
+
+    QVERIFY(controller.setWorkflowNodeParameters(QStringLiteral("source-separate"), {
+        {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+        {QStringLiteral("modelId"), separationModel}
+    }));
+    const QVariantMap migrated = controller.workflowNodeConfigurations()
+        .value(QStringLiteral("source-separate")).toMap();
+    QCOMPARE(migrated.value(QStringLiteral("executionProvider")).toString(), QStringLiteral("colab-direct"));
+    QCOMPARE(migrated.value(QStringLiteral("modelId")).toString(), separationModel);
+    QVERIFY(!migrated.contains(QStringLiteral("familyId")));
+    QVERIFY(!migrated.contains(QStringLiteral("runtimeId")));
+    QVERIFY(!migrated.contains(QStringLiteral("selectedFiles")));
+    QVERIFY(!migrated.contains(QStringLiteral("configurationSignature")));
+    const QVariantMap migratedParameters = migrated.value(QStringLiteral("parameters")).toMap();
+    QVERIFY(!migratedParameters.contains(QStringLiteral("runtimeId")));
+    QVERIFY(!migratedParameters.contains(QStringLiteral("selectedFiles")));
+
+    // Re-selecting an already Direct Colab route must apply the same cleanup.
+    // This covers a project that was once saved with a remote root but stale
+    // Local runtime metadata still nested in its parameters.
+    QVERIFY(controller.setWorkflowNodeParameters(QStringLiteral("source-separate"), {
+        {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+        {QStringLiteral("runtimeId"), QStringLiteral("stale-runtime")},
+        {QStringLiteral("selectedFiles"), QVariantMap{{QStringLiteral("model"), QStringLiteral("stale.gguf")}}}
+    }));
+    const QVariantMap reselectedRemote = controller.workflowNodeConfigurations()
+        .value(QStringLiteral("source-separate")).toMap();
+    QVERIFY(!reselectedRemote.value(QStringLiteral("parameters")).toMap()
+                 .contains(QStringLiteral("runtimeId")));
+    QVERIFY(!reselectedRemote.value(QStringLiteral("parameters")).toMap()
+                 .contains(QStringLiteral("selectedFiles")));
+
+    for (const auto &configuration : {
+             qMakePair(QStringLiteral("transcribe"), sttModel),
+             qMakePair(QStringLiteral("translate"), translationModel),
+             qMakePair(QStringLiteral("synthesize"), ttsModel)}) {
+        QVERIFY(controller.setWorkflowNodeParameters(configuration.first, {
+            {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+            {QStringLiteral("modelId"), configuration.second}
+        }));
+    }
+    QVERIFY(controller.selectWorkflowColabModel(QStringLiteral("adaptive-llm"), llmModel));
+
+    QString routeError;
+    const auto begin = [&routeError](ColabSession *session, ExactRouteWorkerMock &worker,
+                                     const QString &capability, const QString &model) {
+        return session->beginVerifiedSession(worker.workerUrl(), QStringLiteral("test-token"),
+                                             capability, model, &routeError, true);
+    };
+    QVERIFY2(begin(app->colabSeparationSession(), separationWorker, QStringLiteral("voice-isolation"), separationModel), qPrintable(routeError));
+    QVERIFY2(begin(app->colabSttSession(), sttWorker, QStringLiteral("stt"), sttModel), qPrintable(routeError));
+    QVERIFY2(begin(app->colabTranslationSession(), translationWorker, QStringLiteral("translation"), translationModel), qPrintable(routeError));
+    QVERIFY2(begin(app->colabTtsSession(), ttsWorker, QStringLiteral("tts"), ttsModel), qPrintable(routeError));
+    QVERIFY2(begin(app->colabChatSession(), llmWorker, QStringLiteral("llm-chat"), llmModel), qPrintable(routeError));
+    QTRY_VERIFY(app->colabChatSession()->hasVerifiedRoute(QStringLiteral("llm-chat"), llmModel, &routeError));
+    QTRY_VERIFY(app->colabSeparationSession()->hasVerifiedRoute(QStringLiteral("voice-isolation"), separationModel, &routeError));
+    QTRY_VERIFY(app->colabSttSession()->hasVerifiedRoute(QStringLiteral("stt"), sttModel, &routeError));
+    QTRY_VERIFY(app->colabTranslationSession()->hasVerifiedRoute(QStringLiteral("translation"), translationModel, &routeError));
+    QTRY_VERIFY(app->colabTtsSession()->hasVerifiedRoute(QStringLiteral("tts"), ttsModel, &routeError));
+
+    const QVariantMap adaptive = controller.translationFixConfiguration();
+    QCOMPARE(adaptive.value(QStringLiteral("provider")).toString(), QStringLiteral("colab-direct"));
+    QCOMPARE(adaptive.value(QStringLiteral("model")).toString(), llmModel);
+    QCOMPARE(adaptive.value(QStringLiteral("runtimeId")).toString(), QString());
+    QVERIFY(adaptive.value(QStringLiteral("selectedFiles")).toMap().isEmpty());
+    QVERIFY(controller.adaptiveReady());
+
+    DubbingProject persisted;
+    QString loadError;
+    QVERIFY2(DubbingProject::load(legacy.projectPath, persisted, &loadError), qPrintable(loadError));
+    const QVariantMap persistedSeparation = persisted.workflowNodeConfigurations
+        .value(QStringLiteral("source-separate")).toMap();
+    QCOMPARE(persistedSeparation.value(QStringLiteral("executionProvider")).toString(), QStringLiteral("colab-direct"));
+    QVERIFY(!persistedSeparation.contains(QStringLiteral("runtimeId")));
+    QCOMPARE(persisted.customRewriteConfiguration.value(QStringLiteral("provider")).toString(),
+             QStringLiteral("colab-direct"));
+    QVERIFY(!persisted.customRewriteConfiguration.contains(QStringLiteral("apiKey")));
+    QVERIFY(!persisted.customRewriteConfiguration.contains(QStringLiteral("serverUrl")));
+
+    const QVariantMap preflight = controller.automaticPreflight();
+    QVERIFY2(preflight.value(QStringLiteral("ready")).toBool(),
+             qPrintable(preflight.value(QStringLiteral("issues")).toString()));
+    bool sawAdaptiveWorker = false;
+    for (const QVariant &worker : preflight.value(QStringLiteral("selectedWorkers")).toList()) {
+        const QVariantMap card = worker.toMap();
+        if (card.value(QStringLiteral("id")).toString() == QStringLiteral("adaptive-llm")) {
+            sawAdaptiveWorker = true;
+            QCOMPARE(card.value(QStringLiteral("parentStageId")).toString(), QStringLiteral("translate"));
+            QVERIFY(card.value(QStringLiteral("verified")).toBool());
+        }
+    }
+    QVERIFY(sawAdaptiveWorker);
+    QVERIFY(controller.approveAutomaticPreflight());
+    QVERIFY(controller.startAutomaticWorkflow(directory.filePath(QStringLiteral("dubbed.mp4"))));
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.automaticSetupActive(), 3000);
+    for (const QVariant &event : controller.automaticEvents()) {
+        QVERIFY(!event.toMap().value(QStringLiteral("message")).toString()
+                     .contains(QStringLiteral("Downloading the default Adaptive LLM")));
+    }
+    controller.cancelProcessing();
+    controller.setAdaptiveConfiguration(priorAdaptiveConfiguration);
     app->settings()->setRemoteFirstMode(previousRemoteFirst);
 }
 

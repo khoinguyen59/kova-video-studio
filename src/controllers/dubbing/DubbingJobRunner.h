@@ -67,7 +67,8 @@ public:
     void setRemoteServices(Settings *settings, ColabSession *translationSession,
                            ColabSession *ttsSession, ColabSession *voiceCloneSession,
                            ColabSession *separationSession,
-                           ColabSession *alignmentSession);
+                           ColabSession *alignmentSession,
+                           ColabSession *chatSession = nullptr);
     void setTranslationFixConfiguration(const QVariantMap &configuration);
     // Subtitle OCR stays a single shared controller/runtime. The runner only
     // orchestrates it for the Dubbing Transcribe node; it never creates a

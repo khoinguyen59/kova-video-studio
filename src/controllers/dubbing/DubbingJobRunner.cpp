@@ -460,11 +460,13 @@ void DubbingJobRunner::finishCombinedTranscriptIfReady()
 void DubbingJobRunner::setRemoteServices(Settings *settings, ColabSession *translationSession,
                                          ColabSession *ttsSession, ColabSession *voiceCloneSession,
                                          ColabSession *separationSession,
-                                         ColabSession *alignmentSession)
+                                         ColabSession *alignmentSession,
+                                         ColabSession *chatSession)
 {
     if (m_translationJob) m_translationJob->setRemoteServices(settings, translationSession);
     if (m_synthesisJob) m_synthesisJob->setRemoteServices(settings, ttsSession, voiceCloneSession);
     if (m_transcriptionJob) m_transcriptionJob->setAlignmentSession(alignmentSession);
+    if (m_autoTranslationFix) m_autoTranslationFix->setDirectColabSession(chatSession);
     QObject::disconnect(m_colabSeparationSessionConnection);
     m_colabSeparationSession = separationSession;
     if (m_colabSeparationSession) {

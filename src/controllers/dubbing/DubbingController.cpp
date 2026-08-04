@@ -635,6 +635,13 @@ bool DubbingController::adaptiveReady() const
     const QVariantMap config = translationFixConfiguration();
     if (!config.value(QStringLiteral("configured")).toBool()) return false;
     const QString provider = adaptiveProvider();
+    if (provider == QStringLiteral("colab-direct")) {
+        ColabSession *session = colabSessionForStage(QStringLiteral("adaptive-llm"));
+        QString routeError;
+        return session && session->hasVerifiedRoute(
+            QStringLiteral("llm-chat"),
+            config.value(QStringLiteral("model")).toString(), &routeError);
+    }
     if (provider == QStringLiteral("local")) {
         StudioConfiguration selection;
         selection.capabilityId = QStringLiteral("llm-chat");
@@ -671,6 +678,8 @@ QString DubbingController::adaptiveStatusText() const
             : QStringLiteral("%1 · %2").arg(label, model);
     }
     const QString model = translationFixConfiguration().value(QStringLiteral("model")).toString();
+    if (provider == QStringLiteral("colab-direct"))
+        return QStringLiteral("Direct Colab GPU · %1").arg(model);
     return provider == QStringLiteral("api")
         ? QStringLiteral("LLM API · %1").arg(model)
         : QStringLiteral("LM Studio · %1").arg(model);
@@ -819,8 +828,12 @@ void DubbingController::setRemoteServices(Settings *settings, ColabSession *tran
     if (m_runner) {
         m_runner->setRemoteServices(settings, translationSession, ttsSession,
                                     voiceCloneSession, separationSession,
-                                    alignmentSession);
+                                    alignmentSession,
+                                    AppController::instance()
+                                        ? AppController::instance()->colabChatSession() : nullptr);
     }
+    if (m_translationFix) m_translationFix->setDirectColabSession(
+        AppController::instance() ? AppController::instance()->colabChatSession() : nullptr);
     // The sessions remain the sole holders of transient URLs/tokens.  Dubbing
     // observes verification results only to remember which exact model was
     // checked in this process; the snapshot deliberately contains no secret.
@@ -833,6 +846,8 @@ void DubbingController::setRemoteServices(Settings *settings, ColabSession *tran
     observeColabSession(QStringLiteral("synthesize"), ttsSession);
     Q_UNUSED(voiceCloneSession);
     observeColabSession(QStringLiteral("alignment"), alignmentSession);
+    observeColabSession(QStringLiteral("adaptive-llm"),
+                        AppController::instance() ? AppController::instance()->colabChatSession() : nullptr);
     emit colabSetupChanged();
 }
 
@@ -844,6 +859,7 @@ QString DubbingController::colabCapabilityForStage(const QString &stageId)
     if (stageId == QStringLiteral("translate")) return QStringLiteral("translation");
     if (stageId == QStringLiteral("synthesize")) return QStringLiteral("tts");
     if (stageId == QStringLiteral("alignment")) return QStringLiteral("forced-alignment");
+    if (stageId == QStringLiteral("adaptive-llm")) return QStringLiteral("llm-chat");
     return {};
 }
 
@@ -868,11 +884,18 @@ ColabSession *DubbingController::colabSessionForStage(const QString &stageId) co
     if (stageId == QStringLiteral("translate")) return app->colabTranslationSession();
     if (stageId == QStringLiteral("synthesize")) return app->colabTtsSession();
     if (stageId == QStringLiteral("alignment")) return app->colabAlignmentSession();
+    if (stageId == QStringLiteral("adaptive-llm")) return app->colabChatSession();
     return nullptr;
 }
 
 QString DubbingController::selectedColabModelForStage(const QString &stageId) const
 {
+    if (stageId == QStringLiteral("adaptive-llm")) {
+        const QString configured = translationFixConfiguration().value(
+            QStringLiteral("model")).toString().trimmed().toLower();
+        return configured.isEmpty()
+            ? DubbingColabModelRoutes::defaultModelForNode(stageId) : configured;
+    }
     if (stageId == QStringLiteral("subtitle-ocr")) {
         const QString configured = m_project.transcriptConfiguration.value(
             QStringLiteral("ocrColabModelId")).toString().trimmed().toLower();
@@ -900,6 +923,13 @@ QString DubbingController::selectedColabModelForStage(const QString &stageId) co
 
 bool DubbingController::stageUsesDirectColab(const QString &stageId) const
 {
+    if (stageId == QStringLiteral("adaptive-llm")) {
+        const bool rewriteRequired = m_project.dubbingQuality == QStringLiteral("adaptive")
+            || (m_project.dubbingQuality == QStringLiteral("custom")
+                && m_project.durationControl.value(QStringLiteral("enabled"), true).toBool()
+                && m_project.durationControl.value(QStringLiteral("autoRewrite"), true).toBool());
+        return rewriteRequired && adaptiveProvider() == QStringLiteral("colab-direct");
+    }
     if (stageId == QStringLiteral("subtitle-ocr")) {
         const QString source = m_project.transcriptConfiguration.value(
             QStringLiteral("transcriptSource"), QStringLiteral("stt")).toString().trimmed().toLower();
@@ -1010,7 +1040,7 @@ void DubbingController::refreshColabSetupSnapshot(const QString &stageId, bool v
 
 QVariantList DubbingController::colabSetupStages() const
 {
-    const QList<QPair<QString, QString>> definitions{
+    QList<QPair<QString, QString>> definitions{
         {QStringLiteral("source-separate"), QStringLiteral("Isolator (Vocals/Background)")},
         {QStringLiteral("transcribe"), QStringLiteral("Transcribe/STT")},
         {QStringLiteral("subtitle-ocr"), QStringLiteral("Alignment/Subtitle OCR")},
@@ -1018,6 +1048,10 @@ QVariantList DubbingController::colabSetupStages() const
         {QStringLiteral("synthesize"), QStringLiteral("TTS / Text to Speech")},
         {QStringLiteral("alignment"), QStringLiteral("Alignment/Subtitle")},
     };
+    if (stageUsesDirectColab(QStringLiteral("adaptive-llm"))) {
+        definitions.append({QStringLiteral("adaptive-llm"),
+                            QStringLiteral("Translate (Adaptive LLM)")});
+    }
     const QString transcriptSource = m_project.transcriptConfiguration.value(
         QStringLiteral("transcriptSource"), QStringLiteral("stt")).toString().trimmed().toLower();
     QVariantList result;
@@ -2160,7 +2194,9 @@ bool DubbingController::configureWorkflowNodeModel(const QString &nodeId,
         parameters.insert(QStringLiteral("lang"), m_project.targetLanguage);
     }
 
-    QVariantMap selected{{QStringLiteral("familyId"), familyId},
+    QVariantMap selected{{QStringLiteral("executionProvider"), QStringLiteral("local-dev")},
+                         {QStringLiteral("modelId"), familyId},
+                         {QStringLiteral("familyId"), familyId},
                          {QStringLiteral("runtimeId"), config.runtimeId},
                          {QStringLiteral("runtimeVersion"), config.runtimeVersion},
                           {QStringLiteral("selectedFiles"), config.selectedFiles},
@@ -2254,6 +2290,9 @@ bool DubbingController::setWorkflowNodeParameters(const QString &nodeId, const Q
     }
     QVariantMap selected = m_workflowNodeConfigurations.value(nodeId).toMap();
     QVariantMap current = selected.value(QStringLiteral("parameters")).toMap();
+    const QString previousProviderId = selected.value(
+        QStringLiteral("executionProvider"), current.value(
+        QStringLiteral("executionProvider"), QStringLiteral("local-dev"))).toString().trimmed().toLower();
     for (auto it = parameters.cbegin(); it != parameters.cend(); ++it)
         current.insert(it.key(), it.value());
     const QString providerId = current.value(QStringLiteral("executionProvider"),
@@ -2263,6 +2302,42 @@ bool DubbingController::setWorkflowNodeParameters(const QString &nodeId, const Q
         setError(QStringLiteral("Unknown remote execution provider."));
         return false;
     }
+    const bool routeChanged = parameters.contains(QStringLiteral("executionProvider"))
+        && previousProviderId != providerId;
+    if (provider != ExecutionProvider::LocalDev) {
+        // Route is a contract. Do not retain local runtime/family metadata at
+        // either persistence level: legacy projects kept it at the root while
+        // newer selections may also have it in the nested parameters map.
+        // Keeping either can make an already-remote stage look local after a
+        // model reselect or project reload.
+        for (const QString &key : {QStringLiteral("familyId"), QStringLiteral("runtimeId"),
+                                   QStringLiteral("runtimeVersion"), QStringLiteral("selectedFiles"),
+                                   QStringLiteral("modelName"), QStringLiteral("supportsVoiceCloning"),
+                                   QStringLiteral("configurationSignature"),
+                                   QStringLiteral("familyConfig"),
+                                   QStringLiteral("parameterDefinitions"),
+                                   QStringLiteral("studioConfig")}) {
+            selected.remove(key);
+            current.remove(key);
+        }
+    }
+    if (routeChanged && provider != ExecutionProvider::LocalDev) {
+        if (AppController *app = AppController::instance(); app && app->sessionRegistry()) {
+            QString capability;
+            if (nodeId == QStringLiteral("source-separate")) capability = QStringLiteral("voice-isolation");
+            else if (nodeId == QStringLiteral("transcribe")) capability = QStringLiteral("stt");
+            else if (nodeId == QStringLiteral("translate")) capability = QStringLiteral("translation");
+            else if (nodeId == QStringLiteral("synthesize")) capability = QStringLiteral("tts");
+            if (IModelSession *session = app->sessionRegistry()->sessionForCapability(capability)) {
+                for (const SessionConfiguration &loaded : session->loadedConfigurations())
+                    session->requestUnloadConfiguration(loaded.signature);
+            }
+            m_automaticDownloadsQueued.remove(capability);
+        }
+    }
+    // A canonical root copy prevents an old Local root selection from winning
+    // over the newly selected remote provider when legacy projects reopen.
+    selected.insert(QStringLiteral("executionProvider"), providerId);
     const QString modelId = current.value(QStringLiteral("modelId")).toString().trimmed();
     if (provider == ExecutionProvider::ColabDirect && !modelId.isEmpty()) {
         if (!DubbingColabModelRoutes::supports(nodeId, modelId)) {
@@ -2315,6 +2390,7 @@ bool DubbingController::setWorkflowNodeParameters(const QString &nodeId, const Q
         }
         applyStoredSubtitleOcrConfiguration();
     }
+    selected.insert(QStringLiteral("modelId"), modelId);
     selected.insert(QStringLiteral("parameters"), current);
     m_workflowNodeConfigurations.insert(nodeId, selected);
     // A route/model selected by the user is a durable preflight contract in
@@ -2377,6 +2453,19 @@ QVariantMap DubbingController::automaticPreflight() const
 
     if (!m_project.ttsVoiceId.trimmed().isEmpty() && !cloneVoiceSelectionValid()) {
         addIssue(QStringLiteral("tts-voice"), cloneVoiceSelectionError());
+    }
+
+    const bool adaptiveRewriteRequired = m_project.dubbingQuality == QStringLiteral("adaptive")
+        || (m_project.dubbingQuality == QStringLiteral("custom")
+            && m_project.durationControl.value(QStringLiteral("enabled"), true).toBool()
+            && m_project.durationControl.value(QStringLiteral("autoRewrite"), true).toBool());
+    if (adaptiveRewriteRequired && !adaptiveReady()) {
+        const QString message = adaptiveProvider() == QStringLiteral("colab-direct")
+            ? QStringLiteral("Connect and check the exact Direct Colab Adaptive LLM worker for Translate.")
+            : QStringLiteral("Configure the Adaptive rewrite LLM for Translate. Automatic will not download or use a local fallback.");
+        addIssue(QStringLiteral("adaptive-llm"), message,
+                 adaptiveProvider() == QStringLiteral("colab-direct") ? 2 : 1,
+                 QStringLiteral("translate"));
     }
 
     // Sessions are keyed by production node id. The aggregate stage loop
@@ -2528,6 +2617,18 @@ QVariantMap DubbingController::automaticPreflight() const
                 .arg(subtitleConfiguration().value(QStringLiteral("burnIn")).toBool()
                          ? QStringLiteral("enabled") : QStringLiteral("disabled"));
         }
+        const bool adaptiveSetupRequired = nodeId == QStringLiteral("translate")
+            && adaptiveRewriteRequired && !adaptiveReady();
+        if (adaptiveSetupRequired && preflightState == QStringLiteral("ready")) {
+            preflightState = adaptiveProvider() == QStringLiteral("colab-direct")
+                ? QStringLiteral("needs-worker") : QStringLiteral("needs-setup");
+            preflightStateLabel = adaptiveProvider() == QStringLiteral("colab-direct")
+                ? QStringLiteral("Adaptive LLM needs check") : QStringLiteral("Adaptive LLM needs setup");
+        }
+        if (nodeId == QStringLiteral("translate")) {
+            configurationSummary += QStringLiteral("\nAdaptive rewrite LLM: %1.")
+                .arg(adaptiveReady() ? adaptiveStatusText() : QStringLiteral("not ready"));
+        }
 
         aggregateStages.append(QVariantMap{
             {QStringLiteral("id"), stageId},
@@ -2548,8 +2649,16 @@ QVariantMap DubbingController::automaticPreflight() const
             {QStringLiteral("modelRequired"), modelStage},
             {QStringLiteral("effectiveFormat"), nodeId == QStringLiteral("ingest") ? configurationSummary : QString()},
             {QStringLiteral("preflightState"), preflightState},
-            {QStringLiteral("preflightStateLabel"), preflightStateLabel}
+            {QStringLiteral("preflightStateLabel"), preflightStateLabel},
+            {QStringLiteral("adaptiveSetupRequired"), adaptiveSetupRequired}
         });
+    }
+
+    if (directWorkers.contains(QStringLiteral("adaptive-llm"))) {
+        QVariantMap adaptiveWorker = directWorkers.value(QStringLiteral("adaptive-llm"));
+        adaptiveWorker.insert(QStringLiteral("parentStageId"), QStringLiteral("translate"));
+        adaptiveWorker.insert(QStringLiteral("parentStageTitle"), QStringLiteral("Translate"));
+        selectedWorkers.append(adaptiveWorker);
     }
 
     return QVariantMap{
@@ -2574,6 +2683,7 @@ QString DubbingController::automaticPreflightFingerprint() const
     snapshot.insert(QStringLiteral("targetLanguage"), m_project.targetLanguage);
     snapshot.insert(QStringLiteral("transcript"), m_project.transcriptConfiguration);
     snapshot.insert(QStringLiteral("quality"), m_project.dubbingQuality);
+    snapshot.insert(QStringLiteral("adaptiveLlm"), translationFixConfiguration());
     snapshot.insert(QStringLiteral("ttsVoice"), m_project.ttsVoiceId);
     snapshot.insert(QStringLiteral("nodes"), m_workflowNodeConfigurations);
 
@@ -3082,52 +3192,9 @@ bool DubbingController::ensureAutomaticAdaptiveModel()
     }
     if (m_project.dubbingQuality != QStringLiteral("adaptive")) return true;
     if (adaptiveReady()) return true;
-    CapabilityFamilyModel *model = automaticModel(QStringLiteral("llm-chat"));
-    AppController *app = AppController::instance();
-    if (!model || !app || !app->downloadInstall()) {
-        finishAutomaticSetupFailure(QStringLiteral("Automatic Adaptive model setup is unavailable."));
-        return false;
-    }
-    const QVariantMap recommendation = model->configurationForFamily(
-        automaticDefaultFamilyId(QStringLiteral("llm-chat"),
-                                 m_project.dubbingQuality));
-    if (recommendation.isEmpty()) {
-        finishAutomaticSetupFailure(QStringLiteral("No compatible local LLM is available for Adaptive quality."));
-        return false;
-    }
-    const QString familyId = recommendation.value(QStringLiteral("familyId")).toString();
-    const QVariantMap item = model->itemForFamily(familyId);
-    if (!item.value(QStringLiteral("ready")).toBool()) {
-        if (!m_automaticDownloadsQueued.contains(QStringLiteral("llm-chat"))) {
-            const QSet<QString> downloadsBefore = activeDownloadKeys();
-            if (!app->downloadInstall()->enqueueRecommendedSetup(item)) {
-                finishAutomaticSetupFailure(QStringLiteral("Could not start the Adaptive LLM download."));
-                return false;
-            }
-            captureNewAutomaticDownloads(downloadsBefore);
-            m_automaticDownloadsQueued.insert(QStringLiteral("llm-chat"));
-            appendAutomaticEvent(QStringLiteral("Downloading the default Adaptive LLM"),
-                                 QStringLiteral("downloading"), QStringLiteral("translate"));
-        }
-        setAutomaticStatus(QStringLiteral("Preparing Adaptive quality model: %1")
-                               .arg(item.value(QStringLiteral("displayName"), familyId).toString()));
-        return false;
-    }
-    QVariantMap configuration{
-        {QStringLiteral("provider"), QStringLiteral("local")},
-        {QStringLiteral("configured"), true},
-        {QStringLiteral("model"), familyId},
-        {QStringLiteral("runtimeId"), recommendation.value(QStringLiteral("runtimeId"))},
-        {QStringLiteral("runtimeVersion"), recommendation.value(QStringLiteral("runtimeVersion"))},
-        {QStringLiteral("selectedFiles"), recommendation.value(QStringLiteral("selectedFiles"))},
-        {QStringLiteral("maxAttempts"), m_project.durationControl.value(QStringLiteral("maxPreTtsIterations"), 4)},
-        {QStringLiteral("temperature"), 0.35}
-    };
-    m_translationFix->setConfiguration(configuration);
-    m_runner->setTranslationFixConfiguration(m_translationFix->configuration());
-    appendAutomaticEvent(QStringLiteral("Adaptive LLM is configured"),
-                         QStringLiteral("completed"), QStringLiteral("translate"));
-    return true;
+    finishAutomaticSetupFailure(
+        QStringLiteral("The selected Adaptive LLM route is not ready. Configure and verify it in Automatic preflight; no local fallback will be downloaded."));
+    return false;
 }
 
 void DubbingController::scheduleAutomaticSetupAdvance()
@@ -3696,6 +3763,12 @@ bool DubbingController::selectWorkflowColabModel(const QString &nodeId,
         selected = app->colabTts()->selectColabModel(normalized);
     else if (nodeId == QStringLiteral("alignment") && app && app->colabAlignment())
         selected = app->colabAlignment()->selectColabModel(normalized);
+    else if (nodeId == QStringLiteral("adaptive-llm"))
+        // This worker belongs to the Dubbing project, not to the standalone
+        // LLM Chat surface.  Selecting it must not clear or mutate the chat
+        // controller's temporary worker/session just because both use the
+        // llm-chat capability.
+        selected = true;
 
     if (!selected) {
         setError(QStringLiteral("The selected Colab model could not be activated for %1.")
@@ -3719,6 +3792,17 @@ bool DubbingController::selectWorkflowColabModel(const QString &nodeId,
         persistAfterEdit();
         emit projectChanged();
         emit workflowChanged();
+        return true;
+    }
+    if (nodeId == QStringLiteral("adaptive-llm")) {
+        QVariantMap configuration = translationFixConfiguration();
+        configuration.insert(QStringLiteral("provider"), QStringLiteral("colab-direct"));
+        configuration.insert(QStringLiteral("configured"), true);
+        configuration.insert(QStringLiteral("model"), normalized);
+        configuration.remove(QStringLiteral("runtimeId"));
+        configuration.remove(QStringLiteral("runtimeVersion"));
+        configuration.remove(QStringLiteral("selectedFiles"));
+        setAdaptiveConfiguration(configuration);
         return true;
     }
     return setWorkflowNodeParameters(
@@ -3873,8 +3957,24 @@ bool DubbingController::openProject(const QString &path)
     m_timingResolutionPreview.clear();
     m_timingUndoSegments.clear();
     m_workflowNodeConfigurations = m_project.workflowNodeConfigurations;
-    if (m_project.dubbingQuality != QStringLiteral("custom"))
+    if (m_translationFix && !m_project.customRewriteConfiguration.isEmpty()) {
+        // The field predates Adaptive mode, but it is the versioned project
+        // home for the non-secret rewrite-route selection in every mode.
+        QVariantMap savedRewrite = m_project.customRewriteConfiguration;
+        if (!savedRewrite.contains(QStringLiteral("apiKey"))) {
+            savedRewrite.insert(QStringLiteral("apiKey"),
+                                m_translationFix->configuration().value(QStringLiteral("apiKey")));
+        }
+        if (!savedRewrite.contains(QStringLiteral("serverUrl"))) {
+            savedRewrite.insert(QStringLiteral("serverUrl"),
+                                m_translationFix->configuration().value(QStringLiteral("serverUrl")));
+        }
+        m_translationFix->setConfiguration(savedRewrite);
+        if (m_runner)
+            m_runner->setTranslationFixConfiguration(m_translationFix->configuration());
+    } else if (m_project.dubbingQuality != QStringLiteral("custom")) {
         resetStandardTranslationFixConfiguration();
+    }
     if (m_project.ttsVoiceId.trimmed().isEmpty()) {
         const QVariantMap synthesis = m_workflowNodeConfigurations.value(
             QStringLiteral("synthesize")).toMap();
@@ -3888,12 +3988,6 @@ bool DubbingController::openProject(const QString &path)
             m_project.ttsVoiceId = QStringLiteral("builtin:") + builtInVoice;
             m_project.cloneVoicePresetId = m_project.ttsVoiceId;
         }
-    }
-    if (m_project.dubbingQuality == QStringLiteral("custom")
-        && m_translationFix && !m_project.customRewriteConfiguration.isEmpty()) {
-        m_translationFix->setConfiguration(m_project.customRewriteConfiguration);
-        if (m_runner)
-            m_runner->setTranslationFixConfiguration(m_translationFix->configuration());
     }
     m_stepOutputs.clear();
     m_lastCompletedStepId.clear();
@@ -3945,12 +4039,16 @@ void DubbingController::discoverInterruptedWorkflow()
 bool DubbingController::saveProject()
 {
     if (!ensureProject(QString())) return false;
-    if (m_project.dubbingQuality == QStringLiteral("custom"))
-        m_project.workflowNodeConfigurations = m_workflowNodeConfigurations;
-    else
-        m_project.workflowNodeConfigurations.clear();
-    if (m_project.dubbingQuality == QStringLiteral("custom"))
-        m_project.customRewriteConfiguration = translationFixConfiguration();
+    // Route/model choices are a project contract for every Dubbing quality.
+    // Clearing standard-mode selections here was the reason a reopened project
+    // could revive an old Local setup instead of the confirmed Colab route.
+    m_project.workflowNodeConfigurations = m_workflowNodeConfigurations;
+    QVariantMap persistedRewrite = translationFixConfiguration();
+    // API credentials belong only to the secure settings store. Direct Colab
+    // URL/token never enter this map in the first place.
+    persistedRewrite.remove(QStringLiteral("apiKey"));
+    persistedRewrite.remove(QStringLiteral("serverUrl"));
+    m_project.customRewriteConfiguration = persistedRewrite;
     QString error;
     if (!m_project.save(&error)) {
         setError(error);
@@ -4698,9 +4796,22 @@ void DubbingController::cancelTranslationFix()
 void DubbingController::setAdaptiveConfiguration(const QVariantMap &configuration)
 {
     if (!m_translationFix || processing()) return;
+    const QString previousProvider = m_translationFix->configuration().value(
+        QStringLiteral("provider")).toString();
     QVariantMap next = configuration;
     next.insert(QStringLiteral("configured"), true);
     m_translationFix->setConfiguration(next);
+    if (previousProvider == QStringLiteral("local")
+        && m_translationFix->configuration().value(QStringLiteral("provider")).toString()
+               != QStringLiteral("local")) {
+        if (AppController *app = AppController::instance(); app && app->sessionRegistry()) {
+            if (IModelSession *session = app->sessionRegistry()->sessionForCapability(
+                    QStringLiteral("llm-chat"))) {
+                for (const SessionConfiguration &loaded : session->loadedConfigurations())
+                    session->requestUnloadConfiguration(loaded.signature);
+            }
+        }
+    }
     if (m_project.dubbingQuality == QStringLiteral("custom"))
         m_project.customRewriteConfiguration = m_translationFix->configuration();
     if (m_runner) m_runner->setTranslationFixConfiguration(
@@ -5103,8 +5214,7 @@ bool DubbingController::setTranscriptFusionPolicy(const QString &policy)
     parameters.insert(QStringLiteral("fusionPolicy"), normalized);
     selected.insert(QStringLiteral("parameters"), parameters);
     m_workflowNodeConfigurations.insert(QStringLiteral("transcribe"), selected);
-    if (m_project.dubbingQuality == QStringLiteral("custom"))
-        m_project.workflowNodeConfigurations = m_workflowNodeConfigurations;
+    m_project.workflowNodeConfigurations = m_workflowNodeConfigurations;
     persistAfterEdit();
     emit projectChanged();
     emit workflowChanged();

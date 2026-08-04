@@ -81,12 +81,12 @@ Dialog {
         return {
             provider: selectedProvider,
             cliAgent: selectedCliAgent,
-            serverUrl: serverUrlField.text.trim(),
+            serverUrl: selectedProvider === "colab-direct" ? "" : serverUrlField.text.trim(),
             model: modelField.text.trim(),
             runtimeId: selectedProvider === "local" ? (saved.runtimeId || "") : "",
             runtimeVersion: selectedProvider === "local" ? (saved.runtimeVersion || "") : "",
             selectedFiles: selectedProvider === "local" ? (saved.selectedFiles || ({})) : ({}),
-            apiKey: apiKeyField.text.trim(),
+            apiKey: selectedProvider === "colab-direct" ? "" : apiKeyField.text.trim(),
             maxAttempts: Number((dubbing.durationControl || {}).maxPreTtsIterations || 4),
             temperature: 0.35
         }
@@ -105,8 +105,8 @@ Dialog {
         config.runtimeId = runtimeId
         config.runtimeVersion = runtimeVersion
         config.selectedFiles = selectedFiles || ({})
-        dubbing.setAdaptiveConfiguration(config)
         dubbing.dubbingQuality = configurationMode
+        dubbing.setAdaptiveConfiguration(config)
         connectionMessage = qsTr("Local LLM configuration saved. The model is not loaded from Settings.")
         connectionSuccess = true
     }
@@ -117,9 +117,9 @@ Dialog {
             duration.autoRewrite = rewriteEnabled
             dubbing.durationControl = duration
         }
+        dubbing.dubbingQuality = configurationMode
         if (configurationMode !== "custom" || rewriteEnabled)
             dubbing.setAdaptiveConfiguration(currentConfiguration())
-        dubbing.dubbingQuality = configurationMode
         close()
     }
 
@@ -269,6 +269,19 @@ Dialog {
                         onClicked: { root.selectedProvider = "local"; root.connectionSuccess = false }
                     }
                     ProviderRow {
+                        title: qsTr("Direct Colab GPU")
+                        description: qsTr("Use the exact temporary Qwen3.5 2B worker for Adaptive rewriting")
+                        iconName: "cloud"
+                        selected: root.selectedProvider === "colab-direct"
+                        privacyText: qsTr("Session only")
+                        onClicked: {
+                            root.selectedProvider = "colab-direct"
+                            root.connectionSuccess = false
+                            root.connectionMessage = ""
+                            root.modelField.text = "qwen3.5-2b"
+                        }
+                    }
+                    ProviderRow {
                         title: qsTr("Local CLI Agent")
                         description: qsTr("Use installed Claude Code, Codex, or Antigravity CLI")
                         iconName: "spark"
@@ -290,6 +303,31 @@ Dialog {
                     ConfigField { id: modelField; Layout.fillWidth: true; placeholderText: root.selectedProvider === "api" ? "model-id" : "qwen3.5-2b"; onTextEdited: root.connectionSuccess = false }
                     Text { Layout.topMargin: Theme.paddingSmall; text: qsTr("API key (optional for local servers)"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                     ConfigField { id: apiKeyField; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: qsTr("Stored locally in LA Studio settings"); onTextEdited: root.connectionSuccess = false }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: Theme.paddingLarge; Layout.rightMargin: Theme.paddingLarge
+                    implicitHeight: colabLayout.implicitHeight + Theme.paddingMedium * 2
+                    radius: Theme.radiusSmall
+                    color: Qt.rgba(1, 1, 1, 0.025)
+                    border.color: Qt.rgba(1, 1, 1, 0.08)
+                    visible: root.selectedProvider === "colab-direct"
+                    enabled: root.configurationMode !== "custom" || root.rewriteEnabled
+                    ColumnLayout {
+                        id: colabLayout
+                        anchors.fill: parent; anchors.margins: Theme.paddingMedium
+                        spacing: Theme.paddingSmall
+                        Text {
+                            text: qsTr("Qwen3.5 2B Direct Colab worker")
+                            color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; font.bold: true
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: qsTr("Save this route, then open Automatic Dubbing > Colab workers to run LA_STUDIO_LLM_QWEN3_5_2B_GPU.ipynb and enter its URL and token. The token remains only in the active session; it is never saved with this project.")
+                            color: Theme.textSecondary; font.pixelSize: 10; wrapMode: Text.WordWrap
+                        }
+                    }
                 }
 
                 ColumnLayout {
@@ -412,8 +450,9 @@ Dialog {
             PrimaryButton {
                 visible: root.selectedProvider !== "local"
                          && (root.configurationMode !== "custom" || root.rewriteEnabled)
-                text: qsTr("Test connection"); iconName: "activity"; quiet: true
-                enabled: root.selectedProvider === "cli" ? true : (serverUrlField.text.trim() !== "" && modelField.text.trim() !== "")
+                text: root.selectedProvider === "colab-direct" ? qsTr("Check selected worker") : qsTr("Test connection"); iconName: "activity"; quiet: true
+                enabled: root.selectedProvider === "cli" || root.selectedProvider === "colab-direct"
+                         ? modelField.text.trim() !== "" : (serverUrlField.text.trim() !== "" && modelField.text.trim() !== "")
                 onClicked: { root.connectionMessage = qsTr("Checking provider…"); root.connectionSuccess = false; root.dubbing.testTranslationFixConnection(root.currentConfiguration()) }
             }
             Item { Layout.fillWidth: true }
@@ -424,7 +463,9 @@ Dialog {
                 enabled: root.configurationMode === "custom" && !root.rewriteEnabled
                          ? true
                          : (root.selectedProvider === "local"
-                            ? root.localModelConfiguredState() : root.connectionSuccess)
+                            ? root.localModelConfiguredState()
+                            : root.selectedProvider === "colab-direct"
+                              ? modelField.text.trim() !== "" : root.connectionSuccess)
                 onClicked: root.applyConfiguration()
             }
         }

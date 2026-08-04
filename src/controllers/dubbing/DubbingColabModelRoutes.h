@@ -64,6 +64,15 @@ inline QVariantList optionsForNode(const QString &nodeId)
                    QStringLiteral("LA_STUDIO_TRANSLATION_HY_MT2_1_8B_GPU.ipynb"))
         };
     }
+    // Adaptive dubbing uses a structured chat model to repair translations
+    // that cannot fit the target timing.  It is a subordinate worker of the
+    // Translate presentation stage, not a ninth user-facing workflow stage.
+    if (id == QStringLiteral("adaptive-llm")) {
+        return {
+            option(QStringLiteral("qwen3.5-2b"), QStringLiteral("Qwen3.5 2B"),
+                   QStringLiteral("LA_STUDIO_LLM_QWEN3_5_2B_GPU.ipynb"))
+        };
+    }
     if (id == QStringLiteral("synthesize")) {
         return {
             option(QStringLiteral("kokoro"), QStringLiteral("Kokoro"),
@@ -122,6 +131,8 @@ inline QString defaultModelForNode(const QString &nodeId)
         return QStringLiteral("pp-ocrv5-multilingual-3.1");
     if (id == QStringLiteral("translate"))
         return QStringLiteral("m2m100-418m");
+    if (id == QStringLiteral("adaptive-llm"))
+        return QStringLiteral("qwen3.5-2b");
     if (id == QStringLiteral("synthesize"))
         return QStringLiteral("kokoro");
     if (id == QStringLiteral("alignment"))
