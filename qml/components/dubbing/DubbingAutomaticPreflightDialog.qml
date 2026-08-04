@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import "../base"
+import "../shared"
 import LAStudio
 
 // The automatic workflow must be reviewed before it can start.  This dialog
@@ -21,11 +22,11 @@ Dialog {
                                       && root.dubbing.sourceLanguage.length > 0
                                       && root.dubbing.targetLanguage.length > 0
     property string focusIssueId: ""
+    // Child setup dialogs belong to this wizard, preserving its page and
+    // current stage card while routes and models are edited.
+    property string configuredStageId: ""
 
     signal backToEntryRequested()
-    signal nodeModelRequested(string nodeId)
-    signal stageSetupRequested(string action, string nodeId)
-    signal colabSetupRequested()
     signal sourceBrowseRequested()
     signal sourceLinkImportRequested(string url)
     signal issueFixRequested(string issueId)
@@ -47,6 +48,28 @@ Dialog {
         currentPage = 0
         focusIssueId = ""
         open()
+    }
+
+    function openStageSetup(stage) {
+        configuredStageId = stage.id || ""
+        if (stage.setupAction === "node-model") {
+            routeSetupDialog.stage = stage
+            routeSetupDialog.open()
+            return
+        }
+        if (stage.setupAction === "normalize") {
+            normalizeSetupDialog.open()
+            return
+        }
+        if (stage.setupAction === "alignment") {
+            alignmentSetupDialog.open()
+            return
+        }
+        if (stage.setupAction === "export") {
+            exportSetupDialog.open()
+            return
+        }
+        if (stage.setupAction === "source") currentPage = 0
     }
 
     function fixIssue(issueId) {
@@ -313,7 +336,7 @@ Dialog {
                     }
                     Repeater {
                         id: stageCards
-                        model: root.preflight.nodes || []
+                        model: root.preflight.stages || []
                         delegate: Rectangle {
                             required property var modelData
                             property alias setupButton: stageSetupButton
@@ -334,8 +357,10 @@ Dialog {
                                     Text {
                                         Layout.fillWidth: true
                                         text: qsTr("Route: %1   •   Model: %2")
-                                            .arg(modelData.route || qsTr("Local"))
-                                            .arg(modelData.modelId || qsTr("workflow default"))
+                                            .arg(modelData.route || qsTr("Not selected"))
+                                            .arg(modelData.modelRequired === false
+                                                 ? qsTr("No model required")
+                                                 : (modelData.modelId || qsTr("Needs model selection")))
                                         color: Theme.textSecondary
                                         font.pixelSize: Theme.fontSmall
                                         elide: Text.ElideRight
@@ -349,7 +374,7 @@ Dialog {
                                     }
                                     Text {
                                         Layout.fillWidth: true
-                                        text: qsTr("Variant: %1").arg(modelData.variant || qsTr("default"))
+                                        text: modelData.configurationSummary || qsTr("Configuration needs review")
                                         color: Theme.textSecondary
                                         font.pixelSize: Theme.fontSmall
                                         elide: Text.ElideRight
@@ -362,7 +387,7 @@ Dialog {
                                     text: qsTr("Configure")
                                     quiet: true
                                     enabled: !root.dubbing.processing
-                                    onClicked: root.stageSetupRequested(modelData.setupAction, modelData.id)
+                                    onClicked: root.openStageSetup(modelData)
                                 }
                                 Text {
                                     visible: !modelData.setupAction || modelData.setupAction === "none"
@@ -462,7 +487,7 @@ Dialog {
                     iconName: "cloud"
                     Layout.fillWidth: true
                     visible: (root.preflight.selectedWorkers || []).length > 0
-                    onClicked: root.colabSetupRequested()
+                    onClicked: preflightColabSetupDialog.open()
                 }
             }
 
@@ -542,7 +567,7 @@ Dialog {
                         font.bold: true
                     }
                     Repeater {
-                        model: root.preflight.nodes || []
+                        model: root.preflight.stages || []
                         delegate: Rectangle {
                             required property var modelData
                             Layout.fillWidth: true
@@ -555,8 +580,8 @@ Dialog {
                                 anchors.fill: parent
                                 anchors.margins: Theme.paddingSmall
                                 Text { text: modelData.title; color: Theme.textPrimary; font.bold: true }
-                                Text { Layout.fillWidth: true; text: modelData.route || qsTr("Local"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
-                                Text { Layout.fillWidth: true; text: modelData.modelId || qsTr("workflow default"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                                Text { Layout.fillWidth: true; text: modelData.route || qsTr("Not selected"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                                Text { Layout.fillWidth: true; text: modelData.configurationSummary || qsTr("Configuration needs review"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                                 Text { Layout.fillWidth: true; text: modelData.languageSummary || qsTr("No language required"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                                 Text { Layout.fillWidth: true; text: modelData.detail || (modelData.state === "blocked" ? qsTr("Blocked") : qsTr("Ready")); color: modelData.state === "blocked" ? Theme.warning : Theme.success; font.pixelSize: Theme.fontSmall }
                             }
@@ -574,14 +599,14 @@ Dialog {
                     Text { text: qsTr("Start automatic workflow"); color: Theme.textPrimary; font.pixelSize: Theme.fontLarge; font.bold: true }
                     Text { Layout.fillWidth: true; text: root.ready ? qsTr("Review is complete. Starting closes this setup and begins the configured workflow.") : qsTr("Start remains unavailable until every active stage, required language and Direct Colab worker is ready."); color: root.ready ? Theme.success : Theme.warning; wrapMode: Text.WordWrap }
                     Repeater {
-                        model: root.preflight.nodes || []
+                        model: root.preflight.stages || []
                         delegate: Rectangle {
                             required property var modelData
                             Layout.fillWidth: true; implicitHeight: summaryRow.implicitHeight + Theme.paddingSmall * 2
                             radius: Theme.radiusSmall; color: Qt.rgba(1,1,1,0.025); border.color: Qt.rgba(1,1,1,0.09)
                             ColumnLayout { id: summaryRow; anchors.fill: parent; anchors.margins: Theme.paddingSmall
                                 Text { text: modelData.title; color: Theme.textPrimary; font.bold: true }
-                                Text { Layout.fillWidth: true; text: qsTr("%1 · %2 · %3").arg(modelData.route || qsTr("Local")).arg(modelData.modelId || qsTr("workflow default")).arg(modelData.languageSummary || qsTr("No language required")); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                                Text { Layout.fillWidth: true; text: qsTr("%1 · %2 · %3").arg(modelData.route || qsTr("Not selected")).arg(modelData.configurationSummary || qsTr("Configuration needs review")).arg(modelData.languageSummary || qsTr("No language required")); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
                             }
                         }
                     }
@@ -636,6 +661,235 @@ Dialog {
         }
     }
 
+    WorkflowNodeModelDialog {
+        id: preflightModelDialog
+        nodes: root.dubbing.workflowNodes
+        nodeConfigurations: root.dubbing.workflowNodeConfigurations
+        onConfigurationAccepted: function(nodeId, familyId, runtimeId, runtimeVersion, selectedFiles) {
+            if (root.dubbing.setWorkflowNodeModel(nodeId, familyId, runtimeId, runtimeVersion, selectedFiles))
+                root.dubbing.setWorkflowNodeParameters(nodeId, { executionProvider: "local-dev" })
+        }
+    }
+
+    Dialog {
+        id: routeSetupDialog
+        property var stage: ({})
+        property string apiError: ""
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        width: Math.min(560, parent ? parent.width - Theme.paddingXL * 2 : 560)
+        title: qsTr("Configure %1").arg(stage.title || "")
+        standardButtons: Dialog.NoButton
+        onOpened: {
+            apiError = ""
+            var provider = stage.executionProvider || "local-dev"
+            for (var index = 0; index < routeBox.model.length; ++index) {
+                if (routeBox.model[index].id === provider) {
+                    routeBox.currentIndex = index
+                    break
+                }
+            }
+            apiUrl.text = AppController.settings.gatewayUrl || ""
+            apiKey.text = ""
+            apiModel.text = stage.modelId || ""
+        }
+        contentItem: ColumnLayout {
+            spacing: Theme.paddingMedium
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("Choose the execution route before selecting its model. API Gateway and Direct Colab stay independent.")
+                color: Theme.textSecondary
+                wrapMode: Text.WordWrap
+            }
+            Text { text: qsTr("Route"); color: Theme.textPrimary; font.bold: true }
+            ComboBox {
+                id: routeBox
+                Layout.fillWidth: true
+                textRole: "label"
+                valueRole: "id"
+                model: routeSetupDialog.stage.actionNodeId === "source-separate"
+                       ? [{ id: "local-dev", label: qsTr("Local CPU") },
+                          { id: "colab-direct", label: qsTr("Direct Colab GPU") }]
+                       : [{ id: "local-dev", label: qsTr("Local CPU") },
+                          { id: "api-gateway", label: qsTr("API Gateway") },
+                          { id: "colab-direct", label: qsTr("Direct Colab GPU") }]
+            }
+            Text {
+                Layout.fillWidth: true
+                visible: routeBox.currentValue === "local-dev"
+                text: qsTr("Save opens the compatible local model/runtime picker. Nothing is changed if you cancel that picker.")
+                color: Theme.textSecondary
+                wrapMode: Text.WordWrap
+            }
+            ColumnLayout {
+                Layout.fillWidth: true
+                visible: routeBox.currentValue === "colab-direct"
+                spacing: Theme.paddingSmall
+                Text { text: qsTr("Exact Colab model"); color: Theme.textPrimary; font.bold: true }
+                ComboBox {
+                    id: colabModelBox
+                    Layout.fillWidth: true
+                    textRole: "displayName"
+                    valueRole: "modelId"
+                    model: root.dubbing.colabModelOptionsForNode(routeSetupDialog.stage.actionNodeId || "")
+                    Component.onCompleted: {
+                        for (var index = 0; index < model.length; ++index)
+                            if (model[index].modelId === routeSetupDialog.stage.modelId) currentIndex = index
+                    }
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("The matching notebook, worker URL and session token are configured on the next Colab page. Changing model invalidates any prior verification.")
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSmall
+                    wrapMode: Text.WordWrap
+                }
+            }
+            ColumnLayout {
+                Layout.fillWidth: true
+                visible: routeBox.currentValue === "api-gateway"
+                spacing: Theme.paddingSmall
+                Text { text: qsTr("API Gateway URL"); color: Theme.textPrimary; font.bold: true }
+                TextField { id: apiUrl; Layout.fillWidth: true; placeholderText: "https://gateway.example/v1"; selectByMouse: true }
+                Text { text: qsTr("API key"); color: Theme.textPrimary; font.bold: true }
+                TextField {
+                    id: apiKey
+                    Layout.fillWidth: true
+                    echoMode: TextInput.Password
+                    placeholderText: AppController.settings.gatewayApiKeyConfigured
+                                     ? qsTr("Saved key available — enter to replace") : qsTr("Enter API key")
+                    selectByMouse: true
+                }
+                Text { text: qsTr("Gateway model ID"); color: Theme.textPrimary; font.bold: true }
+                TextField { id: apiModel; Layout.fillWidth: true; placeholderText: qsTr("Model exposed by the API Gateway"); selectByMouse: true }
+            }
+            Text { Layout.fillWidth: true; visible: routeSetupDialog.apiError !== ""; text: routeSetupDialog.apiError; color: Theme.danger; wrapMode: Text.WordWrap }
+            RowLayout {
+                Layout.fillWidth: true
+                Item { Layout.fillWidth: true }
+                PrimaryButton { text: qsTr("Cancel"); quiet: true; onClicked: routeSetupDialog.close() }
+                PrimaryButton {
+                    text: qsTr("Save / Apply")
+                    onClicked: {
+                        var nodeId = routeSetupDialog.stage.actionNodeId || ""
+                        if (routeBox.currentValue === "local-dev") {
+                            routeSetupDialog.close()
+                            preflightModelDialog.openFor(nodeId)
+                            return
+                        }
+                        if (routeBox.currentValue === "colab-direct") {
+                            if (colabModelBox.currentIndex < 0
+                                    || !root.dubbing.selectWorkflowColabModel(nodeId, colabModelBox.currentValue)) {
+                                routeSetupDialog.apiError = qsTr("Select a supported exact Colab model.")
+                                return
+                            }
+                            routeSetupDialog.close()
+                            return
+                        }
+                        if (apiUrl.text.trim() === "" || apiModel.text.trim() === "") {
+                            routeSetupDialog.apiError = qsTr("Enter the API Gateway URL and model ID.")
+                            return
+                        }
+                        AppController.settings.gatewayUrl = apiUrl.text.trim()
+                        if (apiKey.text.trim() !== "") AppController.settings.setGatewayApiKey(apiKey.text.trim())
+                        if (!AppController.settings.gatewayApiKeyConfigured) {
+                            routeSetupDialog.apiError = qsTr("Enter an API key, or configure one in Settings first.")
+                            return
+                        }
+                        if (!root.dubbing.setWorkflowNodeParameters(nodeId, {
+                            executionProvider: "api-gateway", modelId: apiModel.text.trim()
+                        })) return
+                        routeSetupDialog.close()
+                    }
+                }
+            }
+        }
+    }
+
+    Dialog {
+        id: normalizeSetupDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        width: Math.min(520, parent ? parent.width - Theme.paddingXL * 2 : 520)
+        title: qsTr("Normalize configuration")
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        contentItem: ColumnLayout {
+            spacing: Theme.paddingMedium
+            Text { Layout.fillWidth: true; text: qsTr("Automatic local preprocessing is fixed by the production ingest service. It probes the selected source and produces master and analysis WAV inputs. No AI model or GPU worker is required."); color: Theme.textSecondary; wrapMode: Text.WordWrap }
+            Text {
+                Layout.fillWidth: true
+                text: {
+                    var stage = (root.preflight.stages || []).find(function(item) { return item.id === "normalize" })
+                    return stage ? stage.configurationSummary : ""
+                }
+                color: Theme.textPrimary
+                wrapMode: Text.WordWrap
+            }
+        }
+    }
+
+    Dialog {
+        id: alignmentSetupDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        width: Math.min(520, parent ? parent.width - Theme.paddingXL * 2 : 520)
+        title: qsTr("Alignment and subtitle configuration")
+        standardButtons: Dialog.NoButton
+        onOpened: {
+            timingMode.currentIndex = timingMode.indexOfValue(root.dubbing.timingConfiguration.mode || "keep")
+            timingGap.text = String(root.dubbing.timingConfiguration.minimumGapMs || 80)
+        }
+        contentItem: ColumnLayout {
+            spacing: Theme.paddingMedium
+            Text { Layout.fillWidth: true; text: qsTr("Timing and subtitle review are configured here because they are part of Alignment/Subtitle, not a separate workflow card."); color: Theme.textSecondary; wrapMode: Text.WordWrap }
+            ComboBox {
+                id: timingMode
+                Layout.fillWidth: true
+                textRole: "label"
+                valueRole: "id"
+                model: [{ id: "keep", label: qsTr("Keep original timing") }, { id: "ripple", label: qsTr("Ripple forward") }, { id: "manual", label: qsTr("Manual conflict review") }]
+            }
+            TextField { id: timingGap; Layout.fillWidth: true; inputMethodHints: Qt.ImhDigitsOnly; placeholderText: qsTr("Minimum gap (ms)") }
+            RowLayout {
+                Layout.fillWidth: true
+                Item { Layout.fillWidth: true }
+                PrimaryButton { text: qsTr("Cancel"); quiet: true; onClicked: alignmentSetupDialog.close() }
+                PrimaryButton { text: qsTr("Save / Apply"); onClicked: { if (root.dubbing.applyTimingResolution(timingMode.currentValue, Number(timingGap.text))) alignmentSetupDialog.close() } }
+            }
+        }
+    }
+
+    Dialog {
+        id: exportSetupDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        width: Math.min(520, parent ? parent.width - Theme.paddingXL * 2 : 520)
+        title: qsTr("Export and output configuration")
+        standardButtons: Dialog.NoButton
+        onOpened: burnInBox.checked = root.dubbing.subtitleConfiguration.burnIn === true
+        contentItem: ColumnLayout {
+            spacing: Theme.paddingMedium
+            Text { Layout.fillWidth: true; text: qsTr("Mix/render and output options are configured here because they belong to Export/Output. The internal mix node remains part of the production workflow."); color: Theme.textSecondary; wrapMode: Text.WordWrap }
+            CheckBox { id: burnInBox; text: qsTr("Burn subtitles into exported video") }
+            RowLayout {
+                Layout.fillWidth: true
+                Item { Layout.fillWidth: true }
+                PrimaryButton { text: qsTr("Cancel"); quiet: true; onClicked: exportSetupDialog.close() }
+                PrimaryButton { text: qsTr("Save / Apply"); onClicked: { if (root.dubbing.setSubtitleBurnIn(burnInBox.checked)) exportSetupDialog.close() } }
+            }
+        }
+    }
+
+    DubbingColabSetupDialog {
+        id: preflightColabSetupDialog
+        dubbing: root.dubbing
+        stageIds: (root.preflight.selectedWorkers || []).map(function(worker) { return worker.id })
+    }
+
     // Production-shell offscreen regression helpers. They activate the real
     // controls; file-selection result injection happens only at the picker
     // boundary owned by DubbingPage.
@@ -658,6 +912,18 @@ Dialog {
             }
         }
         return false
+    }
+    function qmlSmokeStageSetupVisible() {
+        return routeSetupDialog.visible || normalizeSetupDialog.visible
+                || alignmentSetupDialog.visible || exportSetupDialog.visible
+                || preflightModelDialog.visible
+    }
+    function qmlSmokeDismissStageSetup() {
+        routeSetupDialog.close()
+        normalizeSetupDialog.close()
+        alignmentSetupDialog.close()
+        exportSetupDialog.close()
+        preflightModelDialog.close()
     }
     function qmlSmokeClickFix(issueId) {
         for (var index = 0; index < reviewIssues.count; ++index) {

@@ -12,6 +12,10 @@ Dialog {
     id: root
 
     required property var dubbing
+    // When opened from Automatic preflight, only the selected Direct Colab
+    // workers are displayed. The general Dubbing settings surface leaves this
+    // empty and continues to show all available capability cards.
+    property var stageIds: []
     property var draftUrls: ({})
     property var draftTokens: ({})
 
@@ -174,7 +178,11 @@ Dialog {
                 spacing: Theme.paddingMedium
 
                 Repeater {
-                    model: root.dubbing.colabSetupStages
+                    model: (root.stageIds && root.stageIds.length > 0)
+                           ? root.dubbing.colabSetupStages.filter(function(stage) {
+                               return root.stageIds.indexOf(stage.id) >= 0
+                           })
+                           : root.dubbing.colabSetupStages
 
                     delegate: Rectangle {
                         id: stageCard

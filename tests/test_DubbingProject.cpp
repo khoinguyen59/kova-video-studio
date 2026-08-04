@@ -38,6 +38,7 @@
 #include <QJsonObject>
 #include <QJsonDocument>
 #include <QRegularExpression>
+#include <QSet>
 #include <QSignalSpy>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -949,7 +950,7 @@ void TestDubbingProject::importingMediaDoesNotStartProcessing()
     QCOMPARE(controller.currentStepId(), QStringLiteral("ingest"));
 }
 
-void TestDubbingProject::automaticWorkflowLocksSettingsUntilPaused()
+void TestDubbingProject::automaticWorkflowDoesNotStartWithUnresolvedPreflight()
 {
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
@@ -962,28 +963,13 @@ void TestDubbingProject::automaticWorkflowLocksSettingsUntilPaused()
     DubbingController controller(nullptr, nullptr);
     QVERIFY(controller.newProject(dir.filePath(QStringLiteral("project.ladub.json"))));
     QVERIFY(controller.importMedia(mediaPath));
-    QVERIFY2(controller.automaticPreflight().value(QStringLiteral("ready")).toBool(),
-             qPrintable(controller.automaticPreflight().value(QStringLiteral("issues")).toString()));
-    QVERIFY(controller.approveAutomaticPreflight());
-    QVERIFY(controller.startAutomaticWorkflow(dir.filePath(QStringLiteral("dubbed.mp4"))));
-    QVERIFY(controller.automaticSetupActive());
-    QVERIFY(controller.processing());
-    QVERIFY(controller.settingsLocked());
-    QCOMPARE(controller.workflowMode(), QStringLiteral("automatic"));
-    QCOMPARE(controller.currentStepId(), QStringLiteral("import"));
-    for (const QVariant &value : controller.workflowNodes()) {
-        QVERIFY2(value.toMap().value(QStringLiteral("state")).toString()
-                     != QStringLiteral("running"),
-                 "Model preparation must not be presented as an executing workflow node");
-    }
-    QVERIFY(!controller.automaticEvents().isEmpty());
-
-    controller.pauseAutomaticWorkflow();
-    QVERIFY(!controller.automaticSetupActive());
+    QVERIFY(!controller.automaticPreflight().value(QStringLiteral("ready")).toBool());
+    QVERIFY(!controller.approveAutomaticPreflight());
+    QVERIFY(!controller.startAutomaticWorkflow(dir.filePath(QStringLiteral("dubbed.mp4"))));
     QVERIFY(!controller.processing());
     QVERIFY(!controller.settingsLocked());
-    QCOMPARE(controller.workflowMode(), QStringLiteral("paused"));
-    QVERIFY(controller.automaticStatusText().contains(QStringLiteral("Paused")));
+    QCOMPARE(controller.workflowMode(), QStringLiteral("idle"));
+    QVERIFY(controller.lastError().contains(QStringLiteral("Automatic preflight")));
 }
 
 void TestDubbingProject::dubbingEntryGatePersistsChoiceWithoutMutatingProject()
@@ -1036,7 +1022,7 @@ void TestDubbingProject::automaticPreflightUsesPersistedLanguageSingleSourceOfTr
     bool sawTranscribe = false;
     bool sawTranslate = false;
     bool sawTts = false;
-    for (const QVariant &entry : preflight.value(QStringLiteral("nodes")).toList()) {
+    for (const QVariant &entry : preflight.value(QStringLiteral("stages")).toList()) {
         const QVariantMap node = entry.toMap();
         const QString id = node.value(QStringLiteral("id")).toString();
         if (id == QStringLiteral("transcribe")) {
@@ -1044,11 +1030,11 @@ void TestDubbingProject::automaticPreflightUsesPersistedLanguageSingleSourceOfTr
             QCOMPARE(node.value(QStringLiteral("languageSummary")).toString(), QStringLiteral("zh"));
         } else if (id == QStringLiteral("translate")) {
             sawTranslate = true;
-            QCOMPARE(node.value(QStringLiteral("languageSummary")).toString(), QStringLiteral("zh â†’ vi"));
-        } else if (id == QStringLiteral("synthesize")) {
+            QCOMPARE(node.value(QStringLiteral("languageSummary")).toString(), QStringLiteral("zh -> vi"));
+        } else if (id == QStringLiteral("tts")) {
             sawTts = true;
             QCOMPARE(node.value(QStringLiteral("languageSummary")).toString(), QStringLiteral("vi"));
-        } else if (id == QStringLiteral("ingest") || id == QStringLiteral("source-separate")) {
+        } else if (id == QStringLiteral("normalize") || id == QStringLiteral("isolator")) {
             QVERIFY(!node.value(QStringLiteral("requiresLanguage")).toBool());
         }
     }
@@ -1062,8 +1048,8 @@ void TestDubbingProject::automaticPreflightUsesPersistedLanguageSingleSourceOfTr
     QVERIFY(media.write("video-placeholder") > 0);
     media.close();
     QVERIFY(controller.importMedia(mediaPath));
-    QVERIFY(controller.automaticPreflight().value(QStringLiteral("ready")).toBool());
-    QVERIFY(controller.approveAutomaticPreflight());
+    QVERIFY(!controller.automaticPreflight().value(QStringLiteral("ready")).toBool());
+    QVERIFY(!controller.approveAutomaticPreflight());
     controller.setSourceLanguage(QStringLiteral("ja"));
     QVERIFY(!controller.startAutomaticWorkflow(dir.filePath(QStringLiteral("dubbed.mp4"))));
     QVERIFY(controller.lastError().contains(QStringLiteral("Review Automatic preflight")));
@@ -1088,23 +1074,23 @@ void TestDubbingProject::automaticPreflightExposesActionableSourceAndStageStates
 
     bool sawMediaNeedsInput = false;
     bool sawDownstreamReason = false;
-    for (const QVariant &entry : missing.value(QStringLiteral("nodes")).toList()) {
+    for (const QVariant &entry : missing.value(QStringLiteral("stages")).toList()) {
         const QVariantMap node = entry.toMap();
         const QString id = node.value(QStringLiteral("id")).toString();
-        if (id == QStringLiteral("media-input")) {
+        if (id == QStringLiteral("import")) {
             sawMediaNeedsInput = true;
             QCOMPARE(node.value(QStringLiteral("preflightState")).toString(),
                      QStringLiteral("needs-input"));
             QCOMPARE(node.value(QStringLiteral("setupAction")).toString(),
                      QStringLiteral("source"));
-        } else if (id == QStringLiteral("ingest")) {
+        } else if (id == QStringLiteral("normalize")) {
             sawDownstreamReason = true;
             QCOMPARE(node.value(QStringLiteral("preflightState")).toString(),
                      QStringLiteral("blocked-previous"));
             QCOMPARE(node.value(QStringLiteral("setupAction")).toString(),
-                     QStringLiteral("none"));
+                     QStringLiteral("normalize"));
             QVERIFY(node.value(QStringLiteral("setupHint")).toString().contains(
-                QStringLiteral("Normalize")));
+                QStringLiteral("preprocessing")));
         }
     }
     QVERIFY(sawMediaNeedsInput);
@@ -1124,24 +1110,24 @@ void TestDubbingProject::automaticPreflightFixTargetsAndNoOpConfigurationsAreExp
     DubbingController controller(nullptr, nullptr);
     const QVariantMap preflight = controller.automaticPreflight();
     QHash<QString, QVariantMap> nodes;
-    for (const QVariant &entry : preflight.value(QStringLiteral("nodes")).toList()) {
+    for (const QVariant &entry : preflight.value(QStringLiteral("stages")).toList()) {
         const QVariantMap node = entry.toMap();
         nodes.insert(node.value(QStringLiteral("id")).toString(), node);
     }
-    QCOMPARE(nodes.value(QStringLiteral("source-separate")).value(QStringLiteral("setupAction")).toString(),
+    QCOMPARE(nodes.value(QStringLiteral("isolator")).value(QStringLiteral("setupAction")).toString(),
              QStringLiteral("node-model"));
     QCOMPARE(nodes.value(QStringLiteral("transcribe")).value(QStringLiteral("setupAction")).toString(),
              QStringLiteral("node-model"));
     QCOMPARE(nodes.value(QStringLiteral("translate")).value(QStringLiteral("setupAction")).toString(),
              QStringLiteral("node-model"));
-    QCOMPARE(nodes.value(QStringLiteral("synthesize")).value(QStringLiteral("setupAction")).toString(),
+    QCOMPARE(nodes.value(QStringLiteral("tts")).value(QStringLiteral("setupAction")).toString(),
              QStringLiteral("node-model"));
-    QCOMPARE(nodes.value(QStringLiteral("review-transcript")).value(QStringLiteral("setupAction")).toString(),
-             QStringLiteral("subtitle"));
+    QCOMPARE(nodes.value(QStringLiteral("alignment-subtitle")).value(QStringLiteral("setupAction")).toString(),
+             QStringLiteral("alignment"));
     QCOMPARE(nodes.value(QStringLiteral("export")).value(QStringLiteral("setupAction")).toString(),
              QStringLiteral("export"));
-    QVERIFY(nodes.value(QStringLiteral("review-translation")).value(
-        QStringLiteral("setupHint")).toString().contains(QStringLiteral("No configuration required")));
+    QVERIFY(nodes.value(QStringLiteral("normalize")).value(
+        QStringLiteral("configurationSummary")).toString().contains(QStringLiteral("no model required")));
 
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
@@ -1159,6 +1145,85 @@ void TestDubbingProject::automaticPreflightFixTargetsAndNoOpConfigurationsAreExp
         }
     }
     QVERIFY(sawColabIssue);
+}
+
+void TestDubbingProject::automaticPreflightReadinessMatrixRejectsFalseReadyStates()
+{
+    const auto stageFor = [](const QVariantMap &preflight, const QString &id) {
+        for (const QVariant &entry : preflight.value(QStringLiteral("stages")).toList()) {
+            const QVariantMap stage = entry.toMap();
+            if (stage.value(QStringLiteral("id")).toString() == id) return stage;
+        }
+        return QVariantMap{};
+    };
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString mediaPath = dir.filePath(QStringLiteral("source.wav"));
+    QVERIFY(writeFixtureFile(mediaPath, QByteArrayLiteral("audio fixture")));
+    DubbingController controller(nullptr, nullptr);
+    QVERIFY(controller.newProject(dir.filePath(QStringLiteral("matrix.ladub.json"))));
+
+    QVariantMap preflight = controller.automaticPreflight();
+    QCOMPARE(stageFor(preflight, QStringLiteral("normalize"))
+                 .value(QStringLiteral("preflightState")).toString(),
+             QStringLiteral("blocked-previous"));
+    QCOMPARE(stageFor(preflight, QStringLiteral("isolator"))
+                 .value(QStringLiteral("preflightState")).toString(),
+             QStringLiteral("blocked-previous"));
+
+    QVERIFY(controller.importMedia(mediaPath));
+    preflight = controller.automaticPreflight();
+    const QVariantMap normalize = stageFor(preflight, QStringLiteral("normalize"));
+    QCOMPARE(normalize.value(QStringLiteral("preflightState")).toString(), QStringLiteral("ready"));
+    QVERIFY(!normalize.value(QStringLiteral("modelRequired")).toBool());
+    QCOMPARE(stageFor(preflight, QStringLiteral("isolator"))
+                 .value(QStringLiteral("preflightState")).toString(),
+             QStringLiteral("needs-setup"));
+
+    const QString localFamily = QStringLiteral("sherpa-onnx-spleeter-2stems-fp16");
+    const QString localRuntime = QStringLiteral("sherpa-onnx-win-x86_64-cpu");
+    QVERIFY(controller.setWorkflowNodeParameters(QStringLiteral("source-separate"), {
+        {QStringLiteral("executionProvider"), QStringLiteral("local-dev")},
+        {QStringLiteral("modelId"), localFamily}
+    }));
+    QCOMPARE(stageFor(controller.automaticPreflight(), QStringLiteral("isolator"))
+                 .value(QStringLiteral("preflightState")).toString(),
+             QStringLiteral("needs-setup"));
+    QVERIFY(controller.setWorkflowNodeModel(QStringLiteral("source-separate"), localFamily,
+                                            localRuntime, QStringLiteral("v1.13.4")));
+    QCOMPARE(stageFor(controller.automaticPreflight(), QStringLiteral("isolator"))
+                 .value(QStringLiteral("preflightState")).toString(),
+             QStringLiteral("ready"));
+
+    const QString colabModel = QStringLiteral("sherpa-onnx-spleeter-2stems-fp16");
+    QVERIFY(controller.setWorkflowNodeParameters(QStringLiteral("source-separate"), {
+        {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+        {QStringLiteral("modelId"), colabModel}
+    }));
+    QCOMPARE(stageFor(controller.automaticPreflight(), QStringLiteral("isolator"))
+                 .value(QStringLiteral("preflightState")).toString(),
+             QStringLiteral("needs-worker"));
+
+    ExactRouteWorkerMock worker(QStringLiteral("voice-isolation"), colabModel);
+    QVERIFY(worker.start());
+    AppController *app = AppController::instance();
+    QVERIFY(app && app->colabSeparationSession());
+    QString routeError;
+    QVERIFY2(app->colabSeparationSession()->beginVerifiedSession(
+        worker.workerUrl(), QStringLiteral("test-token"), QStringLiteral("voice-isolation"),
+        colabModel, &routeError, true), qPrintable(routeError));
+    // beginVerifiedSession starts the network health check.  Do not mistake a
+    // successfully submitted check for a verified route: preflight must only
+    // become Ready after the exact capability/model response is received.
+    QTRY_VERIFY(app->colabSeparationSession()->hasVerifiedRoute(
+        QStringLiteral("voice-isolation"), colabModel, &routeError));
+    preflight = controller.automaticPreflight();
+    QCOMPARE(stageFor(preflight, QStringLiteral("isolator"))
+                 .value(QStringLiteral("preflightState")).toString(),
+             QStringLiteral("ready"));
+    QCOMPARE(preflight.value(QStringLiteral("selectedWorkers")).toList().size(), 1);
+    app->colabSeparationSession()->disconnectTemporaryWorker();
 }
 
 void TestDubbingProject::automaticWorkflowRequiresFreshPreflightApproval()
@@ -1179,7 +1244,7 @@ void TestDubbingProject::automaticWorkflowRequiresFreshPreflightApproval()
     QVERIFY(!controller.startAutomaticWorkflow(output));
     QVERIFY(controller.lastError().contains(QStringLiteral("Automatic preflight")));
 
-    QVERIFY(controller.approveAutomaticPreflight());
+    QVERIFY(!controller.approveAutomaticPreflight());
     QVERIFY(controller.setWorkflowNodeParameters(QStringLiteral("translate"), {
         {QStringLiteral("executionProvider"), QStringLiteral("api-gateway")},
         {QStringLiteral("modelId"), QStringLiteral("review-model")}
@@ -1187,9 +1252,8 @@ void TestDubbingProject::automaticWorkflowRequiresFreshPreflightApproval()
     QVERIFY(!controller.startAutomaticWorkflow(output));
     QVERIFY(controller.lastError().contains(QStringLiteral("Automatic preflight")));
 
-    QVERIFY(controller.approveAutomaticPreflight());
-    QVERIFY(controller.startAutomaticWorkflow(output));
-    controller.pauseAutomaticWorkflow();
+    QVERIFY(!controller.approveAutomaticPreflight());
+    QVERIFY(!controller.startAutomaticWorkflow(output));
 }
 
 void TestDubbingProject::customWorkflowOpensFirstMissingNodeSetup()
@@ -1210,7 +1274,7 @@ void TestDubbingProject::customWorkflowOpensFirstMissingNodeSetup()
     const QVariantMap preflight = controller.automaticPreflight();
     QVERIFY(!preflight.value(QStringLiteral("ready")).toBool());
     QVERIFY(preflight.value(QStringLiteral("issues")).toList().constFirst().toMap()
-                .value(QStringLiteral("message")).toString().contains(QStringLiteral("Custom")));
+                .value(QStringLiteral("message")).toString().contains(QStringLiteral("Configure")));
     QSignalSpy setupSpy(&controller, &DubbingController::workflowSetupRequired);
     QVERIFY(!controller.startAutomaticWorkflow(
         dir.filePath(QStringLiteral("dubbed.mp4"))));
@@ -1241,7 +1305,7 @@ void TestDubbingProject::qualityModesExposeExpectedDefaultVoiceModel()
              QStringLiteral("omnivoice"));
 }
 
-void TestDubbingProject::standardModesResetNodeModelsOnOpen()
+void TestDubbingProject::standardModesPreserveExplicitNodeModelsOnOpen()
 {
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
@@ -1259,8 +1323,10 @@ void TestDubbingProject::standardModesResetNodeModelsOnOpen()
 
     DubbingController controller(nullptr, nullptr);
     QVERIFY(controller.openProject(adaptive.projectPath));
-    QVERIFY(controller.workflowNodeConfigurations().isEmpty());
-    QVERIFY(!controller.adaptiveReady());
+    QCOMPARE(controller.workflowNodeConfigurations()
+                 .value(QStringLiteral("synthesize")).toMap()
+                 .value(QStringLiteral("familyId")).toString(),
+             QStringLiteral("manually-selected"));
 
     DubbingProject custom = adaptive;
     custom.projectPath = dir.filePath(QStringLiteral("custom.ladub.json"));
@@ -1291,21 +1357,20 @@ void TestDubbingProject::sourceSeparationExposesModelSelection()
              QStringLiteral("voice-isolation"));
 }
 
-void TestDubbingProject::workflowStagesExposeNineProductionBackedSteps()
+void TestDubbingProject::workflowStagesExposeEightProductionBackedSteps()
 {
     DubbingController controller(nullptr, nullptr);
     const QVariantList stages = controller.workflowStages();
-    QCOMPARE(stages.size(), 9);
+    QCOMPARE(stages.size(), 8);
     const QStringList expectedIds{
         QStringLiteral("import"), QStringLiteral("normalize"), QStringLiteral("isolator"),
         QStringLiteral("transcribe"), QStringLiteral("alignment-subtitle"),
-        QStringLiteral("translate"), QStringLiteral("tts"), QStringLiteral("timing-mix"),
-        QStringLiteral("export")};
+        QStringLiteral("translate"), QStringLiteral("tts"), QStringLiteral("export")};
     const QStringList expectedTitles{
         QStringLiteral("Import/Download"), QStringLiteral("Normalize"), QStringLiteral("Isolator"),
         QStringLiteral("Transcribe/STT"), QStringLiteral("Alignment/Subtitle"),
-        QStringLiteral("Translate"), QStringLiteral("TTS"), QStringLiteral("Timing/Mix"),
-        QStringLiteral("Export/Output")};
+        QStringLiteral("Translate"), QStringLiteral("TTS"), QStringLiteral("Export/Output")};
+    QSet<QString> productionNodes;
     for (int index = 0; index < stages.size(); ++index) {
         const QVariantMap stage = stages.at(index).toMap();
         QCOMPARE(stage.value(QStringLiteral("id")).toString(), expectedIds.at(index));
@@ -1313,14 +1378,19 @@ void TestDubbingProject::workflowStagesExposeNineProductionBackedSteps()
         QVERIFY2(!stage.value(QStringLiteral("productionNodeIds")).toList().isEmpty(),
                  "Every presentation stage must remain backed by a production node.");
         QVERIFY(!stage.value(QStringLiteral("actionNodeId")).toString().isEmpty());
+        for (const QVariant &node : stage.value(QStringLiteral("productionNodeIds")).toList())
+            QVERIFY2(!productionNodes.contains(node.toString()), "A production node may have only one presentation parent.");
+        for (const QVariant &node : stage.value(QStringLiteral("productionNodeIds")).toList())
+            productionNodes.insert(node.toString());
     }
+    QCOMPARE(productionNodes.size(), controller.workflowNodes().size());
     const QVariantMap alignment = stages.at(4).toMap();
     QVERIFY(alignment.value(QStringLiteral("productionNodeIds")).toList()
                 .contains(QStringLiteral("review-transcript")));
-    const QVariantMap timing = stages.at(7).toMap();
-    QVERIFY(timing.value(QStringLiteral("productionNodeIds")).toList()
+    QVERIFY(alignment.value(QStringLiteral("productionNodeIds")).toList()
                 .contains(QStringLiteral("fit-timing")));
-    QVERIFY(timing.value(QStringLiteral("productionNodeIds")).toList()
+    const QVariantMap exportStage = stages.at(7).toMap();
+    QVERIFY(exportStage.value(QStringLiteral("productionNodeIds")).toList()
                 .contains(QStringLiteral("mix")));
 }
 
@@ -1734,7 +1804,9 @@ void TestDubbingProject::dubbingUiUsesExactModelWorkers()
     QVERIFY(automaticPreflightSource.contains(QStringLiteral("Colab workers")));
     QVERIFY(automaticPreflightSource.contains(QStringLiteral("Start Automatic Dubbing")));
     QVERIFY(automaticPreflightSource.contains(QStringLiteral("approveAutomaticPreflight")));
-    QVERIFY(automaticPreflightSource.contains(QStringLiteral("fixed notebook configuration")));
+    QVERIFY(automaticPreflightSource.contains(QStringLiteral("fixed notebook config")));
+    QVERIFY(automaticPreflightSource.contains(QStringLiteral("preflight.stages")));
+    QVERIFY(!automaticPreflightSource.contains(QStringLiteral("workflow default")));
     QVERIFY(automaticPreflightSource.contains(QStringLiteral("required property int index")));
 
     QFile dubbingController(
@@ -1847,10 +1919,14 @@ void TestDubbingProject::dubbingEntryAndAutomaticSetupCannotBypassConfiguration(
     QVERIFY(wizard.contains(QStringLiteral("function advanceFromCurrentPage()")));
     QVERIFY(wizard.contains(QStringLiteral("sourceLanguageBox.forceActiveFocus()")));
     QVERIFY(wizard.contains(QStringLiteral("targetLanguageBox.forceActiveFocus()")));
-    QVERIFY(wizard.contains(QStringLiteral("Variant: %1")));
+    QVERIFY(wizard.contains(QStringLiteral("configurationSummary")));
+    QVERIFY(wizard.contains(QStringLiteral("preflight.stages")));
+    QVERIFY(wizard.contains(QStringLiteral("routeSetupDialog")));
+    QVERIFY(wizard.contains(QStringLiteral("preflightModelDialog")));
     QVERIFY(wizard.contains(QStringLiteral("visible: (root.preflight.selectedWorkers || []).length > 0")));
     QVERIFY(wizard.contains(QStringLiteral("Reviewed stage configuration")));
     QVERIFY(wizard.contains(QStringLiteral("modelData.detail ||")));
+    QVERIFY(!wizard.contains(QStringLiteral("workflow default")));
     QVERIFY(!wizard.contains(QStringLiteral("CloseOnEscape")));
 
     QFile page(QStringLiteral(LASTUDIO_SOURCE_DIR) + QStringLiteral("/qml/pages/DubbingPage.qml"));

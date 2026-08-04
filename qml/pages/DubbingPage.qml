@@ -103,7 +103,8 @@ Item {
         if (stepId === "review-transcript" || stepId === "alignment-subtitle") return qsTr("Alignment/Subtitle")
         if (stepId === "translate") return qsTr("Translate")
         if (stepId === "synthesize") return qsTr("TTS")
-        if (stepId === "fit-timing" || stepId === "review-conflicts" || stepId === "mix" || stepId === "timing-mix") return qsTr("Timing/Mix")
+        if (stepId === "fit-timing" || stepId === "review-conflicts") return qsTr("Alignment/Subtitle")
+        if (stepId === "mix") return qsTr("Export/Output")
         if (stepId === "export") return qsTr("Export/Output")
         return qsTr("Completed")
     }
@@ -111,23 +112,6 @@ Item {
     function acceptSelectedSourceMedia(urlOrPath) {
         var path = AppController.files.urlToLocalPath(String(urlOrPath))
         return dubbing.importMedia(path)
-    }
-
-    function openAutomaticStageSetup(action, nodeId) {
-        if (action === "node-model") {
-            nodeModelDialog.openFor(nodeId)
-            return
-        }
-        if (action === "subtitle") {
-            subtitleEditorDialog.open()
-            return
-        }
-        if (action === "export") {
-            exportOptionsDialog.open()
-            return
-        }
-        if (action === "source")
-            automaticPreflightDialog.currentPage = 0
     }
 
     function stageIdForNode(nodeId) {
@@ -138,7 +122,8 @@ Item {
         if (nodeId === "review-transcript" || nodeId === "alignment-subtitle") return "alignment-subtitle"
         if (nodeId === "translate" || nodeId === "review-translation") return "translate"
         if (nodeId === "assign-voices" || nodeId === "synthesize") return "tts"
-        if (nodeId === "fit-timing" || nodeId === "review-conflicts" || nodeId === "mix" || nodeId === "timing-mix") return "timing-mix"
+        if (nodeId === "fit-timing" || nodeId === "review-conflicts") return "alignment-subtitle"
+        if (nodeId === "mix") return "export"
         if (nodeId === "export") return "export"
         return nodeId
     }
@@ -319,12 +304,30 @@ Item {
         qmlSmokeTranscriptSourceFailure = ""
     }
 
+    // Keep the interaction trace evidence-based: it records the exact
+    // presentation-stage route, model and worker-card count before and after
+    // a route change, rather than merely recording that a control was clicked.
+    function qmlSmokeAutomaticRouteState() {
+        var stages = automaticPreflightDialog.preflight.stages || []
+        var stateFor = function(stageId) {
+            for (var index = 0; index < stages.length; ++index) {
+                if (stages[index].id === stageId)
+                    return (stages[index].route || "Not selected") + "/"
+                            + (stages[index].modelId || "No model")
+            }
+            return "missing"
+        }
+        return "isolator=" + stateFor("isolator")
+                + ";translate=" + stateFor("translate")
+                + ";workers=" + (automaticPreflightDialog.preflight.selectedWorkers || []).length
+    }
+
     // Production-shell offscreen interaction contract.  Every transition here
     // is initiated by the actual QML control's click() method; only the native
     // file-picker result is injected at its explicit picker boundary.
     function qmlSmokeAutomaticPreflightCheck() {
-        var configuredStages = ["media-input", "source-separate", "transcribe",
-                                "review-transcript", "translate", "synthesize", "export"]
+        var configuredStages = ["import", "normalize", "isolator", "transcribe",
+                                "alignment-subtitle", "translate", "tts", "export"]
         if (qmlSmokeAutomaticPhase === 0) {
             if (!dubbingEntryGate.visible) {
                 qmlSmokeTranscriptSourceFailure = "Dubbing entry gate did not block the workspace"
@@ -403,10 +406,27 @@ Item {
                 return -1
             }
             if (qmlSmokeAutomaticStageIndex >= configuredStages.length) {
-                automaticPreflightDialog.qmlSmokeClickNext()
-                ApplicationWindow.window.recordQmlSmokeDubbing("dubbingPreflightNextButton", "click",
-                                                                "stages", "colab-workers")
-                qmlSmokeAutomaticPhase = 6
+                var localRouteState = qmlSmokeAutomaticRouteState()
+                if (!dubbing.setWorkflowNodeParameters("source-separate", {
+                    executionProvider: "colab-direct",
+                    modelId: dubbing.defaultColabModelForNode("source-separate")
+                }) || !dubbing.setWorkflowNodeParameters("translate", {
+                    executionProvider: "colab-direct",
+                    modelId: dubbing.defaultColabModelForNode("translate")
+                })) {
+                    qmlSmokeTranscriptSourceFailure = "Could not select two Direct Colab stages for preflight worker-card smoke"
+                    return -1
+                }
+                var directRouteState = qmlSmokeAutomaticRouteState()
+                if (directRouteState.indexOf("isolator=Direct Colab/") < 0
+                        || directRouteState.indexOf("translate=Direct Colab/") < 0
+                        || directRouteState.indexOf("workers=2") < 0) {
+                    qmlSmokeTranscriptSourceFailure = "Direct Colab selection did not update exact route/model/worker state: " + directRouteState
+                    return -1
+                }
+                ApplicationWindow.window.recordQmlSmokeDubbing("dubbingPreflightDirectColabSelection", "apply",
+                                                                localRouteState, directRouteState)
+                qmlSmokeAutomaticPhase = 51
                 return 0
             }
             var stageId = configuredStages[qmlSmokeAutomaticStageIndex]
@@ -419,32 +439,58 @@ Item {
             qmlSmokeAutomaticPhase = 5
             return 0
         }
+        if (qmlSmokeAutomaticPhase === 51) {
+            if ((automaticPreflightDialog.preflight.selectedWorkers || []).length !== 2) {
+                qmlSmokeTranscriptSourceFailure = "Direct Colab preflight did not show exactly the two selected worker cards"
+                return -1
+            }
+            var verifiedDirectRouteState = qmlSmokeAutomaticRouteState()
+            if (!dubbing.setWorkflowNodeParameters("source-separate", { executionProvider: "local-dev" })
+                    || !dubbing.setWorkflowNodeParameters("translate", { executionProvider: "local-dev" })) {
+                qmlSmokeTranscriptSourceFailure = "Could not switch Direct Colab smoke stages back to Local"
+                return -1
+            }
+            var restoredLocalRouteState = qmlSmokeAutomaticRouteState()
+            if (restoredLocalRouteState.indexOf("isolator=Local/") < 0
+                    || restoredLocalRouteState.indexOf("translate=Local/") < 0
+                    || restoredLocalRouteState.indexOf("workers=0") < 0) {
+                qmlSmokeTranscriptSourceFailure = "Local route did not clear Direct Colab worker state: " + restoredLocalRouteState
+                return -1
+            }
+            ApplicationWindow.window.recordQmlSmokeDubbing("dubbingPreflightLocalRouteRestore", "apply",
+                                                            verifiedDirectRouteState, restoredLocalRouteState)
+            qmlSmokeAutomaticPhase = 52
+            return 0
+        }
+        if (qmlSmokeAutomaticPhase === 52) {
+            if ((automaticPreflightDialog.preflight.selectedWorkers || []).length !== 0) {
+                qmlSmokeTranscriptSourceFailure = "Local route still exposed Direct Colab worker cards"
+                return -1
+            }
+                automaticPreflightDialog.qmlSmokeClickNext()
+                ApplicationWindow.window.recordQmlSmokeDubbing("dubbingPreflightNextButton", "click",
+                                                                "stages", "colab-workers")
+                qmlSmokeAutomaticPhase = 6
+                return 0
+            }
         if (qmlSmokeAutomaticPhase === 5) {
             var stageId = configuredStages[qmlSmokeAutomaticStageIndex]
-            if (stageId === "media-input") {
-                if (automaticPreflightDialog.currentPage !== 0) {
+            if (stageId === "import") {
+                if (!automaticPreflightDialog.visible || automaticPreflightDialog.currentPage !== 0) {
                     qmlSmokeTranscriptSourceFailure = "Import/Download Configure did not return to Source & language"
                     return -1
                 }
                 automaticPreflightDialog.currentPage = 1
-            } else if (stageId === "review-transcript") {
-                if (!subtitleEditorDialog.visible) {
-                    qmlSmokeTranscriptSourceFailure = "Alignment/Subtitle Configure did not open the subtitle editor"
-                    return -1
-                }
-                subtitleEditorDialog.close()
-            } else if (stageId === "export") {
-                if (!exportOptionsDialog.visible) {
-                    qmlSmokeTranscriptSourceFailure = "Export Configure did not open export options"
-                    return -1
-                }
-                exportOptionsDialog.close()
             } else {
-                if (!nodeModelDialog.visible) {
-                    qmlSmokeTranscriptSourceFailure = "Model Configure did not open the production model dialog for " + stageId
+                if (!automaticPreflightDialog.visible || automaticPreflightDialog.currentPage !== 1) {
+                    qmlSmokeTranscriptSourceFailure = "Configure hid or moved Automatic preflight for " + stageId
                     return -1
                 }
-                nodeModelDialog.close()
+                if (!automaticPreflightDialog.qmlSmokeStageSetupVisible()) {
+                    qmlSmokeTranscriptSourceFailure = "Configure did not open a preflight-owned setup dialog for " + stageId
+                    return -1
+                }
+                automaticPreflightDialog.qmlSmokeDismissStageSetup()
             }
             ++qmlSmokeAutomaticStageIndex
             qmlSmokeAutomaticPhase = 4
@@ -662,7 +708,6 @@ Item {
                 { stepId: "alignment-subtitle", title: qsTr("Alignment/Subtitle"), iconName: "alignment", complete: (root.workflowStage("alignment-subtitle") || {}).state === "completed", active: root.stageIdForNode(root.dubbing.currentStepId) === "alignment-subtitle" },
                 { stepId: "translate", title: qsTr("Translate"), iconName: "translate", complete: (root.workflowStage("translate") || {}).state === "completed", active: root.stageIdForNode(root.dubbing.currentStepId) === "translate" },
                 { stepId: "tts", title: qsTr("TTS"), iconName: "volume", complete: (root.workflowStage("tts") || {}).state === "completed", active: root.stageIdForNode(root.dubbing.currentStepId) === "tts" },
-                { stepId: "timing-mix", title: qsTr("Timing/Mix"), iconName: "clock", complete: (root.workflowStage("timing-mix") || {}).state === "completed", active: root.stageIdForNode(root.dubbing.currentStepId) === "timing-mix" },
                 { stepId: "export", title: qsTr("Export/Output"), iconName: "download", complete: (root.workflowStage("export") || {}).state === "completed", active: root.stageIdForNode(root.dubbing.currentStepId) === "export" }
             ]
             statusText: root.dubbing.processing
@@ -1482,8 +1527,6 @@ Item {
             mediaFileDialog.open()
         }
         onSourceLinkImportRequested: function(url) { dubbing.importMediaFromLink(url) }
-        onStageSetupRequested: function(action, nodeId) { root.openAutomaticStageSetup(action, nodeId) }
-        onColabSetupRequested: dubbingColabSetupDialog.open()
     }
 
     DubbingTranslationFixDialog {
@@ -1643,7 +1686,7 @@ Item {
         allowIncompleteRun: dubbing.dubbingQuality === "custom"
         busy: dubbing.processing; progress: dubbing.progress / 100.0; progressAvailable: dubbing.progressAvailable; dialogTitle: qsTr("Dubbing workflow")
         reviewWaiting: dubbing.workflowWaitingForInput
-        description: qsTr("Review the production-backed import, normalize, isolator, transcript, subtitle, translation, TTS, timing/mix, and export stages.")
+        description: qsTr("Review the eight production-backed stages: import, normalize, isolator, transcribe, alignment/subtitle, translate, TTS, and export/output.")
         onPrepareRequested: dubbing.prepareWorkflow()
         onRunRequested: automaticPreflightDialog.openPreflight()
         onApproveRequested: dubbing.approveWorkflowReview()

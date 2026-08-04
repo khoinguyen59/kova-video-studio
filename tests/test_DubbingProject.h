@@ -18,13 +18,14 @@ private slots:
     void automaticPreflightUsesPersistedLanguageSingleSourceOfTruth();
     void automaticPreflightExposesActionableSourceAndStageStates();
     void automaticPreflightFixTargetsAndNoOpConfigurationsAreExplicit();
-    void automaticWorkflowLocksSettingsUntilPaused();
+    void automaticPreflightReadinessMatrixRejectsFalseReadyStates();
+    void automaticWorkflowDoesNotStartWithUnresolvedPreflight();
     void automaticWorkflowRequiresFreshPreflightApproval();
     void customWorkflowOpensFirstMissingNodeSetup();
     void qualityModesExposeExpectedDefaultVoiceModel();
-    void standardModesResetNodeModelsOnOpen();
+    void standardModesPreserveExplicitNodeModelsOnOpen();
     void sourceSeparationExposesModelSelection();
-    void workflowStagesExposeNineProductionBackedSteps();
+    void workflowStagesExposeEightProductionBackedSteps();
     void targetLanguageUpdatesVoiceNodeLanguage();
     void rejectsRerunningUnsupportedStep();
     void transcriptionRequiresReadyModel();

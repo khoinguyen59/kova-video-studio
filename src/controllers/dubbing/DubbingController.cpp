@@ -1657,7 +1657,8 @@ QVariantList DubbingController::workflowNodes() const
             if (id == QStringLiteral("review-transcript")) return QStringLiteral("Alignment/Subtitle");
             if (id == QStringLiteral("translate") || id == QStringLiteral("review-translation")) return QStringLiteral("Translate");
             if (id == QStringLiteral("assign-voices") || id == QStringLiteral("synthesize")) return QStringLiteral("TTS");
-            if (id == QStringLiteral("fit-timing") || id == QStringLiteral("review-conflicts") || id == QStringLiteral("mix")) return QStringLiteral("Timing/Mix");
+            if (id == QStringLiteral("fit-timing") || id == QStringLiteral("review-conflicts")) return QStringLiteral("Alignment/Subtitle");
+            if (id == QStringLiteral("mix")) return QStringLiteral("Export/Output");
             return QStringLiteral("Export/Output");
         };
         const QString displayTitle = stageTitleForNode(definition.id);
@@ -1822,20 +1823,18 @@ QVariantList DubbingController::workflowStages() const
          "Create timed text from STT, Subtitle OCR, or the reviewed STT + OCR mode.",
          {QStringLiteral("transcribe")}},
         {"alignment-subtitle", "Alignment/Subtitle", "review-transcript",
-         "Review timed transcript and subtitle data; open subtitle editor or Alignment configuration before translation.",
-         {QStringLiteral("review-transcript")}},
+         "Review timed transcript/subtitle data and configure timing resolution before translation.",
+         {QStringLiteral("review-transcript"), QStringLiteral("fit-timing"),
+          QStringLiteral("review-conflicts")}},
         {"translate", "Translate", "translate",
          "Translate the reviewed timed transcript.",
          {QStringLiteral("translate"), QStringLiteral("review-translation")}},
         {"tts", "TTS", "synthesize",
          "Assign a voice and synthesize the translated segments.",
          {QStringLiteral("assign-voices"), QStringLiteral("synthesize")}},
-        {"timing-mix", "Timing/Mix", "mix",
-         "Fit speech timing, resolve timing conflicts, and mix Vocals with Background.",
-         {QStringLiteral("fit-timing"), QStringLiteral("review-conflicts"), QStringLiteral("mix")}},
         {"export", "Export/Output", "export",
-         "Export dubbed media, subtitles, a package, or a CapCut Draft.",
-         {QStringLiteral("export")}}
+         "Mix/render the verified dub and export media, subtitles, a package, or a CapCut Draft.",
+         {QStringLiteral("mix"), QStringLiteral("export")}}
     };
 
     const QHash<QString, int> priority{
@@ -2101,10 +2100,9 @@ bool DubbingController::configureWorkflowNodeModel(const QString &nodeId,
                           {QStringLiteral("studioConfig"),
                            family.value(QStringLiteral("studio")).toMap().value(capabilityId)}};
     m_workflowNodeConfigurations.insert(nodeId, selected);
-    if (m_project.dubbingQuality == QStringLiteral("custom"))
-        m_project.workflowNodeConfigurations = m_workflowNodeConfigurations;
-    else
-        m_project.workflowNodeConfigurations.clear();
+    // A route/model selected by the user is a durable preflight contract in
+    // every quality mode; a template default must not replace it on reopen.
+    m_project.workflowNodeConfigurations = m_workflowNodeConfigurations;
     if (loadSession) {
         unloadConflictingDubbingRuntime(app->sessionRegistry(), capabilityId);
         if (IModelSession *session = app->sessionRegistry()->sessionForCapability(capabilityId)) {
@@ -2245,10 +2243,9 @@ bool DubbingController::setWorkflowNodeParameters(const QString &nodeId, const Q
     }
     selected.insert(QStringLiteral("parameters"), current);
     m_workflowNodeConfigurations.insert(nodeId, selected);
-    if (m_project.dubbingQuality == QStringLiteral("custom"))
-        m_project.workflowNodeConfigurations = m_workflowNodeConfigurations;
-    else
-        m_project.workflowNodeConfigurations.clear();
+    // A route/model selected by the user is a durable preflight contract in
+    // every quality mode; a template default must not replace it on reopen.
+    m_project.workflowNodeConfigurations = m_workflowNodeConfigurations;
     persistAfterEdit();
     if (nodeId == QStringLiteral("synthesize")) {
         refreshCloneVoicePresets();
@@ -2284,7 +2281,9 @@ QVariantMap DubbingController::automaticPreflight() const
                                   {QStringLiteral("focus"), focus}});
     };
 
-    if (m_project.sourceMediaPath.trimmed().isEmpty())
+    const bool hasMedia = !m_project.sourceMediaPath.trimmed().isEmpty()
+        && QFileInfo(m_project.sourceMediaPath).isFile();
+    if (!hasMedia)
         addIssue(QStringLiteral("source-media"),
                  QStringLiteral("Import source media before starting Automatic dubbing."), 0,
                  QStringLiteral("source-media"));
@@ -2302,47 +2301,39 @@ QVariantMap DubbingController::automaticPreflight() const
         addIssue(QStringLiteral("workflow-graph"),
                  QStringLiteral("The default Dubbing workflow definition is invalid."));
 
-    if (m_project.dubbingQuality == QStringLiteral("custom")) {
-        const QVariantMap issue = firstCustomSetupIssue();
-        if (!issue.isEmpty()) {
-            addIssue(issue.value(QStringLiteral("nodeId")).toString(),
-                     issue.value(QStringLiteral("message")).toString(), 1);
-        }
-        if (!cloneVoiceSelectionValid())
-            addIssue(QStringLiteral("tts-voice"), cloneVoiceSelectionError());
-    } else if (!m_project.ttsVoiceId.trimmed().isEmpty() && !cloneVoiceSelectionValid()) {
+    if (!m_project.ttsVoiceId.trimmed().isEmpty() && !cloneVoiceSelectionValid()) {
         addIssue(QStringLiteral("tts-voice"), cloneVoiceSelectionError());
     }
 
-    QVariantList selectedWorkers;
+    // Sessions are keyed by production node id. The aggregate stage loop
+    // below maps each selected worker to one presentation stage exactly once.
+    QHash<QString, QVariantMap> directWorkers;
     for (const QVariant &value : colabSetupStages()) {
         const QVariantMap stage = value.toMap();
         if (!stage.value(QStringLiteral("selectedForDirectColab")).toBool()
             || !stage.value(QStringLiteral("activeForTranscriptSource"), true).toBool()) {
             continue;
         }
-        selectedWorkers.append(stage);
-        if (!stage.value(QStringLiteral("verified")).toBool()) {
-            addIssue(QStringLiteral("colab-") + stage.value(QStringLiteral("id")).toString(),
-                     QStringLiteral("Check the Direct Colab worker for %1 (%2).")
-                         .arg(stage.value(QStringLiteral("title")).toString(),
-                              stage.value(QStringLiteral("modelId")).toString()), 2);
-        }
+        directWorkers.insert(stage.value(QStringLiteral("id")).toString(), stage);
     }
 
-    QVariantList nodes;
-    for (const QVariant &value : workflowNodes()) {
-        const QVariantMap node = value.toMap();
-        const QString nodeId = node.value(QStringLiteral("id")).toString();
+    QVariantList aggregateStages;
+    QVariantList selectedWorkers;
+    for (const QVariant &value : workflowStages()) {
+        const QVariantMap stage = value.toMap();
+        const QString stageId = stage.value(QStringLiteral("id")).toString();
+        const QString nodeId = stage.value(QStringLiteral("actionNodeId")).toString();
         QVariantMap configuration = m_workflowNodeConfigurations.value(nodeId).toMap();
         const QVariantMap parameters = configuration.value(QStringLiteral("parameters")).toMap();
         const QString providerId = configuration.value(
             QStringLiteral("executionProvider"), parameters.value(
-            QStringLiteral("executionProvider"), QStringLiteral("local-dev"))).toString();
+            QStringLiteral("executionProvider"))).toString().trimmed().toLower();
         const QString route = providerId == QStringLiteral("colab-direct")
             ? QStringLiteral("Direct Colab")
             : providerId == QStringLiteral("api-gateway")
-                ? QStringLiteral("API Gateway") : QStringLiteral("Local");
+                ? QStringLiteral("API Gateway")
+                : providerId == QStringLiteral("local-dev") ? QStringLiteral("Local")
+                : QStringLiteral("Not selected");
         const bool requiresSourceLanguage = nodeId == QStringLiteral("transcribe")
             || nodeId == QStringLiteral("review-transcript")
             || nodeId == QStringLiteral("translate");
@@ -2350,7 +2341,7 @@ QVariantMap DubbingController::automaticPreflight() const
             || nodeId == QStringLiteral("synthesize");
         QString languageSummary;
         if (nodeId == QStringLiteral("translate"))
-            languageSummary = QStringLiteral("%1 â†’ %2").arg(m_project.sourceLanguage, m_project.targetLanguage);
+            languageSummary = QStringLiteral("%1 -> %2").arg(m_project.sourceLanguage, m_project.targetLanguage);
         else if (requiresSourceLanguage)
             languageSummary = m_project.sourceLanguage;
         else if (requiresTargetLanguage)
@@ -2367,51 +2358,121 @@ QVariantMap DubbingController::automaticPreflight() const
             setupAction = QStringLiteral("node-model");
             setupHint = QStringLiteral("Choose route and model");
         } else if (nodeId == QStringLiteral("review-transcript")) {
-            setupAction = QStringLiteral("subtitle");
-            setupHint = QStringLiteral("Open subtitle/alignment review");
+            setupAction = QStringLiteral("alignment");
+            setupHint = QStringLiteral("Configure subtitle review and timing resolution");
         } else if (nodeId == QStringLiteral("export")) {
             setupAction = QStringLiteral("export");
             setupHint = QStringLiteral("Configure output/export options");
         } else if (nodeId == QStringLiteral("ingest")) {
-            setupHint = QStringLiteral("Normalize uses the production ingest defaults");
-        } else if (nodeId == QStringLiteral("fit-timing")
-                   || nodeId == QStringLiteral("review-conflicts")
-                   || nodeId == QStringLiteral("mix")) {
-            setupHint = QStringLiteral("Timing and mix options are applied by the production workflow");
+            setupAction = QStringLiteral("normalize");
+            setupHint = QStringLiteral("Automatic local preprocessing; no model required");
         }
 
         QString preflightState = QStringLiteral("ready");
         QString preflightStateLabel = QStringLiteral("Ready");
-        if (nodeId == QStringLiteral("media-input") && m_project.sourceMediaPath.trimmed().isEmpty()) {
+        if (nodeId == QStringLiteral("media-input") && !hasMedia) {
             preflightState = QStringLiteral("needs-input");
             preflightStateLabel = QStringLiteral("Needs input");
-        } else if (node.value(QStringLiteral("state")).toString() == QStringLiteral("missing")
-                   || node.value(QStringLiteral("state")).toString() == QStringLiteral("blocked")) {
+        } else if (stage.value(QStringLiteral("state")).toString() == QStringLiteral("missing")
+                   || stage.value(QStringLiteral("state")).toString() == QStringLiteral("blocked")) {
             preflightState = QStringLiteral("blocked-previous");
             preflightStateLabel = QStringLiteral("Blocked by previous stage");
         }
-        if (m_project.dubbingQuality == QStringLiteral("custom")
-            && (nodeId == QStringLiteral("source-separate") || nodeId == QStringLiteral("transcribe")
-                || nodeId == QStringLiteral("translate") || nodeId == QStringLiteral("synthesize"))
-            && configuration.isEmpty()) {
-            preflightState = QStringLiteral("needs-setup");
-            preflightStateLabel = QStringLiteral("Needs setup");
+        const bool modelStage = nodeId == QStringLiteral("source-separate")
+            || nodeId == QStringLiteral("transcribe") || nodeId == QStringLiteral("translate")
+            || nodeId == QStringLiteral("synthesize");
+        const QString modelId = configuration.value(
+            QStringLiteral("modelId"), parameters.value(QStringLiteral("modelId"))).toString().trimmed();
+        if (modelStage && (configuration.isEmpty() || providerId.isEmpty() || modelId.isEmpty())) {
+            preflightState = hasMedia ? QStringLiteral("needs-setup")
+                                      : QStringLiteral("blocked-previous");
+            preflightStateLabel = hasMedia ? QStringLiteral("Needs setup")
+                                            : QStringLiteral("Blocked by source media");
+            addIssue(stageId, QStringLiteral("Configure %1 with a route and an exact model/runtime.")
+                .arg(stage.value(QStringLiteral("title")).toString()));
+        } else if (modelStage && providerId == QStringLiteral("colab-direct")) {
+            const QVariantMap worker = directWorkers.value(nodeId);
+            const bool verified = !worker.isEmpty() && worker.value(QStringLiteral("verified")).toBool();
+            if (!DubbingColabModelRoutes::supports(nodeId, modelId) || !verified) {
+                preflightState = QStringLiteral("needs-worker");
+                preflightStateLabel = QStringLiteral("Direct Colab needs check");
+                addIssue(QStringLiteral("colab-") + nodeId,
+                         QStringLiteral("Connect and check the exact Direct Colab worker for %1 (%2).")
+                             .arg(stage.value(QStringLiteral("title")).toString(), modelId), 2);
+            }
+            if (!worker.isEmpty()) {
+                QVariantMap workerCard = worker;
+                workerCard.insert(QStringLiteral("parentStageId"), stageId);
+                workerCard.insert(QStringLiteral("parentStageTitle"), stage.value(QStringLiteral("title")));
+                selectedWorkers.append(workerCard);
+            }
+        } else if (modelStage && providerId == QStringLiteral("api-gateway")) {
+            const bool gatewayConfigured = m_settings && !m_settings->gatewayUrl().trimmed().isEmpty()
+                && m_settings->gatewayApiKeyConfigured();
+            if (!gatewayConfigured) {
+                preflightState = QStringLiteral("needs-setup");
+                preflightStateLabel = QStringLiteral("API Gateway needs setup");
+                addIssue(stageId + QStringLiteral("-gateway"),
+                         QStringLiteral("Configure API Gateway credentials before using %1.")
+                             .arg(stage.value(QStringLiteral("title")).toString()));
+            }
+        } else if (modelStage && providerId == QStringLiteral("local-dev")) {
+            StudioConfiguration localConfiguration;
+            localConfiguration.capabilityId = stage.value(QStringLiteral("capabilityId")).toString();
+            localConfiguration.familyId = configuration.value(QStringLiteral("familyId")).toString();
+            localConfiguration.runtimeId = configuration.value(QStringLiteral("runtimeId")).toString();
+            localConfiguration.runtimeVersion = configuration.value(QStringLiteral("runtimeVersion")).toString();
+            localConfiguration.selectedFiles = configuration.value(QStringLiteral("selectedFiles")).toMap();
+            if (!StudioConfigurationResolver::resolve(localConfiguration).isValid) {
+                preflightState = QStringLiteral("needs-setup");
+                preflightStateLabel = QStringLiteral("Local runtime/model needs setup");
+                addIssue(stageId + QStringLiteral("-local"),
+                         QStringLiteral("Choose an installed local runtime and model for %1.")
+                             .arg(stage.value(QStringLiteral("title")).toString()));
+            }
         }
 
-        nodes.append(QVariantMap{
-            {QStringLiteral("id"), nodeId},
-            {QStringLiteral("title"), node.value(QStringLiteral("title"), nodeId)},
+        QString configurationSummary = modelStage
+            ? (modelId.isEmpty()
+                ? QStringLiteral("No route and exact model/runtime have been confirmed.")
+                : QStringLiteral("%1 / %2").arg(route, modelId))
+            : setupHint;
+        if (nodeId == QStringLiteral("ingest")) {
+            const QString sourceShape = m_project.sourceSampleRate > 0 && m_project.sourceChannels > 0
+                ? QStringLiteral("source %1 Hz / %2 channel(s)")
+                      .arg(m_project.sourceSampleRate).arg(m_project.sourceChannels)
+                : QStringLiteral("source format will be probed at ingest");
+            configurationSummary = QStringLiteral("Automatic local preprocessing; %1; master and analysis WAV outputs; no model required.")
+                .arg(sourceShape);
+        } else if (stageId == QStringLiteral("alignment-subtitle")) {
+            const QVariantMap timing = timingConfiguration();
+            configurationSummary = QStringLiteral("Timing: %1; minimum gap %2 ms; subtitle review uses project segments.")
+                .arg(timing.value(QStringLiteral("mode")).toString())
+                .arg(timing.value(QStringLiteral("minimumGapMs")).toInt());
+        } else if (stageId == QStringLiteral("export")) {
+            configurationSummary = QStringLiteral("Render mix with background; subtitle burn-in: %1.")
+                .arg(subtitleConfiguration().value(QStringLiteral("burnIn")).toBool()
+                         ? QStringLiteral("enabled") : QStringLiteral("disabled"));
+        }
+
+        aggregateStages.append(QVariantMap{
+            {QStringLiteral("id"), stageId},
+            {QStringLiteral("title"), stage.value(QStringLiteral("title"), stageId)},
+            {QStringLiteral("actionNodeId"), nodeId},
+            {QStringLiteral("productionNodeIds"), stage.value(QStringLiteral("productionNodeIds"))},
             {QStringLiteral("executionProvider"), providerId},
             {QStringLiteral("route"), route},
-            {QStringLiteral("modelId"), configuration.value(
-                QStringLiteral("modelId"), parameters.value(QStringLiteral("modelId")))},
+            {QStringLiteral("modelId"), modelId},
             {QStringLiteral("variant"), parameters.value(QStringLiteral("variant"))},
             {QStringLiteral("requiresLanguage"), requiresSourceLanguage || requiresTargetLanguage},
             {QStringLiteral("languageSummary"), languageSummary},
-            {QStringLiteral("state"), node.value(QStringLiteral("state"))},
-            {QStringLiteral("detail"), node.value(QStringLiteral("detail"))},
+            {QStringLiteral("state"), stage.value(QStringLiteral("state"))},
+            {QStringLiteral("detail"), stage.value(QStringLiteral("detail"), configurationSummary)},
             {QStringLiteral("setupAction"), setupAction},
             {QStringLiteral("setupHint"), setupHint},
+            {QStringLiteral("configurationSummary"), configurationSummary},
+            {QStringLiteral("modelRequired"), modelStage},
+            {QStringLiteral("effectiveFormat"), nodeId == QStringLiteral("ingest") ? configurationSummary : QString()},
             {QStringLiteral("preflightState"), preflightState},
             {QStringLiteral("preflightStateLabel"), preflightStateLabel}
         });
@@ -2420,7 +2481,7 @@ QVariantMap DubbingController::automaticPreflight() const
     return QVariantMap{
         {QStringLiteral("ready"), issues.isEmpty()},
         {QStringLiteral("issues"), issues},
-        {QStringLiteral("nodes"), nodes},
+        {QStringLiteral("stages"), aggregateStages},
         {QStringLiteral("selectedWorkers"), selectedWorkers},
         {QStringLiteral("sourceMediaPath"), m_project.sourceMediaPath},
         {QStringLiteral("sourceLanguage"), m_project.sourceLanguage},
@@ -2680,11 +2741,14 @@ void DubbingController::configureRemoteRewriteFromGateway()
 QString DubbingController::visibleStepForNode(const QString &nodeId)
 {
     if (nodeId == QStringLiteral("media-input")) return QStringLiteral("import");
-    if (nodeId == QStringLiteral("review-transcript")) return QStringLiteral("transcribe");
+    if (nodeId == QStringLiteral("review-transcript")
+        || nodeId == QStringLiteral("fit-timing")
+        || nodeId == QStringLiteral("review-conflicts")) {
+        return QStringLiteral("alignment-subtitle");
+    }
     if (nodeId == QStringLiteral("review-translation")) return QStringLiteral("translate");
     if (nodeId == QStringLiteral("assign-voices")) return QStringLiteral("synthesize");
-    if (nodeId == QStringLiteral("fit-timing")
-        || nodeId == QStringLiteral("review-conflicts")) return QStringLiteral("mix");
+    if (nodeId == QStringLiteral("mix")) return QStringLiteral("export");
     return nodeId;
 }
 
@@ -3649,13 +3713,9 @@ bool DubbingController::openProject(const QString &path)
     }
     m_timingResolutionPreview.clear();
     m_timingUndoSegments.clear();
-    if (m_project.dubbingQuality == QStringLiteral("custom"))
-        m_workflowNodeConfigurations = m_project.workflowNodeConfigurations;
-    else {
-        m_workflowNodeConfigurations.clear();
-        m_project.workflowNodeConfigurations.clear();
+    m_workflowNodeConfigurations = m_project.workflowNodeConfigurations;
+    if (m_project.dubbingQuality != QStringLiteral("custom"))
         resetStandardTranslationFixConfiguration();
-    }
     if (m_project.ttsVoiceId.trimmed().isEmpty()) {
         const QVariantMap synthesis = m_workflowNodeConfigurations.value(
             QStringLiteral("synthesize")).toMap();
