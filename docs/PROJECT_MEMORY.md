@@ -6,9 +6,28 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 
 - Desktop local-first: STT, TTS, Voice Cloning, Voice Design, Alignment, Translation, Dubbing, LLM Chat, Download va Subtitle OCR.
 - API Gateway va Direct Colab la hai route doc lap. Token/URL Colab chi o memory session, khong persist vao project/report.
-- Package noi bo moi nhat: `0.0.2.21` tai `out/LA-Studio-0.0.2.21/LA-Studio-0.0.2.21.exe`, SHA-256 `CDEF6AA0D54A7BE50F8F7F04DC157532AE8F2E96BE1E59B4D1E37E4B4F5431CE`. Full CTest 39/39 va package audit PASS. Manual GUI/live Colab luon la gate rieng.
+- Package noi bo moi nhat: `0.0.2.22` tai `out/LA-Studio-0.0.2.22/LA-Studio-0.0.2.22.exe`, SHA-256 `E71F98802368577B16B28EDAAE807A70216ADD6A7CFE5DCE611A055D993CE2E4`. FileVersion/ProductVersion `0.0.2.22`, QML lint, full CTest 39/39 va package audit PASS. Manual GUI/live Colab luon la gate rieng.
+- `0.0.2.21` khong duoc chap nhan cho Dubbing Automatic: gate/preflight co
+  dead-end media va no-op Configure. `0.0.2.22` sua duong ingest truoc gate,
+  state/action card va Review Fix, co production-shell offscreen trace 15
+  actions. Subtitle OCR `link-input` smoke da sua theo local QML focus vi
+  offscreen khong co native active window.
 
 ## Lich su cap san pham
+
+### 2026-08-04 - 0.0.2.22 Dubbing Automatic repair
+
+- Source & language preflight co Browse local va URL import production truoc
+  khi danh gia workflow; missing media chi la `Needs input`, khong lam mat ly
+  do cua cac node sau. Configure chi hien o node co action, Review Fix quay
+  dung page/field. Trace offscreen di tu Dubbing entry den Review ghi 15 thao
+  tac QML/controller thuc.
+- `QmlRouteSmoke` Subtitle OCR link input da fail sai do `activeFocus` phu
+  thuoc native active window ma platform offscreen khong co. Test bay gio kiem
+  tra local QML focus va Import enable; full CTest 39/39 PASS.
+- Package portable noi bo audit PASS; FileVersion/ProductVersion `0.0.2.22`,
+  SHA va runtime/license manifests da duoc xac minh. Khong mo GUI hay xac
+  minh live Colab.
 
 ### 2026-08-04 - 0.0.2.21 Dubbing entry and automatic setup
 

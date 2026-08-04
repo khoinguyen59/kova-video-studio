@@ -6,11 +6,34 @@ Cap nhat: 2026-08-04
 
 | Muc | Trang thai |
 | --- | --- |
-| Latest packaged candidate | `0.0.2.21` |
-| Artifact | `out/LA-Studio-0.0.2.21/LA-Studio-0.0.2.21.exe` |
-| SHA-256 | `CDEF6AA0D54A7BE50F8F7F04DC157532AE8F2E96BE1E59B4D1E37E4B4F5431CE` |
-| Current source | `main`; full CTest 39/39 PASS and package audit PASS |
+| Latest packaged candidate | `0.0.2.22` |
+| Artifact | `out/LA-Studio-0.0.2.22/LA-Studio-0.0.2.22.exe` |
+| SHA-256 | `E71F98802368577B16B28EDAAE807A70216ADD6A7CFE5DCE611A055D993CE2E4` |
+| Current source | `main` source commit `355be6c`; QML lint PASS, full CTest 39/39 PASS and package audit PASS |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
+
+## Batch 0.0.2.22: Dubbing Automatic repair and clean package
+
+- `0.0.2.21` remains rejected for the user-reported Automatic dead-end. The
+  current source repairs the gate-level root cause: preflight now offers real
+  source Browse/URL import through the existing ingest controller, distinguishes
+  source input from downstream blocking, removes no-op Configure controls and
+  routes actionable Configure/Fix controls to production dialogs/pages.
+- The production-shell offscreen interaction trace records 15 actions from
+  Dubbing entry through Review, including the real Browse request, file-picker
+  boundary injection, all displayed Configure buttons, no-Direct-Colab skip and
+  Review/Fix. It is generated at
+  `out/build/windows-msvc-tests/dubbing-qml-interaction-trace.json`.
+- The `Subtitle OCR` smoke failure was a portable-test defect, not a failed URL
+  route: the valid URL enabled Import, but the offscreen platform cannot own a
+  native active window and therefore reports `activeFocus=false`. The test now
+  verifies QML local `focus` (and still accepts desktop `activeFocus`), so it
+  tests the real keyboard-focus contract without inventing OS focus.
+- Targeted Dubbing regression, QML lint and full CTest are **39/39 PASS**.
+  Portable internal package audit verified the staging and license manifests,
+  FileVersion/ProductVersion `0.0.2.22`, Qt runtime, FFmpeg/FFprobe,
+  Tesseract/Paddle OCR and eSpeak internal runtime. This is not a claim of
+  manual desktop or live Colab acceptance.
 
 ## Batch 0.0.2.21: Dubbing entry gate and automatic setup
 

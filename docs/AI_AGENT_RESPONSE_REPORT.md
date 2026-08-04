@@ -1,38 +1,44 @@
-# AI agent response - 0.0.2.21 Dubbing entry and automatic setup
+# AI agent response - 0.0.2.22 packaged
 
 Date: 2026-08-04
 
-## Completed
+## Completed repair
 
-- Dubbing entry is blocked by a modal choice: Automatic or Step-by-step. It
-  cannot be bypassed by Escape, outside click, or a close button; leaving
-  Dubbing is the only non-selection action.
-- The choice is persisted with the project without altering existing segments,
-  artifacts, node settings, or workflow resume state. Step-by-step enters the
-  first valid Import state for a new project.
-- Automatic opens a setup wizard before workspace entry. It uses persisted
-  source/target language as the single source of truth, validates missing
-  required language in place, shows active route/model/variant/language state,
-  restricts Colab setup to active Direct Colab nodes, and invalidates approval
-  after relevant configuration changes.
+- Automatic Dubbing previously evaluated readiness before it offered a media
+  ingest path. That made missing media look like generic downstream `Blocked`
+  state, while visible Configure buttons for non-configurable nodes were dead.
+- Page 1 now has production Browse and URL import paths wired to the existing
+  Dubbing ingest controller. Preflight supplies actionable states and actions:
+  `Needs input`, `Needs setup`, `Blocked by previous stage`, `Ready`, and
+  `No configuration required`. Review Fix returns to the correct page/control.
+- Production-shell offscreen Dubbing interaction trace:
+  `out/build/windows-msvc-tests/dubbing-qml-interaction-trace.json` records 15
+  ordered UI/controller actions from entry gate through Review. Native file
+  selection is injected only at the production file-picker boundary; no GUI,
+  model workload or live Colab worker was opened.
+- Subtitle OCR route smoke was then fixed. Its URL field correctly enabled
+  Import, but `activeFocus` was false because `QT_QPA_PLATFORM=offscreen` has
+  no native active window. The check now verifies portable QML local focus,
+  while retaining desktop active-focus compatibility.
 
-## Evidence
+## Validation and package
 
-- Targeted Dubbing controller/QML regression: 5 passed, 0 failed.
-- QML lint PASS. Full CTest: 39/39 PASS in 31.97 seconds.
-- No desktop GUI or live Colab worker was opened or controlled.
+- QML lint: PASS.
+- Targeted QML route smoke: PASS.
+- Full CTest: **39/39 PASS** (70.78 seconds).
+- Source version check: `v0.0.2.22` matches `LASTUDIO_VERSION 0.0.2.22`.
+- Portable internal package audit: PASS for staging and license manifests,
+  Qt Windows/offscreen plugins, FFmpeg/FFprobe, Tesseract, Paddle OCR and
+  internal eSpeak runtime. The unsigned eSpeak MSI is SHA-verified and remains
+  internal-only.
 
-## Package
+## Artifact and Git
 
-- Executable: `out/LA-Studio-0.0.2.21/LA-Studio-0.0.2.21.exe`
-- FileVersion/ProductVersion: `0.0.2.21`
-- SHA-256: `CDEF6AA0D54A7BE50F8F7F04DC157532AE8F2E96BE1E59B4D1E37E4B4F5431CE`
-- Portable audit PASS: qwindows/qoffscreen, RuntimeHost, FFmpeg/FFprobe,
-  Tesseract and the packaged PaddleOCR health check (`ok=true`,
-  `manifestVerified=true`) verified.
+- EXE: `out/LA-Studio-0.0.2.22/LA-Studio-0.0.2.22.exe`
+- FileVersion/ProductVersion: `0.0.2.22` / `0.0.2.22`
+- SHA-256: `E71F98802368577B16B28EDAAE807A70216ADD6A7CFE5DCE611A055D993CE2E4`
+- Source/tests committed and pushed directly to `main`: `355be6c`
+  (`fix: repair dubbing preflight and OCR smoke`).
 
-## Still manual/live only
-
-Interactive desktop flow and a live Direct Colab worker/notebook remain manual
-acceptance gates. Automated controller/QML/offscreen checks do not replace
-them.
+Manual desktop interaction and live Colab execution remain separate user-side
+acceptance checks; neither is claimed by the offscreen or package evidence.
