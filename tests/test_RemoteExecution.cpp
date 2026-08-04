@@ -1296,6 +1296,12 @@ void TestRemoteExecution::colabNotebooksAdvertiseCapabilityContractVersion()
         QVERIFY2(source.contains(notebook.model.toUtf8()), qPrintable(notebook.file));
         QVERIFY2(source.contains(notebook.endpoint.toUtf8()), qPrintable(notebook.file));
     }
+
+    QFile cmakeFile(sourceRoot.filePath(QStringLiteral("CMakeLists.txt")));
+    QVERIFY2(cmakeFile.open(QIODevice::ReadOnly), qPrintable(cmakeFile.fileName()));
+    const QByteArray cmakeSource = cmakeFile.readAll();
+    QVERIFY(cmakeSource.contains("notebooks/workers/"));
+    QVERIFY(cmakeSource.contains("docs/colab-notebooks/workers"));
 }
 
 } // namespace LAStudio
