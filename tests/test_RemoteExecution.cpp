@@ -1240,7 +1240,7 @@ void TestRemoteExecution::colabNotebooksAdvertiseCapabilityContractVersion()
     for (const NotebookContract &notebook : notebooks) {
         QFile file(sourceRoot.filePath(QStringLiteral("notebooks/") + notebook.file));
         QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(notebook.file));
-        const QByteArray source = file.readAll();
+        QByteArray source = file.readAll();
         const QJsonDocument notebookDocument = QJsonDocument::fromJson(source);
         QVERIFY2(notebookDocument.isObject(), qPrintable(notebook.file));
         const QJsonObject laStudioMetadata = notebookDocument.object()
@@ -1256,20 +1256,35 @@ void TestRemoteExecution::colabNotebooksAdvertiseCapabilityContractVersion()
         QCOMPARE(laStudioMetadata.value(QStringLiteral("device")).toString(),
                  QStringLiteral("cuda"));
         QCOMPARE(laStudioMetadata.value(QStringLiteral("cpu_fallback")).toBool(), false);
+        for (const QJsonValue &workerTemplate : laStudioMetadata
+                                                    .value(QStringLiteral("worker_templates"))
+                                                    .toArray()) {
+            QFile worker(sourceRoot.filePath(QStringLiteral("notebooks/")
+                                              + workerTemplate.toString()));
+            QVERIFY2(worker.open(QIODevice::ReadOnly), qPrintable(worker.fileName()));
+            source += '\n' + worker.readAll();
+        }
         const bool hasHealth = source.contains("@app.get('/health')")
-            || source.contains("@app.get(\\\"/health\\\")");
+            || source.contains("@app.get(\\\"/health\\\")")
+            || source.contains("@app.get(\"/health\")");
         const bool hasCapabilities = source.contains("@app.get('/v1/capabilities')")
-            || source.contains("@app.get(\\\"/v1/capabilities\\\")");
+            || source.contains("@app.get(\\\"/v1/capabilities\\\")")
+            || source.contains("@app.get(\"/v1/capabilities\")");
         const bool hasContractVersion = source.contains("'contract_version': 1")
-            || source.contains("\\\"contract_version\\\": 1");
+            || source.contains("\\\"contract_version\\\": 1")
+            || source.contains("\"contract_version\": 1");
         const bool hasReady = source.contains("'ready': True")
-            || source.contains("\\\"ready\\\": True");
+            || source.contains("\\\"ready\\\": True")
+            || source.contains("\"ready\": True");
         const bool hasCuda = source.contains("'device': 'cuda'")
-            || source.contains("\\\"device\\\": \\\"cuda\\\"");
+            || source.contains("\\\"device\\\": \\\"cuda\\\"")
+            || source.contains("\"device\": \"cuda\"");
         const bool hasNoCpuFallback = source.contains("'cpu_fallback': False")
-            || source.contains("\\\"cpu_fallback\\\": False");
+            || source.contains("\\\"cpu_fallback\\\": False")
+            || source.contains("\"cpu_fallback\": False");
         const bool hasFixedVariant = source.contains("'variant': 'fixed'")
-            || source.contains("\\\"variant\\\": \\\"fixed\\\"");
+            || source.contains("\\\"variant\\\": \\\"fixed\\\"")
+            || source.contains("\"variant\": \"fixed\"");
         QVERIFY2(hasHealth, qPrintable(notebook.file));
         QVERIFY2(hasCapabilities, qPrintable(notebook.file));
         QVERIFY2(hasContractVersion, qPrintable(notebook.file));

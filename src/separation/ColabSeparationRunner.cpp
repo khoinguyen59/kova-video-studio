@@ -3,12 +3,35 @@
 #include "remote/ColabWorkerClient.h"
 
 #include <QDir>
+#include <QDebug>
 #include <QFileInfo>
 #include <QJsonObject>
 #include <QSaveFile>
 #include <QThread>
 
 namespace LAStudio {
+
+namespace {
+
+QString failureForUser(const QString &detail)
+{
+    const QString normalized = detail.simplified();
+    if (normalized.contains(QStringLiteral("cudnn"), Qt::CaseInsensitive)
+        || normalized.contains(QStringLiteral("cudaexecutionprovider"), Qt::CaseInsensitive)) {
+        return QStringLiteral(
+            "The Direct Colab Spleeter worker failed while initializing CUDA. "
+            "No local model was started. Stop this job, reopen the current Spleeter Colab notebook, "
+            "wait for its CUDA startup probe to pass, then reconnect and run again.");
+    }
+    constexpr qsizetype maximumVisibleDetail = 700;
+    if (normalized.size() > maximumVisibleDetail) {
+        return normalized.left(maximumVisibleDetail)
+            + QStringLiteral(" … Full worker detail is in System Logs.");
+    }
+    return normalized;
+}
+
+} // namespace
 
 class ColabSeparationRunner::Private final
 {
@@ -69,8 +92,10 @@ void ColabSeparationRunner::separate(const ColabSeparationRequest &request)
         }
         if (state == QStringLiteral("failed") || state == QStringLiteral("cancelled")) {
             d->activeJobId.clear();
-            emit failed(status.value(QStringLiteral("detail")).toString().isEmpty()
-                ? QStringLiteral("Colab separation failed") : status.value(QStringLiteral("detail")).toString());
+            const QString rawDetail = status.value(QStringLiteral("detail")).toString();
+            if (!rawDetail.isEmpty()) qWarning().noquote() << "[colab-separation]" << rawDetail;
+            emit failed(rawDetail.isEmpty() ? QStringLiteral("Colab separation failed")
+                                             : failureForUser(rawDetail));
             return;
         }
         if (state == QStringLiteral("ready") || state == QStringLiteral("completed")) break;

@@ -278,7 +278,7 @@ Dialog {
                             root.selectedProvider = "colab-direct"
                             root.connectionSuccess = false
                             root.connectionMessage = ""
-                            root.modelField.text = "qwen3.5-2b"
+                            modelField.text = "qwen3.5-2b"
                         }
                     }
                     ProviderRow {

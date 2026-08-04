@@ -10,6 +10,7 @@ class TestColabSeparationRunner final : public QObject
 
 private slots:
     void testUsesDirectJobAndArtifactContract();
+    void cudaWorkerFailureIsActionableAndDoesNotDumpRuntimeTrace();
     void testCancellationDiscardsPartialArtifacts();
     void voiceCloneReferenceUsesCachedVocalsOnly();
     void separationNotebookMatchesDirectColabContract();

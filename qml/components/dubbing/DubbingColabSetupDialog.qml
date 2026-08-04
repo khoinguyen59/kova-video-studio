@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -178,6 +180,11 @@ Dialog {
                 spacing: Theme.paddingMedium
 
                 Repeater {
+                    id: stageRepeater
+                    // Capture the outer dialog once.  A Repeater delegate has
+                    // its own component scope, so resolving the `root` id from
+                    // an event handler is not reliable on every Qt build.
+                    readonly property var setupDialog: root
                     model: (root.stageIds && root.stageIds.length > 0)
                            ? root.dubbing.colabSetupStages.filter(function(stage) {
                                return root.stageIds.indexOf(stage.id) >= 0
@@ -187,8 +194,9 @@ Dialog {
                     delegate: Rectangle {
                         id: stageCard
                         required property var modelData
+                        readonly property var setupDialog: stageRepeater.setupDialog
                         readonly property string stageId: modelData.id || ""
-                        readonly property var stageSession: root.sessionForStage(stageId)
+                        readonly property var stageSession: stageRepeater.setupDialog.sessionForStage(stageId)
                         readonly property bool sourceActive: modelData.activeForTranscriptSource !== false
                         Layout.fillWidth: true
                         implicitHeight: stageLayout.implicitHeight + Theme.paddingMedium * 2
@@ -258,14 +266,14 @@ Dialog {
                                     id: modelBox
                                     Layout.preferredWidth: 315
                                     textRole: "displayName"
-                                    model: root.dubbing.colabModelOptionsForNode(stageCard.stageId)
+                                    model: stageCard.setupDialog.dubbing.colabModelOptionsForNode(stageCard.stageId)
                                     currentIndex: {
                                         for (var i = 0; i < model.length; ++i)
                                             if (model[i].modelId === stageCard.modelData.modelId) return i
                                         return -1
                                     }
                                     onActivated: function(index) {
-                                        root.dubbing.selectWorkflowColabModel(stageCard.stageId, model[index].modelId)
+                                        stageCard.setupDialog.dubbing.selectWorkflowColabModel(stageCard.stageId, model[index].modelId)
                                     }
                                     enabled: stageCard.sourceActive
                                 }
@@ -291,9 +299,9 @@ Dialog {
                                     id: workerUrlField
                                     Layout.fillWidth: true
                                     placeholderText: qsTr("Temporary worker URL (https://…trycloudflare.com)")
-                                    text: root.draftUrl(stageCard.stageId, stageCard.stageSession)
+                                    text: stageCard.setupDialog.draftUrl(stageCard.stageId, stageCard.stageSession)
                                     selectByMouse: true
-                                    onTextEdited: root.setDraftUrl(stageCard.stageId, text)
+                                    onTextEdited: stageCard.setupDialog.setDraftUrl(stageCard.stageId, text)
                                     enabled: stageCard.sourceActive
                                     color: Theme.textPrimary
                                     placeholderTextColor: Theme.textSecondary
@@ -303,10 +311,10 @@ Dialog {
                                     id: tokenField
                                     Layout.preferredWidth: 220
                                     placeholderText: qsTr("Temporary bearer token")
-                                    text: root.draftToken(stageCard.stageId)
+                                    text: stageCard.setupDialog.draftToken(stageCard.stageId)
                                     echoMode: TextInput.Password
                                     selectByMouse: true
-                                    onTextEdited: root.setDraftToken(stageCard.stageId, text)
+                                    onTextEdited: stageCard.setupDialog.setDraftToken(stageCard.stageId, text)
                                     enabled: stageCard.sourceActive
                                     color: Theme.textPrimary
                                     placeholderTextColor: Theme.textSecondary
@@ -316,12 +324,12 @@ Dialog {
                                     text: stageCard.stageSession && stageCard.stageSession.active ? qsTr("Replace") : qsTr("Connect")
                                     iconName: "link"
                                     implicitWidth: 104
-                                    enabled: stageCard.sourceActive && workerUrlField.text.trim() !== "" && tokenField.text !== "" && !root.dubbing.colabSetupChecking
+                                    enabled: stageCard.sourceActive && workerUrlField.text.trim() !== "" && tokenField.text !== "" && !stageCard.setupDialog.dubbing.colabSetupChecking
                                     onClicked: {
-                                        if (root.dubbing.connectWorkflowColabStage(stageCard.stageId,
+                                        if (stageCard.setupDialog.dubbing.connectWorkflowColabStage(stageCard.stageId,
                                                                                    stageCard.modelData.modelId,
                                                                                    workerUrlField.text.trim(), tokenField.text)) {
-                                            root.setDraftToken(stageCard.stageId, "")
+                                            stageCard.setupDialog.setDraftToken(stageCard.stageId, "")
                                         }
                                     }
                                 }
@@ -333,10 +341,10 @@ Dialog {
                                 showDisconnected: true
                                 useExternalActions: true
                                 onCheckRequested: {
-                                    root.dubbing.checkWorkflowColabStage(stageCard.stageId)
+                                    stageCard.setupDialog.dubbing.checkWorkflowColabStage(stageCard.stageId)
                                 }
                                 onDisconnectRequested: {
-                                    root.dubbing.disconnectWorkflowColabStage(stageCard.stageId)
+                                    stageCard.setupDialog.dubbing.disconnectWorkflowColabStage(stageCard.stageId)
                                 }
                             }
                             Text {

@@ -43,7 +43,8 @@ QByteArray tinyWav()
 class SeparationMock final : public QObject
 {
 public:
-    explicit SeparationMock(bool permanentlyQueued = false) : m_permanentlyQueued(permanentlyQueued)
+    explicit SeparationMock(bool permanentlyQueued = false, bool cudaFailure = false)
+        : m_permanentlyQueued(permanentlyQueued), m_cudaFailure(cudaFailure)
     {
         connect(&m_server, &QTcpServer::newConnection, this, [this] {
             while (QTcpSocket *socket = m_server.nextPendingConnection()) {
@@ -77,8 +78,10 @@ private:
                    || request.startsWith("GET /v1/audio/separations/job-direct/artifacts/background ")) {
             body = tinyWav(); contentType = "audio/wav";
         } else if (request.startsWith("GET /v1/audio/separations/job-direct ")) {
-            body = m_permanentlyQueued ? R"({"job_id":"job-direct","status":"running","progress":30})"
-                                       : R"({"job_id":"job-direct","status":"ready","progress":100})";
+            body = m_cudaFailure
+                ? R"({"job_id":"job-direct","status":"failed","progress":0,"detail":"RuntimeError: CUDNN_FE failure 8: HEURISTIC_QUERY_FAILED; a deliberately long remote CUDA trace follows"})"
+                : (m_permanentlyQueued ? R"({"job_id":"job-direct","status":"running","progress":30})"
+                                       : R"({"job_id":"job-direct","status":"ready","progress":100})");
         } else if (request.startsWith("DELETE /v1/audio/separations/job-direct ")) {
             body = R"({"status":"cancelled"})";
         } else {
@@ -95,6 +98,7 @@ private:
     QHash<QTcpSocket *, QByteArray> m_pending;
     QByteArray m_requests;
     bool m_permanentlyQueued = false;
+    bool m_cudaFailure = false;
 };
 
 QString sourceFile(QTemporaryDir *directory)
@@ -173,6 +177,26 @@ void TestColabSeparationRunner::testCancellationDiscardsPartialArtifacts()
     thread.quit(); QVERIFY(thread.wait(5000));
 }
 
+void TestColabSeparationRunner::cudaWorkerFailureIsActionableAndDoesNotDumpRuntimeTrace()
+{
+    SeparationMock server(false, true); QVERIFY(server.start());
+    QTemporaryDir directory; QVERIFY(directory.isValid());
+    qRegisterMetaType<ColabSeparationRequest>("ColabSeparationRequest");
+    QThread thread; auto *runner = new ColabSeparationRunner; runner->moveToThread(&thread);
+    connect(&thread, &QThread::finished, runner, &QObject::deleteLater); thread.start();
+    QSignalSpy failures(runner, &ColabSeparationRunner::failed);
+    QVERIFY(QMetaObject::invokeMethod(runner, "separate", Qt::QueuedConnection,
+                                      Q_ARG(ColabSeparationRequest, makeRequest(
+                                          server.baseUrl(), sourceFile(&directory),
+                                          directory.filePath(QStringLiteral("failure"))))));
+    QVERIFY2(failures.wait(5000), "CUDA worker failure was not surfaced");
+    const QString message = failures.takeFirst().at(0).toString();
+    QVERIFY(message.contains(QStringLiteral("Direct Colab")));
+    QVERIFY(message.contains(QStringLiteral("No local model was started")));
+    QVERIFY(!message.contains(QStringLiteral("HEURISTIC_QUERY_FAILED")));
+    thread.quit(); QVERIFY(thread.wait(5000));
+}
+
 void TestColabSeparationRunner::voiceCloneReferenceUsesCachedVocalsOnly()
 {
     SeparationMock server;
@@ -241,7 +265,7 @@ void TestColabSeparationRunner::separationNotebookMatchesDirectColabContract()
          QStringLiteral("LA_STUDIO_SEPARATION_SPLEETER_2STEMS_GPU.ipynb"),
          QStringLiteral("k2-fsa/sherpa-onnx-spleeter-2stems-fp16"),
          QStringLiteral("https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/sherpa-onnx-spleeter-2stems-fp16.tar.bz2"),
-         QStringLiteral("OfflineSourceSeparationSpleeterModelConfig")},
+          QStringLiteral("CUDAExecutionProvider")},
         {QStringLiteral("sherpa-onnx-uvr-vocals-ft"),
          QStringLiteral("LA_STUDIO_SEPARATION_UVR_VOCALS_GPU.ipynb"),
          QStringLiteral("k2-fsa/sherpa-onnx-uvr-vocals-ft"),
@@ -280,14 +304,30 @@ void TestColabSeparationRunner::separationNotebookMatchesDirectColabContract()
             const QJsonArray lines = cellValue.toObject().value(QStringLiteral("source")).toArray();
             for (const QJsonValue &line : lines) source += line.toString();
         }
+        for (const QJsonValue &workerTemplate : metadata.value(QStringLiteral("worker_templates")).toArray()) {
+            QFile worker(QDir(QStringLiteral(LASTUDIO_SOURCE_DIR))
+                             .filePath(QStringLiteral("notebooks/") + workerTemplate.toString()));
+            QVERIFY2(worker.open(QIODevice::ReadOnly), qPrintable(worker.fileName()));
+            source += QString::fromUtf8(worker.readAll());
+        }
         QVERIFY2(source.contains(expected.adapterNeedle), qPrintable(expected.notebook));
         QVERIFY2(source.contains(expected.artifactUrl), qPrintable(expected.notebook));
         QVERIFY(source.contains(QStringLiteral("MODEL_ID = \"%1\"").arg(expected.model)));
-        QVERIFY(source.contains(QStringLiteral("provider=\"cuda\"")));
+        if (expected.model == QStringLiteral("sherpa-onnx-spleeter-2stems-fp16")) {
+            QVERIFY(source.contains(QStringLiteral("CUDAExecutionProvider")));
+        } else {
+            QVERIFY(source.contains(QStringLiteral("provider=\"cuda\"")));
+        }
         QVERIFY(source.contains(QStringLiteral("@app.post(\"/v1/audio/separations\")")));
         QVERIFY(source.contains(QStringLiteral("@app.get(\"/v1/audio/separations/{job_id}\")")));
         QVERIFY(source.contains(QStringLiteral("@app.get(\"/v1/capabilities\")")));
         QVERIFY(source.contains(QStringLiteral("\"id\": \"voice-isolation\"")));
+        if (expected.model == QStringLiteral("sherpa-onnx-spleeter-2stems-fp16")) {
+            QVERIFY(source.contains(QStringLiteral("cudnn_conv_algo_search\": \"DEFAULT")));
+            QVERIFY(source.contains(QStringLiteral("CORE_SECONDS = 20.0")));
+            QVERIFY(source.contains(QStringLiteral("startup_probe")));
+            QVERIFY(source.contains(QStringLiteral("No local model was started")));
+        }
         QVERIFY(source.contains(QStringLiteral("\"device\": \"cuda\"")));
         QVERIFY(source.contains(QStringLiteral("require_exact_model(model)")));
         QVERIFY(source.contains(QStringLiteral("status_code=409")));

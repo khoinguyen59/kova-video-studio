@@ -2087,7 +2087,17 @@ void TestDubbingProject::dubbingUiUsesExactModelWorkers()
     QVERIFY(colabSetupSource.contains(
         QStringLiteral("onCheckRequested:")));
     QVERIFY(colabSetupSource.contains(
-        QStringLiteral("root.dubbing.checkWorkflowColabStage(stageCard.stageId)")));
+        QStringLiteral("stageCard.setupDialog.dubbing.checkWorkflowColabStage(stageCard.stageId)")));
+    QVERIFY(colabSetupSource.contains(QStringLiteral("id: stageRepeater")));
+    QVERIFY(colabSetupSource.contains(QStringLiteral("readonly property var setupDialog: stageRepeater.setupDialog")));
+
+    QFile qualityDialog(
+        QStringLiteral(LASTUDIO_SOURCE_DIR)
+        + QStringLiteral("/qml/components/dubbing/DubbingQualityDialog.qml"));
+    QVERIFY(qualityDialog.open(QIODevice::ReadOnly));
+    const QString qualityDialogSource = QString::fromUtf8(qualityDialog.readAll());
+    QVERIFY(!qualityDialogSource.contains(QStringLiteral("root.modelField")));
+    QVERIFY(qualityDialogSource.contains(QStringLiteral("modelField.text = \"qwen3.5-2b\"")));
 
     QFile automaticPreflight(
         QStringLiteral(LASTUDIO_SOURCE_DIR)
