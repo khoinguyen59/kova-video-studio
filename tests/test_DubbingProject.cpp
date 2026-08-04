@@ -1354,6 +1354,185 @@ void TestDubbingProject::automaticSetupKeepsVerifiedDirectColabRouteAndReportsCu
     app->settings()->setRemoteFirstMode(previousRemoteFirst);
 }
 
+void TestDubbingProject::independentAuditDirectColabPurgesLocalStateAcrossDubbingStages()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString mediaPath = directory.filePath(QStringLiteral("audit-source.wav"));
+    const QVector<float> samples(1600, 0.1F);
+    QVERIFY(WavIO::saveFloat(mediaPath, samples.constData(), samples.size(), 16000));
+
+    AppController *app = AppController::instance();
+    QVERIFY(app && app->settings());
+    const bool previousRemoteFirst = app->settings()->remoteFirstMode();
+    app->settings()->setRemoteFirstMode(false);
+
+    const struct Stage {
+        QString nodeId;
+        QString capability;
+        QString model;
+        ColabSession *session;
+    } stages[] = {
+        {QStringLiteral("source-separate"), QStringLiteral("voice-isolation"),
+         QStringLiteral("sherpa-onnx-spleeter-2stems-fp16"), app->colabSeparationSession()},
+        {QStringLiteral("transcribe"), QStringLiteral("stt"),
+         QStringLiteral("whisper.cpp"), app->colabSttSession()},
+        {QStringLiteral("translate"), QStringLiteral("translation"),
+         QStringLiteral("m2m100-418m"), app->colabTranslationSession()},
+        {QStringLiteral("synthesize"), QStringLiteral("tts"),
+         QStringLiteral("kokoro"), app->colabTtsSession()},
+    };
+    for (const Stage &stage : stages) QVERIFY(stage.session != nullptr);
+    ExactRouteWorkerMock separationWorker(stages[0].capability, stages[0].model);
+    ExactRouteWorkerMock sttWorker(stages[1].capability, stages[1].model);
+    ExactRouteWorkerMock translationWorker(stages[2].capability, stages[2].model);
+    ExactRouteWorkerMock ttsWorker(stages[3].capability, stages[3].model);
+    QVERIFY(separationWorker.start());
+    QVERIFY(sttWorker.start());
+    QVERIFY(translationWorker.start());
+    QVERIFY(ttsWorker.start());
+    const ExactRouteWorkerMock *workers[] = {
+        &separationWorker, &sttWorker, &translationWorker, &ttsWorker};
+
+    ColabSessionReset resetSeparation(stages[0].session);
+    ColabSessionReset resetStt(stages[1].session);
+    ColabSessionReset resetTranslation(stages[2].session);
+    ColabSessionReset resetTts(stages[3].session);
+
+    // Seed every executable Dubbing stage with the root and nested Local
+    // metadata that older projects could carry across a route change.
+    DubbingProject project;
+    project.projectPath = directory.filePath(QStringLiteral("independent-audit.ladub.json"));
+    project.sourceMediaPath = mediaPath;
+    // The independent route audit begins after Normalize.  This keeps the
+    // fixture focused on the four GPU-capable Dubbing stages instead of the
+    // package-only FFmpeg discovery path.
+    project.masterAudioPath = mediaPath;
+    for (const Stage &stage : stages) {
+        project.workflowNodeConfigurations.insert(stage.nodeId, QVariantMap{
+            {QStringLiteral("executionProvider"), QStringLiteral("local-dev")},
+            {QStringLiteral("modelId"), stage.model},
+            {QStringLiteral("familyId"), QStringLiteral("stale-local-family")},
+            {QStringLiteral("runtimeId"), QStringLiteral("stale-local-runtime")},
+            {QStringLiteral("runtimeVersion"), QStringLiteral("stale-local-version")},
+            {QStringLiteral("selectedFiles"), QVariantMap{{QStringLiteral("model"), QStringLiteral("stale.gguf")}}},
+            {QStringLiteral("configurationSignature"), QStringLiteral("stale-local-signature")},
+            {QStringLiteral("parameters"), QVariantMap{
+                {QStringLiteral("executionProvider"), QStringLiteral("local-dev")},
+                {QStringLiteral("runtimeId"), QStringLiteral("stale-local-runtime")},
+                {QStringLiteral("selectedFiles"), QVariantMap{{QStringLiteral("model"), QStringLiteral("stale.gguf")}}}}}
+        });
+    }
+    QString saveError;
+    QVERIFY2(project.save(&saveError), qPrintable(saveError));
+
+    DubbingController controller(app->sttSession(), app->tts(), app->translationEngine(),
+                                 app->models(), app->runtimes());
+    controller.setRemoteServices(app->settings(), app->colabTranslationSession(),
+                                 app->colabTtsSession(), app->colabVoiceCloneSession(),
+                                 app->colabSeparationSession(), app->colabAlignmentSession());
+    QVERIFY2(controller.openProject(project.projectPath), qPrintable(controller.lastError()));
+    controller.setDubbingQuality(QStringLiteral("fast"));
+    controller.setSourceLanguage(QStringLiteral("en"));
+    controller.setTargetLanguage(QStringLiteral("vi"));
+
+    QString routeError;
+    for (int index = 0; index < 4; ++index) {
+        const Stage &stage = stages[index];
+        QVERIFY2(stage.session->beginVerifiedSession(
+            workers[index]->workerUrl(), QStringLiteral("independent-audit-token"),
+            stage.capability, stage.model, &routeError, true), qPrintable(routeError));
+        QTRY_VERIFY(stage.session->hasVerifiedRoute(stage.capability, stage.model, &routeError));
+
+        QVERIFY(controller.setWorkflowNodeParameters(stage.nodeId, {
+            {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+            {QStringLiteral("modelId"), stage.model}
+        }));
+        const QVariantMap selected = controller.workflowNodeConfigurations().value(stage.nodeId).toMap();
+        QCOMPARE(selected.value(QStringLiteral("executionProvider")).toString(),
+                 QStringLiteral("colab-direct"));
+        QCOMPARE(selected.value(QStringLiteral("modelId")).toString(), stage.model);
+        const QVariantMap parameters = selected.value(QStringLiteral("parameters")).toMap();
+        QCOMPARE(parameters.value(QStringLiteral("executionProvider")).toString(),
+                 QStringLiteral("colab-direct"));
+        for (const QString &localKey : {QStringLiteral("familyId"), QStringLiteral("runtimeId"),
+                                        QStringLiteral("runtimeVersion"), QStringLiteral("selectedFiles"),
+                                        QStringLiteral("configurationSignature")}) {
+            QVERIFY(!selected.contains(localKey));
+            QVERIFY(!parameters.contains(localKey));
+        }
+    }
+
+    const QVariantMap preflight = controller.automaticPreflight();
+    QVERIFY2(preflight.value(QStringLiteral("ready")).toBool(),
+             qPrintable(preflight.value(QStringLiteral("issues")).toString()));
+    const QVariantList workersForWorkflow = preflight.value(QStringLiteral("selectedWorkers")).toList();
+    QCOMPARE(workersForWorkflow.size(), 4);
+    QSet<QString> verifiedNodes;
+    for (const QVariant &entry : workersForWorkflow) {
+        const QVariantMap worker = entry.toMap();
+        QVERIFY(worker.value(QStringLiteral("verified")).toBool());
+        QVERIFY(!worker.value(QStringLiteral("capability")).toString().isEmpty());
+        QVERIFY(!worker.value(QStringLiteral("modelId")).toString().isEmpty());
+        verifiedNodes.insert(worker.value(QStringLiteral("id")).toString());
+    }
+    const QSet<QString> expectedDirectNodes{
+        QStringLiteral("source-separate"), QStringLiteral("transcribe"),
+        QStringLiteral("translate"), QStringLiteral("synthesize")};
+    QCOMPARE(verifiedNodes, expectedDirectNodes);
+
+    QVERIFY(controller.approveAutomaticPreflight());
+    WorkflowActivityManager activity(nullptr, nullptr, nullptr, nullptr, &controller);
+    QVERIFY(controller.startAutomaticWorkflow(directory.filePath(QStringLiteral("dubbed.mp4"))));
+    const QVariantList activityRows = activity.activeWorkflows();
+    QVERIFY(!activityRows.isEmpty());
+    QCOMPARE(activityRows.constFirst().toMap().value(QStringLiteral("executionRoute")).toString(),
+             QStringLiteral("Direct Colab GPU"));
+    // Stop before the external-media stage. The direct worker mocks in this
+    // unit test deliberately implement only health/capability verification;
+    // actual transfer, cancellation and artifact handling are exercised by
+    // the dedicated Colab runner tests below in the audit matrix.
+    controller.cancelProcessing();
+    QVERIFY(!controller.automaticSetupActive());
+
+    QFile persisted(project.projectPath);
+    QVERIFY(persisted.open(QIODevice::ReadOnly));
+    const QByteArray savedProject = persisted.readAll();
+    QVERIFY(!savedProject.contains("independent-audit-token"));
+    for (const Stage &stage : stages)
+        QVERIFY(!savedProject.contains(stage.session->endpoint().toString().toUtf8()));
+    app->settings()->setRemoteFirstMode(previousRemoteFirst);
+}
+
+void TestDubbingProject::independentAuditDirectColabFailureNeverFallsBackToLocal()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString audioPath = directory.filePath(QStringLiteral("source.wav"));
+    QVERIFY(writeFixtureFile(audioPath, QByteArrayLiteral("audio fixture")));
+
+    DubbingJobRunner runner(nullptr, nullptr);
+    const QVariantMap exactColab{{QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+                                 {QStringLiteral("modelId"), QStringLiteral("sherpa-onnx-spleeter-2stems-fp16")}};
+    runner.startSourceSeparation(audioPath, exactColab);
+    QVERIFY(!runner.processing());
+    QCOMPARE(runner.lastError(),
+             QStringLiteral("Connect a Colab GPU worker before running this Voice Isolation node."));
+
+    ColabSession unverifiedSession;
+    runner.setRemoteServices(nullptr, nullptr, nullptr, nullptr, &unverifiedSession, nullptr, nullptr);
+    runner.startSourceSeparation(audioPath, {{QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+                                             {QStringLiteral("modelId"), QStringLiteral("not-a-colab-model")}});
+    QVERIFY(!runner.processing());
+    QVERIFY(runner.lastError().contains(QStringLiteral("Select an exact Colab voice-isolation model")));
+
+    runner.startSourceSeparation(audioPath, {{QStringLiteral("executionProvider"), QStringLiteral("api-gateway")},
+                                             {QStringLiteral("modelId"), QStringLiteral("anything")}});
+    QVERIFY(!runner.processing());
+    QCOMPARE(runner.lastError(),
+             QStringLiteral("Source separation is not available through API Gateway. Select Local Dev or Colab GPU."));
+}
+
 void TestDubbingProject::directColabAdaptiveLlmClearsLocalStateAndNeverFallsBack()
 {
     QTemporaryDir directory;
