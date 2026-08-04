@@ -36,6 +36,20 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   are repaired. Full CTest 39/39 PASS in 86.87s and portable package audit
   PASS. Live notebook/desktop acceptance is not claimed.
 
+### 2026-08-05 - Follow-up on the reported 0.0.2.27 Spleeter crash
+
+- Screenshot header proved the user was running `0.0.2.27`. The error is from
+  the remote Direct Colab Spleeter CUDA worker, not an accidental local route:
+  the direct runner returns before the Local resolver branch can execute.
+- The old package's notebook embeds the heuristic `sherpa_onnx` CUDA worker.
+  The fixed 0.0.2.28 notebook/worker uses a pinned revision, SHA checks,
+  explicit DEFAULT cuDNN algorithm, startup probe and bounded chunks. A fresh
+  0.0.2.28 notebook runtime, URL and token are mandatory; an existing 0.0.2.27
+  Colab session remains old.
+- Audit-only run: no source/package mutation. Targeted Dubbing/Direct
+  Colab/remote/QML suites were 8/8 PASS and full CTest was 39/39 PASS. This
+  evidence is not a claim of live Colab acceptance.
+
 ### 2026-08-05 - 0.0.2.27 Adaptive Direct Colab integrity
 
 - Hai loi `free disk space` Local Qwen va runtime `llama-b10036...zip` thieu

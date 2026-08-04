@@ -32,6 +32,22 @@ Cap nhat: 2026-08-05
   verifies version, hash, Qt, FFmpeg, RuntimeHost, OCR manifests, notebook and
   worker templates. Live Colab/manual desktop testing remains a separate gate.
 
+## Post-package Dubbing verification: reported 0.0.2.27 CUDA error
+
+- The reported desktop screenshot is version `0.0.2.27`. Its
+  `CUDNN_FE_HEURISTIC_QUERY_FAILED` comes from the Direct Colab Spleeter
+  worker, not Local inference: the `colab-direct` runner sends the request to
+  `ColabSeparationRunner` and returns before the Local resolver branch.
+- Package `0.0.2.27` contains the older inline `sherpa_onnx` CUDA worker. The
+  audited `0.0.2.28` package contains the pinned, SHA-checked worker templates
+  with a startup probe, explicit DEFAULT cuDNN search and bounded 20-second
+  chunks. A new URL/token from that notebook is required; an old Colab runtime
+  cannot be upgraded by reconnecting it.
+- No source change or package was made for this verification. Targeted
+  Dubbing/Direct-Colab/remote/QML tests passed **8/8** in 28.85 seconds and
+  full CTest passed **39/39** in 72.18 seconds. Live Colab remains a manual
+  acceptance gate.
+
 ## Batch 0.0.2.27: Adaptive Dubbing Direct Colab route integrity
 
 - The two reported errors (`could not determine free disk space` for a local
