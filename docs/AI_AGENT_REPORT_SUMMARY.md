@@ -6,11 +6,43 @@ Cap nhat: 2026-08-05
 
 | Muc | Trang thai |
 | --- | --- |
-| Latest packaged candidate | `0.0.2.25` |
-| Artifact | `out/LA-Studio-0.0.2.25/LA-Studio-0.0.2.25.exe` |
-| SHA-256 | `78F1671A5810EEF6D519A4E1A97F17E467F234DCF54EE6917ED111FDF4E579B7` |
-| Current source | `main` source commit `0038c28`; QML lint PASS, full CTest 39/39 PASS and package audit PASS |
+| Latest packaged candidate | `0.0.2.27` |
+| Artifact | `out/LA-Studio-0.0.2.27/LA-Studio-0.0.2.27.exe` |
+| SHA-256 | `9C18D49DB53DB14DC4D39CC7780F1923FDFAF283156552FBC03F57BE1FAC32B9` |
+| Current source | `main` source commit `9b0eb6f`; QML lint PASS, full CTest 39/39 PASS and package audit PASS |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
+
+## Batch 0.0.2.27: Adaptive Dubbing Direct Colab route integrity
+
+- The two reported errors (`could not determine free disk space` for a local
+  Qwen directory and a missing SHA-256 for `llama-b10036...zip`) were symptoms
+  of one route-integrity bug, not disk/checksum faults. Adaptive Dubbing still
+  had a hidden Local LLM setup path, and old Local runtime metadata could
+  survive below the visible remote configuration.
+- Adaptive rewrite now has an explicit Direct Colab option: exact model
+  `qwen3.5-2b`, notebook `LA_STUDIO_LLM_QWEN3_5_2B_GPU.ipynb`, and an exact
+  `llm-chat/qwen3.5-2b` verified worker. It is displayed as a subordinate
+  Translate worker, never as a ninth production stage. Preflight blocks with a
+  concrete setup/check action instead of downloading a Local model.
+- Changing or reselecting any API Gateway/Direct Colab route clears all
+  Local-only runtime, files and configuration-signature keys both at the
+  persisted root and in nested parameters. The selected remote route/model is
+  durable on project reopen. Direct Colab also does not overwrite the separate
+  API Gateway URL/credential, and no Colab URL/token is saved in project JSON.
+- The adaptive Dubbing selection no longer mutates the independent standalone
+  LLM Chat controller. API Gateway, Direct Colab and explicit Local remain
+  separate choices.
+- Regression includes a legacy Local-to-Colab project, a repeat Direct-Colab
+  selection containing stale nested runtime fields, five exact CUDA-worker
+  contracts, reopen persistence, secret exclusion, the Translate worker card
+  and the assertion that automatic setup never downloads the default Adaptive
+  LLM. QML lint PASS; targeted Dubbing/remote/QML tests 7/7 PASS; full CTest
+  39/39 PASS in 72.18 seconds.
+- Portable package audit PASS: source/FileVersion/ProductVersion `0.0.2.27`,
+  SHA above, Qt Windows/offscreen plugins, FFmpeg/FFprobe, RuntimeHost,
+  Tesseract/Paddle manifests, license inventory and the Qwen Direct Colab
+  notebook were verified. Candidate `0.0.2.26` was staged before the nested
+  metadata regression was found; it is retained but not accepted.
 
 ## Batch 0.0.2.25: Direct Colab route preservation and truthful Activity stage
 

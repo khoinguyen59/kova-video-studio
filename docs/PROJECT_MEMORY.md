@@ -6,7 +6,7 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 
 - Desktop local-first: STT, TTS, Voice Cloning, Voice Design, Alignment, Translation, Dubbing, LLM Chat, Download va Subtitle OCR.
 - API Gateway va Direct Colab la hai route doc lap. Token/URL Colab chi o memory session, khong persist vao project/report.
-- Package noi bo moi nhat: `0.0.2.25` tai `out/LA-Studio-0.0.2.25/LA-Studio-0.0.2.25.exe`, SHA-256 `78F1671A5810EEF6D519A4E1A97F17E467F234DCF54EE6917ED111FDF4E579B7`. FileVersion/ProductVersion `0.0.2.25`, QML lint, full CTest 39/39, package QML smoke va package audit PASS. Manual GUI/live Colab luon la gate rieng.
+- Package noi bo moi nhat: `0.0.2.27` tai `out/LA-Studio-0.0.2.27/LA-Studio-0.0.2.27.exe`, SHA-256 `9C18D49DB53DB14DC4D39CC7780F1923FDFAF283156552FBC03F57BE1FAC32B9`. FileVersion/ProductVersion `0.0.2.27`, QML lint, full CTest 39/39 va package audit PASS. Manual GUI/live Colab luon la gate rieng.
 - `0.0.2.23` duoc giu nguyen nhung khong duoc chap nhan: audit bat thieu evidence trace route/model/worker truoc-sau. `0.0.2.24` bo sung trace va package moi, khong ghi de candidate cu.
 - `0.0.2.21` khong duoc chap nhan cho Dubbing Automatic: gate/preflight co
   dead-end media va no-op Configure. `0.0.2.22` sua duong ingest truoc gate,
@@ -15,6 +15,25 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   offscreen khong co native active window.
 
 ## Lich su cap san pham
+
+### 2026-08-05 - 0.0.2.27 Adaptive Direct Colab integrity
+
+- Hai loi `free disk space` Local Qwen va runtime `llama-b10036...zip` thieu
+  SHA-256 khong duoc sua bang cach bo checksum. Nguyen nhan la Adaptive
+  Dubbing con hidden Local fallback va metadata Local cu co the song sot o
+  nested parameters sau khi user da chon Direct Colab/API.
+- Adaptive rewrite co route Direct Colab ro rang cho `qwen3.5-2b`, dung notebook
+  `LA_STUDIO_LLM_QWEN3_5_2B_GPU.ipynb`, bat buoc exact verified
+  `llm-chat/qwen3.5-2b` worker va hien la worker con cua Translate. Khong co
+  local automatic download/fallback; API Gateway va Local van la route rieng.
+- Moi remote reselect xoa Local runtime/files/signature o ca root va parameters;
+  project luu route/model khong luu token/URL. Chon Direct Colab khong xoa API
+  Gateway URL/credential va khong can thiệp controller LLM Chat doc lap.
+- Regression legacy Local -> Direct, Direct reselect voi nested stale keys,
+  five exact CUDA mock worker, persistence/secret/card/no-download PASS. QML
+  lint PASS; targeted 7/7; full CTest 39/39 (72.18s); package audit 19 artifact
+  PASS. `0.0.2.26` da stage truoc khi bat nested-key case nen khong duoc chap
+  nhan; `0.0.2.27` la candidate hien tai.
 
 ### 2026-08-05 - 0.0.2.25 Direct Colab route and Activity correction
 
