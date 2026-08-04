@@ -16,6 +16,8 @@ private slots:
     void importingMediaDoesNotStartProcessing();
     void dubbingEntryGatePersistsChoiceWithoutMutatingProject();
     void automaticPreflightUsesPersistedLanguageSingleSourceOfTruth();
+    void automaticPreflightExposesActionableSourceAndStageStates();
+    void automaticPreflightFixTargetsAndNoOpConfigurationsAreExplicit();
     void automaticWorkflowLocksSettingsUntilPaused();
     void automaticWorkflowRequiresFreshPreflightApproval();
     void customWorkflowOpensFirstMissingNodeSetup();

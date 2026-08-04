@@ -2276,22 +2276,28 @@ QString DubbingController::workflowStatusText() const
 QVariantMap DubbingController::automaticPreflight() const
 {
     QVariantList issues;
-    auto addIssue = [&issues](const QString &id, const QString &message) {
+    auto addIssue = [&issues](const QString &id, const QString &message,
+                              int page = 1, const QString &focus = QString()) {
         issues.append(QVariantMap{{QStringLiteral("id"), id},
-                                  {QStringLiteral("message"), message}});
+                                  {QStringLiteral("message"), message},
+                                  {QStringLiteral("page"), page},
+                                  {QStringLiteral("focus"), focus}});
     };
 
     if (m_project.sourceMediaPath.trimmed().isEmpty())
         addIssue(QStringLiteral("source-media"),
-                 QStringLiteral("Import source media before starting Automatic dubbing."));
+                 QStringLiteral("Import source media before starting Automatic dubbing."), 0,
+                 QStringLiteral("source-media"));
     // sourceLanguage/targetLanguage are the project's single source of truth.
     // The wizard never keeps a parallel, display-only copy of them.
     if (m_project.sourceLanguage.trimmed().isEmpty())
         addIssue(QStringLiteral("source-language"),
-                 QStringLiteral("Choose the spoken/source language for Transcribe and Translate."));
+                 QStringLiteral("Choose the spoken/source language for Transcribe and Translate."), 0,
+                 QStringLiteral("source-language"));
     if (m_project.targetLanguage.trimmed().isEmpty())
         addIssue(QStringLiteral("target-language"),
-                 QStringLiteral("Choose the output language for Translate and TTS."));
+                 QStringLiteral("Choose the output language for Translate and TTS."), 0,
+                 QStringLiteral("target-language"));
     if (!workflowGraphValid())
         addIssue(QStringLiteral("workflow-graph"),
                  QStringLiteral("The default Dubbing workflow definition is invalid."));
@@ -2300,7 +2306,7 @@ QVariantMap DubbingController::automaticPreflight() const
         const QVariantMap issue = firstCustomSetupIssue();
         if (!issue.isEmpty()) {
             addIssue(issue.value(QStringLiteral("nodeId")).toString(),
-                     issue.value(QStringLiteral("message")).toString());
+                     issue.value(QStringLiteral("message")).toString(), 1);
         }
         if (!cloneVoiceSelectionValid())
             addIssue(QStringLiteral("tts-voice"), cloneVoiceSelectionError());
@@ -2320,7 +2326,7 @@ QVariantMap DubbingController::automaticPreflight() const
             addIssue(QStringLiteral("colab-") + stage.value(QStringLiteral("id")).toString(),
                      QStringLiteral("Check the Direct Colab worker for %1 (%2).")
                          .arg(stage.value(QStringLiteral("title")).toString(),
-                              stage.value(QStringLiteral("modelId")).toString()));
+                              stage.value(QStringLiteral("modelId")).toString()), 2);
         }
     }
 
@@ -2349,6 +2355,49 @@ QVariantMap DubbingController::automaticPreflight() const
             languageSummary = m_project.sourceLanguage;
         else if (requiresTargetLanguage)
             languageSummary = m_project.targetLanguage;
+        QString setupAction = QStringLiteral("none");
+        QString setupHint = QStringLiteral("No configuration required");
+        if (nodeId == QStringLiteral("media-input")) {
+            setupAction = QStringLiteral("source");
+            setupHint = QStringLiteral("Choose source media on page 1");
+        } else if (nodeId == QStringLiteral("source-separate")
+                   || nodeId == QStringLiteral("transcribe")
+                   || nodeId == QStringLiteral("translate")
+                   || nodeId == QStringLiteral("synthesize")) {
+            setupAction = QStringLiteral("node-model");
+            setupHint = QStringLiteral("Choose route and model");
+        } else if (nodeId == QStringLiteral("review-transcript")) {
+            setupAction = QStringLiteral("subtitle");
+            setupHint = QStringLiteral("Open subtitle/alignment review");
+        } else if (nodeId == QStringLiteral("export")) {
+            setupAction = QStringLiteral("export");
+            setupHint = QStringLiteral("Configure output/export options");
+        } else if (nodeId == QStringLiteral("ingest")) {
+            setupHint = QStringLiteral("Normalize uses the production ingest defaults");
+        } else if (nodeId == QStringLiteral("fit-timing")
+                   || nodeId == QStringLiteral("review-conflicts")
+                   || nodeId == QStringLiteral("mix")) {
+            setupHint = QStringLiteral("Timing and mix options are applied by the production workflow");
+        }
+
+        QString preflightState = QStringLiteral("ready");
+        QString preflightStateLabel = QStringLiteral("Ready");
+        if (nodeId == QStringLiteral("media-input") && m_project.sourceMediaPath.trimmed().isEmpty()) {
+            preflightState = QStringLiteral("needs-input");
+            preflightStateLabel = QStringLiteral("Needs input");
+        } else if (node.value(QStringLiteral("state")).toString() == QStringLiteral("missing")
+                   || node.value(QStringLiteral("state")).toString() == QStringLiteral("blocked")) {
+            preflightState = QStringLiteral("blocked-previous");
+            preflightStateLabel = QStringLiteral("Blocked by previous stage");
+        }
+        if (m_project.dubbingQuality == QStringLiteral("custom")
+            && (nodeId == QStringLiteral("source-separate") || nodeId == QStringLiteral("transcribe")
+                || nodeId == QStringLiteral("translate") || nodeId == QStringLiteral("synthesize"))
+            && configuration.isEmpty()) {
+            preflightState = QStringLiteral("needs-setup");
+            preflightStateLabel = QStringLiteral("Needs setup");
+        }
+
         nodes.append(QVariantMap{
             {QStringLiteral("id"), nodeId},
             {QStringLiteral("title"), node.value(QStringLiteral("title"), nodeId)},
@@ -2360,7 +2409,11 @@ QVariantMap DubbingController::automaticPreflight() const
             {QStringLiteral("requiresLanguage"), requiresSourceLanguage || requiresTargetLanguage},
             {QStringLiteral("languageSummary"), languageSummary},
             {QStringLiteral("state"), node.value(QStringLiteral("state"))},
-            {QStringLiteral("detail"), node.value(QStringLiteral("detail"))}
+            {QStringLiteral("detail"), node.value(QStringLiteral("detail"))},
+            {QStringLiteral("setupAction"), setupAction},
+            {QStringLiteral("setupHint"), setupHint},
+            {QStringLiteral("preflightState"), preflightState},
+            {QStringLiteral("preflightStateLabel"), preflightStateLabel}
         });
     }
 
@@ -2369,6 +2422,7 @@ QVariantMap DubbingController::automaticPreflight() const
         {QStringLiteral("issues"), issues},
         {QStringLiteral("nodes"), nodes},
         {QStringLiteral("selectedWorkers"), selectedWorkers},
+        {QStringLiteral("sourceMediaPath"), m_project.sourceMediaPath},
         {QStringLiteral("sourceLanguage"), m_project.sourceLanguage},
         {QStringLiteral("targetLanguage"), m_project.targetLanguage},
         {QStringLiteral("transcriptSource"), m_project.transcriptConfiguration.value(

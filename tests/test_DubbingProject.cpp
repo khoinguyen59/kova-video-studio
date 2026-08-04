@@ -1069,6 +1069,98 @@ void TestDubbingProject::automaticPreflightUsesPersistedLanguageSingleSourceOfTr
     QVERIFY(controller.lastError().contains(QStringLiteral("Review Automatic preflight")));
 }
 
+void TestDubbingProject::automaticPreflightExposesActionableSourceAndStageStates()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    DubbingController controller(nullptr, nullptr);
+    QVERIFY(controller.newProject(dir.filePath(QStringLiteral("project.ladub.json"))));
+
+    const QVariantMap missing = controller.automaticPreflight();
+    QCOMPARE(missing.value(QStringLiteral("sourceMediaPath")).toString(), QString());
+    const QVariantList missingIssues = missing.value(QStringLiteral("issues")).toList();
+    QVERIFY(!missingIssues.isEmpty());
+    QCOMPARE(missingIssues.constFirst().toMap().value(QStringLiteral("id")).toString(),
+             QStringLiteral("source-media"));
+    QCOMPARE(missingIssues.constFirst().toMap().value(QStringLiteral("page")).toInt(), 0);
+    QCOMPARE(missingIssues.constFirst().toMap().value(QStringLiteral("focus")).toString(),
+             QStringLiteral("source-media"));
+
+    bool sawMediaNeedsInput = false;
+    bool sawDownstreamReason = false;
+    for (const QVariant &entry : missing.value(QStringLiteral("nodes")).toList()) {
+        const QVariantMap node = entry.toMap();
+        const QString id = node.value(QStringLiteral("id")).toString();
+        if (id == QStringLiteral("media-input")) {
+            sawMediaNeedsInput = true;
+            QCOMPARE(node.value(QStringLiteral("preflightState")).toString(),
+                     QStringLiteral("needs-input"));
+            QCOMPARE(node.value(QStringLiteral("setupAction")).toString(),
+                     QStringLiteral("source"));
+        } else if (id == QStringLiteral("ingest")) {
+            sawDownstreamReason = true;
+            QCOMPARE(node.value(QStringLiteral("preflightState")).toString(),
+                     QStringLiteral("blocked-previous"));
+            QCOMPARE(node.value(QStringLiteral("setupAction")).toString(),
+                     QStringLiteral("none"));
+            QVERIFY(node.value(QStringLiteral("setupHint")).toString().contains(
+                QStringLiteral("Normalize")));
+        }
+    }
+    QVERIFY(sawMediaNeedsInput);
+    QVERIFY(sawDownstreamReason);
+
+    const QString mediaPath = dir.filePath(QStringLiteral("source.mp4"));
+    QVERIFY(writeFixtureFile(mediaPath, QByteArrayLiteral("media fixture")));
+    QVERIFY(controller.importMedia(mediaPath));
+    const QVariantMap afterImport = controller.automaticPreflight();
+    QCOMPARE(afterImport.value(QStringLiteral("sourceMediaPath")).toString(), mediaPath);
+    for (const QVariant &issueValue : afterImport.value(QStringLiteral("issues")).toList())
+        QVERIFY(issueValue.toMap().value(QStringLiteral("id")).toString() != QStringLiteral("source-media"));
+}
+
+void TestDubbingProject::automaticPreflightFixTargetsAndNoOpConfigurationsAreExplicit()
+{
+    DubbingController controller(nullptr, nullptr);
+    const QVariantMap preflight = controller.automaticPreflight();
+    QHash<QString, QVariantMap> nodes;
+    for (const QVariant &entry : preflight.value(QStringLiteral("nodes")).toList()) {
+        const QVariantMap node = entry.toMap();
+        nodes.insert(node.value(QStringLiteral("id")).toString(), node);
+    }
+    QCOMPARE(nodes.value(QStringLiteral("source-separate")).value(QStringLiteral("setupAction")).toString(),
+             QStringLiteral("node-model"));
+    QCOMPARE(nodes.value(QStringLiteral("transcribe")).value(QStringLiteral("setupAction")).toString(),
+             QStringLiteral("node-model"));
+    QCOMPARE(nodes.value(QStringLiteral("translate")).value(QStringLiteral("setupAction")).toString(),
+             QStringLiteral("node-model"));
+    QCOMPARE(nodes.value(QStringLiteral("synthesize")).value(QStringLiteral("setupAction")).toString(),
+             QStringLiteral("node-model"));
+    QCOMPARE(nodes.value(QStringLiteral("review-transcript")).value(QStringLiteral("setupAction")).toString(),
+             QStringLiteral("subtitle"));
+    QCOMPARE(nodes.value(QStringLiteral("export")).value(QStringLiteral("setupAction")).toString(),
+             QStringLiteral("export"));
+    QVERIFY(nodes.value(QStringLiteral("review-translation")).value(
+        QStringLiteral("setupHint")).toString().contains(QStringLiteral("No configuration required")));
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QVERIFY(controller.newProject(dir.filePath(QStringLiteral("colab.ladub.json"))));
+    QVERIFY(controller.setWorkflowNodeParameters(QStringLiteral("transcribe"), {
+        {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+        {QStringLiteral("modelId"), QStringLiteral("whisper.cpp")}
+    }));
+    bool sawColabIssue = false;
+    for (const QVariant &issueValue : controller.automaticPreflight().value(QStringLiteral("issues")).toList()) {
+        const QVariantMap issue = issueValue.toMap();
+        if (issue.value(QStringLiteral("id")).toString() == QStringLiteral("colab-transcribe")) {
+            sawColabIssue = true;
+            QCOMPARE(issue.value(QStringLiteral("page")).toInt(), 2);
+        }
+    }
+    QVERIFY(sawColabIssue);
+}
+
 void TestDubbingProject::automaticWorkflowRequiresFreshPreflightApproval()
 {
     QTemporaryDir dir;

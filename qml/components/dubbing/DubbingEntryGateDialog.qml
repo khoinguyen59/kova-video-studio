@@ -67,7 +67,12 @@ Dialog {
                     id: automaticColumn; anchors.fill: parent; anchors.margins: Theme.paddingLarge; spacing: Theme.paddingSmall
                     Text { text: qsTr("Automatic"); color: Theme.textPrimary; font.bold: true; font.pixelSize: Theme.fontLarge }
                     Text { Layout.fillWidth: true; text: qsTr("Configure source languages, routes, models and any required Direct Colab workers in one review wizard before the workflow starts."); color: Theme.textSecondary; wrapMode: Text.WordWrap }
-                    PrimaryButton { text: qsTr("Automatic"); Layout.fillWidth: true; iconName: "play"; onClicked: root.automaticRequested() }
+                    PrimaryButton {
+                        id: automaticButton
+                        objectName: "dubbingEntryAutomaticButton"
+                        text: qsTr("Automatic"); Layout.fillWidth: true; iconName: "play"
+                        onClicked: root.automaticRequested()
+                    }
                 }
             }
             Rectangle {
@@ -77,7 +82,11 @@ Dialog {
                     id: stepColumn; anchors.fill: parent; anchors.margins: Theme.paddingLarge; spacing: Theme.paddingSmall
                     Text { text: qsTr("Review one by one"); color: Theme.textPrimary; font.bold: true; font.pixelSize: Theme.fontLarge }
                     Text { Layout.fillWidth: true; text: qsTr("Open the first valid Dubbing step. Each later stage stays blocked until its own required configuration is complete."); color: Theme.textSecondary; wrapMode: Text.WordWrap }
-                    PrimaryButton { text: qsTr("Review one by one"); Layout.fillWidth: true; quiet: true; iconName: "workflow"; onClicked: root.stepByStepRequested() }
+                    PrimaryButton {
+                        objectName: "dubbingEntryStepByStepButton"
+                        text: qsTr("Review one by one"); Layout.fillWidth: true; quiet: true; iconName: "workflow"
+                        onClicked: root.stepByStepRequested()
+                    }
                 }
             }
         }
@@ -87,4 +96,8 @@ Dialog {
             Item { Layout.fillWidth: true }
         }
     }
+
+    // Used only by the production-shell offscreen interaction regression.
+    // It activates the real button, which in turn emits automaticRequested.
+    function qmlSmokeClickAutomatic() { automaticButton.click() }
 }

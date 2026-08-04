@@ -235,10 +235,21 @@ Page {
         var savedSourceLink = sourceLinkInput.text
         sourceLinkInput.text = "https://example.invalid/subtitle-ocr-fixture.mp4"
         var validLinkEnablesImport = importLinkButton.enabled
-        sourceLinkInput.forceActiveFocus()
-        var sourceLinkCanReceiveFocus = sourceLinkInput.activeFocus
+        // The offscreen Qt platform has no active native window, so it cannot
+        // truthfully grant activeFocus even when QML has moved keyboard focus
+        // to this control.  Local `focus` is the portable QML interaction
+        // contract; an interactive desktop additionally exposes activeFocus.
+        sourceLinkInput.forceActiveFocus(Qt.OtherFocusReason)
+        var sourceLinkCanReceiveFocus = sourceLinkInput.focus || sourceLinkInput.activeFocus
         sourceLinkInput.text = savedSourceLink
-        if (!validLinkEnablesImport || !sourceLinkCanReceiveFocus) return qmlSmokeFailure("link-input")
+        if (!validLinkEnablesImport || !sourceLinkCanReceiveFocus)
+            return qmlSmokeFailure("link-input: import-enabled=" + validLinkEnablesImport
+                                   + ", input-enabled=" + sourceLinkInput.enabled
+                                   + ", input-visible=" + sourceLinkInput.visible
+                                   + ", focus=" + sourceLinkInput.focus
+                                   + ", active-focus=" + sourceLinkInput.activeFocus
+                                   + ", processing=" + ocr.processing
+                                   + ", importing=" + ocr.sourceImporting)
         // A missing runtime only blocks execution/install. Selecting the
         // desired language remains useful before the runtime is installed.
         if (!ocr.runtimeAvailable && (!languageSelector.enabled || runOcrButton.enabled))

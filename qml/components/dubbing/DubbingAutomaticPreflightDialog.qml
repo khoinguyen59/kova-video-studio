@@ -16,16 +16,26 @@ Dialog {
     property int currentPage: 0
     readonly property var preflight: root.dubbing ? root.dubbing.automaticPreflight : ({})
     readonly property bool ready: root.preflight.ready === true
+    readonly property bool sourceReady: root.dubbing
+                                      && root.dubbing.sourceMediaPath.length > 0
+                                      && root.dubbing.sourceLanguage.length > 0
+                                      && root.dubbing.targetLanguage.length > 0
+    property string focusIssueId: ""
 
     signal backToEntryRequested()
     signal nodeModelRequested(string nodeId)
+    signal stageSetupRequested(string action, string nodeId)
     signal colabSetupRequested()
+    signal sourceBrowseRequested()
+    signal sourceLinkImportRequested(string url)
+    signal issueFixRequested(string issueId)
 
     parent: Overlay.overlay
     anchors.centerIn: parent
     width: Math.min(860, parent ? parent.width - Theme.paddingXL * 2 : 860)
     height: Math.min(650, parent ? parent.height - Theme.paddingXL * 2 : 650)
     modal: true
+    focus: true
     padding: 0
     title: ""
     // The Automatic setup is part of the mandatory entry flow.  It may only
@@ -35,7 +45,38 @@ Dialog {
 
     function openPreflight() {
         currentPage = 0
+        focusIssueId = ""
         open()
+    }
+
+    function fixIssue(issueId) {
+        focusIssueId = issueId
+        if (issueId === "source-media" || issueId === "source-language" || issueId === "target-language")
+            currentPage = 0
+        else if (issueId.indexOf("colab-") === 0)
+            currentPage = 2
+        else
+            currentPage = 1
+        issueFixRequested(issueId)
+        issueFocusTimer.issueId = issueId
+        issueFocusTimer.restart()
+    }
+
+    Timer {
+        id: issueFocusTimer
+        interval: 40
+        repeat: false
+        property string issueId: ""
+        onTriggered: {
+            if (issueId === "source-media") sourceBrowseButton.forceActiveFocus()
+            else if (issueId === "source-language") {
+                sourceLanguageBox.forceActiveFocus()
+                if (sourceLanguageBox.contentItem) sourceLanguageBox.contentItem.forceActiveFocus()
+            } else if (issueId === "target-language") {
+                targetLanguageBox.forceActiveFocus()
+                if (targetLanguageBox.contentItem) targetLanguageBox.contentItem.forceActiveFocus()
+            }
+        }
     }
 
     function requestAutomaticStart() {
@@ -49,11 +90,15 @@ Dialog {
     function advanceFromCurrentPage() {
         // Do not infer an Auto value for a model that has not advertised it.
         // Keep missing required language visible and focused on this page.
-        if (currentPage === 0 && !root.preflight.sourceLanguage) {
+        if (currentPage === 0 && !root.dubbing.sourceMediaPath) {
+            sourceBrowseButton.forceActiveFocus()
+            return
+        }
+        if (currentPage === 0 && !root.dubbing.sourceLanguage) {
             sourceLanguageBox.forceActiveFocus()
             return
         }
-        if (currentPage === 0 && !root.preflight.targetLanguage) {
+        if (currentPage === 0 && !root.dubbing.targetLanguage) {
             targetLanguageBox.forceActiveFocus()
             return
         }
@@ -153,6 +198,61 @@ Dialog {
                         color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap
                     }
                     Rectangle {
+                        Layout.fillWidth: true
+                        implicitHeight: sourceMediaColumn.implicitHeight + Theme.paddingMedium * 2
+                        radius: Theme.radiusSmall
+                        color: Qt.rgba(1, 1, 1, 0.025)
+                        border.color: root.preflight.sourceMediaPath ? Qt.rgba(1, 1, 1, 0.10) : Theme.danger
+                        ColumnLayout {
+                            id: sourceMediaColumn
+                            anchors.fill: parent
+                            anchors.margins: Theme.paddingMedium
+                            Text { text: qsTr("Source media *"); color: root.preflight.sourceMediaPath ? Theme.textPrimary : Theme.danger; font.bold: true }
+                            Text { Layout.fillWidth: true; text: qsTr("Choose a local audio/video file or import a direct URL before stages are assessed. This uses the project ingest service and saves the selected media immediately."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                TextField {
+                                    objectName: "dubbingPreflightSourcePath"
+                                    Layout.fillWidth: true
+                                    readOnly: true
+                                    text: root.preflight.sourceMediaPath || ""
+                                    placeholderText: qsTr("No source media selected")
+                                    color: Theme.textPrimary
+                                    selectByMouse: true
+                                }
+                                PrimaryButton {
+                                    id: sourceBrowseButton
+                                    objectName: "dubbingPreflightSourceBrowseButton"
+                                    text: qsTr("Browse local file")
+                                    iconName: "folder"
+                                    enabled: !root.dubbing.processing && !root.dubbing.linkImporting
+                                    onClicked: root.sourceBrowseRequested()
+                                }
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                TextField {
+                                    id: sourceUrlField
+                                    objectName: "dubbingPreflightSourceUrlField"
+                                    Layout.fillWidth: true
+                                    placeholderText: qsTr("Direct media URL to import/download")
+                                    color: Theme.textPrimary
+                                    selectByMouse: true
+                                    enabled: !root.dubbing.processing && !root.dubbing.linkImporting
+                                    onAccepted: if (text.trim() !== "") root.sourceLinkImportRequested(text.trim())
+                                }
+                                PrimaryButton {
+                                    objectName: "dubbingPreflightSourceUrlImportButton"
+                                    text: qsTr("Import URL")
+                                    iconName: "download"
+                                    enabled: sourceUrlField.text.trim() !== "" && !root.dubbing.processing && !root.dubbing.linkImporting
+                                    onClicked: root.sourceLinkImportRequested(sourceUrlField.text.trim())
+                                }
+                            }
+                            Text { visible: !root.preflight.sourceMediaPath; text: qsTr("Choose or import source media to unlock the next step."); color: Theme.danger; font.pixelSize: Theme.fontSmall }
+                        }
+                    }
+                    Rectangle {
                         Layout.fillWidth: true; implicitHeight: sourceLanguageColumn.implicitHeight + Theme.paddingMedium * 2
                         radius: Theme.radiusSmall; color: Qt.rgba(1, 1, 1, 0.025); border.color: root.preflight.sourceLanguage ? Qt.rgba(1, 1, 1, 0.10) : Theme.danger
                         ColumnLayout {
@@ -161,6 +261,7 @@ Dialog {
                             Text { text: qsTr("Used by Transcribe/STT, OCR/subtitle alignment and the source side of Translate."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
                             ComboBox {
                                 id: sourceLanguageBox; Layout.fillWidth: true
+                                objectName: "dubbingPreflightSourceLanguage"
                                 model: [{ code: "en", name: "English (en)" }, { code: "vi", name: "Vietnamese (vi)" }, { code: "zh", name: "Chinese (zh)" }, { code: "ja", name: "Japanese (ja)" }, { code: "ko", name: "Korean (ko)" }]
                                 textRole: "name"; valueRole: "code"
                                 Component.onCompleted: currentIndex = indexOfValue(root.preflight.sourceLanguage)
@@ -178,6 +279,7 @@ Dialog {
                             Text { text: qsTr("Used by Translate and TTS. Saved voices remain validated against the selected TTS model family."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
                             ComboBox {
                                 id: targetLanguageBox; Layout.fillWidth: true
+                                objectName: "dubbingPreflightTargetLanguage"
                                 model: [{ code: "vi", name: "Vietnamese (vi)" }, { code: "en", name: "English (en)" }, { code: "zh", name: "Chinese (zh)" }, { code: "ja", name: "Japanese (ja)" }, { code: "ko", name: "Korean (ko)" }]
                                 textRole: "name"; valueRole: "code"
                                 Component.onCompleted: currentIndex = indexOfValue(root.preflight.targetLanguage)
@@ -210,9 +312,11 @@ Dialog {
                         wrapMode: Text.WordWrap
                     }
                     Repeater {
+                        id: stageCards
                         model: root.preflight.nodes || []
                         delegate: Rectangle {
                             required property var modelData
+                            property alias setupButton: stageSetupButton
                             Layout.fillWidth: true
                             implicitHeight: nodeRow.implicitHeight + Theme.paddingMedium * 2
                             radius: Theme.radiusSmall
@@ -252,16 +356,25 @@ Dialog {
                                     }
                                 }
                                 PrimaryButton {
+                                    id: stageSetupButton
+                                    objectName: "dubbingPreflightConfigure_" + modelData.id
+                                    visible: modelData.setupAction && modelData.setupAction !== "none"
                                     text: qsTr("Configure")
                                     quiet: true
                                     enabled: !root.dubbing.processing
-                                    onClicked: root.nodeModelRequested(modelData.id)
+                                    onClicked: root.stageSetupRequested(modelData.setupAction, modelData.id)
                                 }
                                 Text {
-                                    text: modelData.state === "blocked" || modelData.state === "missing"
-                                          ? qsTr("Blocked") : qsTr("Ready")
-                                    color: modelData.state === "blocked" || modelData.state === "missing"
-                                           ? Theme.warning : Theme.success
+                                    visible: !modelData.setupAction || modelData.setupAction === "none"
+                                    text: modelData.setupHint || qsTr("No configuration required")
+                                    color: Theme.textSecondary
+                                    font.pixelSize: Theme.fontSmall
+                                    wrapMode: Text.WordWrap
+                                    Layout.preferredWidth: 150
+                                }
+                                Text {
+                                    text: modelData.preflightStateLabel || qsTr("Ready")
+                                    color: modelData.preflightState === "ready" ? Theme.success : Theme.warning
                                     font.pixelSize: Theme.fontSmall
                                     font.bold: true
                                 }
@@ -344,6 +457,7 @@ Dialog {
                     }
                 }
                 PrimaryButton {
+                    objectName: "dubbingPreflightColabConfigureButton"
                     text: qsTr("Configure / Check Direct Colab workers")
                     iconName: "cloud"
                     Layout.fillWidth: true
@@ -393,20 +507,32 @@ Dialog {
                         font.bold: true
                     }
                     Repeater {
+                        id: reviewIssues
                         model: root.preflight.issues || []
                         delegate: Rectangle {
                             required property var modelData
+                            property alias fixButton: issueFixButton
                             Layout.fillWidth: true
                             implicitHeight: issueText.implicitHeight + Theme.paddingSmall * 2
                             radius: Theme.radiusSmall
                             color: Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.08)
-                            Text {
+                            RowLayout {
                                 id: issueText
                                 anchors.fill: parent
                                 anchors.margins: Theme.paddingSmall
-                                text: "• " + (modelData.message || modelData.id)
-                                color: Theme.danger
-                                wrapMode: Text.WordWrap
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: "• " + (modelData.message || modelData.id)
+                                    color: Theme.danger
+                                    wrapMode: Text.WordWrap
+                                }
+                                PrimaryButton {
+                                    id: issueFixButton
+                                    objectName: "dubbingPreflightFix_" + modelData.id
+                                    text: qsTr("Fix")
+                                    quiet: true
+                                    onClicked: root.fixIssue(modelData.id)
+                                }
                             }
                         }
                     }
@@ -470,12 +596,14 @@ Dialog {
             Layout.margins: Theme.paddingLarge
             spacing: Theme.paddingSmall
             PrimaryButton {
+                objectName: "dubbingPreflightBackButton"
                 text: qsTr("Back")
                 quiet: true
                 visible: root.currentPage > 0
                 onClicked: root.currentPage -= 1
             }
             PrimaryButton {
+                objectName: "dubbingPreflightBackToModeButton"
                 visible: root.currentPage === 0
                 text: qsTr("Back to mode selection")
                 quiet: true
@@ -483,12 +611,17 @@ Dialog {
             }
             Item { Layout.fillWidth: true }
             PrimaryButton {
+                id: nextButton
+                objectName: "dubbingPreflightNextButton"
                 visible: root.currentPage < 4
                 text: qsTr("Next")
                 iconName: "chevron-right"
+                enabled: root.currentPage !== 0 || root.sourceReady
                 onClicked: root.advanceFromCurrentPage()
+                AppToolTip { text: qsTr("Choose source media and both languages before continuing"); visible: parent.hovered && !parent.enabled }
             }
             PrimaryButton {
+                objectName: "dubbingPreflightStartButton"
                 visible: root.currentPage === 4
                 text: qsTr("Start Automatic Dubbing")
                 iconName: "play"
@@ -501,5 +634,45 @@ Dialog {
                 }
             }
         }
+    }
+
+    // Production-shell offscreen regression helpers. They activate the real
+    // controls; file-selection result injection happens only at the picker
+    // boundary owned by DubbingPage.
+    function qmlSmokeClickSourceBrowse() { sourceBrowseButton.click() }
+    function qmlSmokeSourceLanguageFocused() {
+        return sourceLanguageBox.activeFocus
+                || (sourceLanguageBox.contentItem && sourceLanguageBox.contentItem.activeFocus)
+    }
+    function qmlSmokeClickNext() {
+        if (!nextButton.enabled) return false
+        nextButton.click()
+        return true
+    }
+    function qmlSmokeClickStageSetup(nodeId) {
+        for (var index = 0; index < stageCards.count; ++index) {
+            var card = stageCards.itemAt(index)
+            if (card && card.modelData.id === nodeId && card.setupButton.visible) {
+                card.setupButton.click()
+                return true
+            }
+        }
+        return false
+    }
+    function qmlSmokeClickFix(issueId) {
+        for (var index = 0; index < reviewIssues.count; ++index) {
+            var card = reviewIssues.itemAt(index)
+            if (card && card.modelData.id === issueId) {
+                card.fixButton.click()
+                return true
+            }
+        }
+        return false
+    }
+    function qmlSmokeSelectLanguages() {
+        sourceLanguageBox.currentIndex = sourceLanguageBox.indexOfValue("zh")
+        sourceLanguageBox.activated(sourceLanguageBox.currentIndex)
+        targetLanguageBox.currentIndex = targetLanguageBox.indexOfValue("vi")
+        targetLanguageBox.activated(targetLanguageBox.currentIndex)
     }
 }

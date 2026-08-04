@@ -4,6 +4,11 @@
 #include <QIcon>
 #include <QFont>
 #include <QTimer>
+#include <QDir>
+#include <QFile>
+#include <QStandardPaths>
+#include <QJsonDocument>
+#include <QSaveFile>
 
 #include <atomic>
 #include <cstdio>
@@ -72,6 +77,7 @@ int main(int argc, char *argv[])
 
     QGuiApplication app(argc, argv);
     const bool qmlSmokeMode = qEnvironmentVariableIntValue("LASTUDIO_QML_SMOKE") == 1;
+    QObject *qmlSmokeRoot = nullptr;
     if (qmlSmokeMode) {
         QTimer::singleShot(60000, &app, [] { QCoreApplication::exit(3); });
     }
@@ -117,6 +123,25 @@ int main(int argc, char *argv[])
             return 1;
         }
         QObject *root = engine.rootObjects().constFirst();
+        qmlSmokeRoot = root;
+        // The interaction smoke clicks the production Browse button, then
+        // injects this small fixture through the accepted file-picker boundary.
+        // It is deliberately created under test data rather than using a user
+        // file or running a media/model workload during an offscreen UI test.
+        QString smokeDataDir = qEnvironmentVariable("LASTUDIO_DATA_DIR");
+        if (smokeDataDir.isEmpty())
+            smokeDataDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation)
+                + QStringLiteral("/lastudio-qml-smoke");
+        QDir().mkpath(smokeDataDir);
+        const QString smokeMediaPath = QDir(smokeDataDir).filePath(
+            QStringLiteral("dubbing-source-picker-fixture.wav"));
+        QFile smokeMedia(smokeMediaPath);
+        if (!smokeMedia.open(QIODevice::WriteOnly | QIODevice::Truncate)
+            || smokeMedia.write("RIFF\\x24\\x00\\x00\\x00WAVEfmt ", 16) != 16) {
+            return 1;
+        }
+        smokeMedia.close();
+        root->setProperty("qmlSmokeMediaPath", smokeMediaPath);
         QTimer::singleShot(0, root, [root] {
             QMetaObject::invokeMethod(root, "startQmlRouteSmoke");
         });
@@ -128,5 +153,29 @@ int main(int argc, char *argv[])
     }
 
     const int exitCode = app.exec();
+    int qmlSmokeTraceCount = 0;
+    if (qmlSmokeMode && qmlSmokeRoot) {
+        QString tracePath = qEnvironmentVariable("LASTUDIO_QML_SMOKE_TRACE");
+        if (tracePath.isEmpty())
+            tracePath = QDir::current().filePath(QStringLiteral("dubbing-qml-interaction-trace.json"));
+        QSaveFile traceFile(tracePath);
+        const QVariantList trace = qmlSmokeRoot->property("qmlSmokeDubbingTrace").toList();
+        qmlSmokeTraceCount = trace.size();
+        if (!traceFile.open(QIODevice::WriteOnly)
+            || traceFile.write(QJsonDocument::fromVariant(
+                   trace).toJson(
+                   QJsonDocument::Indented)) < 0
+            || !traceFile.commit()) {
+            return 4;
+        }
+    }
+    if (exitCode == 0 && qmlSmokeMode && qmlSmokeRoot
+        && qmlSmokeRoot->property("qmlSmokeFailed").toBool()) {
+        return 3;
+    }
+    // A successful QML load is not enough: the production Dubbing route must
+    // have exercised every recorded gate/source/stage/Colab/Fix control.
+    if (exitCode == 0 && qmlSmokeMode && qmlSmokeTraceCount < 15)
+        return 3;
     return exitCode == 0 && s_qmlSmokeWarning.load(std::memory_order_relaxed) ? 2 : exitCode;
 }

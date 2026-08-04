@@ -27,6 +27,10 @@ ApplicationWindow {
     property bool qmlSmokeHomeLayoutResizePending: false
     property int qmlSmokeDubbingLayoutSizeIndex: 0
     property bool qmlSmokeDubbingLayoutResizePending: false
+    property bool qmlSmokeDubbingAutomaticPending: false
+    property string qmlSmokeMediaPath: ""
+    property var qmlSmokeDubbingTrace: []
+    property bool qmlSmokeFailed: false
     property int qmlSmokeVoiceCloneLayoutSizeIndex: 0
     property bool qmlSmokeVoiceCloneLayoutResizePending: false
     title: appName + " - " + appVersion
@@ -36,6 +40,13 @@ ApplicationWindow {
         if (AppController.updates.downloading) return qsTr("Downloading...")
         if (AppController.updates.downloaded) return qsTr("Install")
         return qsTr("Download")
+    }
+
+    function recordQmlSmokeDubbing(control, action, before, after) {
+        var next = qmlSmokeDubbingTrace.slice(0)
+        next.push({ "control": control, "action": action,
+                    "before": before, "after": after })
+        qmlSmokeDubbingTrace = next
     }
 
     function runUpdateBannerAction() {
@@ -190,6 +201,7 @@ ApplicationWindow {
         qmlSmokeHomeLayoutResizePending = false
         qmlSmokeDubbingLayoutSizeIndex = 0
         qmlSmokeDubbingLayoutResizePending = false
+        qmlSmokeDubbingAutomaticPending = false
         qmlSmokeVoiceCloneLayoutSizeIndex = 0
         qmlSmokeVoiceCloneLayoutResizePending = false
         qmlSmokeTimer.start()
@@ -273,7 +285,16 @@ ApplicationWindow {
                 if (dubbingCheckResult === 0)
                     return 0
                 qmlSmokeDubbingLayoutResizePending = false
-                return dubbingCheckResult > 0 ? 0 : -1
+                if (dubbingCheckResult < 0) return -1
+                dubbingLoader.item.beginQmlSmokeAutomaticPreflightCheck()
+                qmlSmokeDubbingAutomaticPending = true
+                return 0
+            }
+            if (qmlSmokeDubbingAutomaticPending) {
+                var automaticCheckResult = dubbingLoader.item.qmlSmokeAutomaticPreflightCheck()
+                if (automaticCheckResult === 0) return 0
+                qmlSmokeDubbingAutomaticPending = false
+                return automaticCheckResult > 0 ? 1 : -1
             }
             if (qmlSmokeDubbingLayoutSizeIndex < dubbingSizes.length) {
                 var dubbingSize = dubbingSizes[qmlSmokeDubbingLayoutSizeIndex++]
@@ -355,6 +376,7 @@ ApplicationWindow {
                             ? dubbingLoader.item.qmlSmokeTranscriptSourceFailure : ""
                     console.warn(failedContract + route.id
                                  + (failureDetail ? ": " + failureDetail : ""))
+                    root.qmlSmokeFailed = true
                     running = false
                     Qt.quit()
                     return
@@ -366,6 +388,7 @@ ApplicationWindow {
             ++waitTicks
             if (waitTicks > 100) {
                 console.warn("Route did not finish loading: " + route.id)
+                root.qmlSmokeFailed = true
                 running = false
                 Qt.quit()
             }
@@ -690,7 +713,7 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     active: stack.currentIndex === 8
-                    sourceComponent: DubbingPage {}
+                    sourceComponent: DubbingPage { qmlSmokeMediaPath: root.qmlSmokeMediaPath }
                 }
                 Loader {
                     id: llmLoader

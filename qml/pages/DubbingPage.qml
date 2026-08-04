@@ -36,6 +36,10 @@ Item {
     // treating a deferred layout as a failed configuration contract.
     property int qmlSmokeTranscriptSourcePhase: 0
     property string qmlSmokeTranscriptSourceFailure: ""
+    property bool qmlSmokeMediaPickerRequested: false
+    property string qmlSmokeMediaPath: ""
+    property int qmlSmokeAutomaticPhase: 0
+    property int qmlSmokeAutomaticStageIndex: 0
     property string pendingHistoryDeleteId: ""
     readonly property var languageCatalog: AppController.catalog.languageSet("default")
 
@@ -102,6 +106,28 @@ Item {
         if (stepId === "fit-timing" || stepId === "review-conflicts" || stepId === "mix" || stepId === "timing-mix") return qsTr("Timing/Mix")
         if (stepId === "export") return qsTr("Export/Output")
         return qsTr("Completed")
+    }
+
+    function acceptSelectedSourceMedia(urlOrPath) {
+        var path = AppController.files.urlToLocalPath(String(urlOrPath))
+        return dubbing.importMedia(path)
+    }
+
+    function openAutomaticStageSetup(action, nodeId) {
+        if (action === "node-model") {
+            nodeModelDialog.openFor(nodeId)
+            return
+        }
+        if (action === "subtitle") {
+            subtitleEditorDialog.open()
+            return
+        }
+        if (action === "export") {
+            exportOptionsDialog.open()
+            return
+        }
+        if (action === "source")
+            automaticPreflightDialog.currentPage = 0
     }
 
     function stageIdForNode(nodeId) {
@@ -284,6 +310,173 @@ Item {
             return -1
         }
         return 1
+    }
+
+    function beginQmlSmokeAutomaticPreflightCheck() {
+        qmlSmokeAutomaticPhase = 0
+        qmlSmokeAutomaticStageIndex = 0
+        qmlSmokeMediaPickerRequested = false
+        qmlSmokeTranscriptSourceFailure = ""
+    }
+
+    // Production-shell offscreen interaction contract.  Every transition here
+    // is initiated by the actual QML control's click() method; only the native
+    // file-picker result is injected at its explicit picker boundary.
+    function qmlSmokeAutomaticPreflightCheck() {
+        var configuredStages = ["media-input", "source-separate", "transcribe",
+                                "review-transcript", "translate", "synthesize", "export"]
+        if (qmlSmokeAutomaticPhase === 0) {
+            if (!dubbingEntryGate.visible) {
+                qmlSmokeTranscriptSourceFailure = "Dubbing entry gate did not block the workspace"
+                return -1
+            }
+            subtitleEditorDialog.close()
+            exportOptionsDialog.close()
+            ApplicationWindow.window.recordQmlSmokeDubbing("dubbingEntryAutomaticButton", "click",
+                                                            "entry-gate", "source-language")
+            dubbingEntryGate.qmlSmokeClickAutomatic()
+            qmlSmokeAutomaticPhase = 1
+            return 0
+        }
+        if (qmlSmokeAutomaticPhase === 1) {
+            if (!automaticPreflightDialog.visible || automaticPreflightDialog.currentPage !== 0) {
+                qmlSmokeTranscriptSourceFailure = "Automatic did not open Source & language preflight"
+                return -1
+            }
+            // Missing source is an intentional Review failure. The real Fix
+            // control must bring the operator back to the source card before
+            // the Browse control can be used.
+            automaticPreflightDialog.currentPage = 3
+            if (!automaticPreflightDialog.qmlSmokeClickFix("source-media")) {
+                qmlSmokeTranscriptSourceFailure = "Review did not expose Fix for missing source media"
+                return -1
+            }
+            ApplicationWindow.window.recordQmlSmokeDubbing("dubbingPreflightFix_source-media", "click",
+                                                            "review-source-media-error", "source-page")
+            qmlSmokeAutomaticPhase = 11
+            return 0
+        }
+        if (qmlSmokeAutomaticPhase === 11) {
+            if (automaticPreflightDialog.currentPage !== 0) {
+                qmlSmokeTranscriptSourceFailure = "Review Fix did not navigate to Source & language"
+                return -1
+            }
+            automaticPreflightDialog.qmlSmokeClickSourceBrowse()
+            ApplicationWindow.window.recordQmlSmokeDubbing("dubbingPreflightSourceBrowseButton", "click",
+                                                            "source-empty", "file-picker-requested")
+            qmlSmokeAutomaticPhase = 2
+            return 0
+        }
+        if (qmlSmokeAutomaticPhase === 2) {
+            if (!qmlSmokeMediaPickerRequested) {
+                qmlSmokeTranscriptSourceFailure = "Source Browse did not request the production file picker"
+                return -1
+            }
+            mediaFileDialog.close()
+            if (qmlSmokeMediaPath === "" || !acceptSelectedSourceMedia(qmlSmokeMediaPath)) {
+                qmlSmokeTranscriptSourceFailure = "The production file-picker boundary did not persist source media"
+                return -1
+            }
+            ApplicationWindow.window.recordQmlSmokeDubbing("file-picker-boundary", "accept",
+                                                            "source-empty", "source-persisted")
+            automaticPreflightDialog.qmlSmokeSelectLanguages()
+            qmlSmokeAutomaticPhase = 3
+            return 0
+        }
+        if (qmlSmokeAutomaticPhase === 3) {
+            if (dubbing.sourceMediaPath === "" || dubbing.sourceLanguage !== "zh" || dubbing.targetLanguage !== "vi") {
+                qmlSmokeTranscriptSourceFailure = "Source media or language selection was not persisted into DubbingController"
+                return -1
+            }
+            if (!automaticPreflightDialog.qmlSmokeClickNext()) {
+                qmlSmokeTranscriptSourceFailure = "Source preflight Next remained disabled after media and languages were persisted"
+                return -1
+            }
+            ApplicationWindow.window.recordQmlSmokeDubbing("dubbingPreflightNextButton", "click",
+                                                            "source-language", "stages")
+            qmlSmokeAutomaticPhase = 4
+            return 0
+        }
+        if (qmlSmokeAutomaticPhase === 4) {
+            if (automaticPreflightDialog.currentPage !== 1) {
+                qmlSmokeTranscriptSourceFailure = "Source preflight Next did not navigate to stages"
+                return -1
+            }
+            if (qmlSmokeAutomaticStageIndex >= configuredStages.length) {
+                automaticPreflightDialog.qmlSmokeClickNext()
+                ApplicationWindow.window.recordQmlSmokeDubbing("dubbingPreflightNextButton", "click",
+                                                                "stages", "colab-workers")
+                qmlSmokeAutomaticPhase = 6
+                return 0
+            }
+            var stageId = configuredStages[qmlSmokeAutomaticStageIndex]
+            if (!automaticPreflightDialog.qmlSmokeClickStageSetup(stageId)) {
+                qmlSmokeTranscriptSourceFailure = "Visible Configure has no actionable QML control for " + stageId
+                return -1
+            }
+            ApplicationWindow.window.recordQmlSmokeDubbing("dubbingPreflightConfigure_" + stageId,
+                                                            "click", "stages", "setup-open-requested")
+            qmlSmokeAutomaticPhase = 5
+            return 0
+        }
+        if (qmlSmokeAutomaticPhase === 5) {
+            var stageId = configuredStages[qmlSmokeAutomaticStageIndex]
+            if (stageId === "media-input") {
+                if (automaticPreflightDialog.currentPage !== 0) {
+                    qmlSmokeTranscriptSourceFailure = "Import/Download Configure did not return to Source & language"
+                    return -1
+                }
+                automaticPreflightDialog.currentPage = 1
+            } else if (stageId === "review-transcript") {
+                if (!subtitleEditorDialog.visible) {
+                    qmlSmokeTranscriptSourceFailure = "Alignment/Subtitle Configure did not open the subtitle editor"
+                    return -1
+                }
+                subtitleEditorDialog.close()
+            } else if (stageId === "export") {
+                if (!exportOptionsDialog.visible) {
+                    qmlSmokeTranscriptSourceFailure = "Export Configure did not open export options"
+                    return -1
+                }
+                exportOptionsDialog.close()
+            } else {
+                if (!nodeModelDialog.visible) {
+                    qmlSmokeTranscriptSourceFailure = "Model Configure did not open the production model dialog for " + stageId
+                    return -1
+                }
+                nodeModelDialog.close()
+            }
+            ++qmlSmokeAutomaticStageIndex
+            qmlSmokeAutomaticPhase = 4
+            return 0
+        }
+        if (qmlSmokeAutomaticPhase === 6) {
+            if (automaticPreflightDialog.currentPage !== 2) {
+                qmlSmokeTranscriptSourceFailure = "Stages Next did not navigate to Colab workers"
+                return -1
+            }
+            // Standard Local routes have no Direct Colab worker and must not
+            // block navigation. The next real control should reach Review.
+            automaticPreflightDialog.qmlSmokeClickNext()
+            ApplicationWindow.window.recordQmlSmokeDubbing("dubbingPreflightNextButton", "click",
+                                                            "colab-workers-no-direct-worker", "review")
+            qmlSmokeAutomaticPhase = 7
+            return 0
+        }
+        if (qmlSmokeAutomaticPhase === 7) {
+            if (automaticPreflightDialog.currentPage !== 3) {
+                qmlSmokeTranscriptSourceFailure = "No-worker Colab page incorrectly blocked progress"
+                return -1
+            }
+            ApplicationWindow.window.recordQmlSmokeDubbing("dubbingPreflightReview", "verify",
+                                                            "colab-skipped", "review-visible")
+            // The production route transition below must not inherit a modal
+            // preflight overlay; this mirrors leaving the review without
+            // starting a model workload in an offscreen smoke.
+            automaticPreflightDialog.close()
+            return 1
+        }
+        return -1
     }
 
     function runStep(stepId) {
@@ -1217,8 +1410,7 @@ Item {
         fileMode: FileDialog.OpenFile
         nameFilters: [qsTr("Media files (*.wav *.mp3 *.mp4 *.mkv *.mov *.webm)"), qsTr("All files (*)")]
         onAccepted: {
-            var path = AppController.files.urlToLocalPath(selectedFile.toString())
-            dubbing.importMedia(path)
+            root.acceptSelectedSourceMedia(selectedFile.toString())
         }
     }
 
@@ -1285,7 +1477,12 @@ Item {
         dubbing: root.dubbing
         outputPath: root.defaultExportPath()
         onBackToEntryRequested: dubbingEntryGate.openGate()
-        onNodeModelRequested: function(nodeId) { nodeModelDialog.openFor(nodeId) }
+        onSourceBrowseRequested: {
+            root.qmlSmokeMediaPickerRequested = true
+            mediaFileDialog.open()
+        }
+        onSourceLinkImportRequested: function(url) { dubbing.importMediaFromLink(url) }
+        onStageSetupRequested: function(action, nodeId) { root.openAutomaticStageSetup(action, nodeId) }
         onColabSetupRequested: dubbingColabSetupDialog.open()
     }
 
