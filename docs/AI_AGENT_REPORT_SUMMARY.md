@@ -6,11 +6,31 @@ Cap nhat: 2026-08-05
 
 | Muc | Trang thai |
 | --- | --- |
-| Latest packaged candidate | `0.0.2.27` |
-| Artifact | `out/LA-Studio-0.0.2.27/LA-Studio-0.0.2.27.exe` |
-| SHA-256 | `9C18D49DB53DB14DC4D39CC7780F1923FDFAF283156552FBC03F57BE1FAC32B9` |
-| Current source | `main` source commit `9b0eb6f`; QML lint PASS, full CTest 39/39 PASS and package audit PASS |
+| Latest packaged candidate | `0.0.2.28` |
+| Artifact | `out/LA-Studio-0.0.2.28/LA-Studio-0.0.2.28.exe` |
+| SHA-256 | `63BA1B5B36A70039ADAB92FA5DB607E0556A3C5A7A55B515B116B516D02A4D92` |
+| Current source | `main` source commits `f1b2600`, `166f245`, `07ebcd1`; full CTest 39/39 PASS and package audit PASS |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
+
+## Batch 0.0.2.28: Direct Colab Spleeter CUDA hardening
+
+- The `CUDNN_FE_HEURISTIC_QUERY_FAILED` evidence was traced to the Direct
+  Colab Spleeter worker, not a Local route: `0.0.2.27` log records an exact
+  `sherpa-onnx-spleeter-2stems-fp16` Direct Colab run and the Colab container
+  emitted the cuDNN failure.
+- The same exact upstream FP16 Spleeter ONNX artifact is retained. The new
+  worker uses explicit ONNX Runtime CUDA provider options with
+  `cudnn_conv_algo_search=DEFAULT`, has a CUDA startup probe before health can
+  pass, and separates long source audio as 20-second cores with 1.5-second
+  context. It reports actual segment progress and has no local fallback.
+- The notebook pins an immutable source revision and SHA-256 checks worker
+  templates. The first package audit found templates absent from staged docs;
+  the CMake install rule and regression now stage them, and the final package
+  audit verifies both files.
+- QML fixes remove the reported delegate `root` reference and undefined model
+  field update. Full CTest **39/39 PASS** in 86.87 seconds. Portable audit
+  verifies version, hash, Qt, FFmpeg, RuntimeHost, OCR manifests, notebook and
+  worker templates. Live Colab/manual desktop testing remains a separate gate.
 
 ## Batch 0.0.2.27: Adaptive Dubbing Direct Colab route integrity
 

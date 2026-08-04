@@ -1,55 +1,63 @@
-# AI agent response - 0.0.2.27 packaged
+# AI agent response - 0.0.2.28 packaged
 
 Date: 2026-08-05
 
 ## Outcome
 
-The reported Automatic Dubbing errors were route-integrity failures, not a
-reason to bypass the secure checksum or disk-space checks. Adaptive quality
-could still start a hidden Local Qwen setup, and an older Local runtime
-selection could survive inside nested node parameters after the visible route
-had changed to Direct Colab.
+`0.0.2.27` called the Direct Colab Spleeter worker correctly; the reported
+`CUDNN_FE_HEURISTIC_QUERY_FAILED` came from that remote worker while it sent a
+long source through one FP16 ONNX/CUDA convolution. No local model or local GPU
+was started for that job.
 
-Adaptive rewrite now has an explicit Direct Colab route for exact
-`qwen3.5-2b`. It opens the packaged notebook
-`LA_STUDIO_LLM_QWEN3_5_2B_GPU.ipynb`, requires a verified
-`llm-chat/qwen3.5-2b` CUDA worker, and appears under the existing Translate
-stage as a subordinate worker. If it has not been connected and checked,
-preflight stops with a setup action; it never downloads or falls back to a
-Local Adaptive LLM.
+`0.0.2.28` keeps the exact upstream
+`sherpa-onnx-spleeter-2stems-fp16` artifact and Direct Colab route. Its
+audited worker creates ONNX Runtime CUDA sessions with the documented
+`cudnn_conv_algo_search=DEFAULT`, performs a bounded CUDA startup probe before
+exposing a URL, and processes long media in 20-second cores with 1.5-second
+context. The desktop consumes only worker-reported progress and converts a
+remote CUDA trace into an actionable message while retaining the full detail in
+System Logs. It never falls back to a local model.
 
-For every API Gateway or Direct Colab selection/reselection, Local-only model
-metadata is now removed at both the project root and nested parameters. The
-remote route/model persists across reopen. Direct Colab keeps its URL/token in
-memory only and no longer clears a separately configured API Gateway URL or
-credential. Selecting the Dubbing adaptive worker also does not change the
-standalone LLM Chat controller.
+The Spleeter notebook pins the worker revision
+`f1b26005b6e3677db444ac12774ba3eaf9d9b204` and checks both template SHA-256
+values before launching it. The portable package now includes both worker
+templates under `docs/colab-notebooks/workers`; an audit caught that omission
+in the first staging attempt and the package was rebuilt after the CMake rule
+and regression were added.
+
+Two unrelated QML diagnostics on the same route were also corrected: the
+Colab setup delegate no longer references an out-of-scope `root`, and the
+Dubbing quality dialog updates its own `modelField`.
 
 ## Validation
 
-- Controller regression covers a legacy Local -> Direct Colab project, repeat
-  Direct selection with stale nested runtime fields, exact verified CUDA
-  workers for separation/STT/translation/TTS/LLM, persistence and secret
-  exclusion, the Translate subordinate worker card, and no Local Adaptive
-  download.
-- QML lint: PASS.
-- Targeted Dubbing/remote/Colab/QML tests: **7/7 PASS**.
-- Full CTest: **39/39 PASS** in 72.18 seconds.
-- Graphify code graph updated after source changes. It completed with known
-  unrelated parser warnings; graph files were not committed.
+- Python syntax and notebook JSON: PASS.
+- Targeted Direct Colab separation, Dubbing, remote-contract and QML smoke:
+  PASS.
+- Full CTest: **39/39 PASS** in **86.87 seconds**.
+- Regression now verifies exact model contract, CUDA-safe worker configuration,
+  immutable notebook pin, no local fallback, concise CUDA failure handling and
+  portable installation of worker templates.
+- Graphify was updated after the code changes; graph outputs remain untracked.
 
 ## Package audit
 
-- EXE: `out/LA-Studio-0.0.2.27/LA-Studio-0.0.2.27.exe`
-- Source/FileVersion/ProductVersion: `0.0.2.27` / `0.0.2.27` / `0.0.2.27`
-- SHA-256: `9C18D49DB53DB14DC4D39CC7780F1923FDFAF283156552FBC03F57BE1FAC32B9`
-- Verified: Qt Windows/offscreen plugins, FFmpeg/FFprobe, RuntimeHost,
-  Subtitle OCR/Paddle manifests, LGPL license, and
-  `LA_STUDIO_LLM_QWEN3_5_2B_GPU.ipynb`.
-- Internal-only caveat: the eSpeak MSI is SHA-verified but unsigned.
+- EXE: `out/LA-Studio-0.0.2.28/LA-Studio-0.0.2.28.exe`
+- Source/FileVersion/ProductVersion: `0.0.2.28` / `0.0.2.28` / `0.0.2.28`
+- SHA-256: `63BA1B5B36A70039ADAB92FA5DB607E0556A3C5A7A55B515B116B516D02A4D92`
+- Verified: Qt Windows and offscreen plugins, FFmpeg/FFprobe, RuntimeHost,
+  Subtitle OCR and Paddle runtime manifests, Spleeter notebook, both audited
+  worker templates and the immutable worker revision.
+- Internal-only caveat: eSpeak MSI is SHA-verified but unsigned.
 
-Candidate `0.0.2.26` was staged before the final nested-metadata regression
-was found, so it is not accepted. Source/tests are committed directly to
-`main` as `9b0eb6f` (`fix: keep adaptive dubbing routes remote`). No visible
-GUI or live Colab worker was opened; manual desktop interaction and a real
-user Colab session remain separate acceptance gates.
+## Live acceptance still required
+
+No GUI or live Colab session was opened by the agent. In `0.0.2.28`, open the
+Spleeter notebook, select a Colab GPU runtime, Run all, wait for `startup
+probe: passed`, paste the printed URL/token into Dubbing -> Colab setup and
+press Check Colab. Then run the reported long source through Isolator. A live
+failure should include the final Colab traceback from the new notebook; it must
+not be represented as an automated pass.
+
+Source/test commits were pushed directly to `main`:
+`f1b2600`, `166f245`, and `07ebcd1`.

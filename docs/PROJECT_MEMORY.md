@@ -6,7 +6,7 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 
 - Desktop local-first: STT, TTS, Voice Cloning, Voice Design, Alignment, Translation, Dubbing, LLM Chat, Download va Subtitle OCR.
 - API Gateway va Direct Colab la hai route doc lap. Token/URL Colab chi o memory session, khong persist vao project/report.
-- Package noi bo moi nhat: `0.0.2.27` tai `out/LA-Studio-0.0.2.27/LA-Studio-0.0.2.27.exe`, SHA-256 `9C18D49DB53DB14DC4D39CC7780F1923FDFAF283156552FBC03F57BE1FAC32B9`. FileVersion/ProductVersion `0.0.2.27`, QML lint, full CTest 39/39 va package audit PASS. Manual GUI/live Colab luon la gate rieng.
+- Package noi bo moi nhat: `0.0.2.28` tai `out/LA-Studio-0.0.2.28/LA-Studio-0.0.2.28.exe`, SHA-256 `63BA1B5B36A70039ADAB92FA5DB607E0556A3C5A7A55B515B116B516D02A4D92`. FileVersion/ProductVersion `0.0.2.28`, full CTest 39/39 va package audit PASS. Manual GUI/live Colab luon la gate rieng.
 - `0.0.2.23` duoc giu nguyen nhung khong duoc chap nhan: audit bat thieu evidence trace route/model/worker truoc-sau. `0.0.2.24` bo sung trace va package moi, khong ghi de candidate cu.
 - `0.0.2.21` khong duoc chap nhan cho Dubbing Automatic: gate/preflight co
   dead-end media va no-op Configure. `0.0.2.22` sua duong ingest truoc gate,
@@ -15,6 +15,26 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   offscreen khong co native active window.
 
 ## Lich su cap san pham
+
+### 2026-08-05 - 0.0.2.28 Direct Colab Spleeter CUDA hardening
+
+- Evidence from `0.0.2.27` shows the reported `CUDNN_FE_HEURISTIC_QUERY_FAILED`
+  is emitted by the exact Direct Colab Spleeter worker. It is not a Local GPU
+  run and must not be fixed by silently switching model, route or device.
+- `sherpa-onnx-spleeter-2stems-fp16` remains the exact model. The dedicated
+  worker creates direct ONNX Runtime CUDA sessions with
+  `cudnn_conv_algo_search=DEFAULT`, passes a bounded CUDA startup probe before
+  exposing health, and separates long source audio in 20-second cores with
+  1.5-second context. It sends measured segment progress and explicitly never
+  starts a local fallback.
+- Notebook `LA_STUDIO_SEPARATION_SPLEETER_2STEMS_GPU.ipynb` pins worker commit
+  `f1b26005b6e3677db444ac12774ba3eaf9d9b204` and verifies template SHA-256.
+  CMake now installs the worker templates into portable support docs; this was
+  found by an audit and covered by `TestRemoteExecution`.
+- `ColabSeparationRunner` masks remote CUDA trace in the desktop dialog but
+  writes raw detail to System Logs; QML delegate root/model-field diagnostics
+  are repaired. Full CTest 39/39 PASS in 86.87s and portable package audit
+  PASS. Live notebook/desktop acceptance is not claimed.
 
 ### 2026-08-05 - 0.0.2.27 Adaptive Direct Colab integrity
 
