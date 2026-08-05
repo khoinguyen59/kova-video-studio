@@ -16,6 +16,19 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 
 ## Lich su cap san pham
 
+### 2026-08-06 - Shared Colab launcher safe port recovery (source only)
+
+- Root cause of the OmniVoice error on port `3923`: the generic launcher
+  treated every existing listener as a fatal collision, including the previous
+  LA Studio worker left alive by a notebook rerun.
+- Before starting a replacement worker, the launcher now uses `/proc` to match
+  the exact generated worker module and `uvicorn`, then terminates only that
+  old worker and its matching Cloudflare tunnel. A foreign listener is retained
+  and reported with its PID; no unrelated process is killed.
+- Generator verification is 32/32; focused remote/Voice Clone tests pass 2/2
+  and the full headless CTest passes 39/39 in 78.24 seconds. No live Colab or
+  visible GUI test, and no new package, is claimed.
+
 ### 2026-08-06 - 0.0.2.29 portable internal package
 
 - Package moi cho Dubbing subtitle-order va Direct Colab 90% repair duoc tao

@@ -1,6 +1,39 @@
-# AI agent response - 0.0.2.29 portable internal package
+# AI agent response - safe Colab port recovery (source-only)
 
 Date: 2026-08-06
+
+## Result
+
+The reported `Port 3923 is already occupied` failure in
+`LA_STUDIO_VOICE_CLONE_OMNIVOICE_GPU.ipynb` was caused by the shared launcher
+refusing every existing listener before it could replace an old LA Studio
+worker. Re-running the notebook therefore required destroying the entire
+Colab runtime.
+
+The shared launcher now inspects Linux `/proc` ownership and, before launch,
+only stops a previous worker when its command line has both the exact generated
+worker module and `uvicorn`. It also stops the matching prior Cloudflare tunnel
+for the same local port. It never kills an unknown listener: if the port stays
+occupied by a different process, the notebook reports the PID and tells the
+user to use a fresh runtime.
+
+This repair is generated into every shared-launcher exact-model notebook,
+including `LA_STUDIO_VOICE_CLONE_OMNIVOICE_GPU.ipynb`. The OmniVoice regression
+also asserts port `3923`, the exact `la_studio_voice_clone_worker` module, the
+new safe reclaim path, and removal of the old "disconnect and delete runtime"
+message.
+
+## Validation
+
+- Generated Colab notebooks: `32/32` verified byte-for-byte against their
+  generators.
+- Targeted headless tests: `TestRemoteExecution` and
+  `TestColabVoiceCloneRunner`, `2/2` PASS.
+- Full headless CTest: `39/39` PASS in `78.24` seconds.
+- No live Colab runtime or visible desktop GUI was opened; a fresh manual
+  OmniVoice notebook run remains the acceptance step for tunnel availability.
+
+## Package result
 
 ## Package result
 

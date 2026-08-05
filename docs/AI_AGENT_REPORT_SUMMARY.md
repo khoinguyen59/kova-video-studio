@@ -12,6 +12,21 @@ Cap nhat: 2026-08-05
 | Current source | `main`; full CTest 39/39 PASS before packaging. Version/source/package consistency verified for 0.0.2.29. |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
 
+## Post-package source fix: safe shared Colab port recovery
+
+- The generic exact-model Colab launcher no longer immediately fails when a
+  previous LA Studio worker owns its port. It recovers only the old worker
+  identified by its exact generated module plus `uvicorn`, and the matching
+  Cloudflare tunnel for that port.
+- A listener not owned by the same LA Studio worker is preserved. The notebook
+  reports its PID and tells the user to choose a fresh runtime; it never kills
+  an unrelated Colab process.
+- This includes `LA_STUDIO_VOICE_CLONE_OMNIVOICE_GPU.ipynb` on port `3923` and
+  removes the old instruction to destroy the entire runtime. Generated notebook
+  verification is `32/32`; targeted remote/Voice Clone tests are `2/2`; full
+  offscreen CTest is `39/39` in 78.24 seconds. This is not a claim of a live
+  Colab or visible-GUI acceptance run. No new EXE was packaged.
+
 ## Candidate 0.0.2.29 - portable internal package
 
 - The Dubbing flow and Direct Colab progress repair were packaged as a new
