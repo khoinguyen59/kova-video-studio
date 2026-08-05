@@ -488,6 +488,20 @@ void TestColabVoiceCloneRunner::exactModelMappingMatchesCatalogAndNotebooks()
                  "Exact-model notebook must retain startup logs when a worker fails.");
         QVERIFY2(source.contains(QStringLiteral("LA Studio worker log")),
                  "Exact-model notebook must return the root worker error instead of a generic timeout.");
+        QVERIFY2(source.contains(QStringLiteral("reclaim_previous_la_studio_worker")),
+                 "Re-running a Voice Clone notebook must reclaim its own prior Colab worker.");
+        QVERIFY2(source.contains(QStringLiteral("WORKER_MODULE")),
+                 "Port recovery must identify the exact LA Studio worker module before stopping it.");
+        QVERIFY2(source.contains(QStringLiteral("not the previous LA Studio")),
+                 "A foreign listener must be rejected instead of being terminated by the notebook.");
+        QVERIFY2(!source.contains(QStringLiteral("Port {PORT} is already occupied by an earlier Colab worker.")),
+                 "The obsolete instruction to destroy the full Colab runtime must not return.");
+        if (model == QStringLiteral("omnivoice")) {
+            QVERIFY2(source.contains(QStringLiteral("PORT = 3923")),
+                     "The OmniVoice clone notebook must use its documented Voice Clone port.");
+            QVERIFY2(source.contains(QStringLiteral("WORKER_MODULE = 'la_studio_voice_clone_worker'")),
+                     "The OmniVoice clone notebook must reclaim only its own worker module.");
+        }
         QVERIFY2(source.contains(QStringLiteral("str(health.get(\"model\", \"\")).strip().lower() == MODEL_ID")),
                  "Exact-model notebook must validate that the ready worker is the selected model.");
         if (model.startsWith(QStringLiteral("vieneu-tts-"))) {

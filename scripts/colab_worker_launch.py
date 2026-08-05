@@ -12,7 +12,7 @@ from __future__ import annotations
 from textwrap import dedent
 
 
-LAUNCH_REVISION = "launch-2026-07-30.1"
+LAUNCH_REVISION = "launch-2026-08-06.1"
 
 
 def build_worker_launch(
@@ -39,6 +39,7 @@ import os
 import queue
 import re
 import secrets
+import signal
 import socket
 import subprocess
 import sys
@@ -55,6 +56,7 @@ TOKEN_ENV = __TOKEN_ENV__
 URL_ENV = __URL_ENV__
 MODEL_ENV = __MODEL_ENV__
 WORKER_LOG = Path(__LOG_PATH__)
+WORKER_MODULE = __WORKER_MODULE__
 STARTUP_TIMEOUT_SECONDS = 20 * 60
 TUNNEL_TIMEOUT_SECONDS = 90
 TOKEN = secrets.token_urlsafe(32)
@@ -66,6 +68,122 @@ def port_is_occupied(port: int) -> bool:
             return True
     except OSError:
         return False
+
+
+def process_cmdline(pid: int) -> str:
+    """Read a Linux process command line without depending on psutil."""
+    try:
+        return Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode(
+            "utf-8", errors="replace"
+        ).strip()
+    except (FileNotFoundError, PermissionError, ProcessLookupError):
+        return ""
+
+
+def all_processes():
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        pid = int(entry.name)
+        command = process_cmdline(pid)
+        if command:
+            yield pid, command
+
+
+def listening_processes(port: int) -> dict[int, str]:
+    """Return PIDs listening on a local TCP port via /proc socket ownership."""
+    target_port = f"{port:04X}"
+    socket_inodes = set()
+    for table_name in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            lines = Path(table_name).read_text(encoding="utf-8").splitlines()[1:]
+        except FileNotFoundError:
+            continue
+        for line in lines:
+            fields = line.split()
+            if len(fields) < 10:
+                continue
+            local_address, state, inode = fields[1], fields[3], fields[9]
+            if state == "0A" and local_address.rsplit(":", 1)[-1].upper() == target_port:
+                socket_inodes.add(inode)
+    if not socket_inodes:
+        return {}
+
+    listeners = {}
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            descriptors = (entry / "fd").iterdir()
+        except (FileNotFoundError, PermissionError):
+            continue
+        for descriptor in descriptors:
+            try:
+                target = os.readlink(descriptor)
+            except (FileNotFoundError, PermissionError, OSError):
+                continue
+            match = re.fullmatch(r"socket:\\[(\\d+)\\]", target)
+            if match and match.group(1) in socket_inodes:
+                pid = int(entry.name)
+                listeners[pid] = process_cmdline(pid)
+                break
+    return listeners
+
+
+def stop_pid(pid: int) -> None:
+    if pid == os.getpid():
+        return
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(0.2)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+def reclaim_previous_la_studio_worker() -> None:
+    """Stop only an older LA Studio worker/tunnel for this exact local port.
+
+    Re-running a Colab cell keeps child processes alive.  The previous launch
+    created a new token but aborted before it could replace the old worker,
+    forcing users to destroy the whole GPU runtime.  We identify ownership by
+    the exact generated module name and never terminate a foreign listener.
+    """
+    stopped = []
+    for pid, command in listening_processes(PORT).items():
+        if WORKER_MODULE in command and "uvicorn" in command:
+            stop_pid(pid)
+            stopped.append(f"worker PID {pid}")
+
+    endpoint = f"http://127.0.0.1:{PORT}"
+    for pid, command in all_processes():
+        if ("cloudflared" in command and "tunnel" in command and endpoint in command):
+            stop_pid(pid)
+            stopped.append(f"tunnel PID {pid}")
+
+    deadline = time.monotonic() + 12
+    while port_is_occupied(PORT) and time.monotonic() < deadline:
+        time.sleep(0.2)
+    if stopped:
+        print("Stopped previous LA Studio " + ", ".join(stopped) + ".")
+
+    if port_is_occupied(PORT):
+        listeners = listening_processes(PORT)
+        foreign_pids = sorted(listeners) or ["unknown"]
+        raise RuntimeError(
+            f"Port {PORT} is occupied by a process that is not the previous LA Studio "
+            f"{CAPABILITY_LABEL} worker (PID(s): {', '.join(map(str, foreign_pids))}). "
+            "Choose a fresh Colab runtime rather than terminating an unrelated process."
+        )
 
 
 def worker_log_tail() -> str:
@@ -85,11 +203,7 @@ def stop_process(process) -> None:
         process.kill()
 
 
-if port_is_occupied(PORT):
-    raise RuntimeError(
-        f"Port {PORT} is already occupied by an earlier Colab worker. "
-        "Use Runtime > Disconnect and delete runtime, then Run all once for this exact model."
-    )
+reclaim_previous_la_studio_worker()
 
 env = os.environ.copy()
 env[TOKEN_ENV] = TOKEN
@@ -250,6 +364,7 @@ print("Click Check Colab in the matching LA Studio feature before running it.")
         "__MODEL_ENV__": repr(model_env),
         "__LOG_PATH__": repr(log_path),
         "__MODULE__": repr(module),
+        "__WORKER_MODULE__": repr(module.split(":", 1)[0]),
     }
     for placeholder, value in replacements.items():
         template = template.replace(placeholder, value)
