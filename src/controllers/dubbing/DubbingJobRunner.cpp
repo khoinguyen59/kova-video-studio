@@ -64,6 +64,19 @@ QString transcriptSourceModeFor(const QVariantMap &parameters)
         ? mode : QStringLiteral("stt");
 }
 
+QString readableTransferSize(qint64 bytes)
+{
+    if (bytes < 0) return QStringLiteral("unknown size");
+    return QStringLiteral("%1 MiB").arg(QString::number(
+        static_cast<double>(bytes) / (1024.0 * 1024.0), 'f', 1));
+}
+
+QString artifactLabel(const QString &artifact)
+{
+    return artifact == QStringLiteral("background") ? QStringLiteral("Background")
+                                                     : QStringLiteral("Vocals");
+}
+
 }
 
 DubbingJobRunner::DubbingJobRunner(SttSessionController *sttSession, TtsEngine *tts,
@@ -98,11 +111,38 @@ DubbingJobRunner::DubbingJobRunner(SttSessionController *sttSession, TtsEngine *
             emit stateChanged();
         }
     });
+    connect(m_colabSeparationRunner, &ColabSeparationRunner::phaseChanged, this,
+            [this](const QString &phase) {
+        if (!m_run.processing() || m_run.stageId() != DubbingStage::SourceSeparation) return;
+        m_colabSeparationActivityStatus = phase;
+        if (!phase.startsWith(QStringLiteral("Requesting "))
+            && !phase.startsWith(QStringLiteral("Direct Colab worker is ready"))) {
+            m_colabSeparationTransferActive = false;
+        }
+        emit stateChanged();
+    });
+    connect(m_colabSeparationRunner, &ColabSeparationRunner::artifactTransferProgress, this,
+            [this](const QString &artifact, qint64 receivedBytes, qint64 totalBytes) {
+        if (!m_run.processing() || m_run.stageId() != DubbingStage::SourceSeparation) return;
+        m_colabSeparationArtifact = artifact;
+        m_colabSeparationReceivedBytes = qMax<qint64>(0, receivedBytes);
+        m_colabSeparationTotalBytes = totalBytes;
+        m_colabSeparationTransferActive = true;
+        const QString received = readableTransferSize(m_colabSeparationReceivedBytes);
+        m_colabSeparationActivityStatus = totalBytes > 0
+            ? QStringLiteral("Downloading %1: %2 / %3 from Direct Colab")
+                  .arg(artifactLabel(artifact), received, readableTransferSize(totalBytes))
+            : QStringLiteral("Downloading %1: %2 received from Direct Colab")
+                  .arg(artifactLabel(artifact), received);
+        emit stateChanged();
+    });
     connect(m_colabSeparationRunner, &ColabSeparationRunner::finished, this,
             [this](const ColabSeparationResult &result) {
         if (!m_run.processing() || m_run.stageId() != DubbingStage::SourceSeparation) return;
         m_colabSeparationCancellation.reset();
         m_pendingSourceAudioPath.clear();
+        m_colabSeparationActivityStatus.clear();
+        m_colabSeparationTransferActive = false;
         if (result.vocalsPath.trimmed().isEmpty() || result.backgroundPath.trimmed().isEmpty()
             || !QFileInfo(result.vocalsPath).isFile() || !QFileInfo(result.backgroundPath).isFile()) {
             setError(QStringLiteral("Colab voice separation returned an incomplete stem set. The original audio was not used as a substitute."));
@@ -121,6 +161,8 @@ DubbingJobRunner::DubbingJobRunner(SttSessionController *sttSession, TtsEngine *
         if (!m_run.processing() || m_run.stageId() != DubbingStage::SourceSeparation) return;
         m_colabSeparationCancellation.reset();
         m_pendingSourceAudioPath.clear();
+        m_colabSeparationActivityStatus.clear();
+        m_colabSeparationTransferActive = false;
         setError(message);
     });
     m_colabSeparationThread.start();
@@ -529,6 +571,11 @@ void DubbingJobRunner::startSourceSeparation(const QString &audioPath,
         setBusyError(QStringLiteral("A dubbing operation is already running."));
         return;
     }
+    m_colabSeparationActivityStatus.clear();
+    m_colabSeparationArtifact.clear();
+    m_colabSeparationReceivedBytes = 0;
+    m_colabSeparationTotalBytes = -1;
+    m_colabSeparationTransferActive = false;
     if (audioPath.isEmpty() || !QFileInfo::exists(audioPath)) {
         setError(QStringLiteral("Normalize the source media before separating speech."));
         return;
@@ -576,6 +623,7 @@ void DubbingJobRunner::startSourceSeparation(const QString &audioPath,
         m_run.ensureRun();
         m_run.beginNode();
         m_pendingSourceAudioPath = audioPath;
+        m_colabSeparationActivityStatus = QStringLiteral("Uploading source audio to Direct Colab");
         setProcessing(true, QStringLiteral("source-separation"), 0);
         m_colabSeparationCancellation = std::make_shared<std::atomic_bool>(false);
         ColabSeparationRequest request;
@@ -791,6 +839,8 @@ void DubbingJobRunner::cancel()
         m_exportJob->cancel();
     if (m_run.stageId() == DubbingStage::Import && m_mediaIngest) m_mediaIngest->cancel();
     if (m_run.stageId() == DubbingStage::SourceSeparation) {
+        m_colabSeparationActivityStatus.clear();
+        m_colabSeparationTransferActive = false;
         if (m_colabSeparationCancellation) {
             m_colabSeparationCancellation->store(true, std::memory_order_relaxed);
             if (m_colabSeparationRunner)
@@ -947,6 +997,22 @@ void DubbingJobRunner::setBusyError(const QString &message)
     m_run.setLastError(message);
     emit stateChanged();
     emit errorOccurred(message);
+}
+
+QVariantMap DubbingJobRunner::activityTransferProgress() const
+{
+    if (!m_colabSeparationTransferActive) return {};
+    QVariantMap result{{QStringLiteral("artifact"), m_colabSeparationArtifact},
+                       {QStringLiteral("receivedBytes"), m_colabSeparationReceivedBytes},
+                       {QStringLiteral("totalBytes"), m_colabSeparationTotalBytes}};
+    if (m_colabSeparationTotalBytes > 0) {
+        result.insert(QStringLiteral("percent"), qBound(0, int(
+            m_colabSeparationReceivedBytes * 100 / m_colabSeparationTotalBytes), 100));
+        result.insert(QStringLiteral("available"), true);
+    } else {
+        result.insert(QStringLiteral("available"), false);
+    }
+    return result;
 }
 
 void DubbingJobRunner::setProcessing(bool value, const QString &stageValue, int progressValue)

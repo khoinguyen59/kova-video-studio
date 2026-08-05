@@ -703,7 +703,8 @@ bool ColabWorkerClient::separationJobStatus(const QString &jobId, QJsonObject *j
 
 bool ColabWorkerClient::downloadSeparationArtifact(const QString &jobId, const QString &stem,
                                                    const std::shared_ptr<std::atomic_bool> &cancelToken,
-                                                   QByteArray *wavData, QString *errorMessage)
+                                                   QByteArray *wavData, QString *errorMessage,
+                                                   const DownloadProgressCallback &downloadProgress)
 {
     if (wavData) wavData->clear();
     if (!m_workerUrl.isValid() || m_bearerToken.isEmpty() || jobId.trimmed().isEmpty()
@@ -719,6 +720,16 @@ bool ColabWorkerClient::downloadSeparationArtifact(const QString &jobId, const Q
     request.setRawHeader("Accept", "audio/wav, application/octet-stream");
     QNetworkReply *reply = manager.get(request);
     m_activeReply = reply;
+    qint64 lastReceived = -1;
+    qint64 lastTotal = -1;
+    if (downloadProgress) {
+        QObject::connect(reply, &QNetworkReply::downloadProgress,
+                         [&downloadProgress, &lastReceived, &lastTotal](qint64 received, qint64 total) {
+            lastReceived = received;
+            lastTotal = total;
+            downloadProgress(received, total);
+        });
+    }
     QEventLoop eventLoop;
     QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
     eventLoop.exec();
@@ -738,6 +749,10 @@ bool ColabWorkerClient::downloadSeparationArtifact(const QString &jobId, const Q
         if (errorMessage) *errorMessage = QStringLiteral("Colab worker returned an invalid WAV separation artifact");
         return false;
     }
+    // Some backends only emit downloadProgress after an event-loop turn.  A
+    // validated response still supplies an exact final byte count.
+    if (downloadProgress && (lastReceived != body.size() || lastTotal != body.size()))
+        downloadProgress(body.size(), body.size());
     if (wavData) *wavData = body;
     return true;
 }
@@ -826,7 +841,9 @@ bool ColabWorkerClient::recognizeSubtitleImage(const QByteArray &pngData, const 
 
     QNetworkAccessManager manager;
     QNetworkRequest request(appendRemotePath(m_workerUrl, QStringLiteral("v1/ocr/subtitles")));
-    request.setTransferTimeout(kInferenceRequestTimeoutMs);
+    // Cancellation is control-plane work and must not inherit the long model
+    // inference timeout if the temporary tunnel has disappeared.
+    request.setTransferTimeout(kJobStatusRequestTimeoutMs);
     request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
     request.setRawHeader("Accept", "application/json");
     auto *multipart = new QHttpMultiPart(QHttpMultiPart::FormDataType);

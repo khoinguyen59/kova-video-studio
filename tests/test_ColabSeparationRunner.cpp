@@ -43,8 +43,10 @@ QByteArray tinyWav()
 class SeparationMock final : public QObject
 {
 public:
-    explicit SeparationMock(bool permanentlyQueued = false, bool cudaFailure = false)
-        : m_permanentlyQueued(permanentlyQueued), m_cudaFailure(cudaFailure)
+    explicit SeparationMock(bool permanentlyQueued = false, bool cudaFailure = false,
+                            bool stuckAtNinety = false)
+        : m_permanentlyQueued(permanentlyQueued), m_cudaFailure(cudaFailure),
+          m_stuckAtNinety(stuckAtNinety)
     {
         connect(&m_server, &QTcpServer::newConnection, this, [this] {
             while (QTcpSocket *socket = m_server.nextPendingConnection()) {
@@ -80,8 +82,9 @@ private:
         } else if (request.startsWith("GET /v1/audio/separations/job-direct ")) {
             body = m_cudaFailure
                 ? R"({"job_id":"job-direct","status":"failed","progress":0,"detail":"RuntimeError: CUDNN_FE failure 8: HEURISTIC_QUERY_FAILED; a deliberately long remote CUDA trace follows"})"
-                : (m_permanentlyQueued ? R"({"job_id":"job-direct","status":"running","progress":30})"
-                                       : R"({"job_id":"job-direct","status":"ready","progress":100})");
+                : (m_stuckAtNinety ? R"({"job_id":"job-direct","status":"running","progress":90,"detail":"Writing separated CUDA stems"})"
+                   : (m_permanentlyQueued ? R"({"job_id":"job-direct","status":"running","progress":30})"
+                                       : R"({"job_id":"job-direct","status":"ready","progress":100})"));
         } else if (request.startsWith("DELETE /v1/audio/separations/job-direct ")) {
             body = R"({"status":"cancelled"})";
         } else {
@@ -99,6 +102,7 @@ private:
     QByteArray m_requests;
     bool m_permanentlyQueued = false;
     bool m_cudaFailure = false;
+    bool m_stuckAtNinety = false;
 };
 
 QString sourceFile(QTemporaryDir *directory)
@@ -132,6 +136,8 @@ void TestColabSeparationRunner::testUsesDirectJobAndArtifactContract()
     connect(&thread, &QThread::finished, runner, &QObject::deleteLater); thread.start();
     QSignalSpy finished(runner, &ColabSeparationRunner::finished); QSignalSpy failures(runner, &ColabSeparationRunner::failed);
     QSignalSpy progress(runner, &ColabSeparationRunner::progress);
+    QSignalSpy phases(runner, &ColabSeparationRunner::phaseChanged);
+    QSignalSpy transfers(runner, &ColabSeparationRunner::artifactTransferProgress);
     QVERIFY(QMetaObject::invokeMethod(runner, "separate", Qt::QueuedConnection,
                                       Q_ARG(ColabSeparationRequest, makeRequest(server.baseUrl(), source, output))));
     QVERIFY2(finished.wait(5000), "Colab separation worker did not finish.");
@@ -143,6 +149,14 @@ void TestColabSeparationRunner::testUsesDirectJobAndArtifactContract()
     // 100 only after both artifacts are downloaded and committed locally.
     QCOMPARE(progress.count(), 1);
     QCOMPARE(progress.at(0).at(0).toInt(), 100);
+    QVERIFY(phases.count() >= 4);
+    QVERIFY(transfers.count() >= 2);
+    const QString firstArtifact = transfers.at(0).at(0).toString();
+    const qint64 firstReceived = transfers.at(0).at(1).toLongLong();
+    const qint64 firstTotal = transfers.at(0).at(2).toLongLong();
+    QCOMPARE(firstArtifact, QStringLiteral("vocals"));
+    QCOMPARE(firstReceived, firstTotal);
+    QVERIFY(firstTotal >= 44);
     const QByteArray requests = server.requests();
     QVERIFY(requests.startsWith("POST /v1/audio/separations HTTP/1.1\r\n"));
     QVERIFY(requests.toLower().contains("authorization: bearer colab-separation-token"));
@@ -174,6 +188,32 @@ void TestColabSeparationRunner::testCancellationDiscardsPartialArtifacts()
     QCOMPARE(finished.count(), 0);
     QVERIFY(failures.takeFirst().at(0).toString().contains(QStringLiteral("cancelled"), Qt::CaseInsensitive));
     QVERIFY(server.requests().contains("DELETE /v1/audio/separations/job-direct HTTP/1.1"));
+    thread.quit(); QVERIFY(thread.wait(5000));
+}
+
+void TestColabSeparationRunner::finalizingAtNinetyTimesOutWithNoLocalFallback()
+{
+    SeparationMock server(false, false, true); QVERIFY(server.start());
+    QTemporaryDir directory; QVERIFY(directory.isValid());
+    qRegisterMetaType<ColabSeparationRequest>("ColabSeparationRequest");
+    QThread thread; auto *runner = new ColabSeparationRunner; runner->moveToThread(&thread);
+    connect(&thread, &QThread::finished, runner, &QObject::deleteLater); thread.start();
+    QSignalSpy finished(runner, &ColabSeparationRunner::finished);
+    QSignalSpy failures(runner, &ColabSeparationRunner::failed);
+    QSignalSpy phases(runner, &ColabSeparationRunner::phaseChanged);
+    ColabSeparationRequest request = makeRequest(server.baseUrl(), sourceFile(&directory),
+                                                  directory.filePath(QStringLiteral("timeout")));
+    request.finalizeTimeoutMs = 40;
+    request.statusPollIntervalMs = 5;
+    QVERIFY(QMetaObject::invokeMethod(runner, "separate", Qt::QueuedConnection,
+                                      Q_ARG(ColabSeparationRequest, request)));
+    QVERIFY2(failures.wait(5000), "A worker stuck at 90% did not fail within its bounded finalize timeout.");
+    QCOMPARE(finished.count(), 0);
+    const QString message = failures.takeFirst().at(0).toString();
+    QVERIFY(message.contains(QStringLiteral("stayed at 90%")));
+    QVERIFY(message.contains(QStringLiteral("No local model was started")));
+    QVERIFY(server.requests().contains("DELETE /v1/audio/separations/job-direct HTTP/1.1"));
+    QVERIFY(phases.count() >= 2);
     thread.quit(); QVERIFY(thread.wait(5000));
 }
 

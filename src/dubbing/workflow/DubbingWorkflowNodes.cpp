@@ -172,7 +172,7 @@ bool registerDubbingWorkflowNodes(NodeRegistry &registry, DubbingJobRunner *runn
                   {input(QStringLiteral("audio"), WorkflowDataType::Audio),
                    input(QStringLiteral("fallbackAudio"), WorkflowDataType::Audio, false)},
                   {output(QStringLiteral("transcript"), WorkflowDataType::TimedTranscript)}),
-        definition(QStringLiteral("core.review-gate"), QStringLiteral("Alignment/Subtitle review"),
+        definition(QStringLiteral("core.review-gate"), QStringLiteral("Timed text review"),
                   {input(QStringLiteral("artifact"), WorkflowDataType::Any)},
                   {output(QStringLiteral("artifact"), WorkflowDataType::Any)}),
         definition(QStringLiteral("text.translate-transcript"), QStringLiteral("Translate"),

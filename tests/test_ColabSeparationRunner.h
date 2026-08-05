@@ -12,6 +12,7 @@ private slots:
     void testUsesDirectJobAndArtifactContract();
     void cudaWorkerFailureIsActionableAndDoesNotDumpRuntimeTrace();
     void testCancellationDiscardsPartialArtifacts();
+    void finalizingAtNinetyTimesOutWithNoLocalFallback();
     void voiceCloneReferenceUsesCachedVocalsOnly();
     void separationNotebookMatchesDirectColabContract();
 };

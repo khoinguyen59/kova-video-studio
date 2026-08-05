@@ -49,6 +49,8 @@ public:
     bool processing() const { return m_run.processing(); }
     QString stage() const { return m_run.stageName(); }
     int progress() const { return m_run.progress(); }
+    QString activityStatus() const { return m_colabSeparationActivityStatus; }
+    QVariantMap activityTransferProgress() const;
     QString lastError() const { return m_run.lastError(); }
     QString previewPath() const { return m_previewPath; }
     QString dubbedVocalPath() const { return m_dubbedVocalPath; }
@@ -163,6 +165,11 @@ private:
     QVariantList m_ocrTranscriptSegments;
     QList<QMetaObject::Connection> m_subtitleOcrConnections;
     QString m_pendingSourceAudioPath;
+    QString m_colabSeparationActivityStatus;
+    QString m_colabSeparationArtifact;
+    qint64 m_colabSeparationReceivedBytes = 0;
+    qint64 m_colabSeparationTotalBytes = -1;
+    bool m_colabSeparationTransferActive = false;
     QFutureWatcher<QVariantList> *m_timingWatcher = nullptr;
     std::shared_ptr<QAtomicInteger<bool>> m_timingCancel;
 };

@@ -24,6 +24,9 @@ class ColabWorkerClient final
 {
 public:
     using UploadProgressCallback = std::function<void(qint64 sent, qint64 total)>;
+    // A remote job becoming ready only means the WAV artifacts are available
+    // on Colab.  Keep the return transfer independently observable.
+    using DownloadProgressCallback = std::function<void(qint64 received, qint64 total)>;
 
     bool configure(const QUrl &workerUrl, const QString &bearerToken,
                    bool allowInsecureLocalhost, QString *errorMessage = nullptr);
@@ -60,7 +63,8 @@ public:
     bool separationJobStatus(const QString &jobId, QJsonObject *job, QString *errorMessage);
     bool downloadSeparationArtifact(const QString &jobId, const QString &stem,
                                     const std::shared_ptr<std::atomic_bool> &cancelToken,
-                                    QByteArray *wavData, QString *errorMessage);
+                                    QByteArray *wavData, QString *errorMessage,
+                                    const DownloadProgressCallback &downloadProgress = {});
     bool cancelSeparationJob(const QString &jobId, QString *errorMessage = nullptr);
     bool translateSegments(const QVariantList &segments, const QString &sourceLanguage,
                            const QString &targetLanguage, const QString &model,

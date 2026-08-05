@@ -4,6 +4,7 @@
 
 #include <QDir>
 #include <QDebug>
+#include <QElapsedTimer>
 #include <QFileInfo>
 #include <QJsonObject>
 #include <QSaveFile>
@@ -12,6 +13,9 @@
 namespace LAStudio {
 
 namespace {
+
+constexpr int kDefaultFinalizeTimeoutMs = 5 * 60 * 1000;
+constexpr int kDefaultStatusPollIntervalMs = 350;
 
 QString failureForUser(const QString &detail)
 {
@@ -50,6 +54,15 @@ ColabSeparationRunner::~ColabSeparationRunner() = default;
 void ColabSeparationRunner::separate(const ColabSeparationRequest &request)
 {
     QString error;
+    QString lastPhase;
+    const auto reportPhase = [this, &lastPhase](const QString &phase) {
+        const QString normalized = phase.simplified();
+        if (normalized.isEmpty() || normalized == lastPhase) return;
+        lastPhase = normalized;
+        qInfo().noquote() << "[colab-separation]" << normalized;
+        emit phaseChanged(normalized);
+    };
+    reportPhase(QStringLiteral("Uploading source audio to Direct Colab"));
     if (!d->client.configure(request.workerUrl, request.bearerToken,
                              request.allowInsecureLocalhost, &error)) {
         emit failed(error);
@@ -65,7 +78,13 @@ void ColabSeparationRunner::separate(const ColabSeparationRequest &request)
         emit failed(QStringLiteral("Colab worker returned a separation job without an ID"));
         return;
     }
+    reportPhase(QStringLiteral("Waiting for the Direct Colab CUDA worker"));
     int lastProgress = -1;
+    QElapsedTimer finalizingTimer;
+    const int finalizeTimeoutMs = request.finalizeTimeoutMs > 0
+        ? request.finalizeTimeoutMs : kDefaultFinalizeTimeoutMs;
+    const int statusPollIntervalMs = request.statusPollIntervalMs > 0
+        ? request.statusPollIntervalMs : kDefaultStatusPollIntervalMs;
     while (!request.cancellation.isCancelled()) {
         QJsonObject status;
         if (!d->client.separationJobStatus(d->activeJobId, &status, &error)) {
@@ -98,8 +117,31 @@ void ColabSeparationRunner::separate(const ColabSeparationRequest &request)
                                              : failureForUser(rawDetail));
             return;
         }
-        if (state == QStringLiteral("ready") || state == QStringLiteral("completed")) break;
-        QThread::msleep(350);
+        if (state == QStringLiteral("ready") || state == QStringLiteral("completed")) {
+            reportPhase(QStringLiteral("Direct Colab worker is ready; downloading separated stems"));
+            break;
+        }
+        const QString detail = status.value(QStringLiteral("detail")).toString().simplified();
+        reportPhase(detail.isEmpty()
+            ? QStringLiteral("Direct Colab worker is processing (%1%)").arg(reportedProgress)
+            : detail);
+        if (reportedProgress >= 90) {
+            if (!finalizingTimer.isValid()) finalizingTimer.start();
+            if (finalizingTimer.elapsed() >= finalizeTimeoutMs) {
+                const QString message = QStringLiteral(
+                    "The Direct Colab worker stayed at 90% while finalizing separated stems for %1 seconds. "
+                    "It did not become ready, so this remote job was cancelled. No local model was started.")
+                    .arg(finalizeTimeoutMs / 1000);
+                qWarning().noquote() << "[colab-separation]" << message;
+                d->client.cancelSeparationJob(d->activeJobId);
+                d->activeJobId.clear();
+                emit failed(message);
+                return;
+            }
+        } else {
+            finalizingTimer.invalidate();
+        }
+        QThread::msleep(statusPollIntervalMs);
     }
     if (request.cancellation.isCancelled()) {
         if (!d->activeJobId.isEmpty()) d->client.cancelSeparationJob(d->activeJobId);
@@ -108,10 +150,17 @@ void ColabSeparationRunner::separate(const ColabSeparationRequest &request)
         return;
     }
     QByteArray vocals, background;
-    if (!d->client.downloadSeparationArtifact(d->activeJobId, QStringLiteral("vocals"),
-                                             request.cancellation.sharedFlag(), &vocals, &error)
-        || !d->client.downloadSeparationArtifact(d->activeJobId, QStringLiteral("background"),
-                                                 request.cancellation.sharedFlag(), &background, &error)) {
+    const auto downloadArtifact = [this, &request, &error, &reportPhase](const QString &artifact,
+                                                                           QByteArray *data) {
+        reportPhase(QStringLiteral("Requesting %1 stem from Direct Colab").arg(artifact));
+        return d->client.downloadSeparationArtifact(
+            d->activeJobId, artifact, request.cancellation.sharedFlag(), data, &error,
+            [this, artifact](qint64 received, qint64 total) {
+                emit artifactTransferProgress(artifact, received, total);
+            });
+    };
+    if (!downloadArtifact(QStringLiteral("vocals"), &vocals)
+        || !downloadArtifact(QStringLiteral("background"), &background)) {
         if (!d->activeJobId.isEmpty()) d->client.cancelSeparationJob(d->activeJobId);
         d->activeJobId.clear();
         emit failed(request.cancellation.isCancelled() ? QStringLiteral("Colab separation cancelled") : error);
@@ -123,6 +172,7 @@ void ColabSeparationRunner::separate(const ColabSeparationRequest &request)
         emit failed(QStringLiteral("Colab separation cancelled"));
         return;
     }
+    reportPhase(QStringLiteral("Saving separated stems locally"));
     QDir().mkpath(request.outputRoot);
     const QString vocalsPath = QDir(request.outputRoot).filePath(QStringLiteral("vocals.wav"));
     const QString backgroundPath = QDir(request.outputRoot).filePath(QStringLiteral("background.wav"));

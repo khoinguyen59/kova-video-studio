@@ -68,7 +68,7 @@ public:
     Q_INVOKABLE void stopWorkflow(const QString &id);
     Q_INVOKABLE void openWorkflow(const QString &id);
     // Used by production-backed cross-studio actions (for example Dubbing's
-    // Alignment/Subtitle stage) without pretending an inactive job exists.
+    // Alignment stage) without pretending an inactive job exists.
     Q_INVOKABLE void openStudioRoute(const QString &routeId);
     Q_INVOKABLE void openVoiceCloningStudio();
 

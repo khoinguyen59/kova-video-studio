@@ -542,8 +542,14 @@ QVariantMap DubbingController::activityStageInfo() const
                                              : QStringLiteral("Dubbing"));
         result.insert(QStringLiteral("count"), stages.size());
     }
-    if (m_automaticSetupActive)
+    if (m_automaticSetupActive) {
         result.insert(QStringLiteral("status"), m_automaticStatusText);
+    } else if (m_runner) {
+        const QString status = m_runner->activityStatus().trimmed();
+        if (!status.isEmpty()) result.insert(QStringLiteral("status"), status);
+        const QVariantMap transfer = m_runner->activityTransferProgress();
+        if (!transfer.isEmpty()) result.insert(QStringLiteral("artifactTransfer"), transfer);
+    }
     return result;
 }
 
@@ -1043,10 +1049,10 @@ QVariantList DubbingController::colabSetupStages() const
     QList<QPair<QString, QString>> definitions{
         {QStringLiteral("source-separate"), QStringLiteral("Isolator (Vocals/Background)")},
         {QStringLiteral("transcribe"), QStringLiteral("Transcribe/STT")},
-        {QStringLiteral("subtitle-ocr"), QStringLiteral("Alignment/Subtitle OCR")},
+        {QStringLiteral("subtitle-ocr"), QStringLiteral("Subtitle OCR (Transcribe)")},
         {QStringLiteral("translate"), QStringLiteral("Translation")},
         {QStringLiteral("synthesize"), QStringLiteral("TTS / Text to Speech")},
-        {QStringLiteral("alignment"), QStringLiteral("Alignment/Subtitle")},
+        {QStringLiteral("alignment"), QStringLiteral("Alignment")},
     };
     if (stageUsesDirectColab(QStringLiteral("adaptive-llm"))) {
         definitions.append({QStringLiteral("adaptive-llm"),
@@ -1762,10 +1768,11 @@ QVariantList DubbingController::workflowNodes() const
             if (id == QStringLiteral("ingest")) return QStringLiteral("Normalize");
             if (id == QStringLiteral("source-separate")) return QStringLiteral("Isolator");
             if (id == QStringLiteral("transcribe")) return QStringLiteral("Transcribe/STT");
-            if (id == QStringLiteral("review-transcript")) return QStringLiteral("Alignment/Subtitle");
-            if (id == QStringLiteral("translate") || id == QStringLiteral("review-translation")) return QStringLiteral("Translate");
+            if (id == QStringLiteral("review-transcript")) return QStringLiteral("Transcribe/STT");
+            if (id == QStringLiteral("translate")) return QStringLiteral("Translate");
+            if (id == QStringLiteral("review-translation")) return QStringLiteral("Subtitle");
             if (id == QStringLiteral("assign-voices") || id == QStringLiteral("synthesize")) return QStringLiteral("TTS");
-            if (id == QStringLiteral("fit-timing") || id == QStringLiteral("review-conflicts")) return QStringLiteral("Alignment/Subtitle");
+            if (id == QStringLiteral("fit-timing") || id == QStringLiteral("review-conflicts")) return QStringLiteral("Alignment");
             if (id == QStringLiteral("mix")) return QStringLiteral("Export/Output");
             return QStringLiteral("Export/Output");
         };
@@ -1928,18 +1935,20 @@ QVariantList DubbingController::workflowStages() const
          "Create real Vocals and Background stems for review and mixing.",
          {QStringLiteral("source-separate")}},
         {"transcribe", "Transcribe/STT", "transcribe",
-         "Create timed text from STT, Subtitle OCR, or the reviewed STT + OCR mode.",
-         {QStringLiteral("transcribe")}},
-        {"alignment-subtitle", "Alignment/Subtitle", "review-transcript",
-         "Review timed transcript/subtitle data and configure timing resolution before translation.",
-         {QStringLiteral("review-transcript"), QStringLiteral("fit-timing"),
-          QStringLiteral("review-conflicts")}},
+         "Create and review timed source text from STT, Subtitle OCR, or the reviewed STT + OCR mode.",
+         {QStringLiteral("transcribe"), QStringLiteral("review-transcript")}},
         {"translate", "Translate", "translate",
-         "Translate the reviewed timed transcript.",
-         {QStringLiteral("translate"), QStringLiteral("review-translation")}},
+         "Translate the reviewed timed source transcript into the target language.",
+         {QStringLiteral("translate")}},
+        {"subtitle", "Subtitle", "review-translation",
+         "Review the target-language subtitle text produced after translation.",
+         {QStringLiteral("review-translation")}},
         {"tts", "TTS", "synthesize",
          "Assign a voice and synthesize the translated segments.",
          {QStringLiteral("assign-voices"), QStringLiteral("synthesize")}},
+        {"alignment", "Alignment", "fit-timing",
+         "Fit generated speech to segment timing and resolve any timing conflicts.",
+         {QStringLiteral("fit-timing"), QStringLiteral("review-conflicts")}},
         {"export", "Export/Output", "export",
          "Mix/render the verified dub and export media, subtitles, a package, or a CapCut Draft.",
          {QStringLiteral("mix"), QStringLiteral("export")}}
@@ -2520,9 +2529,9 @@ QVariantMap DubbingController::automaticPreflight() const
                    || nodeId == QStringLiteral("synthesize")) {
             setupAction = QStringLiteral("node-model");
             setupHint = QStringLiteral("Choose route and model");
-        } else if (nodeId == QStringLiteral("review-transcript")) {
+        } else if (nodeId == QStringLiteral("fit-timing")) {
             setupAction = QStringLiteral("alignment");
-            setupHint = QStringLiteral("Configure subtitle review and timing resolution");
+            setupHint = QStringLiteral("Configure timing resolution");
         } else if (nodeId == QStringLiteral("export")) {
             setupAction = QStringLiteral("export");
             setupHint = QStringLiteral("Configure output/export options");
@@ -2607,9 +2616,9 @@ QVariantMap DubbingController::automaticPreflight() const
                 : QStringLiteral("source format will be probed at ingest");
             configurationSummary = QStringLiteral("Automatic local preprocessing; %1; master and analysis WAV outputs; no model required.")
                 .arg(sourceShape);
-        } else if (stageId == QStringLiteral("alignment-subtitle")) {
+        } else if (stageId == QStringLiteral("alignment")) {
             const QVariantMap timing = timingConfiguration();
-            configurationSummary = QStringLiteral("Timing: %1; minimum gap %2 ms; subtitle review uses project segments.")
+            configurationSummary = QStringLiteral("Timing: %1; minimum gap %2 ms.")
                 .arg(timing.value(QStringLiteral("mode")).toString())
                 .arg(timing.value(QStringLiteral("minimumGapMs")).toInt());
         } else if (stageId == QStringLiteral("export")) {
@@ -2925,12 +2934,10 @@ void DubbingController::configureRemoteRewriteFromGateway()
 QString DubbingController::visibleStepForNode(const QString &nodeId)
 {
     if (nodeId == QStringLiteral("media-input")) return QStringLiteral("import");
-    if (nodeId == QStringLiteral("review-transcript")
-        || nodeId == QStringLiteral("fit-timing")
-        || nodeId == QStringLiteral("review-conflicts")) {
-        return QStringLiteral("alignment-subtitle");
-    }
-    if (nodeId == QStringLiteral("review-translation")) return QStringLiteral("translate");
+    if (nodeId == QStringLiteral("review-transcript")) return QStringLiteral("transcribe");
+    if (nodeId == QStringLiteral("review-translation")) return QStringLiteral("subtitle");
+    if (nodeId == QStringLiteral("fit-timing") || nodeId == QStringLiteral("review-conflicts"))
+        return QStringLiteral("alignment");
     if (nodeId == QStringLiteral("assign-voices")) return QStringLiteral("synthesize");
     if (nodeId == QStringLiteral("mix")) return QStringLiteral("export");
     return nodeId;
@@ -3637,6 +3644,10 @@ bool DubbingController::runCurrentStep(const QString &outputPath)
         generateAudio();
         return m_runner->processing();
     }
+    if (step == QStringLiteral("fit-timing")) {
+        m_runner->fitTiming(m_project.segments, m_project.projectPath);
+        return m_runner->processing();
+    }
     if (step == QStringLiteral("mix")) return renderPreview();
     if (step == QStringLiteral("export")) return exportMedia(outputPath);
     return false;
@@ -3662,6 +3673,7 @@ bool DubbingController::rerunStep(const QString &stepId, const QString &outputPa
         || step == QStringLiteral("transcribe")
         || step == QStringLiteral("translate")
         || step == QStringLiteral("synthesize")
+        || step == QStringLiteral("fit-timing")
         || step == QStringLiteral("mix")
         || step == QStringLiteral("export");
     if (!supported) {

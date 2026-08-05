@@ -847,7 +847,7 @@ Dialog {
         anchors.centerIn: parent
         modal: true
         width: Math.min(520, parent ? parent.width - Theme.paddingXL * 2 : 520)
-        title: qsTr("Alignment and subtitle configuration")
+        title: qsTr("Alignment configuration")
         standardButtons: Dialog.NoButton
         onOpened: {
             timingMode.currentIndex = timingMode.indexOfValue(root.dubbing.timingConfiguration.mode || "keep")
@@ -855,7 +855,7 @@ Dialog {
         }
         contentItem: ColumnLayout {
             spacing: Theme.paddingMedium
-            Text { Layout.fillWidth: true; text: qsTr("Timing and subtitle review are configured here because they are part of Alignment/Subtitle, not a separate workflow card."); color: Theme.textSecondary; wrapMode: Text.WordWrap }
+            Text { Layout.fillWidth: true; text: qsTr("Configure timing resolution for synthesized speech. Target-language subtitle review is a separate step after Translate."); color: Theme.textSecondary; wrapMode: Text.WordWrap }
             ComboBox {
                 id: timingMode
                 Layout.fillWidth: true

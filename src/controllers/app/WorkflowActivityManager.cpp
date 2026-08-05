@@ -578,16 +578,33 @@ QVariantMap WorkflowActivityManager::dubbingWorkflow() const
     if (!setupStatus.isEmpty() && setupStatus != stageTitle) {
         stageLabel += QStringLiteral(" — %1").arg(setupStatus);
     }
+    // A ready Colab separation job still has potentially large WAV artifacts
+    // to download. Its byte counter is a percentage of the current artifact,
+    // never a fabricated percentage of the whole workflow.
+    const QVariantMap artifactTransfer = stageInfo.value(QStringLiteral("artifactTransfer")).toMap();
+    const bool transferProgressAvailable = artifactTransfer.value(QStringLiteral("available")).toBool();
+    const bool useArtifactTransferProgress = !artifactTransfer.isEmpty();
+    const int visibleProgress = useArtifactTransferProgress
+        ? artifactTransfer.value(QStringLiteral("percent")).toInt()
+        : m_dubbing->progress();
+    const bool visibleProgressAvailable = useArtifactTransferProgress
+        ? transferProgressAvailable : m_dubbing->progressAvailable();
     QVariantMap workflow = makeWorkflow(QStringLiteral("dubbing-active"),
                         QStringLiteral("dubbing"),
                         QStringLiteral("Dubbing — %1").arg(stageTitle),
                         QStringLiteral("studio-dubbing"),
                         QStringLiteral("waves"),
-                        m_dubbing->progress(),
-                        !m_dubbing->progressAvailable(),
+                        visibleProgress,
+                        !visibleProgressAvailable,
                         stageLabel,
                         true);
-    workflow.insert(QStringLiteral("progressAvailable"), m_dubbing->progressAvailable());
+    workflow.insert(QStringLiteral("progressAvailable"), visibleProgressAvailable);
+    if (useArtifactTransferProgress) {
+        workflow.insert(QStringLiteral("progressScope"), QStringLiteral("artifact"));
+        workflow.insert(QStringLiteral("artifact"), artifactTransfer.value(QStringLiteral("artifact")));
+        workflow.insert(QStringLiteral("receivedBytes"), artifactTransfer.value(QStringLiteral("receivedBytes")));
+        workflow.insert(QStringLiteral("totalBytes"), artifactTransfer.value(QStringLiteral("totalBytes")));
+    }
     workflow.insert(QStringLiteral("workflowId"), m_dubbing->workflowId());
     workflow.insert(QStringLiteral("workflowVersion"), m_dubbing->workflowVersion());
     workflow.insert(QStringLiteral("runId"), m_dubbing->workflowRunId());

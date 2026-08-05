@@ -1145,7 +1145,7 @@ void TestDubbingProject::automaticPreflightFixTargetsAndNoOpConfigurationsAreExp
              QStringLiteral("node-model"));
     QCOMPARE(nodes.value(QStringLiteral("tts")).value(QStringLiteral("setupAction")).toString(),
              QStringLiteral("node-model"));
-    QCOMPARE(nodes.value(QStringLiteral("alignment-subtitle")).value(QStringLiteral("setupAction")).toString(),
+    QCOMPARE(nodes.value(QStringLiteral("alignment")).value(QStringLiteral("setupAction")).toString(),
              QStringLiteral("alignment"));
     QCOMPARE(nodes.value(QStringLiteral("export")).value(QStringLiteral("setupAction")).toString(),
              QStringLiteral("export"));
@@ -1333,7 +1333,7 @@ void TestDubbingProject::automaticSetupKeepsVerifiedDirectColabRouteAndReportsCu
     QVERIFY(!setupRows.isEmpty());
     const QVariantMap setup = setupRows.constFirst().toMap();
     QCOMPARE(setup.value(QStringLiteral("title")).toString(), QStringLiteral("Dubbing — Isolator"));
-    QVERIFY(setup.value(QStringLiteral("stageLabel")).toString().contains(QStringLiteral("Isolator (3/8)")));
+    QVERIFY(setup.value(QStringLiteral("stageLabel")).toString().contains(QStringLiteral("Isolator (3/9)")));
     QCOMPARE(setup.value(QStringLiteral("executionRoute")).toString(), QStringLiteral("Direct Colab GPU"));
 
     // This is the regression boundary: with remote-first disabled, the old
@@ -1831,19 +1831,19 @@ void TestDubbingProject::sourceSeparationExposesModelSelection()
              QStringLiteral("voice-isolation"));
 }
 
-void TestDubbingProject::workflowStagesExposeEightProductionBackedSteps()
+void TestDubbingProject::workflowStagesExposeTranslatedSubtitleAfterTranslation()
 {
     DubbingController controller(nullptr, nullptr);
     const QVariantList stages = controller.workflowStages();
-    QCOMPARE(stages.size(), 8);
+    QCOMPARE(stages.size(), 9);
     const QStringList expectedIds{
         QStringLiteral("import"), QStringLiteral("normalize"), QStringLiteral("isolator"),
-        QStringLiteral("transcribe"), QStringLiteral("alignment-subtitle"),
-        QStringLiteral("translate"), QStringLiteral("tts"), QStringLiteral("export")};
+        QStringLiteral("transcribe"), QStringLiteral("translate"), QStringLiteral("subtitle"),
+        QStringLiteral("tts"), QStringLiteral("alignment"), QStringLiteral("export")};
     const QStringList expectedTitles{
         QStringLiteral("Import/Download"), QStringLiteral("Normalize"), QStringLiteral("Isolator"),
-        QStringLiteral("Transcribe/STT"), QStringLiteral("Alignment/Subtitle"),
-        QStringLiteral("Translate"), QStringLiteral("TTS"), QStringLiteral("Export/Output")};
+        QStringLiteral("Transcribe/STT"), QStringLiteral("Translate"), QStringLiteral("Subtitle"),
+        QStringLiteral("TTS"), QStringLiteral("Alignment"), QStringLiteral("Export/Output")};
     QSet<QString> productionNodes;
     for (int index = 0; index < stages.size(); ++index) {
         const QVariantMap stage = stages.at(index).toMap();
@@ -1858,12 +1858,16 @@ void TestDubbingProject::workflowStagesExposeEightProductionBackedSteps()
             productionNodes.insert(node.toString());
     }
     QCOMPARE(productionNodes.size(), controller.workflowNodes().size());
-    const QVariantMap alignment = stages.at(4).toMap();
-    QVERIFY(alignment.value(QStringLiteral("productionNodeIds")).toList()
+    const QVariantMap transcribe = stages.at(3).toMap();
+    QVERIFY(transcribe.value(QStringLiteral("productionNodeIds")).toList()
                 .contains(QStringLiteral("review-transcript")));
+    const QVariantMap subtitles = stages.at(5).toMap();
+    QVERIFY(subtitles.value(QStringLiteral("productionNodeIds")).toList()
+                .contains(QStringLiteral("review-translation")));
+    const QVariantMap alignment = stages.at(7).toMap();
     QVERIFY(alignment.value(QStringLiteral("productionNodeIds")).toList()
                 .contains(QStringLiteral("fit-timing")));
-    const QVariantMap exportStage = stages.at(7).toMap();
+    const QVariantMap exportStage = stages.at(8).toMap();
     QVERIFY(exportStage.value(QStringLiteral("productionNodeIds")).toList()
                 .contains(QStringLiteral("mix")));
 }
