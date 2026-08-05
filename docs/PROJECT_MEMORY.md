@@ -16,6 +16,24 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 
 ## Lich su cap san pham
 
+### 2026-08-06 - Dubbing subtitle ordering and Spleeter progress truthfulness (source only)
+
+- The visible workflow is now `Import/Download -> Normalize -> Isolator ->
+  Transcribe/STT -> Translate -> Subtitle -> TTS -> Alignment -> Export/Output`.
+  `review-transcript` remains the source-text quality gate under Transcribe;
+  `review-translation` is the target subtitle gate after Translate; timing and
+  conflict handling remain production nodes under Alignment after speech is
+  synthesized.  Export continues to use target-language segment text.
+- Direct Colab Spleeter reports worker finalization separately from artifact
+  transfer.  At worker 90%, the Activity label says what the CUDA worker is
+  doing; once ready, it exposes received/total bytes for vocals or background,
+  not a false workflow percent.  A five-minute 90% finalization watchdog
+  cancels the remote job and explicitly preserves the no-Local-fallback route.
+- Added direct runner and controller regressions. Release source/test targets
+  build; focused suites pass 2/2 and all 37 non-GUI CTest tests pass in 62.27s.
+  QmlRouteSmoke was intentionally not run because it launches the desktop EXE;
+  live Colab and desktop acceptance remain manual gates. No new package.
+
 ### 2026-08-06 - Spleeter cloudflared bootstrap repair (source only)
 
 - The Spleeter Direct Colab worker completed its CUDA probe, then crashed

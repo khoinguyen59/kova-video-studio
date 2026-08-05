@@ -12,6 +12,34 @@ Cap nhat: 2026-08-05
 | Current source | `main` source commits `2502485`, `5440f94`; full CTest 39/39 PASS. Latest package remains 0.0.2.28. |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
 
+## Post-package Dubbing flow and Direct Colab progress repair (source only)
+
+- The Dubbing presentation contract now exposes the user-visible dependency
+  order `Import/Download -> Normalize -> Isolator -> Transcribe/STT ->
+  Translate -> Subtitle -> TTS -> Alignment -> Export/Output`.  The old
+  `Alignment/Subtitle` label incorrectly combined two different concerns and
+  appeared before translation.  Source-language transcript review remains
+  under Transcribe/STT; target-language subtitle review is now its own stage
+  after Translate; timing/conflict work is under Alignment after TTS.
+- Direct Colab Spleeter no longer leaves a vague `90%` status.  The desktop
+  reports the worker phase while CUDA is writing stems, then uses the actual
+  byte counter of the current vocals/background artifact while it downloads.
+  That artifact percentage is explicitly not presented as a whole-workflow
+  percentage.  A worker that remains at 90% without becoming ready is cancelled
+  after five minutes with an actionable error and never starts a Local fallback.
+- Regression added a stuck-at-90 worker and verifies the remote cancellation,
+  no-local-fallback message, phase notifications, and artifact transfer bytes.
+  The presentation regression verifies the nine-stage order and that
+  `review-translation` belongs to Subtitle.
+- Validation: release source and both unit-test targets build successfully;
+  targeted `TestDubbingProject` and `TestColabSeparationRunner` pass 2/2;
+  headless CTest passes 37/37 in 62.27 seconds.  `QmlRouteSmoke` and its
+  deployment fixture were deliberately not rerun because they launch the
+  desktop executable, which is outside the current no-GUI-control constraint.
+  The first smoke attempt did reveal and the source fixed a stale expectation
+  that Subtitle must expose a Configure button.  No package or live Colab run
+  is claimed for this source-only repair.
+
 ## Post-package source fix: Spleeter Colab cloudflared bootstrap
 
 - Root cause of the reported notebook failure: after the exact CUDA startup
