@@ -13,6 +13,7 @@ import ast
 import importlib.util
 import io
 import json
+import re
 import sys
 import tempfile
 from contextlib import redirect_stdout
@@ -28,6 +29,7 @@ GENERATORS = (
     "generate_tts_colab_notebooks.py",
     "generate_voice_colab_notebooks.py",
     "generate_alignment_separation_colab_notebooks.py",
+    "generate_spleeter_safe_colab_notebook.py",
     "generate_language_colab_notebooks.py",
     "generate_subtitle_ocr_colab_notebook.py",
 )
@@ -137,6 +139,25 @@ def main() -> int:
                         mismatches.append(
                             f"STT worker still overwrites cloudflared on every rerun: {generated.name}"
                         )
+                elif model == "sherpa-onnx-spleeter-2stems-fp16":
+                    if not re.search(r'WORKER_COMMIT = "[0-9a-f]{40}"', worker_source) \
+                            or 'WORKER_COMMIT = "main"' in worker_source \
+                            or "la_studio_separation_launcher.py" not in worker_source:
+                        mismatches.append(
+                            f"Spleeter notebook has no immutable, checked worker launcher: {generated.name}"
+                        )
+                    launcher = ROOT / "notebooks" / "workers" / "LA_STUDIO_SEPARATION_SPLEETER_2STEMS_LAUNCHER.py"
+                    try:
+                        launcher_source = launcher.read_text(encoding="utf-8")
+                    except OSError as error:
+                        mismatches.append(f"Spleeter launcher cannot be read: {error}")
+                    else:
+                        if "def cloudflared_ready() -> bool:" not in launcher_source \
+                                or "except OSError:" not in launcher_source \
+                                or "or not cloudflared_ready()" not in launcher_source:
+                            mismatches.append(
+                                f"Spleeter launcher is not safe when cloudflared is absent: {generated.name}"
+                            )
                 else:
                     if "LA Studio worker launch contract:" not in worker_source \
                             or "def port_is_occupied" not in worker_source \

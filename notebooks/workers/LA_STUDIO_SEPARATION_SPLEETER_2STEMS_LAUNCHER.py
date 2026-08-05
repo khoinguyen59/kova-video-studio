@@ -51,9 +51,21 @@ def stop(process: subprocess.Popen | None) -> None:
         process.kill()
 
 
+def cloudflared_ready() -> bool:
+    try:
+        return subprocess.run(
+            ["cloudflared", "--version"], stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, check=False,
+        ).returncode == 0
+    except OSError:
+        # A fresh Colab runtime normally has no cloudflared executable yet.
+        # subprocess.run raises FileNotFoundError in that case rather than
+        # returning a non-zero status.
+        return False
+
+
 def ensure_cloudflared() -> None:
-    if subprocess.run(["cloudflared", "--version"], stdout=subprocess.DEVNULL,
-                      stderr=subprocess.DEVNULL, check=False).returncode == 0:
+    if cloudflared_ready():
         return
     package_path = "/content/la-studio-cloudflared.deb"
     download = subprocess.run(
@@ -66,7 +78,7 @@ def ensure_cloudflared() -> None:
         raise RuntimeError("Could not download cloudflared: " + (download.stdout[-1200:] or "no output"))
     install = subprocess.run(["dpkg", "-i", package_path], text=True,
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
-    if install.returncode != 0:
+    if install.returncode != 0 or not cloudflared_ready():
         raise RuntimeError("Could not install cloudflared: " + (install.stdout[-1200:] or "no output"))
 
 

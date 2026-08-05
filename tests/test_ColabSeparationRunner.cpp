@@ -332,6 +332,12 @@ void TestColabSeparationRunner::separationNotebookMatchesDirectColabContract()
             QVERIFY(source.contains(QStringLiteral("CORE_SECONDS = 20.0")));
             QVERIFY(source.contains(QStringLiteral("startup_probe")));
             QVERIFY(source.contains(QStringLiteral("No local model was started")));
+            QVERIFY2(source.contains(QStringLiteral("def cloudflared_ready() -> bool:")),
+                     "The hardened Spleeter launcher must probe an absent cloudflared safely.");
+            QVERIFY2(source.contains(QStringLiteral("except OSError:")),
+                     "A fresh Colab runtime must not crash with FileNotFoundError before cloudflared installs.");
+            QVERIFY2(source.contains(QStringLiteral("or not cloudflared_ready()")),
+                     "The launcher must verify cloudflared after installation before creating a tunnel.");
         }
         QVERIFY(source.contains(QStringLiteral("\"device\": \"cuda\"")));
         QVERIFY(source.contains(QStringLiteral("require_exact_model(model)")));
