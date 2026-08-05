@@ -9,8 +9,25 @@ Cap nhat: 2026-08-05
 | Latest packaged candidate | `0.0.2.28` |
 | Artifact | `out/LA-Studio-0.0.2.28/LA-Studio-0.0.2.28.exe` |
 | SHA-256 | `63BA1B5B36A70039ADAB92FA5DB607E0556A3C5A7A55B515B116B516D02A4D92` |
-| Current source | `main` source commits `f1b2600`, `166f245`, `07ebcd1`; full CTest 39/39 PASS and package audit PASS |
+| Current source | `main` source commits `2502485`, `5440f94`; full CTest 39/39 PASS. Latest package remains 0.0.2.28. |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
+
+## Post-package source fix: Spleeter Colab cloudflared bootstrap
+
+- Root cause of the reported notebook failure: after the exact CUDA startup
+  probe passed, the Spleeter launcher called `subprocess.run(["cloudflared",
+  "--version"])` without handling a missing executable. A fresh Colab runtime
+  raises `FileNotFoundError` there, so the existing install path never ran.
+- The launcher now treats an absent binary as not installed, downloads and
+  installs Cloudflare Tunnel, then verifies its executable before opening the
+  temporary tunnel. It still has no Local or API Gateway fallback.
+- The Spleeter notebook is now generated and checked for drift. It fetches
+  both exact worker templates from immutable source commit `2502485` and
+  verifies their SHA-256 values, including the fixed launcher hash.
+- Validation: generated exact-model notebooks 32/32 PASS; targeted
+  `TestColabSeparationRunner` 7/7 PASS; full CTest 39/39 PASS in 133.83
+  seconds. This is source/offscreen evidence only: a new live Colab runtime
+  and its public tunnel still need manual acceptance. No new EXE was packaged.
 
 ## Batch 0.0.2.28: Direct Colab Spleeter CUDA hardening
 

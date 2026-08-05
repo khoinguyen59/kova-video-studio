@@ -16,6 +16,22 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 
 ## Lich su cap san pham
 
+### 2026-08-06 - Spleeter cloudflared bootstrap repair (source only)
+
+- The Spleeter Direct Colab worker completed its CUDA probe, then crashed
+  before creating a tunnel because a new Colab runtime has no `cloudflared`
+  executable and the launcher did not catch `FileNotFoundError`.
+- `cloudflared_ready()` now handles that absence, `ensure_cloudflared()`
+  installs the official package when needed, then confirms the executable is
+  usable before starting a tunnel. Route separation remains intact: there is
+  no Local or API fallback.
+- The pinned Spleeter notebook is generated rather than hand-maintained. It
+  locks worker source to immutable commit `2502485` and verifies the new
+  launcher SHA-256. The source commits are `2502485` and `5440f94`.
+- Validation: notebook generator 32/32, targeted separation 7/7 and full
+  CTest 39/39 PASS in 133.83 seconds. No new package and no live Colab session
+  were claimed as tested; a fresh notebook runtime is required.
+
 ### 2026-08-05 - 0.0.2.28 Direct Colab Spleeter CUDA hardening
 
 - Evidence from `0.0.2.27` shows the reported `CUDNN_FE_HEURISTIC_QUERY_FAILED`

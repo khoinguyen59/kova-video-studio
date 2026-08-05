@@ -1,53 +1,42 @@
-# AI agent response - Dubbing Direct Colab code verification
+# AI agent response - Spleeter Colab tunnel bootstrap repair
 
-Date: 2026-08-05
+Date: 2026-08-06
 
-## Code-path finding
+## Root cause
 
-This audit does not use a user screenshot, infer a running EXE version, or
-claim a live-worker outcome. It traces the source and its loopback protocol
-tests. A selected Direct Colab Spleeter route is not allowed to execute Local
-source separation:
+The exact Spleeter CUDA worker had already passed its startup probe. The
+failure happened immediately afterwards: a fresh Colab runtime has no
+`cloudflared` executable, and the launcher called it through
+`subprocess.run()` without catching `FileNotFoundError`. The download/install
+branch therefore never ran.
 
-- `DubbingJobRunner::startSourceSeparation()` sends a verified
-  `colab-direct` selection only to `ColabSeparationRunner`, then returns.
-  The Local separation branch is below that return and cannot run for the same
-  request.
-- The archived 0.0.2.27 package has an older inline `sherpa_onnx` CUDA worker,
-  while 0.0.2.28 ships a different bounded ONNX Runtime CUDA worker. This is
-  a package comparison only; it is not an assertion about the user's session.
+## Source repair
 
-No app source was changed and no package was produced in this verification
-task.
+- Added a safe `cloudflared_ready()` probe that treats a missing binary as not
+  installed.
+- Kept the existing official Cloudflare download/install path, then verifies
+  the executable after installation before it starts the temporary tunnel.
+- Added a checked generator for
+  `LA_STUDIO_SEPARATION_SPLEETER_2STEMS_GPU.ipynb`. The notebook locks its
+  worker files to immutable source commit `2502485` and checks both SHA-256
+  values. The fixed launcher hash is
+  `437bc329e27d18cde12c095e766805550a0493bfc951620049432f0221241a72`.
+- Added regression checks for the missing-binary path and for generated
+  notebook drift. Direct Colab remains independent of API Gateway and does
+  not start a Local model.
 
-## Verified replacement
+## Evidence
 
-Use the already-audited package:
+- Generated exact-model Colab notebooks: **32/32 PASS**.
+- `TestColabSeparationRunner`: **7/7 PASS**.
+- Full CTest: **39/39 PASS** in **133.83 seconds**, including offscreen QML
+  smoke.
+- Graphify knowledge graph was refreshed after the source change.
 
-`out/LA-Studio-0.0.2.28/LA-Studio-0.0.2.28.exe`
+## Manual live step still required
 
-- FileVersion/ProductVersion: `0.0.2.28` / `0.0.2.28`
-- SHA-256: `63BA1B5B36A70039ADAB92FA5DB607E0556A3C5A7A55B515B116B516D02A4D92`
-- Its notebook pins worker commit
-  `f1b26005b6e3677db444ac12774ba3eaf9d9b204`, verifies both worker-template
-  hashes, requires a CUDA startup probe, uses
-  `cudnn_conv_algo_search=DEFAULT`, and processes long audio in 20-second
-  cores with 1.5-second context. It reports `cpu_fallback: false`.
-
-For a future manual acceptance run, use a fresh worker created by the 0.0.2.28
-notebook, wait for `Exact CUDA worker passed startup probe`, then paste its URL
-and token into Colab setup and press Check Colab. That is a manual procedure,
-not an outcome claimed by this report.
-
-## Verification executed
-
-- Targeted Dubbing/Direct-Colab/remote/QML suites: **8/8 PASS** in
-  **28.85 seconds**.
-- Full CTest: **39/39 PASS** in **72.18 seconds**.
-- Inspected both packaged notebook generations: 0.0.2.27 contains the old
-  inline `sherpa_onnx` worker; 0.0.2.28 contains the audited bounded ONNX
-  Runtime CUDA worker and launcher in `docs/colab-notebooks/workers`.
-
-These are controller, protocol, notebook-contract and offscreen-QML tests.
-They do not replace a live Colab run, which requires the fresh 0.0.2.28
-notebook/session described above.
+This is not a claim that the user's existing Colab runtime was changed. Open
+the current Spleeter notebook from `main`, create a fresh Colab runtime, Run
+all cells, then copy the newly printed URL and token into Dubbing Colab setup
+and use **Check Colab**. The expected first-run behavior is to install
+`cloudflared` instead of crashing when it is absent. No new EXE was packaged.
