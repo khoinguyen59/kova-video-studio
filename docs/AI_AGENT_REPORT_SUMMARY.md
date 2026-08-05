@@ -32,13 +32,13 @@ Cap nhat: 2026-08-05
   The presentation regression verifies the nine-stage order and that
   `review-translation` belongs to Subtitle.
 - Validation: release source and both unit-test targets build successfully;
-  targeted `TestDubbingProject` and `TestColabSeparationRunner` pass 2/2;
-  headless CTest passes 37/37 in 62.27 seconds.  `QmlRouteSmoke` and its
-  deployment fixture were deliberately not rerun because they launch the
-  desktop executable, which is outside the current no-GUI-control constraint.
-  The first smoke attempt did reveal and the source fixed a stale expectation
-  that Subtitle must expose a Configure button.  No package or live Colab run
-  is claimed for this source-only repair.
+  targeted `TestDubbingProject` and `TestColabSeparationRunner` pass 2/2; full
+  CTest passes 39/39 in 82.58 seconds, including deployment and
+  `QmlRouteSmoke` under `QT_QPA_PLATFORM=offscreen`.  The first smoke attempt
+  did reveal and the source fixed a stale expectation that Subtitle must expose
+  a Configure button.  Offscreen regression is not desktop or live-Colab
+  acceptance. No package or live Colab run is claimed for this source-only
+  repair.
 
 ## Post-package source fix: Spleeter Colab cloudflared bootstrap
 

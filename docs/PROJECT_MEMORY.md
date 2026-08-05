@@ -30,9 +30,10 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   not a false workflow percent.  A five-minute 90% finalization watchdog
   cancels the remote job and explicitly preserves the no-Local-fallback route.
 - Added direct runner and controller regressions. Release source/test targets
-  build; focused suites pass 2/2 and all 37 non-GUI CTest tests pass in 62.27s.
-  QmlRouteSmoke was intentionally not run because it launches the desktop EXE;
-  live Colab and desktop acceptance remain manual gates. No new package.
+  build; focused suites pass 2/2 and full CTest passes 39/39 in 82.58s,
+  including the offscreen QmlRouteSmoke deployment check.  This remains
+  automated/offscreen evidence only; live Colab and desktop acceptance remain
+  manual gates. No new package.
 
 ### 2026-08-06 - Spleeter cloudflared bootstrap repair (source only)
 

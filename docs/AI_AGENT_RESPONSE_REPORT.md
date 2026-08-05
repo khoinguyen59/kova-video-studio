@@ -33,15 +33,15 @@ only covers the post-TTS timing/conflict work.
 - `VietNormUnitTests` build: PASS.
 - Targeted CTest: `TestDubbingProject` and `TestColabSeparationRunner`, 2/2
   PASS.
-- Full non-GUI CTest: 37/37 PASS in 62.27 seconds.
-- QML was compiled into the release resource as part of the build.  A first
+- Full CTest: 39/39 PASS in 82.58 seconds, including deployment and
+  `QmlRouteSmoke` under `QT_QPA_PLATFORM=offscreen`.
+- QML was compiled into the release resource as part of the build. A first
   offscreen smoke run exposed a stale test assumption that Subtitle has a
-  Configure button; the source smoke list was corrected.  The offscreen smoke
-  was not rerun, because it launches the desktop executable and the current
-  constraint is not to open/control the app.
+  Configure button; the source smoke list was corrected, then the full
+  offscreen CTest suite passed.
 
 ## Not claimed
 
-No new EXE was packaged, no GUI was opened, and no live Colab worker was run.
-Those remain manual acceptance work; the existing `0.0.2.28` package does not
-contain this source-only repair.
+No new EXE was packaged and no live Colab worker was run. The offscreen test
+did not open a visible GUI. Live desktop/Colab acceptance remains manual work;
+the existing `0.0.2.28` package does not contain this source-only repair.
