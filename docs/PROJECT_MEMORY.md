@@ -6,7 +6,7 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 
 - Desktop local-first: STT, TTS, Voice Cloning, Voice Design, Alignment, Translation, Dubbing, LLM Chat, Download va Subtitle OCR.
 - API Gateway va Direct Colab la hai route doc lap. Token/URL Colab chi o memory session, khong persist vao project/report.
-- Package noi bo moi nhat: `0.0.2.28` tai `out/LA-Studio-0.0.2.28/LA-Studio-0.0.2.28.exe`, SHA-256 `63BA1B5B36A70039ADAB92FA5DB607E0556A3C5A7A55B515B116B516D02A4D92`. FileVersion/ProductVersion `0.0.2.28`, full CTest 39/39 va package audit PASS. Manual GUI/live Colab luon la gate rieng.
+- Package noi bo moi nhat: `0.0.2.29` tai `out/LA-Studio-0.0.2.29/LA-Studio-0.0.2.29.exe`, SHA-256 `3D37B2DE11575EE265C2FAAB43B20DE8185557FEB587FAC74654E66656EBC2D7`. FileVersion/ProductVersion `0.0.2.29`, full CTest 39/39 va package audit PASS. Manual GUI/live Colab luon la gate rieng.
 - `0.0.2.23` duoc giu nguyen nhung khong duoc chap nhan: audit bat thieu evidence trace route/model/worker truoc-sau. `0.0.2.24` bo sung trace va package moi, khong ghi de candidate cu.
 - `0.0.2.21` khong duoc chap nhan cho Dubbing Automatic: gate/preflight co
   dead-end media va no-op Configure. `0.0.2.22` sua duong ingest truoc gate,
@@ -15,6 +15,19 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   offscreen khong co native active window.
 
 ## Lich su cap san pham
+
+### 2026-08-06 - 0.0.2.29 portable internal package
+
+- Package moi cho Dubbing subtitle-order va Direct Colab 90% repair duoc tao
+  tai `out/LA-Studio-0.0.2.29/LA-Studio-0.0.2.29.exe`; khong ghi de candidate
+  cu. FileVersion/ProductVersion deu la `0.0.2.29`; SHA-256 la
+  `3D37B2DE11575EE265C2FAAB43B20DE8185557FEB587FAC74654E66656EBC2D7`.
+- Package script da stage/audit 19 runtime/license artifacts. Kiem tra doc lap
+  xac nhan qwindows/qoffscreen, FFmpeg/FFprobe, RuntimeHost, Subtitle OCR,
+  Spleeter notebook/worker va license deu co mat. eSpeak MSI SHA-verified
+  nhung unsigned, vi vay chi la internal distribution.
+- Full CTest 39/39 da PASS truoc package. Khong mo GUI hien thi va khong claim
+  live Colab/manual desktop acceptance.
 
 ### 2026-08-06 - Dubbing subtitle ordering and Spleeter progress truthfulness (source only)
 

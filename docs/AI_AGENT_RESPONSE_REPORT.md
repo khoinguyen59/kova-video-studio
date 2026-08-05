@@ -1,8 +1,21 @@
-# AI agent response - Dubbing subtitle order and Direct Colab 90% repair
+# AI agent response - 0.0.2.29 portable internal package
 
 Date: 2026-08-06
 
-## Result
+## Package result
+
+The new portable candidate is ready:
+
+`C:\Users\Nguyen Trong Khoi\Downloads\LA-STUDIO\out\LA-Studio-0.0.2.29\LA-Studio-0.0.2.29.exe`
+
+- FileVersion/ProductVersion: `0.0.2.29`.
+- SHA-256: `3D37B2DE11575EE265C2FAAB43B20DE8185557FEB587FAC74654E66656EBC2D7`.
+- The prior 0.0.2.28 candidate was not overwritten.
+- Staging audit passed for 19 required runtime/license artifacts; independent
+  checks confirmed Qt Windows/offscreen platforms, FFmpeg/FFprobe, RuntimeHost,
+  bundled Subtitle OCR, Spleeter notebooks/workers and licenses.
+
+## Included source repair
 
 The Dubbing flow was presenting a misleading combined
 `Alignment/Subtitle` stage before translation.  It now presents the actual
@@ -42,6 +55,7 @@ only covers the post-TTS timing/conflict work.
 
 ## Not claimed
 
-No new EXE was packaged and no live Colab worker was run. The offscreen test
-did not open a visible GUI. Live desktop/Colab acceptance remains manual work;
-the existing `0.0.2.28` package does not contain this source-only repair.
+No live Colab worker was run. The offscreen test did not open a visible GUI.
+Live desktop/Colab acceptance remains manual work. This is an internal package:
+the eSpeak NG MSI is SHA-verified but unsigned and must not be treated as a
+distributable public release.

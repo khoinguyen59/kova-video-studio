@@ -6,11 +6,26 @@ Cap nhat: 2026-08-05
 
 | Muc | Trang thai |
 | --- | --- |
-| Latest packaged candidate | `0.0.2.28` |
-| Artifact | `out/LA-Studio-0.0.2.28/LA-Studio-0.0.2.28.exe` |
-| SHA-256 | `63BA1B5B36A70039ADAB92FA5DB607E0556A3C5A7A55B515B116B516D02A4D92` |
-| Current source | `main` source commits `2502485`, `5440f94`; full CTest 39/39 PASS. Latest package remains 0.0.2.28. |
+| Latest packaged candidate | `0.0.2.29` |
+| Artifact | `out/LA-Studio-0.0.2.29/LA-Studio-0.0.2.29.exe` |
+| SHA-256 | `3D37B2DE11575EE265C2FAAB43B20DE8185557FEB587FAC74654E66656EBC2D7` |
+| Current source | `main`; full CTest 39/39 PASS before packaging. Version/source/package consistency verified for 0.0.2.29. |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
+
+## Candidate 0.0.2.29 - portable internal package
+
+- The Dubbing flow and Direct Colab progress repair were packaged as a new
+  portable candidate; no earlier candidate was overwritten.
+- The package executable, embedded `FileVersion` and embedded
+  `ProductVersion` are all `0.0.2.29`. SHA-256 is
+  `3D37B2DE11575EE265C2FAAB43B20DE8185557FEB587FAC74654E66656EBC2D7`.
+- Package staging verified the 19 required runtime/license artifacts. An
+  independent post-package check confirmed the Windows and offscreen Qt
+  platforms, FFmpeg/FFprobe, RuntimeHost, bundled Subtitle OCR manifest,
+  Spleeter notebook/worker templates and licenses are present.
+- This remains an internal build: the eSpeak NG MSI is SHA-verified but not
+  signed. The portable audit and offscreen CTest do not claim a visible desktop
+  launch or live-Colab success.
 
 ## Post-package Dubbing flow and Direct Colab progress repair (source only)
 
