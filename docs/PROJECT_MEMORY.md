@@ -288,3 +288,22 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 - Package mot candidate sau khi batch va full gate PASS; khong ghi de candidate cu.
 - Bao cao ro automated/package PASS khac voi GUI/live service manual acceptance.
 - Khi user dua evidence FAIL, dua dung loi do vao request va sua theo regression truoc package tiep theo.
+
+### 2026-08-09 - 0.0.2.30 Voice Clone / Isolator completion
+
+- Voice Clone reference cleanup has an independent Direct Colab Spleeter
+  session and controller. The inline card no longer navigates to standalone
+  Isolator; verified vocals are cached and passed directly into clone without a
+  re-upload. Session isolation is covered by Remote Execution regression.
+- Export WAV uses `selectedFile`, extension normalization, controller-result
+  checking and an exact save/failure message. Direct Colab reference transcript
+  is optional for models that support audio-only profile creation; Local Qwen3
+  correctly remains transcript-required.
+- CMake skips only the shared-Qt static-plugin import scanner, which had been
+  stalling Windows package configuration. Dynamic QML deployment remains via
+  `windeployqt --qmldir qml` and was included in package verification.
+- Validation: full CTest **39/39 PASS**, notebooks **32/32 verified**, staged
+  package smoke PASS. Portable internal candidate `0.0.2.30` is at
+  `out/LA-Studio-0.0.2.30/LA-Studio-0.0.2.30.exe`; eSpeak remains the
+  hash-verified unsigned internal-only component. No visible GUI or live
+  Colab run was claimed.

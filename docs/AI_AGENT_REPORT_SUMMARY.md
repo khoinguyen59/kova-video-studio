@@ -386,3 +386,30 @@ Cap nhat: 2026-08-05
 - `AI_AGENT_RESPONSE_REPORT.md`: chi report moi nhat.
 - `PROJECT_MEMORY.md`: lich su cap san pham ngan gon.
 - Bang chung chi tiet cu tra trong Git history; khong tao report theo version rieng.
+
+## Batch 0.0.2.30: Voice Clone reference Isolator and reliable packaging
+
+- Voice Clone now owns a separate Direct Colab Spleeter session/controller for
+  reference cleanup. Its setup and Run action remain inline; only the cached
+  vocals artifact may feed the clone request, with no standalone-tab detour or
+  second upload.
+- Standalone Isolator Export WAV now uses `FileDialog.selectedFile`, validates
+  the `.wav` destination, reports the exact saved path and surfaces failures.
+- Direct Colab clone profiles may omit the reference transcript. Generated
+  exact notebooks use model-specific audio-only profile paths; Local Qwen3
+  retains the transcript constraint its runtime requires.
+- Shared-Qt packaging explicitly skips CMake's static-plugin import scan and
+  continues to deploy QML with `windeployqt --qmldir qml`. This removes the
+  Windows scanner stall without omitting dynamic QML deployment.
+
+### Evidence 0.0.2.30
+
+- Focused Voice Clone, Remote Execution, Direct Colab Separation, Source
+  Separation and Studio Capability suites: all PASS.
+- Full headless CTest: **39/39 PASS** in 67.74 seconds. Exact Colab notebooks:
+  **32/32 verified**.
+- Internal portable candidate audited: FileVersion/ProductVersion `0.0.2.30`,
+  SHA-256 `5C70D8194621DF613DC64EF6777C324D68D67C6D73121FB0ED2C0860F8C8F3EB`,
+  staged runtime/license inventory 19/19 and staged offscreen smoke PASS.
+- No visible GUI or live Colab worker was opened; live audio/service acceptance
+  remains a manual gate.
