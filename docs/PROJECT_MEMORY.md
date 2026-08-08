@@ -6,7 +6,7 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 
 - Desktop local-first: STT, TTS, Voice Cloning, Voice Design, Alignment, Translation, Dubbing, LLM Chat, Download va Subtitle OCR.
 - API Gateway va Direct Colab la hai route doc lap. Token/URL Colab chi o memory session, khong persist vao project/report.
-- Package noi bo moi nhat: `0.0.2.29` tai `out/LA-Studio-0.0.2.29/LA-Studio-0.0.2.29.exe`, SHA-256 `3D37B2DE11575EE265C2FAAB43B20DE8185557FEB587FAC74654E66656EBC2D7`. FileVersion/ProductVersion `0.0.2.29`, full CTest 39/39 va package audit PASS. Manual GUI/live Colab luon la gate rieng.
+- Package noi bo moi nhat: `0.0.2.31` tai `out/LA-Studio-0.0.2.31/LA-Studio-0.0.2.31.exe`, SHA-256 `2146DA71119C3330914287A4C17D79C0149BFAB3CCAD5EA15C75EE73C631A995`. FileVersion/ProductVersion `0.0.2.31`; targeted Voice Clone -> TTS regression, QML AOT compile va package audit 19 artifacts PASS. User yeu cau khong lap lai full CTest cua cac tinh nang da on; manual GUI/live Colab luon la gate rieng.
 - `0.0.2.23` duoc giu nguyen nhung khong duoc chap nhan: audit bat thieu evidence trace route/model/worker truoc-sau. `0.0.2.24` bo sung trace va package moi, khong ghi de candidate cu.
 - `0.0.2.21` khong duoc chap nhan cho Dubbing Automatic: gate/preflight co
   dead-end media va no-op Configure. `0.0.2.22` sua duong ingest truoc gate,
@@ -15,6 +15,22 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   offscreen khong co native active window.
 
 ## Lich su cap san pham
+
+### 2026-08-09 - 0.0.2.31 OmniVoice clone reuse in TTS
+
+- Trong Voice Clone, `Voice name for TTS reuse` nam ngay duoi Saved reference
+  voices. Ten va reference audio duoc luu thanh reusable preset chi sau khi
+  Direct Colab clone thanh cong; error/cancel khong tao preset ma.
+- Khi exact OmniVoice clone worker da verified, TTS tu dong chon family
+  `omnivoice` de bo empty setup state. Clone URL/token van thuoc route
+  `voice-cloning`; khong bi copy sang generic `tts`, khong local-download va
+  khong mo notebook thu hai.
+- TTS Settings co section `Reuse cloned OmniVoice`: chon preset, check quyen
+  su dung va nut `Use cloned OmniVoice in TTS`. Generate goi
+  `ColabVoiceCloneController::cloneVoice` voi reference da luu, vi vay day la
+  clone/profile request that su, khong phai normal TTS dat nhan clone.
+- Targeted Qt regression + QML AOT compilation PASS; package portable stage
+  audit 19 artifacts PASS. Khong claim GUI hien thi hay live Colab acceptance.
 
 ### 2026-08-06 - Shared Colab launcher safe port recovery (source only)
 

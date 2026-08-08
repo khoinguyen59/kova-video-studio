@@ -6,11 +6,32 @@ Cap nhat: 2026-08-05
 
 | Muc | Trang thai |
 | --- | --- |
-| Latest packaged candidate | `0.0.2.29` |
-| Artifact | `out/LA-Studio-0.0.2.29/LA-Studio-0.0.2.29.exe` |
-| SHA-256 | `3D37B2DE11575EE265C2FAAB43B20DE8185557FEB587FAC74654E66656EBC2D7` |
-| Current source | `main`; full CTest 39/39 PASS before packaging. Version/source/package consistency verified for 0.0.2.29. |
+| Latest packaged candidate | `0.0.2.31` |
+| Artifact | `out/LA-Studio-0.0.2.31/LA-Studio-0.0.2.31.exe` |
+| SHA-256 | `2146DA71119C3330914287A4C17D79C0149BFAB3CCAD5EA15C75EE73C631A995` |
+| Current source | `main` at `4c00000`; targeted Voice Clone → TTS regression and QML AOT compilation PASS. Version/source/package consistency verified for `0.0.2.31`. The user explicitly did not request a repeat of stable-feature full CTest. |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
+
+## Candidate 0.0.2.31 - OmniVoice clone reuse in TTS
+
+- Voice Clone now shows **Voice name for TTS reuse** adjacent to the reference
+  input, rather than hiding the naming action in a side panel. The entry is
+  persisted only after a successful Direct Colab clone; failed/cancelled work
+  never creates a reusable voice.
+- A verified Direct Colab OmniVoice cloning worker removes TTS's empty-model
+  block by selecting the OmniVoice family configuration. It does **not** copy
+  the clone URL/token into the separate generic TTS session, does not download
+  a Local model and does not start a second Colab notebook.
+- TTS Settings visibly exposes **Reuse cloned OmniVoice** with the saved voice
+  list, an explicit permission check and **Use cloned OmniVoice in TTS**. That
+  route invokes the existing exact Voice Clone worker with the saved reference
+  audio and transcript, so the generated speech genuinely uses the cloned
+  profile rather than merely labelling a normal TTS request as cloned.
+- Validation was intentionally scoped to this change: MSVC rebuilt the
+  changed QML into AOT C++, `voiceCloneOmniVoiceIsReusableInTtsWithoutLocalFallback`
+  passed (3 Qt test checks including init/cleanup), and portable package staging
+  verified 19 required runtime/license artifacts. No visible GUI or live Colab
+  worker was opened; the user asked not to rerun already-stable features.
 
 ## Post-package source fix: safe shared Colab port recovery
 

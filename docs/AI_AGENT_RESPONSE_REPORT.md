@@ -1,65 +1,58 @@
-# AI agent response — Voice Clone / Isolator completion
+# AI agent response — OmniVoice Clone to TTS
 
 Date: 2026-08-09
 
-## Result
+## Completed scope
 
-Completed the requested Voice Clone and Voice Isolator repair batch.
+This delivery fixes only the requested OmniVoice Voice Clone → TTS handoff and
+builds a new internal portable package.
 
-- **Voice Clone reference cleanup is now independent.** The embedded
-  `Clean reference audio with Isolator` card owns a dedicated Direct Colab
-  separation session and controller. Its setup stays inside Voice Clone;
-  Configure no longer redirects to the standalone Isolator page. A verified
-  Spleeter worker can be connected there, run there, and its cached vocals WAV
-  is passed directly into the clone request without another file picker or
-  upload.
-- **Standalone Isolator export is repaired.** Export now reads Qt's
-  `selectedFile`, enforces a WAV extension, checks the controller result, and
-  displays the exact saved path or a real failure. The prior code read a
-  nonexistent dialog property and could silently send an empty destination.
-- **Reference transcript is optional for Direct Colab cloning.** The UI and
-  generated worker notebooks accept an empty `ref_text`; model-specific
-  reference-audio-only/profile paths are used where supported. Local Qwen3
-  keeps its exact-transcript requirement because that local runtime genuinely
-  needs it. The target speech prompt remains required because it is the text
-  to synthesize, not a tone/style option.
-- **Packaging no longer stalls on Qt's redundant import scanner.** LA Studio
-  uses shared Qt and `windeployqt --qmldir qml` for dynamic module deployment,
-  so the CMake-only static-plugin scan is disabled with
-  `QT_QML_MODULE_NO_IMPORT_SCAN`. A clean reconfigure completed in 3.8s and
-  the release package configured/built successfully.
+- **A visible name field is now beside the clone reference.** Enter a value in
+  `Voice name for TTS reuse`, then run a successful Direct Colab clone. The
+  name, reference audio and optional reference transcript are stored as a
+  reusable OmniVoice voice. Selecting an existing saved reference also keeps
+  its saved name. A failed or cancelled clone does not create a saved voice.
+- **TTS recognises an active OmniVoice clone connection.** When the exact
+  Direct Colab Voice Clone worker is verified as `omnivoice`, TTS selects the
+  OmniVoice family configuration and no longer leaves the user blocked at the
+  model gallery just because no Local model was installed.
+- **The two Colab protocols remain deliberately separate.** The clone
+  URL/token is not injected into the generic TTS worker and is never replaced
+  with a Local model. This is required because the OmniVoice clone notebook
+  exposes the profile/reference protocol, while generic TTS has a different
+  route. No second notebook or GPU worker is started for reuse.
+- **TTS now explicitly exposes reuse.** In `TTS Settings` → `Reuse cloned
+  OmniVoice`, choose the saved voice, confirm permission, and press `Use
+  cloned OmniVoice in TTS`. Generate then sends the saved reference audio and
+  transcript to the verified existing Voice Clone worker, producing a real
+  clone/profile request rather than a standard TTS request.
 
-## Validation
+## Validation performed
 
-- Rebuilt source/QML resources and `LAStudioUnitTests` with MSVC 2022.
-- Focused suites: Voice Clone **8/8**, Remote Execution **37/37**, Direct
-  Colab Separation **8/8**, Source Separation **8/8**, Studio Capabilities
-  **10/10**.
-- Full headless CTest: **39/39 passed** in 67.74 seconds, including the
-  offscreen QML route smoke and packaging fixtures.
-- Generated exact-model Colab notebooks: **32/32 verified**.
-- The portable staged EXE completed its own offscreen QML smoke from the
-  staged runtime layout. No visible GUI, browser, or live Colab worker was
-  opened.
+- Rebuilt all changed QML files to Qt AOT C++ with MSVC 2022 in the test
+  target. This catches QML syntax and type-generation faults without opening
+  the GUI.
+- Added and ran the focused regression
+  `voiceCloneOmniVoiceIsReusableInTtsWithoutLocalFallback`: **3 passed,
+  0 failed** (init, new regression, cleanup).
+- Ran `graphify update .` after the source change.
+- The internal package script rebuilt/staged version `0.0.2.31` and verified
+  **19 required runtime/license artifacts**.
 
-## Package result
+Stable-feature full CTest, visible desktop testing and live Colab testing were
+not repeated for this delivery because the requested scope explicitly excluded
+parts already stable. None are claimed as evidence here.
 
-New internal portable candidate:
+## Package
 
-`C:\Users\Nguyen Trong Khoi\Downloads\LA-STUDIO\out\LA-Studio-0.0.2.30\LA-Studio-0.0.2.30.exe`
+`C:\Users\Nguyen Trong Khoi\Downloads\LA-STUDIO\out\LA-Studio-0.0.2.31\LA-Studio-0.0.2.31.exe`
 
-- FileVersion/ProductVersion: `0.0.2.30`.
-- SHA-256: `5C70D8194621DF613DC64EF6777C324D68D67C6D73121FB0ED2C0860F8C8F3EB`.
-- Staging verification passed for 19 required runtime/license artifacts,
-  including Qt Windows/offscreen plugins, FFmpeg, RuntimeHost, Subtitle OCR,
-  PaddleOCR, Colab notebooks, and licenses.
-- This is still an internal-only package: the eSpeak NG MSI is hash-verified
-  but unsigned and must not be promoted as a public distributable release.
+- FileVersion/ProductVersion: `0.0.2.31`
+- SHA-256: `2146DA71119C3330914287A4C17D79C0149BFAB3CCAD5EA15C75EE73C631A995`
+- Internal-only package. The eSpeak NG MSI is hash-verified but unsigned; it
+  must not be promoted as a public distributable release.
 
-## Manual acceptance still required
+## Source delivery
 
-Run the selected Spleeter notebook in Colab, paste its temporary URL/token
-into the inline Voice Clone cleanup card, press **Run Isolator**, then clone.
-Confirm the generated reference uses the displayed cached vocals path and
-listen to the produced audio. This live Colab/service acceptance was not
-claimed by the automated tests.
+- Source commit on `main`: `4c00000 fix: reuse cloned omnivoice in tts`
+- Pushed to `origin/main`.
