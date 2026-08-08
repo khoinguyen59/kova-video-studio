@@ -21,6 +21,7 @@ private slots:
     void newerColabVerificationSupersedesStaleRequest();
     void everyGpuFeatureSurfacesVerifiedColabSessionState();
     void voiceCloneUiMakesConsentAndRequiredInputsActionable();
+    void voiceCloneOmniVoiceIsReusableInTtsWithoutLocalFallback();
     void settingsControlsExposeDescriptionsAndKeyboardFocus();
     void workflowActivityOnlyDisplaysMeasuredProgress();
     void everyGpuControllerUsesExactVerifiedColabRoute();

@@ -18,7 +18,6 @@ ColumnLayout {
     property int customSeed: 42
     property bool locked: false
     property bool colabConsent: false
-    property string colabProfileName: "LA Studio voice"
     readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
 
     component ColabField: TextField {
@@ -267,12 +266,12 @@ ColumnLayout {
                 ColabSessionStatus {
                     session: AppController.colabVoiceCloneSession
                 }
-                Text { text: qsTr("Profile name (optional)"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
-                ColabField {
-                    text: root.colabProfileName
-                    placeholderText: qsTr("Voice profile name")
-                    enabled: !root.locked
-                    onTextChanged: root.colabProfileName = text
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("Set the reusable voice name beside Reference Voice. It is saved after a successful clone and can be selected in TTS.")
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSmall
+                    wrapMode: Text.WordWrap
                 }
                 ConsentCheckBox {
                     id: colabConsentCheck

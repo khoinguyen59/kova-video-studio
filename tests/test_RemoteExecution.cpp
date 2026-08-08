@@ -560,6 +560,49 @@ void TestRemoteExecution::voiceCloneUiMakesConsentAndRequiredInputsActionable()
     QVERIFY(mainSource.contains(QStringLiteral("voiceCloneSizes")));
 }
 
+void TestRemoteExecution::voiceCloneOmniVoiceIsReusableInTtsWithoutLocalFallback()
+{
+    const QDir sourceRoot(QStringLiteral(LASTUDIO_SOURCE_DIR));
+
+    QFile reference(sourceRoot.filePath(QStringLiteral("qml/components/voicecloning/ReferenceInputBox.qml")));
+    QVERIFY(reference.open(QIODevice::ReadOnly));
+    const QString referenceSource = QString::fromUtf8(reference.readAll());
+    QVERIFY(referenceSource.contains(QStringLiteral("Voice name for TTS reuse")));
+    QVERIFY(referenceSource.contains(QStringLiteral("reusableVoiceName")));
+
+    QFile cloneStudio(sourceRoot.filePath(QStringLiteral("qml/components/voicecloning/VoiceCloningStudioView.qml")));
+    QVERIFY(cloneStudio.open(QIODevice::ReadOnly));
+    const QString cloneSource = QString::fromUtf8(cloneStudio.readAll());
+    QVERIFY(cloneSource.contains(QStringLiteral("pendingReusableVoiceName")));
+    QVERIFY(cloneSource.contains(QStringLiteral("onSynthesisFinished")));
+    QVERIFY(cloneSource.contains(QStringLiteral("voiceClonePresets.addPreset")));
+    QVERIFY(cloneSource.contains(QStringLiteral("Enter a Voice name for TTS reuse")));
+
+    QFile ttsPage(sourceRoot.filePath(QStringLiteral("qml/pages/TtsPage.qml")));
+    QVERIFY(ttsPage.open(QIODevice::ReadOnly));
+    const QString pageSource = QString::fromUtf8(ttsPage.readAll());
+    QVERIFY(pageSource.contains(QStringLiteral("syncOmniVoiceCloneSelection")));
+    QVERIFY(pageSource.contains(QStringLiteral("selectColabModel(\"omnivoice\")")));
+    QVERIFY(pageSource.contains(QStringLiteral("saveConfigurationSelection(\"omnivoice\"")));
+    QVERIFY(pageSource.contains(QStringLiteral("colabVoiceClone.colabActive")));
+
+    QFile settings(sourceRoot.filePath(QStringLiteral("qml/components/tts/TtsSettingsPanel.qml")));
+    QVERIFY(settings.open(QIODevice::ReadOnly));
+    const QString settingsSource = QString::fromUtf8(settings.readAll());
+    QVERIFY(settingsSource.contains(QStringLiteral("Reuse cloned OmniVoice")));
+    QVERIFY(settingsSource.contains(QStringLiteral("reusableCloneVoices")));
+    QVERIFY(settingsSource.contains(QStringLiteral("I have permission to use this cloned voice for TTS")));
+    QVERIFY(settingsSource.contains(QStringLiteral("Use cloned OmniVoice in TTS")));
+
+    QFile ttsStudio(sourceRoot.filePath(QStringLiteral("qml/components/tts/TtsStudioView.qml")));
+    QVERIFY(ttsStudio.open(QIODevice::ReadOnly));
+    const QString ttsSource = QString::fromUtf8(ttsStudio.readAll());
+    QVERIFY(ttsSource.contains(QStringLiteral("cloneOmniVoiceActive")));
+    QVERIFY(ttsSource.contains(QStringLiteral("selectedRemoteProvider === \"clone\"")));
+    QVERIFY(ttsSource.contains(QStringLiteral("colabVoiceClone.cloneVoice")));
+    QVERIFY(ttsSource.contains(QStringLiteral("OmniVoice Voice Clone Colab")));
+}
+
 void TestRemoteExecution::settingsControlsExposeDescriptionsAndKeyboardFocus()
 {
     const QDir sourceRoot(QStringLiteral(LASTUDIO_SOURCE_DIR));

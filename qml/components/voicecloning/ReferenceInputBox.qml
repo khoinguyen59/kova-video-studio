@@ -25,6 +25,10 @@ ColumnLayout {
     // This lets the Colab controller invalidate a temporary profile whenever
     // the user switches a saved reference.
     property string selectedSavedVoiceId: ""
+    // This name becomes the user-facing reusable voice name in TTS when a
+    // Direct Colab clone is created from a new reference.  It is intentionally
+    // placed next to the reference rather than hidden in the remote settings.
+    property string reusableVoiceName: ""
     property bool loadingSavedVoice: false
 
     signal audioCleared()
@@ -77,6 +81,7 @@ ColumnLayout {
         root.loadingSavedVoice = true
         root.selectedSavedVoiceIndex = index
         root.selectedSavedVoiceId = voice.id || ""
+        root.reusableVoiceName = voice.name || ""
         root.audioPath = voice.audioPath || ""
         root.referenceText = voice.referenceText || ""
         root.loadingSavedVoice = false
@@ -163,6 +168,47 @@ ColumnLayout {
                 implicitWidth: 105
                 enabled: root.familyId !== ""
                 onClicked: root.manageVoices()
+            }
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 4
+
+            Text {
+                text: "Voice name for TTS reuse"
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fontSmall
+                font.bold: true
+            }
+
+            TextField {
+                id: reusableVoiceNameField
+                Layout.fillWidth: true
+                text: root.reusableVoiceName
+                placeholderText: "e.g. Hoài Vũ — Vietnamese"
+                enabled: !root.locked
+                color: Theme.textPrimary
+                placeholderTextColor: Theme.textSecondary
+                selectByMouse: true
+                onTextChanged: {
+                    if (root.reusableVoiceName !== text)
+                        root.reusableVoiceName = text
+                }
+                background: Rectangle {
+                    radius: Theme.radiusSmall
+                    color: Qt.rgba(1, 1, 1, 0.035)
+                    border.color: reusableVoiceNameField.activeFocus ? Theme.accent : Theme.surfaceAlt
+                    border.width: reusableVoiceNameField.activeFocus ? 2 : 1
+                }
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: "After a successful Direct Colab clone, this reference is saved locally under this name and appears in TTS."
+                color: Theme.textSecondary
+                font.pixelSize: 10
+                wrapMode: Text.WordWrap
             }
         }
     }

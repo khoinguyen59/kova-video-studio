@@ -36,6 +36,11 @@ StudioShell {
     readonly property var referenceIsolatorSession: AppController.colabVoiceCloneReferenceIsolatorSession
     property bool referenceIsolatorSetupOpen: false
     property string detectedLanguage: "en"
+    // Saved only after a successful clone.  This keeps a failed/cancelled
+    // remote request from creating a misleading reusable TTS voice.
+    property string pendingReusableVoiceName: ""
+    property string pendingReusableVoicePath: ""
+    property string pendingReusableVoiceText: ""
     readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
     readonly property bool colabActive: AppController.colabVoiceClone && AppController.colabVoiceClone.colabActive
     readonly property var activeClone: colabActive ? AppController.colabVoiceClone : null
@@ -181,6 +186,9 @@ StudioShell {
                 return qsTr("Target Prompt is required.")
             if (root.referenceAudioPath === "")
                 return qsTr("Reference Voice audio is required.")
+            if (referenceBox.selectedSavedVoiceId === ""
+                    && referenceBox.reusableVoiceName.trim().length === 0)
+                return qsTr("Enter a Voice name for TTS reuse, or select a saved reference voice.")
             if (!settingsPanel.colabConsent)
                 return qsTr("Confirm that you have permission to clone this voice.")
             return ""
@@ -251,6 +259,33 @@ StudioShell {
             var modelName = root.family ? root.family.title : "Cloned Voice"
             var voiceName = "Clone"
             AppController.history.addTtsHistoryItem(text, modelName, voiceName)
+        }
+    }
+
+    Connections {
+        target: AppController.colabVoiceClone
+        function onSynthesisFinished(pcm16, sampleRate) {
+            if (!root.colabActive || root.pendingReusableVoiceName === "")
+                return
+            var name = root.pendingReusableVoiceName
+            var path = root.pendingReusableVoicePath
+            var transcript = root.pendingReusableVoiceText
+            root.pendingReusableVoiceName = ""
+            root.pendingReusableVoicePath = ""
+            root.pendingReusableVoiceText = ""
+            if (!AppController.voiceClonePresets.addPreset(root.family ? root.family.id : "omnivoice",
+                                                            name, path, transcript)) {
+                return
+            }
+        }
+
+        function onErrorOccurred(message) {
+            // Do not leave a stale pending save behind when the controller
+            // rejects or fails this clone. The original reference remains in
+            // the UI and may be retried deliberately.
+            root.pendingReusableVoiceName = ""
+            root.pendingReusableVoicePath = ""
+            root.pendingReusableVoiceText = ""
         }
     }
 
@@ -860,9 +895,13 @@ StudioShell {
                                     enabled: root.cloneBlockReason() === ""
                                     onClicked: {
                                         if (root.colabActive) {
+                                            root.pendingReusableVoiceName = referenceBox.selectedSavedVoiceId === ""
+                                                                            ? referenceBox.reusableVoiceName.trim() : ""
+                                            root.pendingReusableVoicePath = root.referenceIsolator.cloneReferencePath
+                                            root.pendingReusableVoiceText = referenceBox.referenceText
                                             root.activeClone.cloneVoice(VoiceCloningUtils.normalizeText(inputText.text), root.referenceIsolator.cloneReferencePath,
                                                                         referenceBox.referenceText, root.selectedLanguageCode,
-                                                                        settingsPanel.colabProfileName, settingsPanel.colabConsent,
+                                                                        referenceBox.reusableVoiceName.trim(), settingsPanel.colabConsent,
                                                                         referenceBox.selectedSavedVoiceId)
                                         } else if (!root.remoteFirstMode) {
                                             var settings = settingsPanel.getSettingsObject(root.selectedLanguageCode, inputText.text, referenceBox.referenceText)

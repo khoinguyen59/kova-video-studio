@@ -13,6 +13,31 @@ StudioPageFrame {
         return ColabNotebookUrls.forNotebookFile(fileName)
     }
 
+    function syncOmniVoiceCloneSelection() {
+        var clone = AppController.colabVoiceClone
+        if (!clone || !clone.colabActive || clone.model !== "omnivoice") return
+        // Do not overwrite an explicit active TTS worker or an existing local
+        // model selection. This only removes the empty-state block reported
+        // when Voice Cloning already has the exact OmniVoice Colab route.
+        if (!AppController.colabTts.colabActive
+                && !AppController.colabTtsSession.checking
+                && AppController.colabTts.colabModel !== "omnivoice") {
+            AppController.colabTts.selectColabModel("omnivoice")
+        }
+        if (!studioController.selectionCommitted
+                || studioController.selectedFamilyId === "") {
+            studioController.saveConfigurationSelection("omnivoice", "", "", ({}))
+        }
+    }
+
+    Component.onCompleted: syncOmniVoiceCloneSelection()
+
+    Connections {
+        target: AppController.colabVoiceClone
+        function onColabStateChanged() { ttsPageFrame.syncOmniVoiceCloneSelection() }
+        function onModelChanged() { ttsPageFrame.syncOmniVoiceCloneSelection() }
+    }
+
     onColabConfigurationAccepted: function(familyId, openNotebook) {
         if (!AppController.colabTts.selectColabModel(familyId)) return
         studioController.saveConfigurationSelection(familyId, "", "", ({}))
@@ -34,7 +59,10 @@ StudioPageFrame {
             }
             families: studioController.families
             selectedFamilyId: studioController.selectedFamilyId
-            studioReady: studioController.studioReady || AppController.gatewayTts.gatewayActive || AppController.colabTts.colabActive
+            studioReady: studioController.studioReady || AppController.gatewayTts.gatewayActive
+                         || AppController.colabTts.colabActive
+                         || (AppController.colabVoiceClone.colabActive
+                             && AppController.colabVoiceClone.model === "omnivoice")
             studioTitle: studioController.studioHeaderTitle
             modalSelectionTitle: studioController.modalSelectionTitle
             modalSelectionValue: studioController.modalSelectionValue

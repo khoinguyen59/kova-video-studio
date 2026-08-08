@@ -37,13 +37,20 @@ StudioShell {
     readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
     readonly property bool gatewayActive: AppController.gatewayTts && AppController.gatewayTts.gatewayActive
     readonly property bool colabActive: AppController.colabTts && AppController.colabTts.colabActive
+    readonly property bool cloneOmniVoiceActive: AppController.colabVoiceClone
+                                               && AppController.colabVoiceClone.colabActive
+                                               && AppController.colabVoiceClone.model === "omnivoice"
     readonly property var remoteTts: selectedRemoteProvider === "gateway" && gatewayActive
                                  ? AppController.gatewayTts
                                  : (selectedRemoteProvider === "colab" && colabActive
-                                    ? AppController.colabTts : null)
+                                    ? AppController.colabTts
+                                    : (selectedRemoteProvider === "clone" && cloneOmniVoiceActive
+                                       ? AppController.colabVoiceClone : null))
     readonly property bool remoteActive: remoteTts !== null
     readonly property string remoteTtsLabel: selectedRemoteProvider === "gateway"
-                                             ? qsTr("API Gateway") : qsTr("Colab GPU")
+                                             ? qsTr("API Gateway")
+                                             : (selectedRemoteProvider === "clone"
+                                                ? qsTr("OmniVoice Voice Clone Colab") : qsTr("Colab GPU"))
     property bool outputReady: remoteActive
                               ? remoteTts.lastSampleCount > 0
                               : (AppController.tts.lastSampleCount > 0 && !AppController.tts.isCloneAction)
@@ -70,6 +77,8 @@ StudioShell {
             selectedRemoteProvider = "gateway"
         else if (provider === "colab" && colabActive)
             selectedRemoteProvider = "colab"
+        else if (provider === "clone" && cloneOmniVoiceActive)
+            selectedRemoteProvider = "clone"
         else if (provider === "")
             selectedRemoteProvider = ""
     }
@@ -83,6 +92,12 @@ StudioShell {
             selectedRemoteProvider = ""
         else if (colabActive)
             selectedRemoteProvider = "colab"
+    }
+    onCloneOmniVoiceActiveChanged: {
+        if (!cloneOmniVoiceActive && selectedRemoteProvider === "clone")
+            selectedRemoteProvider = ""
+        else if (cloneOmniVoiceActive && selectedRemoteProvider === "")
+            selectedRemoteProvider = "clone"
     }
 
     onRequestBack: root.backToGallery()
@@ -125,6 +140,11 @@ StudioShell {
     }
 
     function getSelectedVoiceName() {
+        if (root.selectedRemoteProvider === "clone"
+                && settingsPanel.selectedReusableCloneVoiceName) {
+            var reusableName = settingsPanel.selectedReusableCloneVoiceName()
+            if (reusableName !== "") return reusableName
+        }
         if (!root.family) return "Default"
         var schema = AppController.tts.currentSchema
         for (var i = 0; i < schema.length; i++) {
@@ -146,6 +166,15 @@ StudioShell {
             }
         }
         return "Default"
+    }
+
+    function cloneTtsBlockReason() {
+        if (root.selectedRemoteProvider !== "clone") return ""
+        if (!settingsPanel.selectedReusableCloneVoice())
+            return qsTr("Choose a saved cloned OmniVoice voice in TTS Settings.")
+        if (!settingsPanel.reusableCloneConsent)
+            return qsTr("Confirm permission to use the selected cloned voice for TTS.")
+        return ""
     }
 
     function applyExample(example) {
@@ -469,10 +498,20 @@ StudioShell {
                         Layout.preferredWidth: 180
                         Layout.preferredHeight: 42
                         visible: !root.inputsLocked
-                        enabled: (root.remoteActive || (!root.remoteFirstMode && (root.studioController ? root.studioController.canProcess : false) && AppController.tts.modelLoaded)) && inputText.text.length > 0 && !root.inputsLocked
+                        enabled: (root.remoteActive && root.cloneTtsBlockReason() === ""
+                                  || (!root.remoteFirstMode && (root.studioController ? root.studioController.canProcess : false) && AppController.tts.modelLoaded))
+                                 && inputText.text.length > 0 && !root.inputsLocked
                         onClicked: {
                             root.lastSynthesizedText = inputText.text
-                            if (root.remoteActive) {
+                            if (root.selectedRemoteProvider === "clone") {
+                                var savedVoice = settingsPanel.selectedReusableCloneVoice()
+                                if (!savedVoice || !settingsPanel.reusableCloneConsent) return
+                                AppController.colabVoiceClone.cloneVoice(
+                                            inputText.text.normalize("NFC"), savedVoice.audioPath || "",
+                                            savedVoice.referenceText || "", settingsPanel.selectedLanguage,
+                                            savedVoice.name || "LA Studio voice", true,
+                                            savedVoice.id || "")
+                            } else if (root.remoteActive) {
                                 root.remoteTts.synthesize(inputText.text.normalize("NFC"), 1.0)
                             } else if (!root.remoteFirstMode) {
                                 var synSettings = settingsPanel.getSynthesisSettings()

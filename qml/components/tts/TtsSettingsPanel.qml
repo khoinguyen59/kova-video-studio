@@ -25,6 +25,15 @@ ColumnLayout {
     // independent from either controller's connection/active state.
     property string selectedRemoteProvider: ""
     readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
+    // A Voice Clone worker is a distinct, exact-model Direct Colab route. It
+    // can generate from a saved reference/profile, whereas the ordinary TTS
+    // worker remains independent and keeps its own URL/token.
+    readonly property bool cloneOmniVoiceActive: AppController.colabVoiceClone
+                                               && AppController.colabVoiceClone.colabActive
+                                               && AppController.colabVoiceClone.model === "omnivoice"
+    property var reusableCloneVoices: []
+    property int reusableCloneVoiceIndex: -1
+    property bool reusableCloneConsent: false
 
     property var capabilitySchema: []
     property var basicSchema: []
@@ -92,12 +101,60 @@ ColumnLayout {
         }
     }
 
-    Component.onCompleted: refreshCapabilityMetadata(true)
+    function refreshReusableCloneVoices() {
+        var voices = AppController.voiceClonePresets.presetsForFamily("omnivoice")
+        var validVoices = []
+        for (var i = 0; i < voices.length; ++i) {
+            if (voices[i].valid)
+                validVoices.push(voices[i])
+        }
+        var previousId = root.selectedReusableCloneVoiceId()
+        root.reusableCloneVoices = validVoices
+        root.reusableCloneVoiceIndex = -1
+        for (var j = 0; j < validVoices.length; ++j) {
+            if (validVoices[j].id === previousId) {
+                root.reusableCloneVoiceIndex = j
+                return
+            }
+        }
+        if (validVoices.length > 0)
+            root.reusableCloneVoiceIndex = 0
+    }
+
+    function selectedReusableCloneVoice() {
+        if (root.reusableCloneVoiceIndex < 0
+                || root.reusableCloneVoiceIndex >= root.reusableCloneVoices.length)
+            return null
+        return root.reusableCloneVoices[root.reusableCloneVoiceIndex]
+    }
+
+    function selectedReusableCloneVoiceId() {
+        var voice = root.selectedReusableCloneVoice()
+        return voice && voice.id ? voice.id : ""
+    }
+
+    function selectedReusableCloneVoiceName() {
+        var voice = root.selectedReusableCloneVoice()
+        return voice && voice.name ? voice.name : ""
+    }
+
+    Component.onCompleted: {
+        refreshCapabilityMetadata(true)
+        refreshReusableCloneVoices()
+    }
 
     Connections {
         target: AppController.tts
         function onFamilyConfigChanged() { root.refreshCapabilityMetadata(true) }
         function onSchemaChanged() { root.refreshCapabilityMetadata(false) }
+    }
+
+    Connections {
+        target: AppController.voiceClonePresets
+        function onPresetsChanged(familyId) {
+            if (familyId === "omnivoice")
+                root.refreshReusableCloneVoices()
+        }
     }
 
     readonly property bool isKokoro: backendType === "kokoro"
@@ -361,6 +418,67 @@ ColumnLayout {
                                 root.remoteProviderSelected("gateway")
                         }
                     }
+                }
+            }
+
+            SettingsSection {
+                title: qsTr("Reuse cloned OmniVoice")
+                iconName: "users"
+                visible: root.cloneOmniVoiceActive || (root.family && root.family.id === "omnivoice")
+
+                Text {
+                    Layout.fillWidth: true
+                    text: root.cloneOmniVoiceActive
+                          ? qsTr("The verified OmniVoice Voice Cloning Colab worker is ready. This uses its existing Direct Colab session; no Local model is downloaded and no second TTS notebook is required.")
+                          : qsTr("Connect OmniVoice in Voice Cloning first. Once connected, TTS selects OmniVoice automatically and can reuse a named saved clone here.")
+                    color: root.cloneOmniVoiceActive ? Theme.success : Theme.textSecondary
+                    font.pixelSize: Theme.fontSmall
+                    wrapMode: Text.WordWrap
+                }
+
+                Text { text: qsTr("Saved cloned voice"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                AppComboBox {
+                    id: reusableCloneVoiceCombo
+                    Layout.fillWidth: true
+                    model: root.reusableCloneVoices
+                    textRole: "name"
+                    secondaryTextRole: "originalAudioName"
+                    currentIndex: root.reusableCloneVoiceIndex
+                    enabled: !root.locked && root.reusableCloneVoices.length > 0
+                    onActivated: function(index) {
+                        root.reusableCloneVoiceIndex = index
+                        root.reusableCloneConsent = false
+                    }
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    visible: root.reusableCloneVoices.length === 0
+                    text: qsTr("No reusable OmniVoice clone yet. In Voice Cloning, enter Voice name for TTS reuse and finish one clone with permission confirmed.")
+                    color: Theme.warning
+                    font.pixelSize: Theme.fontSmall
+                    wrapMode: Text.WordWrap
+                }
+
+                CheckBox {
+                    id: reusableCloneConsentCheck
+                    Layout.fillWidth: true
+                    text: qsTr("I have permission to use this cloned voice for TTS")
+                    checked: root.reusableCloneConsent
+                    enabled: !root.locked && root.reusableCloneVoiceIndex >= 0
+                    onCheckedChanged: root.reusableCloneConsent = checked
+                }
+
+                PrimaryButton {
+                    Layout.fillWidth: true
+                    enabled: !root.locked && root.cloneOmniVoiceActive
+                             && root.reusableCloneVoiceIndex >= 0
+                             && root.reusableCloneConsent
+                    text: root.selectedRemoteProvider === "clone"
+                          ? qsTr("OmniVoice clone route selected")
+                          : qsTr("Use cloned OmniVoice in TTS")
+                    iconName: "cloud"
+                    onClicked: root.remoteProviderSelected("clone")
                 }
             }
 
