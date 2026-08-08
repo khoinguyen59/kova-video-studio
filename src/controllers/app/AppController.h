@@ -83,6 +83,7 @@ class AppController : public QObject {
     Q_PROPERTY(ColabSession* colabVoiceDesignSession READ colabVoiceDesignSession CONSTANT)
     Q_PROPERTY(ColabSession* colabAlignmentSession READ colabAlignmentSession CONSTANT)
     Q_PROPERTY(ColabSession* colabSeparationSession READ colabSeparationSession CONSTANT)
+    Q_PROPERTY(ColabSession* colabVoiceCloneReferenceIsolatorSession READ colabVoiceCloneReferenceIsolatorSession CONSTANT)
     Q_PROPERTY(ColabSession* colabTranslationSession READ colabTranslationSession CONSTANT)
     Q_PROPERTY(ColabSession* colabSubtitleOcrSession READ colabSubtitleOcrSession CONSTANT)
     Q_PROPERTY(ColabSession* colabChatSession READ colabChatSession CONSTANT)
@@ -110,6 +111,7 @@ class AppController : public QObject {
     Q_PROPERTY(DubbingController* dubbing READ dubbing CONSTANT)
     Q_PROPERTY(VoiceIsolatorController* voiceIsolator READ voiceIsolator CONSTANT)
     Q_PROPERTY(ColabVoiceIsolatorController* colabVoiceIsolator READ colabVoiceIsolator CONSTANT)
+    Q_PROPERTY(ColabVoiceIsolatorController* colabVoiceCloneReferenceIsolator READ colabVoiceCloneReferenceIsolator CONSTANT)
     Q_PROPERTY(VoiceCloneReferenceIsolatorController* voiceCloneReferenceIsolator READ voiceCloneReferenceIsolator CONSTANT)
     Q_PROPERTY(AppUpdateService* updates READ updates CONSTANT)
     Q_PROPERTY(ExampleManager* examples READ examples CONSTANT)
@@ -154,6 +156,7 @@ public:
     ColabSession* colabVoiceDesignSession() const { return m_colabVoiceDesignSession; }
     ColabSession* colabAlignmentSession() const { return m_colabAlignmentSession; }
     ColabSession* colabSeparationSession() const { return m_colabSeparationSession; }
+    ColabSession* colabVoiceCloneReferenceIsolatorSession() const { return m_colabVoiceCloneReferenceIsolatorSession; }
     ColabSession* colabTranslationSession() const { return m_colabTranslationSession; }
     ColabSession* colabSubtitleOcrSession() const { return m_colabSubtitleOcrSession; }
     ColabSession* colabChatSession() const { return m_colabChatSession; }
@@ -181,6 +184,7 @@ public:
     DubbingController* dubbing() const { return m_dubbing; }
     VoiceIsolatorController* voiceIsolator() const { return m_voiceIsolator; }
     ColabVoiceIsolatorController* colabVoiceIsolator() const { return m_colabVoiceIsolator; }
+    ColabVoiceIsolatorController* colabVoiceCloneReferenceIsolator() const { return m_colabVoiceCloneReferenceIsolator; }
     VoiceCloneReferenceIsolatorController* voiceCloneReferenceIsolator() const { return m_voiceCloneReferenceIsolator; }
     AppUpdateService* updates() const { return m_updates; }
     ExampleManager* examples() const { return m_examples; }
@@ -238,6 +242,9 @@ private:
     ColabSession* m_colabVoiceDesignSession = nullptr;
     ColabSession* m_colabAlignmentSession = nullptr;
     ColabSession* m_colabSeparationSession = nullptr;
+    // Voice Clone has its own reference-cleanup session. Its temporary
+    // Spleeter credentials must not be coupled to the standalone Isolator UI.
+    ColabSession* m_colabVoiceCloneReferenceIsolatorSession = nullptr;
     ColabSession* m_colabTranslationSession = nullptr;
     ColabSession* m_colabSubtitleOcrSession = nullptr;
     ColabSession* m_colabChatSession = nullptr;
@@ -266,6 +273,7 @@ private:
     DubbingController* m_dubbing = nullptr;
     VoiceIsolatorController* m_voiceIsolator = nullptr;
     ColabVoiceIsolatorController* m_colabVoiceIsolator = nullptr;
+    ColabVoiceIsolatorController* m_colabVoiceCloneReferenceIsolator = nullptr;
     VoiceCloneReferenceIsolatorController* m_voiceCloneReferenceIsolator = nullptr;
     AppUpdateService* m_updates = nullptr;
     ExampleManager* m_examples = nullptr;

@@ -34,6 +34,7 @@ StudioShell {
     property var isolator: colabSelected ? AppController.colabVoiceIsolator : AppController.voiceIsolator
     readonly property bool fastModel: selectedFamilyId === "sherpa-onnx-spleeter-2stems-fp16"
     property string exportSource: ""
+    property string exportStatus: ""
     property string playingStem: ""
     readonly property bool canIsolate: (!root.remoteFirstMode || root.colabSelected) && root.studioReady && root.isolator.ready && root.isolator.sourcePath.length > 0 && !root.isolator.processing
 
@@ -60,6 +61,12 @@ StudioShell {
     function playStem(kind, path) {
         root.playingStem = kind
         AppController.player.playFile(path)
+    }
+
+    function exportPath(url) {
+        var path = root.localPath(url)
+        if (path.length > 0 && !/\.wav$/i.test(path)) path += ".wav"
+        return path
     }
 
     Connections {
@@ -167,9 +174,19 @@ StudioShell {
                             AppController.player.seek(Math.round(progress * AppController.player.playbackDurationMs))
                         }
                         onExportRequested: function(kind, path) {
+                            root.exportStatus = ""
                             root.exportSource = path
                             exportDialog.open()
                         }
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        visible: root.exportStatus !== ""
+                        text: root.exportStatus
+                        color: root.exportStatus.indexOf("Saved") === 0 ? Theme.success : Theme.danger
+                        font.pixelSize: Theme.fontSmall
+                        wrapMode: Text.WrapAnywhere
                     }
                 }
             }
@@ -184,7 +201,16 @@ StudioShell {
                 // Qt Quick Dialogs during component creation. Do not bind a
                 // non-existent file here; the native Save dialog supplies the
                 // filename and its selected folder at interaction time.
-                onAccepted: root.isolator.exportStem(root.exportSource, root.localPath(file))
+                onAccepted: {
+                    const destination = root.exportPath(selectedFile)
+                    if (destination === "") {
+                        root.exportStatus = qsTr("No export destination was selected.")
+                    } else if (root.isolator.exportStem(root.exportSource, destination)) {
+                        root.exportStatus = qsTr("Saved WAV: %1").arg(destination)
+                    } else {
+                        root.exportStatus = qsTr("Could not save WAV: %1").arg(destination)
+                    }
+                }
             }
         }
     ]

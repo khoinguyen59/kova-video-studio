@@ -190,8 +190,8 @@ void ColabVoiceCloneController::cloneVoice(const QString &text, const QString &r
     const QString normalizedText = text.trimmed();
     const QString normalizedReferencePath = PathUtils::urlToLocalPath(referencePath);
     const QString normalizedReferenceText = referenceText.trimmed();
-    if (normalizedText.isEmpty() || normalizedReferencePath.isEmpty() || normalizedReferenceText.isEmpty()) {
-        emit errorOccurred(QStringLiteral("Text, reference audio, and its exact transcript are required"));
+    if (normalizedText.isEmpty() || normalizedReferencePath.isEmpty()) {
+        emit errorOccurred(QStringLiteral("Text and reference audio are required"));
         return;
     }
     if (!QFileInfo::exists(normalizedReferencePath)) {

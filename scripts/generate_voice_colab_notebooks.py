@@ -194,7 +194,7 @@ async def create_profile(
     model: str = Form(...),
     name: str = Form(...),
     consent_confirmed: bool = Form(...),
-    ref_text: str = Form(...),
+    ref_text: str = Form(default=""),
     language: str = Form(default="vi"),
     separate_music: bool = Form(default=False),
     ref_audio: UploadFile = File(...),
@@ -204,8 +204,8 @@ async def create_profile(
     require_exact_model(model)
     if not consent_confirmed:
         raise HTTPException(status_code=403, detail="explicit voice-cloning consent is required")
-    if not name.strip() or not ref_text.strip():
-        raise HTTPException(status_code=422, detail="profile name and exact reference transcript are required")
+    if not name.strip():
+        raise HTTPException(status_code=422, detail="profile name is required")
     suffix = Path(ref_audio.filename or "").suffix.lower()
     if suffix not in {".wav", ".mp3", ".flac"}:
         raise HTTPException(status_code=415, detail="reference audio must be WAV, MP3, or FLAC")
@@ -437,6 +437,13 @@ def qwen_language(value: str):
     return mapping.get(value.strip().lower(), value.strip().title() or "Auto")
 
 def prepare_exact_profile(profile):
+    if not profile["ref_text"]:
+        # Qwen supports speaker-only cloning. It avoids making the transcript
+        # a form requirement, with a clear quality trade-off for this mode.
+        return MODEL.create_voice_clone_prompt(
+            ref_audio=profile["ref_audio"],
+            x_vector_only_mode=True,
+        )
     return MODEL.create_voice_clone_prompt(
         ref_audio=profile["ref_audio"],
         ref_text=profile["ref_text"],
@@ -470,10 +477,12 @@ UPSTREAM_MODEL = "k2-fsa/OmniVoice"
 MODEL = OmniVoice.from_pretrained(UPSTREAM_MODEL, device_map="cuda:0", dtype=torch.float16)
 
 def prepare_exact_profile(profile):
-    return MODEL.create_voice_clone_prompt(
-        ref_audio=profile["ref_audio"],
-        ref_text=profile["ref_text"],
-    )
+    # OmniVoice auto-transcribes the reference with Whisper when ref_text is
+    # omitted. Pass the keyword only when the user supplied an exact transcript.
+    kwargs = {"ref_audio": profile["ref_audio"]}
+    if profile["ref_text"]:
+        kwargs["ref_text"] = profile["ref_text"]
+    return MODEL.create_voice_clone_prompt(**kwargs)
 
 def clone_with_exact_model(profile, request):
     audio = MODEL.generate(
@@ -638,14 +647,20 @@ def prepare_exact_profile(profile):
     return {"ref_audio": profile["ref_audio"], "ref_text": profile["ref_text"]}
 
 def clone_with_exact_model(profile, request):
-    audio = MODEL.generate(
-        text=request.text,
-        reference_wav_path=profile["state"]["ref_audio"],
-        prompt_wav_path=profile["state"]["ref_audio"],
-        prompt_text=profile["state"]["ref_text"],
-        cfg_value=2.0,
-        inference_timesteps=max(1, min(request.num_step, 50)),
-    )
+    kwargs = {
+        "text": request.text,
+        "reference_wav_path": profile["state"]["ref_audio"],
+        "cfg_value": 2.0,
+        "inference_timesteps": max(1, min(request.num_step, 50)),
+    }
+    # VoxCPM can clone from reference audio alone. An optional transcript adds
+    # the stronger prompt-guided mode when the user provides one.
+    if profile["state"]["ref_text"]:
+        kwargs.update({
+            "prompt_wav_path": profile["state"]["ref_audio"],
+            "prompt_text": profile["state"]["ref_text"],
+        })
+    audio = MODEL.generate(**kwargs)
     return audio, int(MODEL.tts_model.sample_rate)
 ''',
         },

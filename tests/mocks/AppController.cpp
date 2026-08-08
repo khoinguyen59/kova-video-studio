@@ -38,9 +38,17 @@ AppController::AppController(QObject *parent)
     m_colabVoiceDesignSession = new ColabSession(this);
     m_colabAlignmentSession = new ColabSession(this);
     m_colabSeparationSession = new ColabSession(this);
+    // Voice Clone's optional reference-cleanup route owns a separate Colab
+    // session. Keep the test double aligned with the production controller so
+    // tests can catch accidental coupling to the standalone Isolator worker.
+    m_colabVoiceCloneReferenceIsolatorSession = new ColabSession(this);
     m_colabTranslationSession = new ColabSession(this);
     m_colabChatSession = new ColabSession(this);
     m_voiceIsolator = new VoiceIsolatorController(this);
+    m_colabVoiceCloneReferenceIsolator = new ColabVoiceIsolatorController(
+        m_colabVoiceCloneReferenceIsolatorSession, m_settings, this);
+    m_voiceCloneReferenceIsolator = new VoiceCloneReferenceIsolatorController(
+        m_voiceIsolator, m_colabVoiceCloneReferenceIsolator, this);
     m_sessionRegistry = new ModelSessionRegistry(m_stt, m_tts, m_alignment, m_voiceIsolator, this);
     m_voiceClonePresets = new VoiceClonePresetService(this);
     m_voiceDesignPresets = new VoiceDesignPresetService(this);

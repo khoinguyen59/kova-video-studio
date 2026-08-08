@@ -32,6 +32,9 @@ StudioShell {
     property string referenceAudioPath: ""
     property string playingType: "none"
     readonly property var referenceIsolator: AppController.voiceCloneReferenceIsolator
+    readonly property var referenceIsolatorColab: AppController.colabVoiceCloneReferenceIsolator
+    readonly property var referenceIsolatorSession: AppController.colabVoiceCloneReferenceIsolatorSession
+    property bool referenceIsolatorSetupOpen: false
     property string detectedLanguage: "en"
     readonly property bool remoteFirstMode: AppController.settings.remoteFirstMode
     readonly property bool colabActive: AppController.colabVoiceClone && AppController.colabVoiceClone.colabActive
@@ -42,6 +45,19 @@ StudioShell {
     property string selectedLanguageCode: "en"
     property real mainHorizontalInset: Theme.paddingXL
     property real promptInset: Theme.paddingSmall
+
+    component ReferenceIsolatorColabField: TextField {
+        Layout.fillWidth: true
+        color: Theme.textPrimary
+        placeholderTextColor: Theme.textSecondary
+        selectByMouse: true
+        font.pixelSize: Theme.fontSmall
+        background: Rectangle {
+            radius: Theme.radiusSmall
+            color: Qt.rgba(1, 1, 1, 0.04)
+            border.color: parent.activeFocus ? Theme.accent : Qt.rgba(1, 1, 1, 0.12)
+        }
+    }
     readonly property bool inputsLocked: AppController.tts.processing || (colabActive && activeClone.processing)
     readonly property var nonVerbalTags: {
         if (family && family.studio && family.studio[root.capability] && family.studio[root.capability].nonVerbalTags)
@@ -165,8 +181,6 @@ StudioShell {
                 return qsTr("Target Prompt is required.")
             if (root.referenceAudioPath === "")
                 return qsTr("Reference Voice audio is required.")
-            if (referenceBox.referenceText.trim().length === 0)
-                return qsTr("Reference Transcript is required and must match the spoken reference audio.")
             if (!settingsPanel.colabConsent)
                 return qsTr("Confirm that you have permission to clone this voice.")
             return ""
@@ -182,6 +196,17 @@ StudioShell {
         if (isQwen3 && referenceBox.referenceText.trim().length === 0)
             return qsTr("This Local CPU model requires the Reference Transcript.")
         return ""
+    }
+
+    function referenceTranscriptHint() {
+        if (!root.colabActive) return ""
+        if (root.family && root.family.id === "omnivoice")
+            return qsTr("Optional: OmniVoice transcribes the reference on Colab when this is blank.")
+        if (root.family && root.family.id.indexOf("qwen3") !== -1)
+            return qsTr("Optional: blank uses Qwen speaker-only cloning; a transcript can improve similarity.")
+        if (root.family && root.family.id === "voxcpm2")
+            return qsTr("Optional: blank uses reference-audio cloning; a transcript enables prompt-guided cloning.")
+        return qsTr("Optional for this Direct Colab voice-cloning model.")
     }
 
     function qmlSmokeVoiceCloneLayoutCheck() {
@@ -369,9 +394,9 @@ StudioShell {
                                     locked: root.inputsLocked
                                             || (root.referenceIsolator && root.referenceIsolator.processing)
                                     familyId: root.family ? root.family.id : ""
-                                    requiresExactTranscript: root.colabActive
-                                                             || (root.family && root.family.id
-                                                                 && root.family.id.indexOf("qwen3") !== -1)
+                                    requiresExactTranscript: !root.colabActive && root.family && root.family.id
+                                                             && root.family.id.indexOf("qwen3") !== -1
+                                    transcriptHint: root.referenceTranscriptHint()
                                     isPlaying: root.playingType === "reference"
                                     onAudioPathChanged: {
                                         root.referenceAudioPath = referenceBox.audioPath
@@ -460,11 +485,11 @@ StudioShell {
                                                 onClicked: root.referenceIsolator.start()
                                             }
                                             PrimaryButton {
-                                                text: qsTr("Configure Isolator")
+                                                text: root.referenceIsolatorSetupOpen ? qsTr("Hide setup") : qsTr("Set up Colab here")
                                                 iconName: "settings"
                                                 quiet: true
                                                 enabled: !root.inputsLocked
-                                                onClicked: AppController.workflows.openStudioRoute("studio-voice-isolator")
+                                                onClicked: root.referenceIsolatorSetupOpen = !root.referenceIsolatorSetupOpen
                                             }
                                             PrimaryButton {
                                                 text: qsTr("Cancel")
@@ -480,6 +505,79 @@ StudioShell {
                                                 visible: root.referenceIsolator && !root.referenceIsolator.processing
                                                          && root.referenceIsolator.lastError !== ""
                                                 onClicked: root.referenceIsolator.retry()
+                                            }
+                                        }
+                                        ColumnLayout {
+                                            id: referenceIsolatorColabSetup
+                                            Layout.fillWidth: true
+                                            visible: root.referenceIsolator && root.referenceIsolator.enabled
+                                                     && root.referenceIsolatorSetupOpen
+                                            spacing: Theme.paddingSmall
+
+                                            Rectangle {
+                                                Layout.fillWidth: true
+                                                implicitHeight: setupIntro.implicitHeight + Theme.paddingSmall * 2
+                                                radius: Theme.radiusSmall
+                                                color: Qt.rgba(1, 1, 1, 0.025)
+                                                border.color: Qt.rgba(1, 1, 1, 0.08)
+                                                border.width: 1
+                                                Text {
+                                                    id: setupIntro
+                                                    anchors.fill: parent
+                                                    anchors.margins: Theme.paddingSmall
+                                                    text: qsTr("Reference Isolator runs independently from the main Isolator tab. Run the exact Spleeter notebook below, then paste its URL and token here. The resulting Vocals WAV goes straight into this clone request; exporting it is optional.")
+                                                    color: Theme.textSecondary
+                                                    font.pixelSize: 10
+                                                    wrapMode: Text.WordWrap
+                                                }
+                                            }
+                                            ColabNotebookLink {
+                                                Layout.fillWidth: true
+                                                notebookFile: root.referenceIsolatorColab
+                                                              ? root.referenceIsolatorColab.colabNotebookFile : ""
+                                            }
+                                            Text { text: qsTr("Worker URL"); color: Theme.textSecondary; font.pixelSize: 10 }
+                                            ReferenceIsolatorColabField {
+                                                id: referenceIsolatorColabUrl
+                                                text: root.referenceIsolatorSession
+                                                      ? root.referenceIsolatorSession.workerUrl : ""
+                                                placeholderText: qsTr("https://…trycloudflare.com")
+                                                enabled: !root.inputsLocked
+                                            }
+                                            Text { text: qsTr("Session token"); color: Theme.textSecondary; font.pixelSize: 10 }
+                                            ReferenceIsolatorColabField {
+                                                id: referenceIsolatorColabToken
+                                                echoMode: TextInput.Password
+                                                placeholderText: root.referenceIsolatorColab && root.referenceIsolatorColab.colabConnected
+                                                                 ? qsTr("Connected — enter token to replace")
+                                                                 : qsTr("Temporary token from the Spleeter notebook")
+                                                enabled: !root.inputsLocked
+                                            }
+                                            ColabSessionStatus {
+                                                Layout.fillWidth: true
+                                                session: root.referenceIsolatorSession
+                                            }
+                                            PrimaryButton {
+                                                Layout.fillWidth: true
+                                                enabled: root.referenceIsolatorColab && !root.inputsLocked
+                                                         && root.referenceIsolatorColab.colabNotebookFile !== ""
+                                                         && !(root.referenceIsolatorSession && root.referenceIsolatorSession.checking)
+                                                text: root.referenceIsolatorSession && root.referenceIsolatorSession.checking
+                                                      ? qsTr("Verifying CUDA and Spleeter...")
+                                                      : (root.referenceIsolatorColab && root.referenceIsolatorColab.colabConnected
+                                                         ? qsTr("Use Direct Colab reference Isolator")
+                                                         : qsTr("Connect Direct Colab reference Isolator"))
+                                                iconName: "cloud"
+                                                onClicked: {
+                                                    if (!root.referenceIsolatorColab) return
+                                                    if (root.referenceIsolatorColab.colabConnected) {
+                                                        root.referenceIsolatorColab.useColab()
+                                                    } else if (root.referenceIsolatorColab.connectColab(
+                                                                   referenceIsolatorColabUrl.text.trim(),
+                                                                   referenceIsolatorColabToken.text)) {
+                                                        referenceIsolatorColabToken.text = ""
+                                                    }
+                                                }
                                             }
                                         }
                                         RowLayout {
@@ -503,6 +601,15 @@ StudioShell {
                                                 quiet: true
                                                 onClicked: { root.playingType = AppController.player.playFile(root.referenceIsolator.backgroundPath) ? "reference-background" : "none" }
                                             }
+                                        }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            visible: root.referenceIsolator && root.referenceIsolator.enabled
+                                                     && root.referenceIsolator.resultReady
+                                            text: qsTr("Vocals is ready and will be passed directly to Voice Clone. No second file selection or upload is required.")
+                                            color: Theme.success
+                                            font.pixelSize: 10
+                                            wrapMode: Text.WordWrap
                                         }
                                     }
                                 }

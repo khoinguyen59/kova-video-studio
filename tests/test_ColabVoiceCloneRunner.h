@@ -11,6 +11,7 @@ class TestColabVoiceCloneRunner final : public QObject
 private slots:
     void testRunsVoiceProfileAndGenerationDirectlyOnColab();
     void controllerReusesProfileOnlyForMatchingDurableReference();
+    void controllerAllowsAutomaticReferenceTranscript();
     void savedPresetSurvivesRestartAndInvalidatesTemporaryProfile();
     void testRejectsProfileWithoutConsent();
     void exactModelMappingMatchesCatalogAndNotebooks();

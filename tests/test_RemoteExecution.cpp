@@ -532,13 +532,25 @@ void TestRemoteExecution::voiceCloneUiMakesConsentAndRequiredInputsActionable()
     QVERIFY(studioSource.contains(QStringLiteral("function cloneBlockReason()")));
     QVERIFY(studioSource.contains(QStringLiteral("Target Prompt is required.")));
     QVERIFY(studioSource.contains(QStringLiteral("Confirm that you have permission")));
+    QVERIFY(studioSource.contains(QStringLiteral("referenceIsolatorSetupOpen")));
+    QVERIFY(studioSource.contains(QStringLiteral("colabVoiceCloneReferenceIsolator")));
+    QVERIFY(studioSource.contains(QStringLiteral("colabVoiceCloneReferenceIsolatorSession")));
+    QVERIFY(studioSource.contains(QStringLiteral("No second file selection or upload is required.")));
+    QVERIFY(!studioSource.contains(QStringLiteral("openStudioRoute(\"studio-voice-isolator\")")));
     QVERIFY(studioSource.contains(QStringLiteral("qmlSmokeVoiceCloneLayoutCheck")));
 
     QFile reference(sourceRoot.filePath(QStringLiteral("qml/components/voicecloning/ReferenceInputBox.qml")));
     QVERIFY(reference.open(QIODevice::ReadOnly));
     const QString referenceSource = QString::fromUtf8(reference.readAll());
     QVERIFY(referenceSource.contains(QStringLiteral("requiresExactTranscript")));
-    QVERIFY(referenceSource.contains(QStringLiteral("Reference Transcript is required for this route/model.")));
+    QVERIFY(referenceSource.contains(QStringLiteral("Reference Transcript (optional)")));
+    QVERIFY(referenceSource.contains(QStringLiteral("transcriptHint")));
+
+    QFile isolation(sourceRoot.filePath(QStringLiteral("qml/components/voiceisolator/VoiceIsolatorStudioView.qml")));
+    QVERIFY(isolation.open(QIODevice::ReadOnly));
+    const QString isolationSource = QString::fromUtf8(isolation.readAll());
+    QVERIFY(isolationSource.contains(QStringLiteral("selectedFile")));
+    QVERIFY(isolationSource.contains(QStringLiteral("Saved WAV: %1")));
 
     QFile main(sourceRoot.filePath(QStringLiteral("qml/Main.qml")));
     QVERIFY(main.open(QIODevice::ReadOnly));
@@ -703,9 +715,13 @@ void TestRemoteExecution::appControllerScopesColabSessionsPerCapability()
     QVERIFY(app->colabTranslationSession());
     QVERIFY(app->colabVoiceCloneSession());
     QVERIFY(app->colabSeparationSession());
+    QVERIFY(app->colabVoiceCloneReferenceIsolatorSession());
+    QVERIFY(app->colabVoiceCloneReferenceIsolator());
     QVERIFY(app->colabSttSession() != app->colabTtsSession());
     QVERIFY(app->colabTtsSession() != app->colabTranslationSession());
     QVERIFY(app->colabVoiceCloneSession() != app->colabSeparationSession());
+    QVERIFY(app->colabVoiceCloneReferenceIsolatorSession() != app->colabSeparationSession());
+    QVERIFY(app->colabVoiceCloneReferenceIsolatorSession() != app->colabVoiceCloneSession());
 
     ColabSession *tts = app->colabTtsSession();
     ColabSession *translation = app->colabTranslationSession();

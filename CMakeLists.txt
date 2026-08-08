@@ -6,7 +6,7 @@ include(cmake/RuntimeAbi.cmake)
 # automation may override it with -DLASTUDIO_VERSION=<major.minor.release.build>.
 # Internal builds use four numeric fields so each artifact has an unambiguous,
 # monotonically ordered label: 0.0.0.1 ... 0.0.0.9, then 0.0.1.0.
-set(LASTUDIO_VERSION "0.0.2.29" CACHE STRING "LA Studio application version")
+set(LASTUDIO_VERSION "0.0.2.30" CACHE STRING "LA Studio application version")
 if(NOT LASTUDIO_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$")
     message(FATAL_ERROR "LASTUDIO_VERSION must use MAJOR.MINOR.RELEASE.BUILD format; got '${LASTUDIO_VERSION}'")
 endif()
@@ -626,6 +626,13 @@ qt_add_qml_module(LAStudio
     RESOURCE_PREFIX /
 )
 
+# LA Studio ships against the shared Qt runtime.  The CMake import scanner is
+# only needed to link static QML plugins, while package.ps1 uses windeployqt
+# with the application's qml directory to deploy the dynamic modules.  Do not
+# invoke qmlimportscanner during configure/build: on Windows it can otherwise
+# stall packaging without contributing any deployed dependency information.
+set_property(TARGET LAStudio PROPERTY QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
+
 target_include_directories(LAStudio PRIVATE
     ${LASTUDIO_GENERATED_DIR}
     ${CMAKE_SOURCE_DIR}/src
@@ -862,6 +869,7 @@ install(DIRECTORY "${CMAKE_SOURCE_DIR}/notebooks/"
     DESTINATION "docs/colab-notebooks"
     FILES_MATCHING PATTERN "*.ipynb"
 )
+
 # Notebooks that load a reviewed worker template by immutable Git revision
 # must still carry that template in the portable support bundle. This keeps
 # the shipped notebook/documentation auditable even though a Colab session

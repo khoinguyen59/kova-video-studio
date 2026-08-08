@@ -69,6 +69,7 @@ AppController::AppController(QObject *parent)
     m_colabVoiceDesignSession = new ColabSession(this);
     m_colabAlignmentSession = new ColabSession(this);
     m_colabSeparationSession = new ColabSession(this);
+    m_colabVoiceCloneReferenceIsolatorSession = new ColabSession(this);
     m_colabTranslationSession = new ColabSession(this);
     m_colabSubtitleOcrSession = new ColabSession(this);
     m_colabChatSession = new ColabSession(this);
@@ -78,8 +79,10 @@ AppController::AppController(QObject *parent)
     m_colabAlignment = new ColabAlignmentController(m_colabAlignmentSession, m_settings, this);
     m_voiceIsolator = new VoiceIsolatorController(this);
     m_colabVoiceIsolator = new ColabVoiceIsolatorController(m_colabSeparationSession, m_settings, this);
+    m_colabVoiceCloneReferenceIsolator = new ColabVoiceIsolatorController(
+        m_colabVoiceCloneReferenceIsolatorSession, m_settings, this);
     m_voiceCloneReferenceIsolator = new VoiceCloneReferenceIsolatorController(
-        m_voiceIsolator, m_colabVoiceIsolator, this);
+        m_voiceIsolator, m_colabVoiceCloneReferenceIsolator, this);
     Logger::info(QStringLiteral("App"), QStringLiteral("Initializing model session registry."));
     m_sessionRegistry = new ModelSessionRegistry(m_stt, m_tts, m_translationEngine, m_llmEngine, m_alignment, m_voiceIsolator, this);
     m_translation = new TranslationController(m_translationEngine,

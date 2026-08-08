@@ -1016,10 +1016,10 @@ bool ColabWorkerClient::createVoiceProfileJob(const QString &model, const QStrin
     const QString normalizedName = name.trimmed();
     const QString normalizedText = referenceText.trimmed();
     const QString normalizedModel = model.trimmed().toLower();
-    if (normalizedModel.isEmpty() || normalizedName.isEmpty() || normalizedText.isEmpty()) {
+    if (normalizedModel.isEmpty() || normalizedName.isEmpty()) {
         reference->close();
         delete reference;
-        if (errorMessage) *errorMessage = QStringLiteral("Voice-cloning model, name, and exact reference transcript are required");
+        if (errorMessage) *errorMessage = QStringLiteral("Voice-cloning model and profile name are required");
         return false;
     }
 

@@ -17,6 +17,7 @@ ColumnLayout {
     property bool showHeader: true
     property bool locked: false
     property bool requiresExactTranscript: false
+    property string transcriptHint: ""
     property string familyId: ""
     property var savedVoices: []
     property int selectedSavedVoiceIndex: -1
@@ -268,7 +269,7 @@ ColumnLayout {
                 Layout.preferredHeight: 14
             }
             Text {
-                text: "Reference Transcript"
+                text: root.requiresExactTranscript ? "Reference Transcript" : "Reference Transcript (optional)"
                 color: Theme.textPrimary
                 font.pixelSize: Theme.fontSmall
                 font.bold: true
@@ -295,7 +296,8 @@ ColumnLayout {
         Text {
             text: root.requiresExactTranscript
                   ? "Required: type the exact words spoken in the reference audio."
-                  : "Helps the model align the reference audio correctly."
+                  : (root.transcriptHint !== "" ? root.transcriptHint
+                                                : "Optional: improves voice similarity when provided.")
             color: Theme.textSecondary
             font.pixelSize: 11
         }

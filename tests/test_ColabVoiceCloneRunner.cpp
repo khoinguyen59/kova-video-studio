@@ -340,6 +340,37 @@ void TestColabVoiceCloneRunner::controllerReusesProfileOnlyForMatchingDurableRef
     QVERIFY(!controller.colabConnected());
 }
 
+void TestColabVoiceCloneRunner::controllerAllowsAutomaticReferenceTranscript()
+{
+    VoiceCloneMock server;
+    QVERIFY(server.start());
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const QString referencePath = temporary.filePath(QStringLiteral("reference.wav"));
+    QFile reference(referencePath);
+    QVERIFY(reference.open(QIODevice::WriteOnly));
+    QVERIFY(reference.write(referenceWav()) > 0);
+    reference.close();
+
+    ColabSession session;
+    QString sessionError;
+    QVERIFY(session.setSession(server.baseUrl(), QStringLiteral("loopback-token"),
+                               &sessionError, true));
+    ColabVoiceCloneController controller(&session, nullptr, nullptr, nullptr, nullptr);
+    controller.useColab();
+    QSignalSpy finished(&controller, &ColabVoiceCloneController::synthesisFinished);
+    QSignalSpy errors(&controller, &ColabVoiceCloneController::errorOccurred);
+
+    controller.cloneVoice(QStringLiteral("Automatic transcript test"), referencePath, QString(),
+                          QStringLiteral("vi"), QStringLiteral("Automatic reference"), true);
+    QVERIFY2(finished.wait(8000), "The optional transcript Colab clone did not finish.");
+    QCOMPARE(errors.count(), 0);
+    const QList<QByteArray> calls = server.requests();
+    QVERIFY(!calls.isEmpty());
+    QVERIFY(calls.first().startsWith("POST /v2/jobs/profile HTTP/1.1\r\n"));
+    QVERIFY(calls.first().contains("name=\"ref_text\""));
+}
+
 void TestColabVoiceCloneRunner::savedPresetSurvivesRestartAndInvalidatesTemporaryProfile()
 {
     QTemporaryDir dataDirectory;
@@ -504,6 +535,18 @@ void TestColabVoiceCloneRunner::exactModelMappingMatchesCatalogAndNotebooks()
         }
         QVERIFY2(source.contains(QStringLiteral("str(health.get(\"model\", \"\")).strip().lower() == MODEL_ID")),
                  "Exact-model notebook must validate that the ready worker is the selected model.");
+        QVERIFY2(source.contains(QStringLiteral("ref_text: str = Form(default=\"\")")),
+                 "Direct Colab voice cloning must allow an automatic reference transcript.");
+        if (model == QStringLiteral("omnivoice")) {
+            QVERIFY2(source.contains(QStringLiteral("MODEL.create_voice_clone_prompt(**kwargs)")),
+                     "OmniVoice must omit ref_text so its documented automatic ASR path can run.");
+        } else if (model.startsWith(QStringLiteral("qwen3-tts-"))) {
+            QVERIFY2(source.contains(QStringLiteral("x_vector_only_mode=True")),
+                     "Qwen must use speaker-only cloning when no transcript is supplied.");
+        } else if (model == QStringLiteral("voxcpm2")) {
+            QVERIFY2(source.contains(QStringLiteral("VoxCPM can clone from reference audio alone")),
+                     "VoxCPM must keep transcript-guided cloning optional.");
+        }
         if (model.startsWith(QStringLiteral("vieneu-tts-"))) {
             QVERIFY2(source.contains(QStringLiteral("torchvision==0.23.0")),
                      "VieNeu must replace Colab's potentially incompatible torchvision build.");
