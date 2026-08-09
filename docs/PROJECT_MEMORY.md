@@ -397,3 +397,22 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   `out/LA-Studio-0.0.2.30/LA-Studio-0.0.2.30.exe`; eSpeak remains the
   hash-verified unsigned internal-only component. No visible GUI or live
   Colab run was claimed.
+
+### 2026-08-09 - 0.0.2.36 explicit Douyin cookie retry
+
+- yt-dlp `2026.07.04` still reports `Fresh cookies (not necessarily logged in)
+  are needed` for the tested Douyin short link; no current upstream extractor
+  fix was found. The app therefore keeps the no-cookie default and exposes an
+  explicit user-selected Netscape cookie file instead of reading Chrome.
+- `RemoteMediaImportService` validates a readable tab-separated file, copies
+  it to a private 16 MiB-bounded `QTemporaryFile` only for the page resolver,
+  passes `--cookies` only in that run, then removes the temp copy on every
+  terminal path. The source path is not persisted or logged.
+- Dubbing queue items with this diagnostic use `downloadState=needs-auth` and
+  retain their source URL only in memory. The UI offers **Retry with cookies**;
+  successful retry clears the URL and cookie configuration. Generic failures
+  still discard their source URL and remain non-selectable.
+- Regression coverage includes resolver arguments, temp-file cleanup, the
+  actionable error, and controller retry. QML lint and full CTest 39/39 pass.
+  Internal portable candidate `0.0.2.36` is hash-audited; live Douyin access
+  remains an explicit manual gate.

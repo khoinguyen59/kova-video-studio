@@ -6,11 +6,38 @@ Cap nhat: 2026-08-09
 
 | Muc | Trang thai |
 | --- | --- |
-| Latest packaged candidate | `0.0.2.35` |
-| Artifact | `out/LA-Studio-0.0.2.35/LA-Studio-0.0.2.35.exe` |
-| SHA-256 | `47BED51542DF28B2F5B7EFE0475C221C7DBFF1D96BC7E722D02D9BE9A79B1741` |
-| Current source | `main` at `5e80743`; pasted share text is normalized to its public URL and the Dubbing library now supports independent later actions. Version/source/package consistency verified for `0.0.2.35`. |
+| Latest packaged candidate | `0.0.2.36` |
+| Artifact | `out/LA-Studio-0.0.2.36/LA-Studio-0.0.2.36.exe` |
+| SHA-256 | `745D6776350C2408824126E006FE4449ACACAA4B439C4DD1EE76FC1637B3D7C1` |
+| Current source | `main`; Dubbing public-media import now supports an explicitly selected, memory-only Netscape cookie file with a needs-auth state and retry action. Version/source/package consistency verified for `0.0.2.36`. |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
+
+## Candidate 0.0.2.36 - explicit Douyin cookie retry
+
+- The app never reads Chrome/browser cookies. The user may choose a readable
+  Netscape tab-separated cookie file from the Import/Download screen or the
+  Dubbing source panel; it is kept in session memory only.
+- Before invoking yt-dlp, the service copies the selected file to a private
+  short-lived temp file (maximum 16 MiB, owner-only permissions). The temp
+  copy is removed after resolver success/failure/cancel/destruction and is not
+  included in project, settings, history, output metadata or logs.
+- The default resolver remains `--no-cookies`. When yt-dlp reports Douyin's
+  fresh-cookie diagnostic, the item is marked `needs-auth`, keeps its source
+  link only in memory, and shows **Retry with cookies**. After the user selects
+  cookies and retries successfully, the URL and cookie path are cleared.
+
+### Evidence 0.0.2.36
+
+- Targeted media suite PASS, including resolver argument contract, temporary
+  cookie lifecycle, actionable fresh-cookie error, and controller retry from
+  `needs-auth` to downloaded media.
+- QML lint PASS. Full CTest **39/39 PASS** after the final test changes.
+- Portable package audit PASS: FileVersion/ProductVersion `0.0.2.36`, SHA above,
+  yt-dlp `2026.07.04`, FFmpeg `N-125829-gfe953596e9-20260728`, qwindows and
+  qoffscreen present, RuntimeHost present, and 19/19 staging/license artifacts.
+- No browser/GUI control and no live Douyin/Colab request was performed. A
+  real Douyin account-exported Netscape cookie and current public-link access
+  remain manual acceptance requirements.
 
 ## Candidate 0.0.2.35 - shared links and independent Dubbing actions
 
