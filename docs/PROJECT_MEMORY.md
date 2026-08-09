@@ -6,7 +6,7 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 
 - Desktop local-first: STT, TTS, Voice Cloning, Voice Design, Alignment, Translation, Dubbing, LLM Chat, Download va Subtitle OCR.
 - API Gateway va Direct Colab la hai route doc lap. Token/URL Colab chi o memory session, khong persist vao project/report.
-- Package noi bo moi nhat: `0.0.2.32` tai `out/LA-Studio-0.0.2.32/LA-Studio-0.0.2.32.exe`, SHA-256 `CBABA45A673D4B8FE4AFE38FCE30946E63159C78440E5483BC7F482EE60F8F7F`. FileVersion/ProductVersion `0.0.2.32`; full CTest 39/39, QML AOT compile va package audit 19 artifacts PASS. Manual GUI/live Colab luon la gate rieng.
+- Package noi bo moi nhat: `0.0.2.33` tai `out/LA-Studio-0.0.2.33/LA-Studio-0.0.2.33.exe`, SHA-256 `B1B591F103740BB6A528112C4C1953B34CA010F8E231563C613790725C533626`. FileVersion/ProductVersion `0.0.2.33`; full CTest 39/39, QML lint/AOT compile va package audit 19 artifacts PASS. Manual GUI/live Colab luon la gate rieng.
 - `0.0.2.23` duoc giu nguyen nhung khong duoc chap nhan: audit bat thieu evidence trace route/model/worker truoc-sau. `0.0.2.24` bo sung trace va package moi, khong ghi de candidate cu.
 - `0.0.2.21` khong duoc chap nhan cho Dubbing Automatic: gate/preflight co
   dead-end media va no-op Configure. `0.0.2.22` sua duong ingest truoc gate,
@@ -15,6 +15,26 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   offscreen khong co native active window.
 
 ## Lich su cap san pham
+
+### 2026-08-09 - 0.0.2.33 batch order and responsive UI
+
+- Batch Dubbing now has two durable scheduling choices: per-media end-to-end
+  and stage-by-stage across selected media. The latter stores each item's
+  project state between real runner stages; it does not simulate a queue or
+  alter the selected Local/API Gateway/Direct Colab route.
+- TTS and Voice Cloning include broader short/long Vietnamese and English
+  example text, plus a bilingual TTS example. Generic voice-clone examples do
+  not include reference audio and therefore cannot skip user permission or a
+  real reference selection.
+- Shared Theme/Main palette uses high-contrast text roles. StudioShell left and
+  settings rails are drag-resizable (240--480 px), and Sidebar can expand to
+  show labels. These interactions are source/QML-tested, not a claim of
+  observed desktop GUI behaviour.
+- Regression includes two production ingest stages completing across two items
+  before an intentionally unavailable STT stage starts; item failures finish
+  without a stuck queue. Targeted media test and QML lint pass; full CTest is
+  39/39 in 57.06s. Package `0.0.2.33` audit verified source/PE version, SHA,
+  19 artifacts, Qt platform plugins, FFmpeg/FFprobe and Tesseract 5.5.1.
 
 ### 2026-08-09 - 0.0.2.32 Dubbing media batch queue
 

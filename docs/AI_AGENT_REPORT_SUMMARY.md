@@ -6,11 +6,49 @@ Cap nhat: 2026-08-09
 
 | Muc | Trang thai |
 | --- | --- |
-| Latest packaged candidate | `0.0.2.32` |
-| Artifact | `out/LA-Studio-0.0.2.32/LA-Studio-0.0.2.32.exe` |
-| SHA-256 | `CBABA45A673D4B8FE4AFE38FCE30946E63159C78440E5483BC7F482EE60F8F7F` |
-| Current source | `main` at `f0ca7f4`; media batch regressions, fresh full CTest and QML AOT/package compilation PASS. Version/source/package consistency verified for `0.0.2.32`. |
+| Latest packaged candidate | `0.0.2.33` |
+| Artifact | `out/LA-Studio-0.0.2.33/LA-Studio-0.0.2.33.exe` |
+| SHA-256 | `B1B591F103740BB6A528112C4C1953B34CA010F8E231563C613790725C533626` |
+| Current source | `main` at `217b8f7`; batch-order, responsive UI and examples regressions, full CTest and QML AOT/package compilation PASS. Version/source/package consistency verified for `0.0.2.33`. |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
+
+## Candidate 0.0.2.33 - batch execution order and responsive controls
+
+- The media queue has two explicit, real execution modes: **Complete one
+  video, then next** retains end-to-end serial processing; **Complete each
+  step for all videos** completes the same production stage for every selected
+  media item before moving the queue forward.  This is controller scheduling,
+  not a UI-only choice.  Direct Colab/API Gateway/Local routing remains the
+  already selected route per stage, with no implicit Local fallback.
+- The second mode retains one independent Dubbing project per item. It writes
+  the same real per-item artifacts (`source.srt`, `translated.srt`,
+  `vocals.wav`, `background.wav`, `voice.wav`, `project.ladub.json`) and keeps
+  a failed item isolated while other queued items can proceed.
+- TTS and Voice Cloning now have a larger shared Examples picker: short and
+  long Vietnamese, short and long English, plus bilingual TTS. Voice clone
+  examples only fill text/settings; they never invent a reference audio or
+  bypass the existing consent requirement.
+- Contrast was raised through the shared theme and application palette so
+  native controls do not use dark system text on dark surfaces. Studio left
+  and settings rails now have visible drag handles and bounded widths. The
+  application navigation can expand/collapse; expanded navigation shows route
+  names instead of requiring hover-only discovery.
+
+### Evidence 0.0.2.33
+
+- Added a real-controller stage-by-stage regression: two WAV items both finish
+  production ingest before either starts the unavailable real STT dependency;
+  both failures then terminate cleanly. It also asserts the exposed execution
+  mode. Existing serial queue regression remains in the same suite.
+- Targeted `TestMediaIngestService` PASS; QML lint PASS; fresh full CTest:
+  **39/39 PASS** in 57.06 seconds. `graphify update .` completed after source
+  changes.
+- Portable internal package audit: FileVersion/ProductVersion `0.0.2.33`, SHA
+  above, staging manifest **19/19** required runtime/license artifacts,
+  `qwindows`/`qoffscreen`, FFmpeg, FFprobe and Tesseract 5.5.1 verified.
+- No visible desktop GUI or live Colab/API job was opened. Resizing, expanded
+  navigation and live remote execution therefore remain manual acceptance
+  checks, not claimed automated passes.
 
 ## Candidate 0.0.2.32 - Dubbing media batch queue
 

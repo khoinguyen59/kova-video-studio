@@ -1,87 +1,76 @@
-# AI agent response - 0.0.2.32 multi-media Dubbing queue
+# AI agent response - 0.0.2.33 batch order and responsive controls
 
 Date: 2026-08-09
 
 ## Delivered
 
-The Download page and the Dubbing source panel now accept **multiple public
-links**, one per line, in a multi-line input. The downloader processes them in
-serial so it does not start several large transfers at once. Each successful
-download becomes a selectable queue item.
+The Dubbing media queue now presents two explicit processing choices before a
+batch starts:
 
-Select any number of downloaded items, choose one or more batch tasks, then
-press **Run selected batch**:
+- **Complete one video, then next**: runs all selected tasks for the first
+  item, then starts the next item. This retains the former end-to-end serial
+  behaviour.
+- **Complete each step for all videos**: runs the current real Dubbing stage
+  for every selected item before advancing the selected queue to the next
+  stage. For example, all selected items ingest first, then all run STT, then
+  translation, then voice/mix when those tasks were selected.
 
-- **Isolate audio** writes `vocals.wav` and `background.wav`.
-- **STT to source.srt** writes the source transcript SRT.
-- **Translate to translated.srt** runs required STT first and writes target
-  text SRT.
-- **Voice / cloned voice to WAV** runs required STT and translation first,
-  then runs the configured TTS route and writes `voice.wav`.
-
-Every item runs through the real production `DubbingJobRunner`, not a mock or
-fallback worker. The Dubbing configuration is copied to an independent project
-for each selected media item. Thus Direct Colab stays Direct Colab, API Gateway
-stays API Gateway, and Local runs only when the user explicitly configured it.
-The batch UI reports per-item state/progress and lists the exact output paths.
-
-Artifacts are stored in:
+Both modes use the existing production `DubbingJobRunner` and retain a
+separate Dubbing project per media item. They preserve the configured route:
+Direct Colab remains Direct Colab, API Gateway remains API Gateway, and Local
+is used only when the user explicitly chose Local. No route is silently
+substituted. Existing artifacts remain per-item under:
 
 `C:\Users\<user>\.lastudio\dubbing\batch-output\<queue-item-id>\`
 
-Each completed item also includes `project.ladub.json` in its output directory.
-Temporary submitted media URLs are erased after success, failure or cancel and
-are never persisted to a project, history, settings, log or output manifest.
+Depending on the selected tasks, that directory contains real
+`source.srt`, `translated.srt`, `vocals.wav`, `background.wav`, `voice.wav`
+and `project.ladub.json` outputs.
 
-## Failure and queue behaviour
+TTS and Voice Cloning Examples now include more usable text presets: short
+and long Vietnamese, short and long English, and bilingual TTS. Voice-clone
+examples do not provide a fake reference audio file and do not bypass the
+existing consent/reference workflow.
 
-One failed item no longer holds the batch in a false running state. The exact
-worker error is attached to that item, then the next queued item starts. Cancel
-marks active/pending work cancelled and preserves the pre-existing Dubbing
-project after the queue finishes. Progress is calculated from real runner
-progress and terminal items; no fixed 5%/8% progress values were added.
+The shared dark theme now has stronger text contrast and an application palette
+for native controls. Studio left/history and right/settings rails have visible
+drag handles with bounded widths. The left application navigation can now be
+expanded or collapsed; when expanded, each function name is visible instead of
+requiring hover-only discovery.
 
-Voice output uses the selected configured TTS voice, including an already saved
-and consented clone profile. This batch does not silently create a distinct
-voice-clone identity per video: creating identities requires explicit consent
-and naming in Voice Cloning Studio.
+## Regression and package evidence
 
-## Validation
-
-- Recompiled changed controller/QML/tests with MSVC in the proper Visual Studio
-  environment. `MediaDownloadPage.qml` and `DubbingSourceMediaPanel.qml` were
-  compiled by the Qt AOT path.
-- Added real loopback integration coverage for two serial public downloads;
-  it verifies both staged files and verifies temporary URL text is removed.
-- Added a real-worker regression with two selected media items whose STT
-  dependency intentionally cannot start. Both items finish as failed and the
-  queue terminates; neither remains running.
-- Fresh complete CTest run: **39/39 passed** in 57.71 seconds.
+- Added controller regression for the stage-by-stage queue. With two real WAV
+  inputs, both complete real ingest before either reaches an intentionally
+  unavailable real STT dependency. The error terminates each item instead of
+  leaving a permanently running queue.
+- Targeted `TestMediaIngestService`: PASS.
+- QML lint: PASS.
+- Fresh complete CTest: **39/39 passed** in 57.06 seconds, including QML route
+  smoke under offscreen Qt.
 - Ran `graphify update .` after source changes.
+- Portable internal package:
+  [LA-Studio-0.0.2.33.exe](C:\Users\Nguyen%20Trong%20Khoi\Downloads\LA-STUDIO\out\LA-Studio-0.0.2.33\LA-Studio-0.0.2.33.exe)
+  - FileVersion/ProductVersion: `0.0.2.33`
+  - SHA-256: `B1B591F103740BB6A528112C4C1953B34CA010F8E231563C613790725C533626`
+  - Staging manifest: **19/19** required runtime/license artifacts.
+  - Qt `qwindows` and `qoffscreen`, FFmpeg, FFprobe, RuntimeHost and Tesseract
+    5.5.1 were present; FFmpeg/FFprobe/Tesseract version commands completed.
 
-This is automated/offscreen and package evidence. I did **not** open the GUI
-or use a live API Gateway/Direct Colab worker, because those require your
-temporary credentials/URL and must remain a separate manual acceptance step.
-No success of live remote inference is claimed here.
+## Scope not claimed as tested
 
-## Package audit
+No visible GUI was opened or controlled, and no live API Gateway/Direct Colab
+job was called. Therefore the following remain manual acceptance checks:
 
-Package:
-
-`C:\Users\Nguyen Trong Khoi\Downloads\LA-STUDIO\out\LA-Studio-0.0.2.32\LA-Studio-0.0.2.32.exe`
-
-- FileVersion: `0.0.2.32`
-- ProductVersion: `0.0.2.32`
-- SHA-256: `CBABA45A673D4B8FE4AFE38FCE30946E63159C78440E5483BC7F482EE60F8F7F`
-- Package staging manifest: **19/19 required runtime/license artifacts**.
-- Independent audit found Qt Windows/offscreen platforms, FFmpeg, FFprobe,
-  Tesseract 5.5.1, RuntimeHost, Colab notebook and license payloads.
-
-This is an internal package. The eSpeak NG MSI is hash-verified but unsigned,
-so it must not be distributed as a public release.
+1. Switch between both batch orders with several downloaded videos and verify
+   the visible order matches the selected label.
+2. Drag the left and settings pane handles, then expand/collapse the global
+   navigation at the user's normal display scale.
+3. Run a batch using the user's temporary Direct Colab or API credentials and
+   verify the configured remote route receives the work.
 
 ## Source delivery
 
-- Source/test commit: `f0ca7f4 feat: add serial dubbing media batches`
+- Source/test commit: `217b8f7 feat: add batch order and responsive studio controls`
 - Branch: `main`
 - Source has been pushed to `origin/main`.
