@@ -11,12 +11,13 @@ Rectangle {
 
     required property var dubbing
     property bool expanded: true
+    property int panelWidth: 300
 
     signal clearRequested()
     signal deleteRequested(string historyId)
     signal projectOpened()
 
-    Layout.preferredWidth: 300
+    Layout.preferredWidth: root.panelWidth
     Layout.fillHeight: true
     visible: root.expanded
     color: Theme.surface

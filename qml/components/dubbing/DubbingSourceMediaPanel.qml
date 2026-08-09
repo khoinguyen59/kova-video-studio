@@ -347,6 +347,7 @@ Rectangle {
             RowLayout {
                 Layout.fillWidth: true
                 PrimaryButton {
+                    id: addQueueLinksButton
                     text: qsTr("Add link(s) to media queue")
                     iconName: "download"
                     quiet: true
@@ -354,7 +355,18 @@ Rectangle {
                     onClicked: {
                         root.mediaQueueRequested(directMediaLink.text)
                         directMediaLink.clear()
+                        mediaQueueDialog.open()
                     }
+                }
+                PrimaryButton {
+                    id: openMediaQueueButton
+                    objectName: "dubbingOpenMediaQueueButton"
+                    text: qsTr("Queue & batch settings")
+                    iconName: "workflow"
+                    quiet: true
+                    enabled: !root.dubbing.mediaQueueProcessing
+                    toolTip: qsTr("Select queued media, choose tasks and choose the batch execution order")
+                    onClicked: mediaQueueDialog.open()
                 }
                 PrimaryButton {
                     visible: root.dubbing.mediaQueueDownloading || root.dubbing.mediaQueueProcessing
@@ -364,6 +376,15 @@ Rectangle {
                     onClicked: root.dubbing.cancelMediaQueue()
                 }
                 Item { Layout.fillWidth: true }
+            }
+            Text {
+                Layout.fillWidth: true
+                visible: root.dubbing.mediaQueueItems.length > 0
+                text: qsTr("%1 item(s) in media queue. Open Queue & batch settings to select files, outputs and order.")
+                      .arg(root.dubbing.mediaQueueItems.length)
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontSmall
+                wrapMode: Text.WordWrap
             }
         }
         Text {
@@ -770,5 +791,10 @@ Rectangle {
             horizontalAlignment: Text.AlignRight
             Layout.preferredWidth: 34
         }
+    }
+
+    DubbingMediaQueueDialog {
+        id: mediaQueueDialog
+        dubbing: root.dubbing
     }
 }

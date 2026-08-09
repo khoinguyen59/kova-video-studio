@@ -30,6 +30,15 @@ Item {
     property string playingVoiceClipPath: ""
     property bool isHistoryOpen: true
     property bool isNodeInspectorOpen: true
+    // Dubbing has its own three-pane workspace and therefore cannot inherit
+    // StudioShell's generic resizers. Keep these widths local to this real
+    // layout so users can resize History, Preview and the step workspace.
+    property int dubbingHistoryPanelWidth: 300
+    property int dubbingPreviewPanelWidth: 500
+    property int dubbingStepPanelWidth: 670
+    function clampedDubbingPanelWidth(value, minimum, maximum) {
+        return Math.max(minimum, Math.min(maximum, Math.round(value)))
+    }
     // The QML smoke route exercises the transcript selector, then two dialogs
     // whose geometry is only valid on the following event-loop turn.  Keep the
     // phases explicit so the test observes the real rendered state instead of
@@ -850,6 +859,7 @@ Item {
             DubbingHistoryPanel {
                 id: historyPanel
                 dubbing: root.dubbing
+                panelWidth: root.dubbingHistoryPanelWidth
                 expanded: root.isHistoryOpen
                 onClearRequested: clearHistoryDialog.open()
                 onDeleteRequested: function(historyId) {
@@ -860,8 +870,34 @@ Item {
                 onExpandedChanged: root.isHistoryOpen = expanded
             }
 
+            Rectangle {
+                id: dubbingHistoryResizeHandle
+                objectName: "dubbingHistoryResizeHandle"
+                Layout.preferredWidth: 8
+                Layout.fillHeight: true
+                radius: 4
+                color: historyResizeMouseArea.containsMouse || historyResizeMouseArea.pressed
+                       ? Theme.accent : Qt.rgba(Theme.textSecondary.r, Theme.textSecondary.g, Theme.textSecondary.b, 0.28)
+                visible: root.isHistoryOpen
+                ToolTip.visible: historyResizeMouseArea.containsMouse
+                ToolTip.text: qsTr("Drag to resize Dubbing History")
+                MouseArea {
+                    id: historyResizeMouseArea
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.SizeHorCursor
+                    property real pressX: 0
+                    property int pressWidth: 0
+                    onPressed: function(mouse) { pressX = mouse.x; pressWidth = root.dubbingHistoryPanelWidth }
+                    onPositionChanged: function(mouse) {
+                        if (pressed)
+                            root.dubbingHistoryPanelWidth = root.clampedDubbingPanelWidth(pressWidth + mouse.x - pressX, 240, 560)
+                    }
+                }
+            }
+
             ColumnLayout {
-                Layout.fillWidth: true; Layout.fillHeight: true; Layout.preferredWidth: 500; spacing: Theme.paddingMedium
+                Layout.fillWidth: true; Layout.fillHeight: true; Layout.preferredWidth: root.dubbingPreviewPanelWidth; spacing: Theme.paddingMedium
 
                 DubbingSourceMediaPanel {
                     id: sourceMediaPanel
@@ -894,8 +930,33 @@ Item {
                 }
             }
 
+            Rectangle {
+                id: dubbingWorkspaceResizeHandle
+                objectName: "dubbingWorkspaceResizeHandle"
+                Layout.preferredWidth: 8
+                Layout.fillHeight: true
+                radius: 4
+                color: workspaceResizeMouseArea.containsMouse || workspaceResizeMouseArea.pressed
+                       ? Theme.accent : Qt.rgba(Theme.textSecondary.r, Theme.textSecondary.g, Theme.textSecondary.b, 0.28)
+                ToolTip.visible: workspaceResizeMouseArea.containsMouse
+                ToolTip.text: qsTr("Drag to resize Dubbing Preview")
+                MouseArea {
+                    id: workspaceResizeMouseArea
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.SizeHorCursor
+                    property real pressX: 0
+                    property int pressWidth: 0
+                    onPressed: function(mouse) { pressX = mouse.x; pressWidth = root.dubbingPreviewPanelWidth }
+                    onPositionChanged: function(mouse) {
+                        if (pressed)
+                            root.dubbingPreviewPanelWidth = root.clampedDubbingPanelWidth(pressWidth + mouse.x - pressX, 420, 1100)
+                    }
+                }
+            }
+
             Panel {
-                Layout.fillWidth: true; Layout.fillHeight: true; Layout.preferredWidth: 670
+                Layout.fillWidth: true; Layout.fillHeight: true; Layout.preferredWidth: root.dubbingStepPanelWidth
                 ColumnLayout {
                     anchors.fill: parent; anchors.margins: Theme.paddingMedium; spacing: Theme.paddingSmall
                     visible: root.displayedStepId === "transcribe" || root.displayedStepId === "translate"
