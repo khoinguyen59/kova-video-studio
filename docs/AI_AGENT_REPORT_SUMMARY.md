@@ -6,11 +6,45 @@ Cap nhat: 2026-08-09
 
 | Muc | Trang thai |
 | --- | --- |
-| Latest packaged candidate | `0.0.2.33` |
-| Artifact | `out/LA-Studio-0.0.2.33/LA-Studio-0.0.2.33.exe` |
-| SHA-256 | `B1B591F103740BB6A528112C4C1953B34CA010F8E231563C613790725C533626` |
-| Current source | `main` at `217b8f7`; batch-order, responsive UI and examples regressions, full CTest and QML AOT/package compilation PASS. Version/source/package consistency verified for `0.0.2.33`. |
+| Latest packaged candidate | `0.0.2.34` |
+| Artifact | `out/LA-Studio-0.0.2.34/LA-Studio-0.0.2.34.exe` |
+| SHA-256 | `5F86C2715A8F32F842EBADCAE3118547CB3CFB846E7206D04DE777B712DE178C` |
+| Current source | `main` at `ed03461`; batch controls now exist in the actual Dubbing workspace, with Dubbing-specific pane resizers. Version/source/package consistency verified for `0.0.2.34`. |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
+
+## Candidate 0.0.2.34 - Dubbing workspace queue controls
+
+- Fixed the placement fault in `0.0.2.33`: the real Dubbing Import/Download
+  screen now has **Queue & batch settings** immediately beside **Add link(s)
+  to media queue**. Adding links opens that queue automatically. The dialog
+  permits selecting downloaded videos, selecting Isolate/STT/Translate/Voice
+  tasks, choosing either execution order, viewing real item state, errors and
+  output paths, then starting the selected batch.
+- These controls call the same existing `DubbingController::startMediaQueue`
+  contract. The two orders remain real controller scheduling: finish one item
+  end-to-end, or finish each selected production stage across all selected
+  items. Configured Direct Colab, API Gateway and explicit Local routes are
+  preserved; no Local fallback was added.
+- Added visible drag handles to the actual three-pane `DubbingPage` layout:
+  one between History and Preview and one between Preview and the step panel.
+  This corrects the prior generic `StudioShell`-only implementation, which
+  cannot affect the Dubbing workspace.
+
+### Evidence 0.0.2.34
+
+- Regression explicitly reads the real Dubbing source panel/dialog/page and
+  asserts the in-workspace button, both execution modes, task start contract,
+  output labels and both resize handles. Targeted `TestMediaIngestService`
+  PASS (6.14 s); QML lint PASS.
+- Fresh full CTest completed **39/39 PASS**; `LastTest.log` contains 39 passed,
+  zero failed test entries, including offscreen `QmlRouteSmoke`.
+- `graphify update .` ran after source changes. Portable audit: source,
+  FileVersion and ProductVersion are `0.0.2.34`; SHA is above. Direct checks
+  confirmed `qwindows`, `qoffscreen`, FFmpeg, FFprobe, RuntimeHost, Subtitle
+  OCR runtime manifest and Tesseract 5.5.1.
+- No desktop GUI or live remote worker was opened. The exact manual gate is to
+  add one or more links, open **Queue & batch settings**, choose the desired
+  order/tasks, drag both handles, and run with the user's configured worker.
 
 ## Candidate 0.0.2.33 - batch execution order and responsive controls
 

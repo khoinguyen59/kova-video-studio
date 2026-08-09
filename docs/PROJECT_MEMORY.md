@@ -6,7 +6,7 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 
 - Desktop local-first: STT, TTS, Voice Cloning, Voice Design, Alignment, Translation, Dubbing, LLM Chat, Download va Subtitle OCR.
 - API Gateway va Direct Colab la hai route doc lap. Token/URL Colab chi o memory session, khong persist vao project/report.
-- Package noi bo moi nhat: `0.0.2.33` tai `out/LA-Studio-0.0.2.33/LA-Studio-0.0.2.33.exe`, SHA-256 `B1B591F103740BB6A528112C4C1953B34CA010F8E231563C613790725C533626`. FileVersion/ProductVersion `0.0.2.33`; full CTest 39/39, QML lint/AOT compile va package audit 19 artifacts PASS. Manual GUI/live Colab luon la gate rieng.
+- Package noi bo moi nhat: `0.0.2.34` tai `out/LA-Studio-0.0.2.34/LA-Studio-0.0.2.34.exe`, SHA-256 `5F86C2715A8F32F842EBADCAE3118547CB3CFB846E7206D04DE777B712DE178C`. FileVersion/ProductVersion `0.0.2.34`; full CTest 39/39, QML lint va direct portable audit PASS. Manual GUI/live Colab luon la gate rieng.
 - `0.0.2.23` duoc giu nguyen nhung khong duoc chap nhan: audit bat thieu evidence trace route/model/worker truoc-sau. `0.0.2.24` bo sung trace va package moi, khong ghi de candidate cu.
 - `0.0.2.21` khong duoc chap nhan cho Dubbing Automatic: gate/preflight co
   dead-end media va no-op Configure. `0.0.2.22` sua duong ingest truoc gate,
@@ -15,6 +15,22 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   offscreen khong co native active window.
 
 ## Lich su cap san pham
+
+### 2026-08-09 - 0.0.2.34 Dubbing workspace queue controls
+
+- Phat hien sai vi tri UX cua `0.0.2.33`: cac lua chon batch nam o Download
+  route rieng, trong khi user dang lam viec o Dubbing Import/Download. Dubbing
+  source panel nay co nut **Queue & batch settings** ngay canh nut them link;
+  them link se mo queue. Dialog hien item da tai, checkbox chon item, task
+  Isolate/STT/Translate/Voice, hai thu tu chay va output/error that su.
+- Dialog dung lai `DubbingController::startMediaQueue`, khong them mock hay
+  fallback. `per-media` hoan thanh mot video truoc; `stage-by-stage` hoan
+  thanh cung production stage tren moi video da chon truoc khi tien buoc. Route
+  Direct Colab/API Gateway/Local cua tung stage duoc giu nguyen.
+- DubbingPage la layout rieng, khong phai StudioShell. Hai handle keo gian dung
+  duoc them giua History/Preview va Preview/step workspace; handle generic
+  truoc do khong the hien o Dubbing. Regression, QML lint, full CTest 39/39,
+  graph update va portable audit da PASS; GUI/live route chua duoc tuyen bo.
 
 ### 2026-08-09 - 0.0.2.33 batch order and responsive UI
 
