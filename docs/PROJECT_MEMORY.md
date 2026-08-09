@@ -6,7 +6,7 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 
 - Desktop local-first: STT, TTS, Voice Cloning, Voice Design, Alignment, Translation, Dubbing, LLM Chat, Download va Subtitle OCR.
 - API Gateway va Direct Colab la hai route doc lap. Token/URL Colab chi o memory session, khong persist vao project/report.
-- Package noi bo moi nhat: `0.0.2.31` tai `out/LA-Studio-0.0.2.31/LA-Studio-0.0.2.31.exe`, SHA-256 `2146DA71119C3330914287A4C17D79C0149BFAB3CCAD5EA15C75EE73C631A995`. FileVersion/ProductVersion `0.0.2.31`; targeted Voice Clone -> TTS regression, QML AOT compile va package audit 19 artifacts PASS. User yeu cau khong lap lai full CTest cua cac tinh nang da on; manual GUI/live Colab luon la gate rieng.
+- Package noi bo moi nhat: `0.0.2.32` tai `out/LA-Studio-0.0.2.32/LA-Studio-0.0.2.32.exe`, SHA-256 `CBABA45A673D4B8FE4AFE38FCE30946E63159C78440E5483BC7F482EE60F8F7F`. FileVersion/ProductVersion `0.0.2.32`; full CTest 39/39, QML AOT compile va package audit 19 artifacts PASS. Manual GUI/live Colab luon la gate rieng.
 - `0.0.2.23` duoc giu nguyen nhung khong duoc chap nhan: audit bat thieu evidence trace route/model/worker truoc-sau. `0.0.2.24` bo sung trace va package moi, khong ghi de candidate cu.
 - `0.0.2.21` khong duoc chap nhan cho Dubbing Automatic: gate/preflight co
   dead-end media va no-op Configure. `0.0.2.22` sua duong ingest truoc gate,
@@ -15,6 +15,25 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   offscreen khong co native active window.
 
 ## Lich su cap san pham
+
+### 2026-08-09 - 0.0.2.32 Dubbing media batch queue
+
+- Download va Dubbing source panel nhan nhieu public link, moi link mot dong,
+  va tai serial bang worker rieng. Input URL chi ton tai trong RAM trong luc
+  tai; khong persist vao project, history, settings hay output manifest.
+- Nguoi dung chon nhieu media da tai roi xep hang Dubbing: Isolator, STT,
+  Translate va Voice/clone voice. Item chay bang DubbingJobRunner production
+  theo thu tu, dung dung route/model da cau hinh (Local chi khi da chon ro,
+  API Gateway va Direct Colab doc lap); khong co local fallback an.
+- Moi item co output folder rieng `~/.lastudio/dubbing/batch-output/<id>`:
+  `source.srt`, `translated.srt`, `voice.wav`, `vocals.wav`,
+  `background.wav`, project copy. Voice WAV dung configured TTS/saved cloned
+  voice; khong tao clone identity moi cho tung video vi viec do can consent va
+  ten profile ro rang o Voice Cloning Studio.
+- Regression integration tai 2 WAV qua loopback, xoa URL sau download, va cho
+  2 worker STT loi thuc te tiep tuc queue khong treo. Full CTest 39/39 PASS;
+  package audit version/hash/runtime PASS. Live remote worker va GUI khong
+  duoc tuyen bo da test.
 
 ### 2026-08-09 - 0.0.2.31 OmniVoice clone reuse in TTS
 

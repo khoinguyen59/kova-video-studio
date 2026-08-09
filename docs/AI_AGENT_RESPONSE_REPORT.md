@@ -1,58 +1,87 @@
-# AI agent response — OmniVoice Clone to TTS
+# AI agent response - 0.0.2.32 multi-media Dubbing queue
 
 Date: 2026-08-09
 
-## Completed scope
+## Delivered
 
-This delivery fixes only the requested OmniVoice Voice Clone → TTS handoff and
-builds a new internal portable package.
+The Download page and the Dubbing source panel now accept **multiple public
+links**, one per line, in a multi-line input. The downloader processes them in
+serial so it does not start several large transfers at once. Each successful
+download becomes a selectable queue item.
 
-- **A visible name field is now beside the clone reference.** Enter a value in
-  `Voice name for TTS reuse`, then run a successful Direct Colab clone. The
-  name, reference audio and optional reference transcript are stored as a
-  reusable OmniVoice voice. Selecting an existing saved reference also keeps
-  its saved name. A failed or cancelled clone does not create a saved voice.
-- **TTS recognises an active OmniVoice clone connection.** When the exact
-  Direct Colab Voice Clone worker is verified as `omnivoice`, TTS selects the
-  OmniVoice family configuration and no longer leaves the user blocked at the
-  model gallery just because no Local model was installed.
-- **The two Colab protocols remain deliberately separate.** The clone
-  URL/token is not injected into the generic TTS worker and is never replaced
-  with a Local model. This is required because the OmniVoice clone notebook
-  exposes the profile/reference protocol, while generic TTS has a different
-  route. No second notebook or GPU worker is started for reuse.
-- **TTS now explicitly exposes reuse.** In `TTS Settings` → `Reuse cloned
-  OmniVoice`, choose the saved voice, confirm permission, and press `Use
-  cloned OmniVoice in TTS`. Generate then sends the saved reference audio and
-  transcript to the verified existing Voice Clone worker, producing a real
-  clone/profile request rather than a standard TTS request.
+Select any number of downloaded items, choose one or more batch tasks, then
+press **Run selected batch**:
 
-## Validation performed
+- **Isolate audio** writes `vocals.wav` and `background.wav`.
+- **STT to source.srt** writes the source transcript SRT.
+- **Translate to translated.srt** runs required STT first and writes target
+  text SRT.
+- **Voice / cloned voice to WAV** runs required STT and translation first,
+  then runs the configured TTS route and writes `voice.wav`.
 
-- Rebuilt all changed QML files to Qt AOT C++ with MSVC 2022 in the test
-  target. This catches QML syntax and type-generation faults without opening
-  the GUI.
-- Added and ran the focused regression
-  `voiceCloneOmniVoiceIsReusableInTtsWithoutLocalFallback`: **3 passed,
-  0 failed** (init, new regression, cleanup).
-- Ran `graphify update .` after the source change.
-- The internal package script rebuilt/staged version `0.0.2.31` and verified
-  **19 required runtime/license artifacts**.
+Every item runs through the real production `DubbingJobRunner`, not a mock or
+fallback worker. The Dubbing configuration is copied to an independent project
+for each selected media item. Thus Direct Colab stays Direct Colab, API Gateway
+stays API Gateway, and Local runs only when the user explicitly configured it.
+The batch UI reports per-item state/progress and lists the exact output paths.
 
-Stable-feature full CTest, visible desktop testing and live Colab testing were
-not repeated for this delivery because the requested scope explicitly excluded
-parts already stable. None are claimed as evidence here.
+Artifacts are stored in:
 
-## Package
+`C:\Users\<user>\.lastudio\dubbing\batch-output\<queue-item-id>\`
 
-`C:\Users\Nguyen Trong Khoi\Downloads\LA-STUDIO\out\LA-Studio-0.0.2.31\LA-Studio-0.0.2.31.exe`
+Each completed item also includes `project.ladub.json` in its output directory.
+Temporary submitted media URLs are erased after success, failure or cancel and
+are never persisted to a project, history, settings, log or output manifest.
 
-- FileVersion/ProductVersion: `0.0.2.31`
-- SHA-256: `2146DA71119C3330914287A4C17D79C0149BFAB3CCAD5EA15C75EE73C631A995`
-- Internal-only package. The eSpeak NG MSI is hash-verified but unsigned; it
-  must not be promoted as a public distributable release.
+## Failure and queue behaviour
+
+One failed item no longer holds the batch in a false running state. The exact
+worker error is attached to that item, then the next queued item starts. Cancel
+marks active/pending work cancelled and preserves the pre-existing Dubbing
+project after the queue finishes. Progress is calculated from real runner
+progress and terminal items; no fixed 5%/8% progress values were added.
+
+Voice output uses the selected configured TTS voice, including an already saved
+and consented clone profile. This batch does not silently create a distinct
+voice-clone identity per video: creating identities requires explicit consent
+and naming in Voice Cloning Studio.
+
+## Validation
+
+- Recompiled changed controller/QML/tests with MSVC in the proper Visual Studio
+  environment. `MediaDownloadPage.qml` and `DubbingSourceMediaPanel.qml` were
+  compiled by the Qt AOT path.
+- Added real loopback integration coverage for two serial public downloads;
+  it verifies both staged files and verifies temporary URL text is removed.
+- Added a real-worker regression with two selected media items whose STT
+  dependency intentionally cannot start. Both items finish as failed and the
+  queue terminates; neither remains running.
+- Fresh complete CTest run: **39/39 passed** in 57.71 seconds.
+- Ran `graphify update .` after source changes.
+
+This is automated/offscreen and package evidence. I did **not** open the GUI
+or use a live API Gateway/Direct Colab worker, because those require your
+temporary credentials/URL and must remain a separate manual acceptance step.
+No success of live remote inference is claimed here.
+
+## Package audit
+
+Package:
+
+`C:\Users\Nguyen Trong Khoi\Downloads\LA-STUDIO\out\LA-Studio-0.0.2.32\LA-Studio-0.0.2.32.exe`
+
+- FileVersion: `0.0.2.32`
+- ProductVersion: `0.0.2.32`
+- SHA-256: `CBABA45A673D4B8FE4AFE38FCE30946E63159C78440E5483BC7F482EE60F8F7F`
+- Package staging manifest: **19/19 required runtime/license artifacts**.
+- Independent audit found Qt Windows/offscreen platforms, FFmpeg, FFprobe,
+  Tesseract 5.5.1, RuntimeHost, Colab notebook and license payloads.
+
+This is an internal package. The eSpeak NG MSI is hash-verified but unsigned,
+so it must not be distributed as a public release.
 
 ## Source delivery
 
-- Source commit on `main`: `4c00000 fix: reuse cloned omnivoice in tts`
-- Pushed to `origin/main`.
+- Source/test commit: `f0ca7f4 feat: add serial dubbing media batches`
+- Branch: `main`
+- Source has been pushed to `origin/main`.

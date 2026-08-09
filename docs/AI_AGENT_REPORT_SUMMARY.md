@@ -1,16 +1,49 @@
 # Bao cao tong hop LA Studio
 
-Cap nhat: 2026-08-05
+Cap nhat: 2026-08-09
 
 ## Baseline hien tai
 
 | Muc | Trang thai |
 | --- | --- |
-| Latest packaged candidate | `0.0.2.31` |
-| Artifact | `out/LA-Studio-0.0.2.31/LA-Studio-0.0.2.31.exe` |
-| SHA-256 | `2146DA71119C3330914287A4C17D79C0149BFAB3CCAD5EA15C75EE73C631A995` |
-| Current source | `main` at `4c00000`; targeted Voice Clone → TTS regression and QML AOT compilation PASS. Version/source/package consistency verified for `0.0.2.31`. The user explicitly did not request a repeat of stable-feature full CTest. |
+| Latest packaged candidate | `0.0.2.32` |
+| Artifact | `out/LA-Studio-0.0.2.32/LA-Studio-0.0.2.32.exe` |
+| SHA-256 | `CBABA45A673D4B8FE4AFE38FCE30946E63159C78440E5483BC7F482EE60F8F7F` |
+| Current source | `main` at `f0ca7f4`; media batch regressions, fresh full CTest and QML AOT/package compilation PASS. Version/source/package consistency verified for `0.0.2.32`. |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
+
+## Candidate 0.0.2.32 - Dubbing media batch queue
+
+- Download accepts one public media link per line and resolves each link serially
+  into LA Studio-owned staging. URL input is short-lived memory only; it is
+  removed when a download ends and is not written into project/history.
+- Several downloaded items may be selected for a serial Dubbing batch. Each
+  uses a separate project and the existing real ingest, separation, STT,
+  translation, synthesis and mix workers. A configured Direct Colab/API route
+  stays that route; no Local fallback is introduced.
+- Outputs are real files under `~/.lastudio/dubbing/batch-output/<id>`:
+  `source.srt`, `translated.srt`, `voice.wav`, `vocals.wav`,
+  `background.wav` and `project.ladub.json` where applicable. The UI displays
+  the exact paths per item.
+- A worker error marks only its item failed, records its actual error and
+  advances the next item. Progress uses completed items plus active runner
+  progress; it is not a fixed 5%/8% value.
+
+### Evidence 0.0.2.32
+
+- Loopback integration downloads two real WAV payloads serially, verifies both
+  staged files and proves temporary URL query text is absent afterwards. A
+  second regression makes the real STT dependency fail for two selected items
+  and verifies that the queue terminates without an indefinitely running item.
+- Fresh full CTest after rebuilding the test binary: **39/39 PASS** (57.71 s).
+  Release packaging recompiles the Download page and Dubbing source panel to
+  Qt AOT C++.
+- Portable audit: FileVersion/ProductVersion `0.0.2.32`, SHA above, staging
+  manifest **19/19** required runtime/license artifacts, and direct checks for
+  Qt `qwindows`/`qoffscreen`, FFmpeg, FFprobe and Tesseract 5.5.1.
+- No visible GUI, live API Gateway or live Direct Colab job was opened. They
+  require a user temporary worker/credential and remain manual acceptance
+  gates; they are not represented as a local pass.
 
 ## Candidate 0.0.2.31 - OmniVoice clone reuse in TTS
 
