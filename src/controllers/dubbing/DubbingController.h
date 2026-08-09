@@ -469,6 +469,9 @@ private:
     void updateMediaQueueProgressFromRunner();
     QVariantMap normalizedMediaQueueTasks(const QVariantMap &tasks, QString *error) const;
     QStringList mediaQueueStagePlan() const;
+    bool mediaQueueOperationRequiresSavedProject() const;
+    bool loadMediaQueueProject(const QVariantMap &item, DubbingProject *project,
+                               QString *error) const;
     DubbingProject newMediaQueueProject(const QVariantMap &item) const;
     QString mediaQueueOutputDirectory(const QString &itemId) const;
     void recordMediaQueueOutput(const QString &key, const QString &path);

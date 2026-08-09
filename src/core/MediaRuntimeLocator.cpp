@@ -27,6 +27,13 @@ QString bundledTool(const QString &applicationDirectory, const QString &baseName
 {
     if (applicationDirectory.isEmpty())
         return {};
+    // FFmpeg and FFprobe are deliberately grouped in media-tools, while the
+    // pinned standalone public-video resolver is staged at the portable app
+    // root by package.ps1.  Looking for every tool under media-tools made a
+    // correctly packaged yt-dlp invisible at runtime.
+    if (baseName == QStringLiteral("yt-dlp")) {
+        return existingFile(QDir(applicationDirectory).filePath(executableName(baseName)));
+    }
     return existingFile(QDir(applicationDirectory).filePath(
         QStringLiteral("media-tools/") + executableName(baseName)));
 }

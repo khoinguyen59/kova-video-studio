@@ -348,24 +348,23 @@ Rectangle {
                 Layout.fillWidth: true
                 PrimaryButton {
                     id: addQueueLinksButton
-                    text: qsTr("Add link(s) to media queue")
+                    text: qsTr("Add link(s) to download queue")
                     iconName: "download"
                     quiet: true
                     enabled: directMediaLink.text.trim().length > 0 && !root.dubbing.mediaQueueProcessing
                     onClicked: {
                         root.mediaQueueRequested(directMediaLink.text)
                         directMediaLink.clear()
-                        mediaQueueDialog.open()
                     }
                 }
                 PrimaryButton {
                     id: openMediaQueueButton
                     objectName: "dubbingOpenMediaQueueButton"
-                    text: qsTr("Queue & batch settings")
+                    text: qsTr("Downloaded media & actions")
                     iconName: "workflow"
                     quiet: true
                     enabled: !root.dubbing.mediaQueueProcessing
-                    toolTip: qsTr("Select queued media, choose tasks and choose the batch execution order")
+                    toolTip: qsTr("Choose any downloaded videos and run one action when you decide")
                     onClicked: mediaQueueDialog.open()
                 }
                 PrimaryButton {
@@ -380,7 +379,7 @@ Rectangle {
             Text {
                 Layout.fillWidth: true
                 visible: root.dubbing.mediaQueueItems.length > 0
-                text: qsTr("%1 item(s) in media queue. Open Queue & batch settings to select files, outputs and order.")
+                text: qsTr("%1 item(s) in the download library. Download first; later open Downloaded media & actions to choose a separate subset for Import, STT, Translate, TTS, or Export.")
                       .arg(root.dubbing.mediaQueueItems.length)
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fontSmall

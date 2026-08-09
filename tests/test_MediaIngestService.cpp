@@ -136,7 +136,9 @@ void TestMediaIngestService::prefersBundledMediaToolsOverExternalConfiguration()
     QVERIFY(QDir().mkpath(mediaToolsDirectory));
     const QString ffmpeg = mediaToolsDirectory + QStringLiteral("/ffmpeg.exe");
     const QString ffprobe = mediaToolsDirectory + QStringLiteral("/ffprobe.exe");
-    const QString ytDlp = mediaToolsDirectory + QStringLiteral("/yt-dlp.exe");
+    // The portable package stages the pinned public-video adapter next to the
+    // app executable, not under media-tools with FFmpeg/FFprobe.
+    const QString ytDlp = temporaryDirectory.filePath(QStringLiteral("yt-dlp.exe"));
     QVERIFY(QFile(ffmpeg).open(QIODevice::WriteOnly));
     QVERIFY(QFile(ffprobe).open(QIODevice::WriteOnly));
     QVERIFY(QFile(ytDlp).open(QIODevice::WriteOnly));
@@ -546,6 +548,74 @@ void TestMediaIngestService::controllerQueuesMultipleDirectDownloadsWithoutPersi
     }
 }
 
+void TestMediaIngestService::sharedVideoTextQueuesOnlyEmbeddedPublicUrls()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString fixturePath = dir.filePath(QStringLiteral("shared-link-fixture.wav"));
+    const QVector<float> samples(8000, 0.02F);
+    QVERIFY(WavIO::saveFloat(fixturePath, samples.constData(), samples.size(), 16000));
+    QFile fixture(fixturePath);
+    QVERIFY(fixture.open(QIODevice::ReadOnly));
+    DirectMediaServer server(fixture.readAll());
+    QVERIFY(server.start());
+
+    DubbingController controller(nullptr, nullptr);
+    const QString sharedText = QStringLiteral(
+        "3.58 XMj:/ 06/23 :9pm f@o.qE shared caption %1 复制此链接，打开应用直接观看视频！")
+                                   .arg(server.url().toString());
+    QCOMPARE(controller.enqueueMediaLinks(sharedText), 1);
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.mediaQueueDownloading(), 15000);
+    QCOMPARE(server.requestCount(), 1);
+    const QVariantList items = controller.mediaQueueItems();
+    QCOMPARE(items.size(), 1);
+    const QVariantMap item = items.constFirst().toMap();
+    QCOMPARE(item.value(QStringLiteral("downloadState")).toString(), QStringLiteral("downloaded"));
+    QVERIFY(item.value(QStringLiteral("selected")).toBool());
+    QVERIFY(QFileInfo(item.value(QStringLiteral("localPath")).toString()).isFile());
+}
+
+void TestMediaIngestService::mediaLibraryRunsOnlyTheLaterSelectedActionSubset()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString fixturePath = dir.filePath(QStringLiteral("independent-action-fixture.wav"));
+    const QVector<float> samples(8000, 0.02F);
+    QVERIFY(WavIO::saveFloat(fixturePath, samples.constData(), samples.size(), 16000));
+
+    DubbingController controller(nullptr, nullptr);
+    QCOMPARE(controller.enqueueMediaFiles({fixturePath, fixturePath}), 2);
+    QVERIFY(controller.startMediaQueue({{QStringLiteral("operation"), QStringLiteral("import")}}));
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.mediaQueueProcessing(), 20000);
+
+    QVariantList imported = controller.mediaQueueItems();
+    QCOMPARE(imported.size(), 2);
+    for (const QVariant &value : imported) {
+        const QVariantMap item = value.toMap();
+        QCOMPARE(item.value(QStringLiteral("processState")).toString(), QStringLiteral("completed"));
+        QVERIFY(QFileInfo(item.value(QStringLiteral("outputs")).toMap()
+                          .value(QStringLiteral("project")).toString()).isFile());
+    }
+
+    const QString firstId = imported.at(0).toMap().value(QStringLiteral("id")).toString();
+    const QString secondId = imported.at(1).toMap().value(QStringLiteral("id")).toString();
+    QVERIFY(controller.setMediaQueueItemSelected(firstId, true));
+    QVERIFY(controller.setMediaQueueItemSelected(secondId, false));
+    // Translate is deliberately attempted without a transcript session.  The
+    // real controller rejects that selected item, while the unselected item
+    // must retain its completed Import result and must not be re-enqueued.
+    QVERIFY(controller.startMediaQueue({{QStringLiteral("operation"), QStringLiteral("translate")}}));
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.mediaQueueProcessing(), 10000);
+
+    const QVariantList afterTranslate = controller.mediaQueueItems();
+    QCOMPARE(afterTranslate.at(0).toMap().value(QStringLiteral("processState")).toString(),
+             QStringLiteral("failed"));
+    const QVariantMap untouched = afterTranslate.at(1).toMap();
+    QCOMPARE(untouched.value(QStringLiteral("processState")).toString(), QStringLiteral("completed"));
+    QVERIFY(QFileInfo(untouched.value(QStringLiteral("outputs")).toMap()
+                      .value(QStringLiteral("project")).toString()).isFile());
+}
+
 void TestMediaIngestService::mediaBatchContinuesAfterARealWorkerFailure()
 {
     QTemporaryDir dir;
@@ -658,17 +728,25 @@ void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
     QVERIFY(page.contains(QStringLiteral("Playlists, login/cookies, DRM/paywalls")));
     QVERIFY(dubbingSource.contains(QStringLiteral("mediaQueueRequested")));
     QVERIFY(dubbingSource.contains(QStringLiteral("Queue direct media, YouTube, TikTok, or Douyin links")));
-    QVERIFY(dubbingSource.contains(QStringLiteral("Add link(s) to media queue")));
-    QVERIFY(dubbingSource.contains(QStringLiteral("Queue & batch settings")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("Add link(s) to download queue")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("Downloaded media & actions")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("root.mediaQueueRequested(directMediaLink.text)\n"
+                                                   "                        directMediaLink.clear()\n"
+                                                   "                    }")));
     QVERIFY(dubbingSource.contains(QStringLiteral("DubbingMediaQueueDialog")));
     QVERIFY(dubbingSource.contains(QStringLiteral("Keep the direct-link import action above the fill-height preview")));
+    QVERIFY(dubbingQueueDialog.contains(QStringLiteral("Downloaded media")));
+    QVERIFY(dubbingQueueDialog.contains(QStringLiteral("Import / Normalize")));
+    QVERIFY(dubbingQueueDialog.contains(QStringLiteral("Export / Output")));
+    QVERIFY(dubbingQueueDialog.contains(QStringLiteral("Run selected action")));
+    QVERIFY(dubbingQueueDialog.contains(QStringLiteral("\"operation\": root.selectedAction")));
+    QVERIFY(dubbingQueueDialog.contains(QStringLiteral("exportedMedia")));
     QVERIFY(dubbingQueueDialog.contains(QStringLiteral("Complete one video, then next")));
     QVERIFY(dubbingQueueDialog.contains(QStringLiteral("Complete each step for all videos")));
     QVERIFY(dubbingQueueDialog.contains(QStringLiteral("executionMode\": root.batchExecutionMode")));
-    QVERIFY(dubbingQueueDialog.contains(QStringLiteral("Run selected batch")));
     QVERIFY(dubbingQueueDialog.contains(QStringLiteral("source.srt")));
     QVERIFY(dubbingQueueDialog.contains(QStringLiteral("translated.srt")));
-    QVERIFY(dubbingQueueDialog.contains(QStringLiteral("voice.wav")));
+    QVERIFY(dubbingQueueDialog.contains(QStringLiteral("Voice WAV")));
     QVERIFY(dubbingPage.contains(QStringLiteral("dubbingHistoryResizeHandle")));
     QVERIFY(dubbingPage.contains(QStringLiteral("dubbingWorkspaceResizeHandle")));
     QVERIFY(dubbingPage.contains(QStringLiteral("Drag to resize Dubbing History")));

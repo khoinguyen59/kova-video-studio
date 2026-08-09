@@ -24,6 +24,8 @@ private slots:
     void standaloneDownloadHandsOffOwnedMediaWithoutSecondDownload();
     void standaloneDownloadKeepsExistingProjectWhenProbeFails();
     void controllerQueuesMultipleDirectDownloadsWithoutPersistingUrls();
+    void sharedVideoTextQueuesOnlyEmbeddedPublicUrls();
+    void mediaLibraryRunsOnlyTheLaterSelectedActionSubset();
     void mediaBatchContinuesAfterARealWorkerFailure();
     void mediaBatchCanRunEachStageAcrossTheSelectedQueue();
     void downloadRouteAndDubbingLinkControlAreWired();

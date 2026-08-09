@@ -4670,7 +4670,8 @@ void TestDubbingProject::mediaBatchQueueWiresSerialRealOutputs()
     QVERIFY(queuePageText.contains(QStringLiteral("translated.srt")));
     QVERIFY(queuePageText.contains(QStringLiteral("voice.wav")));
     QVERIFY(sourcePanelText.contains(QStringLiteral("mediaQueueRequested")));
-    QVERIFY(sourcePanelText.contains(QStringLiteral("Add link(s) to media queue")));
+    QVERIFY(sourcePanelText.contains(QStringLiteral("Add link(s) to download queue")));
+    QVERIFY(sourcePanelText.contains(QStringLiteral("Downloaded media & actions")));
 }
 
 
