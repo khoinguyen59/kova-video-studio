@@ -19,6 +19,7 @@ namespace LAStudio {
 namespace {
 
 constexpr qint64 kMaximumDownloadBytes = 2LL * 1024 * 1024 * 1024;
+constexpr qint64 kMaximumCookieFileBytes = 16LL * 1024 * 1024;
 
 bool isLoopbackHost(const QString &host)
 {
@@ -39,6 +40,14 @@ bool isPrivateLiteralAddress(const QString &host)
         || address.isInSubnet(QHostAddress(QStringLiteral("172.16.0.0")), 12)
         || address.isInSubnet(QHostAddress(QStringLiteral("192.168.0.0")), 16)
         || address.isInSubnet(QHostAddress(QStringLiteral("fc00::")), 7);
+}
+
+bool resolverNeedsFreshCookies(const QByteArray &diagnostic)
+{
+    const QString text = QString::fromLocal8Bit(diagnostic);
+    return text.contains(QStringLiteral("fresh cookies"), Qt::CaseInsensitive)
+        || text.contains(QStringLiteral("cookies are needed"), Qt::CaseInsensitive)
+        || text.contains(QStringLiteral("cookies are required"), Qt::CaseInsensitive);
 }
 
 QString safeFileName(QString value)
@@ -83,7 +92,9 @@ RemoteMediaImportService::RemoteMediaImportService(const QString &storageRoot, Q
             return;
         }
         if (status != QProcess::NormalExit || exitCode != 0) {
-            fail(QStringLiteral("The public-video adapter could not resolve this URL."));
+            fail(resolverNeedsFreshCookies(m_resolverError)
+                     ? QStringLiteral("Douyin requires fresh cookies for this link. Choose a Netscape cookie file and retry, or download it in a browser and import the file.")
+                     : QStringLiteral("The public-video adapter could not resolve this URL."));
             return;
         }
         const QList<QByteArray> lines = m_resolverOutput.trimmed().split('\n');
@@ -96,17 +107,93 @@ RemoteMediaImportService::RemoteMediaImportService(const QString &storageRoot, Q
             fail(QStringLiteral("The public-video adapter resolved to an unsafe or unsupported media URL."));
             return;
         }
+        // The resolver no longer needs the cookie once it has returned the
+        // signed media URL. Remove the temporary copy before the network
+        // download starts so credentials never outlive the resolver phase.
+        m_cookieFile.reset();
         validateAndStartDirectDownload(resolved);
     });
 }
 
-QStringList RemoteMediaImportService::publicVideoResolverArguments(const QUrl &sourceUrl)
+RemoteMediaImportService::~RemoteMediaImportService() = default;
+
+bool RemoteMediaImportService::setCookieFilePath(const QString &path, QString *error)
+{
+    const QString localPath = QDir::cleanPath(path.trimmed());
+    const QFileInfo info(localPath);
+    if (localPath.isEmpty() || !info.isFile() || !info.isReadable()) {
+        if (error) *error = QStringLiteral("Choose a readable Netscape cookie file.");
+        return false;
+    }
+    if (info.size() <= 0 || info.size() > kMaximumCookieFileBytes) {
+        if (error) *error = QStringLiteral("The cookie file must be between 1 byte and 16 MiB.");
+        return false;
+    }
+    QFile cookieFile(localPath);
+    if (!cookieFile.open(QIODevice::ReadOnly)) {
+        if (error) *error = QStringLiteral("The selected cookie file could not be read.");
+        return false;
+    }
+    const QByteArray sample = cookieFile.read(256 * 1024);
+    if (!sample.contains('\t')) {
+        if (error) *error = QStringLiteral("The cookie file must use Netscape tab-separated format.");
+        return false;
+    }
+    m_cookieSourcePath = info.absoluteFilePath();
+    return true;
+}
+
+void RemoteMediaImportService::clearCookieFilePath()
+{
+    m_cookieSourcePath.clear();
+    m_cookieFile.reset();
+}
+
+bool RemoteMediaImportService::prepareCookieFile(QString *error)
+{
+    m_cookieFile.reset();
+    if (m_cookieSourcePath.isEmpty()) return true;
+
+    QFile source(m_cookieSourcePath);
+    if (!source.open(QIODevice::ReadOnly)) {
+        if (error) *error = QStringLiteral("The selected Douyin cookie file is no longer readable.");
+        return false;
+    }
+    const QByteArray contents = source.read(kMaximumCookieFileBytes + 1);
+    if (contents.isEmpty() || contents.size() > kMaximumCookieFileBytes) {
+        if (error) *error = QStringLiteral("The selected Douyin cookie file is invalid or exceeds 16 MiB.");
+        return false;
+    }
+
+    auto temporary = std::make_unique<QTemporaryFile>(
+        QDir(QDir::tempPath()).filePath(QStringLiteral("LA-Studio-douyin-cookies-XXXXXX.txt")));
+    temporary->setAutoRemove(true);
+    if (!temporary->open()
+        || temporary->write(contents) != contents.size()
+        || !temporary->flush()) {
+        if (error) *error = QStringLiteral("Could not create the temporary Douyin cookie file.");
+        return false;
+    }
+    temporary->setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+    temporary->close();
+    m_cookieFile = std::move(temporary);
+    return true;
+}
+
+QStringList RemoteMediaImportService::publicVideoResolverArguments(const QUrl &sourceUrl,
+                                                                    const QString &cookieFilePath)
 {
     // `--` makes the page URL positional even if its query/path begins with
     // an option-looking token. QProcess receives this list without a shell.
-    return {QStringLiteral("--no-playlist"), QStringLiteral("--no-warnings"),
-            QStringLiteral("--no-cookies"), QStringLiteral("--get-url"),
-            QStringLiteral("--"), sourceUrl.toString(QUrl::FullyEncoded)};
+    QStringList arguments{QStringLiteral("--no-playlist"), QStringLiteral("--no-warnings")};
+    if (cookieFilePath.trimmed().isEmpty()) {
+        arguments.append(QStringLiteral("--no-cookies"));
+    } else {
+        arguments.append({QStringLiteral("--cookies"), cookieFilePath});
+    }
+    arguments.append({QStringLiteral("--get-url"), QStringLiteral("--"),
+                      sourceUrl.toString(QUrl::FullyEncoded)});
+    return arguments;
 }
 
 bool RemoteMediaImportService::isSupportedSource(const QUrl &sourceUrl) const
@@ -139,13 +226,19 @@ bool RemoteMediaImportService::resolvePublicVideoPage(const QUrl &sourceUrl)
         emit finished(false, {}, QStringLiteral("Public-video support requires the managed yt-dlp adapter."));
         return false;
     }
+    QString cookieError;
+    if (!prepareCookieFile(&cookieError)) {
+        emit finished(false, {}, cookieError);
+        return false;
+    }
     m_resolverOutput.clear();
     m_resolverError.clear();
     m_pendingResolverTerminationError.clear();
     m_active = true;
     const quint64 resolverRunId = ++m_resolverRunId;
     m_resolver.setProgram(executable);
-    m_resolver.setArguments(publicVideoResolverArguments(sourceUrl));
+    m_resolver.setArguments(publicVideoResolverArguments(
+        sourceUrl, m_cookieFile ? m_cookieFile->fileName() : QString()));
     m_resolver.start();
     QTimer::singleShot(m_resolverTimeoutMs, this, [this, resolverRunId] {
         if (m_active && resolverRunId == m_resolverRunId
@@ -360,6 +453,7 @@ void RemoteMediaImportService::fail(const QString &error)
     if (m_reply) m_reply->abort();
     m_output.reset();
     m_outputPath.clear();
+    m_cookieFile.reset();
     emit finished(false, {}, error);
 }
 

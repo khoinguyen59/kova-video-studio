@@ -130,6 +130,13 @@ bool writeDubbingSubtitles(const QVariantList &segments, const QString &path,
     return DubbingSubtitleService::writeSidecar(segments, path, useTargetText, error);
 }
 
+bool mediaDownloadNeedsFreshCookies(const QString &error)
+{
+    return error.contains(QStringLiteral("Choose a Netscape cookie file"),
+                          Qt::CaseInsensitive)
+        || error.contains(QStringLiteral("fresh cookies"), Qt::CaseInsensitive);
+}
+
 bool replaceCopy(const QString &source, const QString &destination, QString *error)
 {
     if (source.isEmpty() || !QFileInfo(source).isFile()) return true;
@@ -4782,6 +4789,41 @@ int DubbingController::enqueueMediaLinks(const QString &urls)
     return added;
 }
 
+bool DubbingController::setDouyinCookieFile(const QString &path)
+{
+    if (linkImporting() || mediaQueueDownloading() || mediaQueueProcessing() || processing()) {
+        setBusyError(QStringLiteral("Choose Douyin cookies before starting a download or batch operation."));
+        return false;
+    }
+    if (!m_remoteMediaImport || !m_batchMediaImport) {
+        setError(QStringLiteral("Douyin cookie support is unavailable in this build."));
+        return false;
+    }
+    const QString localPath = PathUtils::urlToLocalPath(path.trimmed());
+    QString error;
+    if (!m_remoteMediaImport->setCookieFilePath(localPath, &error)
+        || !m_batchMediaImport->setCookieFilePath(localPath, &error)) {
+        m_remoteMediaImport->clearCookieFilePath();
+        m_batchMediaImport->clearCookieFilePath();
+        if (error.isEmpty()) error = QStringLiteral("The selected Douyin cookie file is invalid.");
+        setError(error);
+        return false;
+    }
+    m_douyinCookieFilePath = QFileInfo(localPath).absoluteFilePath();
+    clearError();
+    emit douyinCookieChanged();
+    return true;
+}
+
+void DubbingController::clearDouyinCookieFile()
+{
+    if (m_remoteMediaImport) m_remoteMediaImport->clearCookieFilePath();
+    if (m_batchMediaImport) m_batchMediaImport->clearCookieFilePath();
+    if (m_douyinCookieFilePath.isEmpty()) return;
+    m_douyinCookieFilePath.clear();
+    emit douyinCookieChanged();
+}
+
 int DubbingController::enqueueMediaFiles(const QVariantList &paths)
 {
     int added = 0;
@@ -4821,6 +4863,40 @@ bool DubbingController::setMediaQueueItemSelected(const QString &itemId, bool se
     return true;
 }
 
+bool DubbingController::retryMediaQueueItem(const QString &itemId)
+{
+    if (mediaQueueDownloading() || mediaQueueProcessing() || processing()) {
+        setBusyError(QStringLiteral("Wait for the current download or batch operation to finish before retrying."));
+        return false;
+    }
+    if (!douyinCookieConfigured()) {
+        setError(QStringLiteral("Choose a fresh Douyin Netscape cookie file before retrying this link."));
+        return false;
+    }
+    const int index = mediaQueueIndex(itemId);
+    if (index < 0) return false;
+    QVariantMap item = m_mediaQueueItems.at(index).toMap();
+    const QString state = item.value(QStringLiteral("downloadState")).toString();
+    if (state != QStringLiteral("needs-auth") && state != QStringLiteral("failed")) {
+        setError(QStringLiteral("Only a failed download that still has its source link can be retried."));
+        return false;
+    }
+    if (item.value(QStringLiteral("sourceUrl")).toString().trimmed().isEmpty()) {
+        setError(QStringLiteral("The original link is no longer available. Add the link again to retry it."));
+        return false;
+    }
+    item.insert(QStringLiteral("downloadState"), QStringLiteral("queued"));
+    item.insert(QStringLiteral("processState"), QStringLiteral("not-ready"));
+    item.insert(QStringLiteral("status"), QStringLiteral("Waiting to retry with the selected Douyin cookies"));
+    item.insert(QStringLiteral("selected"), false);
+    item.insert(QStringLiteral("progress"), 0);
+    replaceMediaQueueItem(index, item);
+    m_mediaQueueStatus = QStringLiteral("Retrying queued media with fresh Douyin cookies");
+    clearError();
+    startNextQueuedMediaDownload();
+    return true;
+}
+
 bool DubbingController::removeMediaQueueItem(const QString &itemId)
 {
     const int index = mediaQueueIndex(itemId);
@@ -4845,8 +4921,10 @@ void DubbingController::clearCompletedMediaQueue()
     QVariantList retained;
     for (const QVariant &value : std::as_const(m_mediaQueueItems)) {
         const QString state = value.toMap().value(QStringLiteral("processState")).toString();
+        const QString downloadState = value.toMap().value(QStringLiteral("downloadState")).toString();
         if (state != QStringLiteral("completed") && state != QStringLiteral("failed")
-            && state != QStringLiteral("cancelled")) {
+            && state != QStringLiteral("cancelled")
+            && downloadState != QStringLiteral("needs-auth")) {
             retained.append(value);
         }
     }
@@ -4890,13 +4968,14 @@ void DubbingController::startNextQueuedMediaDownload()
         for (const QVariant &value : std::as_const(m_mediaQueueItems)) {
             const QString state = value.toMap().value(QStringLiteral("downloadState")).toString();
             if (state == QStringLiteral("downloaded")) ++downloaded;
-            else if (state == QStringLiteral("failed")) ++failed;
+            else if (state == QStringLiteral("failed") || state == QStringLiteral("needs-auth")) ++failed;
         }
         m_mediaQueueStatus = failed > 0
             ? QStringLiteral("Download queue finished: %1 downloaded, %2 failed. Only downloaded items can be selected.")
                   .arg(downloaded).arg(failed)
             : QStringLiteral("All queued links have finished downloading");
         emit mediaQueueChanged();
+        clearDouyinCookieFile();
     }
 }
 
@@ -4908,15 +4987,16 @@ void DubbingController::onBatchMediaDownloadFinished(bool success, const QString
     m_activeMediaQueueDownloadId.clear();
     if (index >= 0) {
         QVariantMap item = m_mediaQueueItems.at(index).toMap();
-        item.remove(QStringLiteral("sourceUrl"));
         item.insert(QStringLiteral("receivedBytes"), 0);
         item.insert(QStringLiteral("totalBytes"), -1);
         if (cancelled) {
+            item.remove(QStringLiteral("sourceUrl"));
             item.insert(QStringLiteral("downloadState"), QStringLiteral("cancelled"));
             item.insert(QStringLiteral("processState"), QStringLiteral("cancelled"));
             item.insert(QStringLiteral("status"), QStringLiteral("Download cancelled"));
             item.insert(QStringLiteral("selected"), false);
         } else if (success && QFileInfo(localPath).isFile()) {
+            item.remove(QStringLiteral("sourceUrl"));
             item.insert(QStringLiteral("displayName"), QFileInfo(localPath).fileName());
             item.insert(QStringLiteral("localPath"), QFileInfo(localPath).absoluteFilePath());
             item.insert(QStringLiteral("downloadState"), QStringLiteral("downloaded"));
@@ -4924,11 +5004,15 @@ void DubbingController::onBatchMediaDownloadFinished(bool success, const QString
             item.insert(QStringLiteral("status"), QStringLiteral("Downloaded — select for batch processing"));
             item.insert(QStringLiteral("selected"), true);
         } else {
-            item.insert(QStringLiteral("downloadState"), QStringLiteral("failed"));
+            const QString safeError = error.trimmed().isEmpty()
+                ? QStringLiteral("Media download failed") : error.trimmed();
+            const bool needsCookies = mediaDownloadNeedsFreshCookies(safeError);
+            item.insert(QStringLiteral("downloadState"), needsCookies
+                        ? QStringLiteral("needs-auth") : QStringLiteral("failed"));
             item.insert(QStringLiteral("processState"), QStringLiteral("not-ready"));
-            item.insert(QStringLiteral("status"), error.trimmed().isEmpty()
-                        ? QStringLiteral("Media download failed") : error.trimmed());
+            item.insert(QStringLiteral("status"), safeError);
             item.insert(QStringLiteral("selected"), false);
+            if (!needsCookies) item.remove(QStringLiteral("sourceUrl"));
         }
         replaceMediaQueueItem(index, item);
     }
@@ -5402,6 +5486,7 @@ void DubbingController::finishMediaQueueRun(const QString &message)
 void DubbingController::cancelMediaQueue()
 {
     if (mediaQueueDownloading()) {
+        clearDouyinCookieFile();
         m_mediaQueueCancelling = true;
         for (int index = 0; index < m_mediaQueueItems.size(); ++index) {
             QVariantMap item = m_mediaQueueItems.at(index).toMap();
@@ -5612,6 +5697,7 @@ void DubbingController::onRemoteMediaDownloadFinished(bool success, const QStrin
                                                        const QString &error)
 {
     if (!success) {
+        clearDouyinCookieFile();
         m_downloadOnly = false;
         m_linkImportStatus.clear();
         m_linkImportReceivedBytes = 0;
@@ -5621,6 +5707,7 @@ void DubbingController::onRemoteMediaDownloadFinished(bool success, const QStrin
         return;
     }
     if (!m_runner || !QFileInfo(localPath).isFile()) {
+        clearDouyinCookieFile();
         m_downloadOnly = false;
         m_linkImportStatus.clear();
         emit linkImportChanged();
@@ -5628,6 +5715,7 @@ void DubbingController::onRemoteMediaDownloadFinished(bool success, const QStrin
         return;
     }
     if (m_downloadOnly) {
+        clearDouyinCookieFile();
         m_downloadOnly = false;
         m_downloadedMediaPath = localPath;
         m_linkImportStatus = QStringLiteral("Download complete — ready to send to Dubbing");
@@ -5637,6 +5725,7 @@ void DubbingController::onRemoteMediaDownloadFinished(bool success, const QStrin
         return;
     }
     m_pendingLinkedMediaPath = localPath;
+    clearDouyinCookieFile();
     m_linkImportStatus = QStringLiteral("Validating and normalizing downloaded media");
     m_linkImportReceivedBytes = QFileInfo(localPath).size();
     m_linkImportTotalBytes = m_linkImportReceivedBytes;

@@ -272,6 +272,13 @@ Dialog {
                                 font.pixelSize: Theme.fontSmall
                             }
                             PrimaryButton {
+                                visible: modelData.downloadState === "needs-auth"
+                                text: qsTr("Retry with cookies")
+                                quiet: true
+                                enabled: !root.dubbing.mediaQueueDownloading && !root.dubbing.mediaQueueProcessing
+                                onClicked: root.dubbing.retryMediaQueueItem(modelData.id)
+                            }
+                            PrimaryButton {
                                 text: qsTr("Remove")
                                 quiet: true
                                 enabled: modelData.processState !== "running" && modelData.downloadState !== "downloading"
@@ -281,7 +288,8 @@ Dialog {
                         Text {
                             Layout.fillWidth: true
                             text: modelData.status || ""
-                            color: modelData.processState === "failed" ? Theme.error : Theme.textSecondary
+                            color: (modelData.processState === "failed" || modelData.downloadState === "needs-auth")
+                                   ? Theme.error : Theme.textSecondary
                             font.pixelSize: Theme.fontSmall
                             wrapMode: Text.WrapAnywhere
                         }

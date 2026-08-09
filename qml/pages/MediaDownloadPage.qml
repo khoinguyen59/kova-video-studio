@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import LAStudio
 import "../components"
@@ -80,7 +81,7 @@ Rectangle {
                     }
                     Text {
                         Layout.fillWidth: true
-                        text: qsTr("One HTTPS link per line. Direct media files and public YouTube, TikTok, and Douyin pages are supported. Playlists, login/cookies, DRM/paywalls, user-info URLs, and unsafe redirects are blocked. HTTP is allowed only for local loopback testing.")
+                        text: qsTr("One HTTPS link per line. Direct media files and public YouTube, TikTok, and Douyin pages are supported. Playlists, DRM/paywalls, user-info URLs, and unsafe redirects are blocked. Douyin cookies are optional and used only for the current download run. HTTP is allowed only for local loopback testing.")
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fontSmall
                         wrapMode: Text.WordWrap
@@ -124,6 +125,34 @@ Rectangle {
                             onClicked: root.dubbing.cancelMediaQueue()
                         }
                         Item { Layout.fillWidth: true }
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.paddingSmall
+                        Text {
+                            Layout.fillWidth: true
+                            text: root.dubbing.douyinCookieConfigured
+                                  ? qsTr("Douyin cookies: %1 (temporary for this run)").arg(root.dubbing.douyinCookieFileName)
+                                  : qsTr("If Douyin reports that fresh cookies are needed, choose a Netscape cookie file here. The app never reads browser cookies automatically.")
+                            color: Theme.textSecondary
+                            font.pixelSize: Theme.fontSmall
+                            wrapMode: Text.WordWrap
+                        }
+                        PrimaryButton {
+                            text: qsTr("Choose Douyin cookies")
+                            iconName: "folder"
+                            quiet: true
+                            enabled: !root.dubbing.mediaQueueDownloading && !root.dubbing.mediaQueueProcessing
+                            onClicked: douyinCookieFileDialog.open()
+                        }
+                        PrimaryButton {
+                            visible: root.dubbing.douyinCookieConfigured
+                            text: qsTr("Clear")
+                            iconName: "close"
+                            quiet: true
+                            enabled: !root.dubbing.mediaQueueDownloading && !root.dubbing.mediaQueueProcessing
+                            onClicked: root.dubbing.clearDouyinCookieFile()
+                        }
                     }
                     Text {
                         Layout.fillWidth: true
@@ -305,6 +334,13 @@ Rectangle {
                                         font.pixelSize: Theme.fontSmall
                                     }
                                     PrimaryButton {
+                                        visible: modelData.downloadState === "needs-auth"
+                                        text: qsTr("Retry with cookies")
+                                        quiet: true
+                                        enabled: !root.dubbing.mediaQueueDownloading && !root.dubbing.mediaQueueProcessing
+                                        onClicked: root.dubbing.retryMediaQueueItem(modelData.id)
+                                    }
+                                    PrimaryButton {
                                         text: qsTr("Remove")
                                         quiet: true
                                         enabled: modelData.processState !== "running" && modelData.downloadState !== "downloading"
@@ -314,7 +350,8 @@ Rectangle {
                                 Text {
                                     Layout.fillWidth: true
                                     text: modelData.status || ""
-                                    color: modelData.processState === "failed" ? Theme.error : Theme.textSecondary
+                                    color: (modelData.processState === "failed" || modelData.downloadState === "needs-auth")
+                                           ? Theme.error : Theme.textSecondary
                                     font.pixelSize: Theme.fontSmall
                                     wrapMode: Text.WrapAnywhere
                                 }
@@ -356,5 +393,13 @@ Rectangle {
                 }
             }
         }
+    }
+
+    FileDialog {
+        id: douyinCookieFileDialog
+        title: qsTr("Choose a fresh Douyin Netscape cookie file")
+        fileMode: FileDialog.OpenFile
+        nameFilters: [qsTr("Netscape cookie files (*.txt *.cookies)"), qsTr("All files (*)")]
+        onAccepted: root.dubbing.setDouyinCookieFile(AppController.files.urlToLocalPath(selectedFile.toString()))
     }
 }

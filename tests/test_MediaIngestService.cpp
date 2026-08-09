@@ -407,6 +407,155 @@ void TestMediaIngestService::resolverArgumentsKeepUntrustedUrlPositional()
     QCOMPARE(arguments.count(source.toString(QUrl::FullyEncoded)), 1);
 }
 
+void TestMediaIngestService::resolverArgumentsUseExplicitCookiesOnlyWhenProvided()
+{
+    const QUrl source(QStringLiteral("https://www.douyin.com/video/fixture"));
+    const QString cookiePath = QStringLiteral("C:/selected/douyin-cookies.txt");
+    const QStringList withoutCookies = RemoteMediaImportService::publicVideoResolverArguments(source);
+    QVERIFY(withoutCookies.contains(QStringLiteral("--no-cookies")));
+    QVERIFY(!withoutCookies.contains(QStringLiteral("--cookies")));
+
+    const QStringList withCookies = RemoteMediaImportService::publicVideoResolverArguments(source, cookiePath);
+    QVERIFY(withCookies.contains(QStringLiteral("--cookies")));
+    QVERIFY(withCookies.contains(cookiePath));
+    QVERIFY(!withCookies.contains(QStringLiteral("--no-cookies")));
+    QCOMPARE(withCookies.last(), source.toString(QUrl::FullyEncoded));
+}
+
+void TestMediaIngestService::explicitCookieFileIsCopiedTemporarilyAndRemovedAfterResolver()
+{
+    QTemporaryDir staging;
+    QVERIFY(staging.isValid());
+    DirectMediaServer server;
+    QVERIFY(server.start());
+
+    const QString cookiePath = staging.filePath(QStringLiteral("douyin-cookies.txt"));
+    QFile cookie(cookiePath);
+    QVERIFY(cookie.open(QIODevice::WriteOnly | QIODevice::Text));
+    QVERIFY(cookie.write("# Netscape HTTP Cookie File\n.douyin.com\tTRUE\t/\tFALSE\t0\ts_v_web_id\tfixture\n") > 0);
+    cookie.close();
+
+    const QString argumentLog = staging.filePath(QStringLiteral("resolver-arguments.txt"));
+    const QString adapterPath = staging.filePath(QStringLiteral("fake-yt-dlp-cookies.cmd"));
+    QFile adapter(adapterPath);
+    QVERIFY(adapter.open(QIODevice::WriteOnly | QIODevice::Text));
+    QVERIFY(adapter.write("@echo off\r\necho %* > \"%LASTUDIO_COOKIE_TEST_LOG%\"\r\necho "
+                          + server.url().toString(QUrl::FullyEncoded).toUtf8() + "\r\n") > 0);
+    adapter.close();
+
+    const QByteArray previousAdapter = qgetenv("LASTUDIO_YTDLP");
+    const bool hadPreviousAdapter = qEnvironmentVariableIsSet("LASTUDIO_YTDLP");
+    const QByteArray previousLog = qgetenv("LASTUDIO_COOKIE_TEST_LOG");
+    const bool hadPreviousLog = qEnvironmentVariableIsSet("LASTUDIO_COOKIE_TEST_LOG");
+    const auto restoreEnvironment = qScopeGuard([&] {
+        if (hadPreviousAdapter) qputenv("LASTUDIO_YTDLP", previousAdapter);
+        else qunsetenv("LASTUDIO_YTDLP");
+        if (hadPreviousLog) qputenv("LASTUDIO_COOKIE_TEST_LOG", previousLog);
+        else qunsetenv("LASTUDIO_COOKIE_TEST_LOG");
+    });
+    qputenv("LASTUDIO_YTDLP", adapterPath.toUtf8());
+    qputenv("LASTUDIO_COOKIE_TEST_LOG", argumentLog.toUtf8());
+
+    const QDir tempDirectory(QDir::tempPath());
+    const QStringList before = tempDirectory.entryList(
+        QStringList{QStringLiteral("LA-Studio-douyin-cookies-*")}, QDir::Files);
+    RemoteMediaImportService service(staging.path());
+    QString error;
+    QVERIFY2(service.setCookieFilePath(cookiePath, &error), qPrintable(error));
+    QSignalSpy finished(&service, &RemoteMediaImportService::finished);
+    QVERIFY(service.download(QUrl(QStringLiteral("https://www.douyin.com/video/fixture"))));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 10000);
+    QVERIFY2(finished.constFirst().at(0).toBool(),
+             qPrintable(finished.constFirst().at(2).toString()));
+    QVERIFY(QFileInfo(argumentLog).isFile());
+    QFile log(argumentLog);
+    QVERIFY(log.open(QIODevice::ReadOnly));
+    const QString arguments = QString::fromLocal8Bit(log.readAll());
+    QVERIFY(arguments.contains(QStringLiteral("--cookies")));
+    QVERIFY(!arguments.contains(cookiePath));
+    QVERIFY(!arguments.contains(QStringLiteral("--no-cookies")));
+    QVERIFY(QFileInfo(cookiePath).isFile());
+    QCOMPARE(tempDirectory.entryList(QStringList{QStringLiteral("LA-Studio-douyin-cookies-*")}, QDir::Files), before);
+}
+
+void TestMediaIngestService::resolverFreshCookieDiagnosticIsActionable()
+{
+    QTemporaryDir staging;
+    QVERIFY(staging.isValid());
+    const QString adapterPath = staging.filePath(QStringLiteral("fresh-cookie-error.cmd"));
+    QFile adapter(adapterPath);
+    QVERIFY(adapter.open(QIODevice::WriteOnly | QIODevice::Text));
+    QVERIFY(adapter.write("@echo off\r\necho ERROR: [Douyin] Fresh cookies (not necessarily logged in) are needed 1>&2\r\nexit /b 1\r\n") > 0);
+    adapter.close();
+
+    const QByteArray previous = qgetenv("LASTUDIO_YTDLP");
+    const bool hadPrevious = qEnvironmentVariableIsSet("LASTUDIO_YTDLP");
+    const auto restoreAdapter = qScopeGuard([previous, hadPrevious] {
+        if (hadPrevious) qputenv("LASTUDIO_YTDLP", previous);
+        else qunsetenv("LASTUDIO_YTDLP");
+    });
+    qputenv("LASTUDIO_YTDLP", adapterPath.toUtf8());
+
+    RemoteMediaImportService service(staging.path());
+    QSignalSpy finished(&service, &RemoteMediaImportService::finished);
+    QVERIFY(service.download(QUrl(QStringLiteral("https://www.douyin.com/video/fresh-cookie-fixture"))));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 10000);
+    QVERIFY(!finished.constFirst().at(0).toBool());
+    const QString error = finished.constFirst().at(2).toString();
+    QVERIFY(error.contains(QStringLiteral("fresh cookies"), Qt::CaseInsensitive));
+    QVERIFY(error.contains(QStringLiteral("Choose a Netscape cookie file"), Qt::CaseInsensitive));
+}
+
+void TestMediaIngestService::controllerRetainsDouyinLinkForCookieRetry()
+{
+    QTemporaryDir staging;
+    QVERIFY(staging.isValid());
+    DirectMediaServer server;
+    QVERIFY(server.start());
+
+    const QString adapterPath = staging.filePath(QStringLiteral("retryable-yt-dlp.cmd"));
+    const auto writeAdapter = [&](const QByteArray &contents) {
+        QFile adapter(adapterPath);
+        if (!adapter.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) return false;
+        return adapter.write(contents) == contents.size();
+    };
+    QVERIFY(writeAdapter("@echo off\r\necho ERROR: [Douyin] Fresh cookies (not necessarily logged in) are needed 1>&2\r\nexit /b 1\r\n"));
+
+    const QByteArray previous = qgetenv("LASTUDIO_YTDLP");
+    const bool hadPrevious = qEnvironmentVariableIsSet("LASTUDIO_YTDLP");
+    const auto restoreAdapter = qScopeGuard([previous, hadPrevious] {
+        if (hadPrevious) qputenv("LASTUDIO_YTDLP", previous);
+        else qunsetenv("LASTUDIO_YTDLP");
+    });
+    qputenv("LASTUDIO_YTDLP", adapterPath.toUtf8());
+
+    DubbingController controller(nullptr, nullptr);
+    QCOMPARE(controller.enqueueMediaLinks(QStringLiteral("https://v.douyin.com/retry-fixture/")), 1);
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.mediaQueueDownloading(), 10000);
+    const QVariantList failedItems = controller.mediaQueueItems();
+    QCOMPARE(failedItems.size(), 1);
+    const QVariantMap failed = failedItems.constFirst().toMap();
+    QCOMPARE(failed.value(QStringLiteral("downloadState")).toString(), QStringLiteral("needs-auth"));
+    const QString itemId = failed.value(QStringLiteral("id")).toString();
+    QVERIFY(!failed.value(QStringLiteral("sourceUrl")).toString().isEmpty());
+
+    const QString cookiePath = staging.filePath(QStringLiteral("douyin-cookies.txt"));
+    QFile cookie(cookiePath);
+    QVERIFY(cookie.open(QIODevice::WriteOnly | QIODevice::Text));
+    QVERIFY(cookie.write("# Netscape HTTP Cookie File\n.douyin.com\tTRUE\t/\tFALSE\t0\ts_v_web_id\tfixture\n") > 0);
+    cookie.close();
+    QVERIFY2(controller.setDouyinCookieFile(cookiePath), qPrintable(controller.lastError()));
+    QVERIFY(writeAdapter("@echo off\r\necho "
+                         + server.url().toString(QUrl::FullyEncoded).toUtf8() + "\r\n"));
+    QVERIFY(controller.retryMediaQueueItem(itemId));
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.mediaQueueDownloading(), 10000);
+    const QVariantMap downloaded = controller.mediaQueueItems().constFirst().toMap();
+    QCOMPARE(downloaded.value(QStringLiteral("downloadState")).toString(), QStringLiteral("downloaded"));
+    QVERIFY(QFileInfo(downloaded.value(QStringLiteral("localPath")).toString()).isFile());
+    QVERIFY(!downloaded.contains(QStringLiteral("sourceUrl")));
+    QVERIFY(!controller.douyinCookieConfigured());
+}
+
 void TestMediaIngestService::controllerCommitsDirectLinkOnlyAfterRealProbeAndNormalization()
 {
     MediaIngestService mediaRuntimeCheck;
@@ -725,10 +874,15 @@ void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
     QVERIFY(page.contains(QStringLiteral("vocals.wav")));
     QVERIFY(page.contains(QStringLiteral("background.wav")));
     QVERIFY(page.contains(QStringLiteral("public YouTube, TikTok, and Douyin pages")));
-    QVERIFY(page.contains(QStringLiteral("Playlists, login/cookies, DRM/paywalls")));
+    QVERIFY(page.contains(QStringLiteral("Douyin cookies are optional")));
+    QVERIFY(page.contains(QStringLiteral("never reads browser cookies automatically")));
     QVERIFY(dubbingSource.contains(QStringLiteral("mediaQueueRequested")));
     QVERIFY(dubbingSource.contains(QStringLiteral("Queue direct media, YouTube, TikTok, or Douyin links")));
     QVERIFY(dubbingSource.contains(QStringLiteral("Add link(s) to download queue")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("Choose Douyin cookies")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("Netscape cookie file")));
+    QVERIFY(dubbingQueueDialog.contains(QStringLiteral("retryMediaQueueItem")));
+    QVERIFY(page.contains(QStringLiteral("Retry with cookies")));
     QVERIFY(dubbingSource.contains(QStringLiteral("Downloaded media & actions")));
     QVERIFY(dubbingSource.contains(QStringLiteral("root.mediaQueueRequested(directMediaLink.text)\n"
                                                    "                        directMediaLink.clear()\n"

@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import QtMultimedia
 import "../base"
@@ -375,6 +376,34 @@ Rectangle {
                     onClicked: root.dubbing.cancelMediaQueue()
                 }
                 Item { Layout.fillWidth: true }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.paddingSmall
+                Text {
+                    Layout.fillWidth: true
+                    text: root.dubbing.douyinCookieConfigured
+                          ? qsTr("Douyin cookies: %1 (used for this download run only)").arg(root.dubbing.douyinCookieFileName)
+                          : qsTr("Douyin cookies are optional; use a fresh Netscape cookie file only when Douyin requires it.")
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSmall
+                    elide: Text.ElideMiddle
+                }
+                PrimaryButton {
+                    text: qsTr("Choose Douyin cookies")
+                    iconName: "folder"
+                    quiet: true
+                    enabled: !root.dubbing.mediaQueueDownloading && !root.dubbing.mediaQueueProcessing
+                    onClicked: douyinCookieFileDialog.open()
+                }
+                PrimaryButton {
+                    visible: root.dubbing.douyinCookieConfigured
+                    text: qsTr("Clear")
+                    iconName: "close"
+                    quiet: true
+                    enabled: !root.dubbing.mediaQueueDownloading && !root.dubbing.mediaQueueProcessing
+                    onClicked: root.dubbing.clearDouyinCookieFile()
+                }
             }
             Text {
                 Layout.fillWidth: true
@@ -795,5 +824,13 @@ Rectangle {
     DubbingMediaQueueDialog {
         id: mediaQueueDialog
         dubbing: root.dubbing
+    }
+
+    FileDialog {
+        id: douyinCookieFileDialog
+        title: qsTr("Choose a fresh Douyin Netscape cookie file")
+        fileMode: FileDialog.OpenFile
+        nameFilters: [qsTr("Netscape cookie files (*.txt *.cookies)"), qsTr("All files (*)")]
+        onAccepted: root.dubbing.setDouyinCookieFile(AppController.files.urlToLocalPath(selectedFile.toString()))
     }
 }

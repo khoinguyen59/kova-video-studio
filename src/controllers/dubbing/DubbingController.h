@@ -76,6 +76,8 @@ class DubbingController : public QObject
     Q_PROPERTY(bool mediaQueueProcessing READ mediaQueueProcessing NOTIFY mediaQueueChanged)
     Q_PROPERTY(QString mediaQueueStatus READ mediaQueueStatus NOTIFY mediaQueueChanged)
     Q_PROPERTY(int mediaQueueProgress READ mediaQueueProgress NOTIFY mediaQueueChanged)
+    Q_PROPERTY(bool douyinCookieConfigured READ douyinCookieConfigured NOTIFY douyinCookieChanged)
+    Q_PROPERTY(QString douyinCookieFileName READ douyinCookieFileName NOTIFY douyinCookieChanged)
     Q_PROPERTY(QVariantList workflowNodes READ workflowNodes NOTIFY workflowChanged)
     // Presentation-only aggregation of the durable workflow node ids.  The
     // serialized graph deliberately keeps its existing ids so projects made
@@ -193,6 +195,8 @@ public:
     bool mediaQueueProcessing() const { return m_mediaQueueProcessing; }
     QString mediaQueueStatus() const { return m_mediaQueueStatus; }
     int mediaQueueProgress() const;
+    bool douyinCookieConfigured() const { return !m_douyinCookieFilePath.isEmpty(); }
+    QString douyinCookieFileName() const { return QFileInfo(m_douyinCookieFilePath).fileName(); }
     QVariantList workflowNodes() const;
     QVariantList workflowStages() const;
     QVariantMap workflowNodeConfigurations() const { return m_workflowNodeConfigurations; }
@@ -269,11 +273,15 @@ public:
     Q_INVOKABLE bool downloadMediaFromLink(const QString &url);
     Q_INVOKABLE bool handoffDownloadedMediaToDubbing();
     Q_INVOKABLE void cancelMediaLinkImport();
-    // Each non-empty line is an independent public media URL.  Downloading is
-    // serial and does not persist URLs, cookies, credentials, or browser state.
+    // Each non-empty line is an independent public media URL. Downloading is
+    // serial. URLs and explicitly selected cookie files are memory-only and
+    // never written to project, settings, history, or output metadata.
     Q_INVOKABLE int enqueueMediaLinks(const QString &urls);
+    Q_INVOKABLE bool setDouyinCookieFile(const QString &path);
+    Q_INVOKABLE void clearDouyinCookieFile();
     Q_INVOKABLE int enqueueMediaFiles(const QVariantList &paths);
     Q_INVOKABLE bool setMediaQueueItemSelected(const QString &itemId, bool selected);
+    Q_INVOKABLE bool retryMediaQueueItem(const QString &itemId);
     Q_INVOKABLE bool removeMediaQueueItem(const QString &itemId);
     Q_INVOKABLE void clearCompletedMediaQueue();
     // Runs the selected downloaded files one at a time.  Task dependencies are
@@ -399,6 +407,7 @@ signals:
     void colabSetupChanged();
     void timingResolutionChanged();
     void mediaQueueChanged();
+    void douyinCookieChanged();
     void workflowSetupRequired(const QString &nodeId, const QString &setupKind,
                                const QString &message);
 
@@ -507,6 +516,7 @@ private:
     qint64 m_linkImportReceivedBytes = 0;
     qint64 m_linkImportTotalBytes = -1;
     QVariantList m_mediaQueueItems;
+    QString m_douyinCookieFilePath;
     QString m_activeMediaQueueDownloadId;
     QString m_activeMediaQueueItemId;
     QVariantMap m_mediaQueueTasks;

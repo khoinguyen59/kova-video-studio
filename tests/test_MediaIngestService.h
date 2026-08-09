@@ -20,6 +20,10 @@ private slots:
     void resolvesPublicVideoPageThroughManagedAdapter();
     void resolverTimeoutCanRetry();
     void resolverArgumentsKeepUntrustedUrlPositional();
+    void resolverArgumentsUseExplicitCookiesOnlyWhenProvided();
+    void explicitCookieFileIsCopiedTemporarilyAndRemovedAfterResolver();
+    void resolverFreshCookieDiagnosticIsActionable();
+    void controllerRetainsDouyinLinkForCookieRetry();
     void controllerCommitsDirectLinkOnlyAfterRealProbeAndNormalization();
     void standaloneDownloadHandsOffOwnedMediaWithoutSecondDownload();
     void standaloneDownloadKeepsExistingProjectWhenProbeFails();
