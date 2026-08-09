@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QFileInfo>
 #include <QString>
+#include <QStringList>
 #include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
@@ -460,11 +461,14 @@ private:
     void replaceMediaQueueItem(int index, const QVariantMap &item);
     void startNextQueuedMediaDownload();
     void startNextMediaQueueItem();
+    void startNextMediaQueueStageItem();
     void startMediaQueueStage(const QString &stage);
+    void completeCurrentMediaQueueStage(const QString &stage);
     void completeCurrentMediaQueueItem(bool success, const QString &message = QString());
     void finishMediaQueueRun(const QString &message = QString());
     void updateMediaQueueProgressFromRunner();
     QVariantMap normalizedMediaQueueTasks(const QVariantMap &tasks, QString *error) const;
+    QStringList mediaQueueStagePlan() const;
     DubbingProject newMediaQueueProject(const QVariantMap &item) const;
     QString mediaQueueOutputDirectory(const QString &itemId) const;
     void recordMediaQueueOutput(const QString &key, const QString &path);
@@ -503,6 +507,10 @@ private:
     QString m_activeMediaQueueDownloadId;
     QString m_activeMediaQueueItemId;
     QVariantMap m_mediaQueueTasks;
+    QString m_mediaQueueExecutionMode = QStringLiteral("per-media");
+    QStringList m_mediaQueueStagePlan;
+    int m_mediaQueueStagePlanIndex = 0;
+    QHash<QString, DubbingProject> m_mediaQueueProjects;
     QString m_mediaQueueStage;
     QString m_mediaQueueStatus;
     bool m_mediaQueueProcessing = false;

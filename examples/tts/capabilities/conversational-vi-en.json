@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "lastudio.example.v1",
+  "id": "tts-conversational-vi-en",
+  "title": "Vietnamese-English conversational line",
+  "task": "tts",
+  "model": { "familyId": null, "required": false },
+  "capabilities": ["tts", "vi", "en", "mixed-language"],
+  "inputs": {
+    "text": "Xin chào mọi người. Today we will test a short bilingual voice line before publishing the video."
+  },
+  "settings": { "lang": "vi", "temperature": 0.6, "top_k": 20, "top_p": 0.9 },
+  "expected": {
+    "output": "A mixed Vietnamese-English speech waveform.",
+    "manualChecks": ["Both languages remain intelligible.", "The language transition does not stop synthesis."]
+  }
+}

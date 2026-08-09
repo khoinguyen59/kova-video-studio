@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "lastudio.example.v1",
+  "id": "tts-long-en-story",
+  "title": "English long narration",
+  "task": "tts",
+  "model": { "familyId": null, "required": false },
+  "capabilities": ["tts", "en"],
+  "inputs": {
+    "text": "In this short project update, we will review the source recording, translate the approved transcript, and prepare a clear voice track. Listen for pauses after each sentence, especially around names and numbers. When the review is complete, save the result as a WAV or MP3 file for the final edit."
+  },
+  "settings": { "lang": "en", "temperature": 0.55, "top_k": 20, "top_p": 0.9 },
+  "expected": {
+    "output": "A longer English narration waveform.",
+    "manualChecks": ["Sentence pacing remains stable.", "The final sentence is complete."]
+  }
+}

@@ -487,13 +487,6 @@ DubbingController::DubbingController(SttSessionController *sttSession, TtsEngine
             item.insert(QStringLiteral("progress"), 0);
             replaceMediaQueueItem(index, item);
 
-            if (nodeId == QStringLiteral("ingest")) {
-                if (m_mediaQueueTasks.value(QStringLiteral("isolate")).toBool())
-                    startMediaQueueStage(QStringLiteral("source-separate"));
-                else
-                    startMediaQueueStage(QStringLiteral("transcribe"));
-                return;
-            }
             if (nodeId == QStringLiteral("source-separate")) {
                 const QString outputDirectory = mediaQueueOutputDirectory(m_activeMediaQueueItemId);
                 QString error;
@@ -513,22 +506,12 @@ DubbingController::DubbingController(SttSessionController *sttSession, TtsEngine
                         : error);
                     return;
                 }
-                startMediaQueueStage(QStringLiteral("transcribe"));
-                return;
             }
             if (nodeId == QStringLiteral("transcribe")) {
                 if (!writeMediaQueueSubtitles(QStringLiteral("sourceSrt"), false)) return;
-                startMediaQueueStage(QStringLiteral("translate"));
-                return;
             }
             if (nodeId == QStringLiteral("translate")) {
                 if (!writeMediaQueueSubtitles(QStringLiteral("translatedSrt"), true)) return;
-                startMediaQueueStage(QStringLiteral("synthesize"));
-                return;
-            }
-            if (nodeId == QStringLiteral("synthesize")) {
-                startMediaQueueStage(QStringLiteral("mix"));
-                return;
             }
             if (nodeId == QStringLiteral("mix")) {
                 const QString outputPath = QDir(mediaQueueOutputDirectory(m_activeMediaQueueItemId))
@@ -541,6 +524,36 @@ DubbingController::DubbingController(SttSessionController *sttSession, TtsEngine
                     return;
                 }
                 recordMediaQueueOutput(QStringLiteral("voiceWav"), outputPath);
+            }
+
+            if (m_mediaQueueExecutionMode == QStringLiteral("stage-by-stage")) {
+                completeCurrentMediaQueueStage(nodeId);
+                return;
+            }
+            if (nodeId == QStringLiteral("ingest")) {
+                if (m_mediaQueueTasks.value(QStringLiteral("isolate")).toBool())
+                    startMediaQueueStage(QStringLiteral("source-separate"));
+                else
+                    startMediaQueueStage(QStringLiteral("transcribe"));
+                return;
+            }
+            if (nodeId == QStringLiteral("source-separate")) {
+                startMediaQueueStage(QStringLiteral("transcribe"));
+                return;
+            }
+            if (nodeId == QStringLiteral("transcribe")) {
+                startMediaQueueStage(QStringLiteral("translate"));
+                return;
+            }
+            if (nodeId == QStringLiteral("translate")) {
+                startMediaQueueStage(QStringLiteral("synthesize"));
+                return;
+            }
+            if (nodeId == QStringLiteral("synthesize")) {
+                startMediaQueueStage(QStringLiteral("mix"));
+                return;
+            }
+            if (nodeId == QStringLiteral("mix")) {
                 completeCurrentMediaQueueItem(true);
             }
         });
@@ -4612,8 +4625,32 @@ QVariantMap DubbingController::normalizedMediaQueueTasks(const QVariantMap &task
     normalized.insert(QStringLiteral("transcribe"), transcribe);
     normalized.insert(QStringLiteral("translate"), translate);
     normalized.insert(QStringLiteral("voice"), voice);
+    const QString executionMode = tasks.value(QStringLiteral("executionMode"),
+                                               QStringLiteral("per-media")).toString();
+    if (executionMode != QStringLiteral("per-media")
+        && executionMode != QStringLiteral("stage-by-stage")) {
+        if (error) *error = QStringLiteral("Choose a valid batch execution order.");
+        return {};
+    }
+    normalized.insert(QStringLiteral("executionMode"), executionMode);
     normalized.insert(QStringLiteral("audioFormat"), QStringLiteral("wav"));
     return normalized;
+}
+
+QStringList DubbingController::mediaQueueStagePlan() const
+{
+    QStringList stages{QStringLiteral("ingest")};
+    if (m_mediaQueueTasks.value(QStringLiteral("isolate")).toBool())
+        stages.append(QStringLiteral("source-separate"));
+    if (m_mediaQueueTasks.value(QStringLiteral("transcribe")).toBool())
+        stages.append(QStringLiteral("transcribe"));
+    if (m_mediaQueueTasks.value(QStringLiteral("translate")).toBool())
+        stages.append(QStringLiteral("translate"));
+    if (m_mediaQueueTasks.value(QStringLiteral("voice")).toBool()) {
+        stages.append(QStringLiteral("synthesize"));
+        stages.append(QStringLiteral("mix"));
+    }
+    return stages;
 }
 
 int DubbingController::enqueueMediaLinks(const QString &urls)
@@ -4891,9 +4928,14 @@ bool DubbingController::startMediaQueue(const QVariantMap &tasks)
             continue;
         }
         item.insert(QStringLiteral("processState"), QStringLiteral("queued"));
-        item.insert(QStringLiteral("status"), QStringLiteral("Waiting for serial batch processing"));
+        item.insert(QStringLiteral("status"), normalizedTasks.value(QStringLiteral("executionMode")).toString()
+                    == QStringLiteral("stage-by-stage")
+                    ? QStringLiteral("Waiting for stage-by-stage processing")
+                    : QStringLiteral("Waiting for end-to-end processing"));
         item.insert(QStringLiteral("progress"), 0);
         item.insert(QStringLiteral("completedStages"), QVariantList{});
+        item.insert(QStringLiteral("nextStageIndex"), 0);
+        item.insert(QStringLiteral("executionMode"), normalizedTasks.value(QStringLiteral("executionMode")));
         item.insert(QStringLiteral("outputs"), QVariantMap{});
         item.remove(QStringLiteral("error"));
         replaceMediaQueueItem(index, item);
@@ -4909,6 +4951,10 @@ bool DubbingController::startMediaQueue(const QVariantMap &tasks)
     m_mediaQueueOriginalExportPath = m_runner->exportPath();
     m_mediaQueueOriginalProjectCaptured = true;
     m_mediaQueueTasks = normalizedTasks;
+    m_mediaQueueExecutionMode = normalizedTasks.value(QStringLiteral("executionMode")).toString();
+    m_mediaQueueStagePlan = mediaQueueStagePlan();
+    m_mediaQueueStagePlanIndex = 0;
+    m_mediaQueueProjects.clear();
     m_mediaQueueProcessing = true;
     m_mediaQueueCancelling = false;
     m_mediaQueueStatus = QStringLiteral("Preparing %1 selected media item(s)").arg(selectedReady);
@@ -4924,6 +4970,10 @@ void DubbingController::startNextMediaQueueItem()
     if (!m_mediaQueueProcessing) return;
     if (m_mediaQueueCancelling) {
         finishMediaQueueRun(QStringLiteral("Batch cancelled"));
+        return;
+    }
+    if (m_mediaQueueExecutionMode == QStringLiteral("stage-by-stage")) {
+        startNextMediaQueueStageItem();
         return;
     }
     for (int index = 0; index < m_mediaQueueItems.size(); ++index) {
@@ -4965,6 +5015,80 @@ void DubbingController::startNextMediaQueueItem()
     finishMediaQueueRun(QStringLiteral("Selected media batch finished"));
 }
 
+void DubbingController::startNextMediaQueueStageItem()
+{
+    if (!m_mediaQueueProcessing || m_mediaQueueExecutionMode != QStringLiteral("stage-by-stage")) return;
+    if (m_mediaQueueCancelling) {
+        finishMediaQueueRun(QStringLiteral("Batch cancelled"));
+        return;
+    }
+    if (m_mediaQueueStagePlanIndex >= m_mediaQueueStagePlan.size()) {
+        finishMediaQueueRun(QStringLiteral("Selected media batch finished"));
+        return;
+    }
+
+    const QString stage = m_mediaQueueStagePlan.at(m_mediaQueueStagePlanIndex);
+    for (int index = 0; index < m_mediaQueueItems.size(); ++index) {
+        QVariantMap item = m_mediaQueueItems.at(index).toMap();
+        if (item.value(QStringLiteral("processState")).toString() != QStringLiteral("queued")
+            || item.value(QStringLiteral("nextStageIndex")).toInt() != m_mediaQueueStagePlanIndex) {
+            continue;
+        }
+        const QString localPath = item.value(QStringLiteral("localPath")).toString();
+        if (!QFileInfo(localPath).isFile()) {
+            item.insert(QStringLiteral("processState"), QStringLiteral("failed"));
+            item.insert(QStringLiteral("status"), QStringLiteral("Downloaded staging file is no longer available"));
+            item.insert(QStringLiteral("error"), item.value(QStringLiteral("status")));
+            item.insert(QStringLiteral("progress"), 100);
+            replaceMediaQueueItem(index, item);
+            continue;
+        }
+
+        m_activeMediaQueueItemId = item.value(QStringLiteral("id")).toString();
+        m_project = m_mediaQueueProjects.contains(m_activeMediaQueueItemId)
+            ? m_mediaQueueProjects.value(m_activeMediaQueueItemId) : newMediaQueueProject(item);
+        m_workflowNodeConfigurations = m_project.workflowNodeConfigurations;
+        m_stepOutputs.clear();
+        m_lastCompletedStepId.clear();
+        m_runner->setBackgroundAudioPath(QString());
+        m_runner->setPreviewPath(QString());
+        m_runner->setExportPath(QString());
+        item.insert(QStringLiteral("processState"), QStringLiteral("running"));
+        item.insert(QStringLiteral("stage"), stage);
+        item.insert(QStringLiteral("status"), QStringLiteral("Starting %1 (stage %2/%3)")
+                    .arg(visibleStepForNode(stage))
+                    .arg(m_mediaQueueStagePlanIndex + 1)
+                    .arg(m_mediaQueueStagePlan.size()));
+        item.insert(QStringLiteral("progress"), qRound(100.0 * m_mediaQueueStagePlanIndex
+                                                         / m_mediaQueueStagePlan.size()));
+        item.insert(QStringLiteral("outputDirectory"), mediaQueueOutputDirectory(m_activeMediaQueueItemId));
+        replaceMediaQueueItem(index, item);
+        if (!QDir().mkpath(mediaQueueOutputDirectory(m_activeMediaQueueItemId))) {
+            completeCurrentMediaQueueItem(false, QStringLiteral("Cannot create the batch output directory."));
+            return;
+        }
+        m_mediaQueueStatus = QStringLiteral("Running %1 for %2 (stage %3/%4)")
+            .arg(visibleStepForNode(stage), item.value(QStringLiteral("displayName")).toString())
+            .arg(m_mediaQueueStagePlanIndex + 1)
+            .arg(m_mediaQueueStagePlan.size());
+        emit projectChanged();
+        emit workflowChanged();
+        emit processingChanged();
+        startMediaQueueStage(stage);
+        return;
+    }
+
+    ++m_mediaQueueStagePlanIndex;
+    if (m_mediaQueueStagePlanIndex < m_mediaQueueStagePlan.size()) {
+        m_mediaQueueStatus = QStringLiteral("Completed %1 for selected media; continuing with %2")
+            .arg(visibleStepForNode(stage), visibleStepForNode(m_mediaQueueStagePlan.at(m_mediaQueueStagePlanIndex)));
+        emit mediaQueueChanged();
+        QTimer::singleShot(0, this, &DubbingController::startNextMediaQueueStageItem);
+    } else {
+        finishMediaQueueRun(QStringLiteral("Selected media batch finished"));
+    }
+}
+
 void DubbingController::startMediaQueueStage(const QString &stage)
 {
     if (!m_mediaQueueProcessing || m_activeMediaQueueItemId.isEmpty()) return;
@@ -4985,7 +5109,10 @@ void DubbingController::startMediaQueueStage(const QString &stage)
     QVariantMap item = m_mediaQueueItems.at(index).toMap();
     item.insert(QStringLiteral("stage"), stage);
     item.insert(QStringLiteral("status"), QStringLiteral("Running %1").arg(visibleStepForNode(stage)));
-    item.insert(QStringLiteral("progress"), 0);
+    const int stageIndex = m_mediaQueueStagePlan.indexOf(stage);
+    item.insert(QStringLiteral("progress"), m_mediaQueueExecutionMode == QStringLiteral("stage-by-stage")
+                && stageIndex >= 0 && !m_mediaQueueStagePlan.isEmpty()
+                ? qRound(100.0 * stageIndex / m_mediaQueueStagePlan.size()) : 0);
     replaceMediaQueueItem(index, item);
     m_mediaQueueStage = stage;
     m_runner->clearError();
@@ -5030,14 +5157,8 @@ void DubbingController::updateMediaQueueProgressFromRunner()
     const int index = mediaQueueIndex(m_activeMediaQueueItemId);
     if (index < 0) return;
     QVariantMap item = m_mediaQueueItems.at(index).toMap();
-    QStringList stages{QStringLiteral("ingest")};
-    if (m_mediaQueueTasks.value(QStringLiteral("isolate")).toBool()) stages.append(QStringLiteral("source-separate"));
-    if (m_mediaQueueTasks.value(QStringLiteral("transcribe")).toBool()) stages.append(QStringLiteral("transcribe"));
-    if (m_mediaQueueTasks.value(QStringLiteral("translate")).toBool()) stages.append(QStringLiteral("translate"));
-    if (m_mediaQueueTasks.value(QStringLiteral("voice")).toBool()) {
-        stages.append(QStringLiteral("synthesize"));
-        stages.append(QStringLiteral("mix"));
-    }
+    const QStringList stages = m_mediaQueueStagePlan.isEmpty() ? mediaQueueStagePlan() : m_mediaQueueStagePlan;
+    if (stages.isEmpty()) return;
     const int stageIndex = qMax(0, stages.indexOf(m_mediaQueueStage));
     const int runnerProgress = qBound(0, m_runner->progress(), 100);
     const int progress = qBound(0, qRound((stageIndex * 100.0 + runnerProgress) / stages.size()), 99);
@@ -5045,6 +5166,37 @@ void DubbingController::updateMediaQueueProgressFromRunner()
         item.insert(QStringLiteral("progress"), progress);
         replaceMediaQueueItem(index, item);
     }
+}
+
+void DubbingController::completeCurrentMediaQueueStage(const QString &stage)
+{
+    const int index = mediaQueueIndex(m_activeMediaQueueItemId);
+    if (index < 0) return;
+    const int completedStageIndex = m_mediaQueueStagePlan.indexOf(stage);
+    if (completedStageIndex < 0 || completedStageIndex != m_mediaQueueStagePlanIndex) {
+        completeCurrentMediaQueueItem(false, QStringLiteral("The batch stage order became inconsistent."));
+        return;
+    }
+
+    m_mediaQueueProjects.insert(m_activeMediaQueueItemId, m_project);
+    QVariantMap item = m_mediaQueueItems.at(index).toMap();
+    const int nextStageIndex = completedStageIndex + 1;
+    if (nextStageIndex >= m_mediaQueueStagePlan.size()) {
+        completeCurrentMediaQueueItem(true);
+        return;
+    }
+
+    item.insert(QStringLiteral("processState"), QStringLiteral("queued"));
+    item.insert(QStringLiteral("nextStageIndex"), nextStageIndex);
+    item.insert(QStringLiteral("stage"), QStringLiteral("waiting"));
+    item.insert(QStringLiteral("progress"), qRound(100.0 * nextStageIndex / m_mediaQueueStagePlan.size()));
+    item.insert(QStringLiteral("status"), QStringLiteral("Completed %1; waiting for %2 across the selected queue")
+                .arg(visibleStepForNode(stage), visibleStepForNode(m_mediaQueueStagePlan.at(nextStageIndex))));
+    replaceMediaQueueItem(index, item);
+    m_activeMediaQueueItemId.clear();
+    m_mediaQueueStage.clear();
+    emit mediaQueueChanged();
+    QTimer::singleShot(0, this, &DubbingController::startNextMediaQueueItem);
 }
 
 void DubbingController::completeCurrentMediaQueueItem(bool success, const QString &message)
@@ -5081,6 +5233,7 @@ void DubbingController::completeCurrentMediaQueueItem(bool success, const QStrin
                                  : QStringLiteral("Failed %1").arg(item.value(QStringLiteral("displayName")).toString());
     m_activeMediaQueueItemId.clear();
     m_mediaQueueStage.clear();
+    m_mediaQueueProjects.remove(item.value(QStringLiteral("id")).toString());
     emit mediaQueueChanged();
     QTimer::singleShot(0, this, &DubbingController::startNextMediaQueueItem);
 }
@@ -5091,6 +5244,9 @@ void DubbingController::finishMediaQueueRun(const QString &message)
     m_mediaQueueCancelling = false;
     m_activeMediaQueueItemId.clear();
     m_mediaQueueStage.clear();
+    m_mediaQueueStagePlan.clear();
+    m_mediaQueueStagePlanIndex = 0;
+    m_mediaQueueProjects.clear();
     if (m_mediaQueueOriginalProjectCaptured) {
         m_project = m_mediaQueueOriginalProject;
         m_workflowNodeConfigurations = m_mediaQueueOriginalNodeConfigurations;

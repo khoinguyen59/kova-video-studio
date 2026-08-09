@@ -25,6 +25,7 @@ private slots:
     void standaloneDownloadKeepsExistingProjectWhenProbeFails();
     void controllerQueuesMultipleDirectDownloadsWithoutPersistingUrls();
     void mediaBatchContinuesAfterARealWorkerFailure();
+    void mediaBatchCanRunEachStageAcrossTheSelectedQueue();
     void downloadRouteAndDubbingLinkControlAreWired();
 };
 

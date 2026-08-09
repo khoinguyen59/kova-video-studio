@@ -14,6 +14,9 @@ Rectangle {
 
     readonly property var dubbing: AppController.dubbing
     readonly property var subtitleOcr: AppController.subtitleOcr
+    property string batchExecutionMode: "per-media"
+
+    ButtonGroup { id: batchExecutionModeGroup }
 
     function firstSelectedDownloadedPath() {
         var items = root.dubbing.mediaQueueItems
@@ -187,6 +190,43 @@ Rectangle {
                         CheckBox { id: translateTask; text: qsTr("Translate to translated.srt") }
                         CheckBox { id: voiceTask; text: qsTr("Voice / cloned voice to WAV") }
                     }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 3
+                        Text {
+                            text: qsTr("Batch execution order")
+                            color: Theme.textPrimary
+                            font.pixelSize: Theme.fontSmall
+                            font.bold: true
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: root.batchExecutionMode === "per-media"
+                                  ? qsTr("Finish every selected task for one video before starting the next video.")
+                                  : qsTr("Run the current task for every selected video, then advance the whole queue to the next task.")
+                            color: Theme.textSecondary
+                            font.pixelSize: Theme.fontSmall
+                            wrapMode: Text.WordWrap
+                        }
+                        Flow {
+                            Layout.fillWidth: true
+                            spacing: Theme.paddingMedium
+                            RadioButton {
+                                id: perMediaOrder
+                                text: qsTr("Complete one video, then next")
+                                checked: root.batchExecutionMode === "per-media"
+                                ButtonGroup.group: batchExecutionModeGroup
+                                onToggled: if (checked) root.batchExecutionMode = "per-media"
+                            }
+                            RadioButton {
+                                id: perStageOrder
+                                text: qsTr("Complete each step for all videos")
+                                checked: root.batchExecutionMode === "stage-by-stage"
+                                ButtonGroup.group: batchExecutionModeGroup
+                                onToggled: if (checked) root.batchExecutionMode = "stage-by-stage"
+                            }
+                        }
+                    }
                     RowLayout {
                         Layout.fillWidth: true
                         PrimaryButton {
@@ -198,7 +238,8 @@ Rectangle {
                                         "isolate": isolateTask.checked,
                                         "transcribe": transcribeTask.checked,
                                         "translate": translateTask.checked,
-                                        "voice": voiceTask.checked
+                                        "voice": voiceTask.checked,
+                                        "executionMode": root.batchExecutionMode
                                     })) {
                                     root.openDubbingRequested()
                                 }

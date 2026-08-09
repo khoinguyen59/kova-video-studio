@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "lastudio.example.v1",
+  "id": "voice-clone-short-en",
+  "title": "Voice clone — short English line",
+  "task": "voice-cloning",
+  "model": { "familyId": null, "required": false },
+  "capabilities": ["voice-cloning", "en"],
+  "inputs": { "text": "Hello, this is a short cloned voice test." },
+  "settings": { "lang": "en", "temperature": 0.55, "top_k": 20, "top_p": 0.9 },
+  "expected": { "output": "A short cloned English voice waveform.", "manualChecks": ["Provide a permitted reference voice first.", "Words are intelligible."] }
+}

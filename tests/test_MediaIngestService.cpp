@@ -575,6 +575,50 @@ void TestMediaIngestService::mediaBatchContinuesAfterARealWorkerFailure()
     QVERIFY(controller.mediaQueueStatus().contains(QStringLiteral("finished"), Qt::CaseInsensitive));
 }
 
+void TestMediaIngestService::mediaBatchCanRunEachStageAcrossTheSelectedQueue()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString fixturePath = dir.filePath(QStringLiteral("stage-by-stage-fixture.wav"));
+    const QVector<float> samples(8000, 0.02F);
+    QVERIFY(WavIO::saveFloat(fixturePath, samples.constData(), samples.size(), 16000));
+
+    // This uses the production ingest stage for both files.  STT intentionally
+    // cannot start without a session, so the test proves the controller first
+    // completes ingest for every selected item, then advances the queue to the
+    // transcribe stage and terminates each real worker failure.
+    DubbingController controller(nullptr, nullptr);
+    QCOMPARE(controller.enqueueMediaFiles({fixturePath, fixturePath}), 2);
+    QStringList startedStages;
+    QStringList observedRunningKeys;
+    connect(&controller, &DubbingController::mediaQueueChanged, &controller, [&] {
+        for (const QVariant &value : controller.mediaQueueItems()) {
+            const QVariantMap item = value.toMap();
+            if (item.value(QStringLiteral("processState")).toString() != QStringLiteral("running")) continue;
+            const QString key = item.value(QStringLiteral("id")).toString()
+                + QLatin1Char(':') + item.value(QStringLiteral("stage")).toString();
+            if (!observedRunningKeys.contains(key)) {
+                observedRunningKeys.append(key);
+                startedStages.append(item.value(QStringLiteral("stage")).toString());
+            }
+        }
+    });
+
+    QVERIFY(controller.startMediaQueue({{QStringLiteral("transcribe"), true},
+                                        {QStringLiteral("executionMode"), QStringLiteral("stage-by-stage")}}));
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.mediaQueueProcessing(), 20000);
+
+    QCOMPARE(startedStages.count(QStringLiteral("ingest")), 2);
+    const int firstTranscribe = startedStages.indexOf(QStringLiteral("transcribe"));
+    QVERIFY(firstTranscribe >= 2);
+    for (const QVariant &value : controller.mediaQueueItems()) {
+        const QVariantMap item = value.toMap();
+        QCOMPARE(item.value(QStringLiteral("executionMode")).toString(), QStringLiteral("stage-by-stage"));
+        QCOMPARE(item.value(QStringLiteral("processState")).toString(), QStringLiteral("failed"));
+        QVERIFY(item.value(QStringLiteral("completedStages")).toList().contains(QStringLiteral("ingest")));
+    }
+}
+
 void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
 {
     const QDir sourceRoot(QStringLiteral(LASTUDIO_SOURCE_DIR));
@@ -589,6 +633,9 @@ void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
     const QString page = readSource(QStringLiteral("qml/pages/MediaDownloadPage.qml"));
     const QString dubbingSource = readSource(QStringLiteral("qml/components/dubbing/DubbingSourceMediaPanel.qml"));
     const QString popup = readSource(QStringLiteral("qml/components/DownloadsPopup.qml"));
+    const QString sidebar = readSource(QStringLiteral("qml/components/Sidebar.qml"));
+    const QString studioShell = readSource(QStringLiteral("qml/components/shared/StudioShell.qml"));
+    const QString theme = readSource(QStringLiteral("qml/Theme.qml"));
     QVERIFY(routes.contains(QStringLiteral("media-download")));
     QVERIFY(routes.contains(QStringLiteral("label: qsTr(\"Download\")")));
     QVERIFY(main.contains(QStringLiteral("id: mediaDownloadLoader")));
@@ -596,6 +643,9 @@ void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
     QVERIFY(main.contains(QStringLiteral("case 14: return mediaDownloadLoader.status === Loader.Ready")));
     QVERIFY(page.contains(QStringLiteral("enqueueMediaLinks(sourceUrl.text)")));
     QVERIFY(page.contains(QStringLiteral("startMediaQueue({")));
+    QVERIFY(page.contains(QStringLiteral("Complete one video, then next")));
+    QVERIFY(page.contains(QStringLiteral("Complete each step for all videos")));
+    QVERIFY(page.contains(QStringLiteral("executionMode\": root.batchExecutionMode")));
     QVERIFY(page.contains(QStringLiteral("mediaQueueItems")));
     QVERIFY(page.contains(QStringLiteral("source.srt")));
     QVERIFY(page.contains(QStringLiteral("translated.srt")));
@@ -609,6 +659,35 @@ void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
     QVERIFY(dubbingSource.contains(QStringLiteral("Add link(s) to media queue")));
     QVERIFY(dubbingSource.contains(QStringLiteral("Keep the direct-link import action above the fill-height preview")));
     QVERIFY(popup.contains(QStringLiteral("AppController.downloads.allDownloads")));
+    QVERIFY(sidebar.contains(QStringLiteral("Expand navigation")));
+    QVERIFY(sidebar.contains(QStringLiteral("labelsVisible")));
+    QVERIFY(sidebar.contains(QStringLiteral("modelData.label")));
+    QVERIFY(studioShell.contains(QStringLiteral("Drag to resize the left panel")));
+    QVERIFY(studioShell.contains(QStringLiteral("Drag to resize the settings panel")));
+    QVERIFY(studioShell.contains(QStringLiteral("clampedPanelWidth")));
+    QVERIFY(theme.contains(QStringLiteral("#f3f1ff")));
+    QVERIFY(theme.contains(QStringLiteral("#c7c2dc")));
+
+    const QDir ttsExamples(sourceRoot.filePath(QStringLiteral("examples/tts")));
+    const QDir voiceCloneExamples(sourceRoot.filePath(QStringLiteral("examples/voice-cloning")));
+    QVERIFY(ttsExamples.exists());
+    QVERIFY(voiceCloneExamples.exists());
+    const QStringList allTtsExamples = [&] {
+        QStringList result;
+        const auto entries = ttsExamples.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot);
+        for (const QFileInfo &entry : entries)
+            result.append(QDir(entry.absoluteFilePath()).entryList({QStringLiteral("*.json")}, QDir::Files));
+        return result;
+    }();
+    const QStringList allVoiceCloneExamples = [&] {
+        QStringList result = voiceCloneExamples.entryList({QStringLiteral("*.json")}, QDir::Files);
+        const auto entries = voiceCloneExamples.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot);
+        for (const QFileInfo &entry : entries)
+            result.append(QDir(entry.absoluteFilePath()).entryList({QStringLiteral("*.json")}, QDir::Files));
+        return result;
+    }();
+    QVERIFY(allTtsExamples.size() >= 9);
+    QVERIFY(allVoiceCloneExamples.size() >= 5);
 }
 
 } // namespace LAStudio

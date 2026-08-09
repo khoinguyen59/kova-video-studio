@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "lastudio.example.v1",
+  "id": "voice-clone-short-vi",
+  "title": "Voice clone — short Vietnamese line",
+  "task": "voice-cloning",
+  "model": { "familyId": null, "required": false },
+  "capabilities": ["voice-cloning", "vi"],
+  "inputs": { "text": "Chào bạn, đây là câu thử giọng ngắn." },
+  "settings": { "lang": "vi", "temperature": 0.55, "top_k": 20, "top_p": 0.9 },
+  "expected": { "output": "A short cloned Vietnamese voice waveform.", "manualChecks": ["Provide a permitted reference voice first.", "The result follows the target text."] }
+}

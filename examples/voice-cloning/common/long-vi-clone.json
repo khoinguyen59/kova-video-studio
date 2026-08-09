@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "lastudio.example.v1",
+  "id": "voice-clone-long-vi",
+  "title": "Voice clone — Vietnamese narration",
+  "task": "voice-cloning",
+  "model": { "familyId": null, "required": false },
+  "capabilities": ["voice-cloning", "vi"],
+  "inputs": { "text": "Đây là một đoạn văn dài hơn để kiểm tra nhịp đọc của giọng đã clone. Hãy giữ tốc độ tự nhiên, phát âm rõ tên riêng và dừng nhẹ ở cuối mỗi câu. Sau khi nghe lại, bạn có thể lưu kết quả để dùng lại trong phần Text to Speech." },
+  "settings": { "lang": "vi", "temperature": 0.6, "top_k": 20, "top_p": 0.9 },
+  "expected": { "output": "A longer cloned Vietnamese narration waveform.", "manualChecks": ["Provide a permitted reference voice first.", "The final sentence is complete."] }
+}

@@ -9,6 +9,9 @@ Rectangle {
 
     property int currentIndex: 0
     property bool isCollapsed: true
+    readonly property bool labelsVisible: !isCollapsed
+    readonly property int collapsedWidth: 64
+    readonly property int expandedWidth: Theme.sidebarWidth
     property bool activitiesActive: false
     property bool downloadsActive: false
     property bool communityActive: false
@@ -27,7 +30,8 @@ Rectangle {
         spacing: Theme.paddingSmall
 
         Rectangle {
-            Layout.alignment: Qt.AlignHCenter
+            Layout.alignment: root.isCollapsed ? Qt.AlignHCenter : Qt.AlignLeft
+            Layout.leftMargin: root.isCollapsed ? 0 : Theme.paddingMedium
             Layout.preferredWidth: 38
             Layout.preferredHeight: 38
             radius: 9
@@ -54,9 +58,37 @@ Rectangle {
             }
         }
 
+        Button {
+            id: collapseButton
+            Layout.alignment: root.isCollapsed ? Qt.AlignHCenter : Qt.AlignLeft
+            Layout.leftMargin: root.isCollapsed ? 0 : Theme.paddingMedium
+            Layout.preferredWidth: 38
+            Layout.preferredHeight: 30
+            flat: true
+            Accessible.name: root.isCollapsed ? qsTr("Expand navigation") : qsTr("Collapse navigation")
+            onClicked: root.isCollapsed = !root.isCollapsed
+
+            contentItem: LineIcon {
+                anchors.centerIn: parent
+                name: root.isCollapsed ? "chevron-right" : "chevron-left"
+                color: collapseButton.hovered ? Theme.textPrimary : Theme.textSecondary
+                width: 18
+                height: 18
+            }
+            background: Rectangle {
+                radius: 8
+                color: collapseButton.hovered ? Qt.rgba(1, 1, 1, 0.06) : "transparent"
+            }
+            AppToolTip {
+                text: root.isCollapsed ? qsTr("Expand navigation") : qsTr("Collapse navigation")
+                visible: collapseButton.hovered
+            }
+        }
+
         Rectangle {
-            Layout.alignment: Qt.AlignHCenter
-            Layout.preferredWidth: 28
+            Layout.alignment: root.isCollapsed ? Qt.AlignHCenter : Qt.AlignLeft
+            Layout.leftMargin: root.isCollapsed ? 0 : Theme.paddingMedium
+            Layout.preferredWidth: root.isCollapsed ? 28 : parent.width - Theme.paddingLarge * 2
             Layout.preferredHeight: 1
             color: Qt.rgba(1, 1, 1, 0.07)
         }
@@ -110,7 +142,9 @@ Rectangle {
 
                         Rectangle {
                             id: navButton
-                            anchors.centerIn: parent
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.left: parent.left
+                            anchors.leftMargin: root.isCollapsed ? Math.round((parent.width - width) / 2) : Theme.paddingSmall
                             width: 42
                             height: 42
                             radius: 9
@@ -133,6 +167,20 @@ Rectangle {
 
                             Behavior on color { ColorAnimation { duration: 120 } }
                             Behavior on border.color { ColorAnimation { duration: 120 } }
+                        }
+
+                        Text {
+                            anchors.left: navButton.right
+                            anchors.leftMargin: Theme.paddingMedium
+                            anchors.right: parent.right
+                            anchors.rightMargin: Theme.paddingSmall
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: root.labelsVisible
+                            text: modelData.label
+                            color: isCurrent ? Theme.textPrimary : Theme.textSecondary
+                            font.pixelSize: Theme.fontSmall
+                            font.bold: isCurrent
+                            elide: Text.ElideRight
                         }
 
                         MouseArea {
@@ -185,7 +233,9 @@ Rectangle {
 
             Rectangle {
                 id: workflowsNavButton
-                anchors.centerIn: parent
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.left: parent.left
+                anchors.leftMargin: root.isCollapsed ? Math.round((parent.width - width) / 2) : Theme.paddingSmall
                 width: 42
                 height: 42
                 radius: 9
@@ -235,6 +285,20 @@ Rectangle {
 
                 Behavior on color { ColorAnimation { duration: 120 } }
                 Behavior on border.color { ColorAnimation { duration: 120 } }
+            }
+
+            Text {
+                anchors.left: workflowsNavButton.right
+                anchors.leftMargin: Theme.paddingMedium
+                anchors.right: parent.right
+                anchors.rightMargin: Theme.paddingSmall
+                anchors.verticalCenter: parent.verticalCenter
+                visible: root.labelsVisible
+                text: qsTr("Activity")
+                color: workflowsItem.isActive ? Theme.textPrimary : Theme.textSecondary
+                font.pixelSize: Theme.fontSmall
+                font.bold: workflowsItem.isActive
+                elide: Text.ElideRight
             }
 
             MouseArea {
@@ -329,7 +393,9 @@ Rectangle {
 
             Rectangle {
                 id: communityNavButton
-                anchors.centerIn: parent
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.left: parent.left
+                anchors.leftMargin: root.isCollapsed ? Math.round((parent.width - width) / 2) : Theme.paddingSmall
                 width: 42
                 height: 42
                 radius: 9
@@ -384,6 +450,20 @@ Rectangle {
                 Behavior on border.color { ColorAnimation { duration: 120 } }
                 Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
                 Behavior on rotation { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+            }
+
+            Text {
+                anchors.left: communityNavButton.right
+                anchors.leftMargin: Theme.paddingMedium
+                anchors.right: parent.right
+                anchors.rightMargin: Theme.paddingSmall
+                anchors.verticalCenter: parent.verticalCenter
+                visible: root.labelsVisible
+                text: qsTr("Community & Feedback")
+                color: communityItem.isActive ? Theme.textPrimary : Theme.textSecondary
+                font.pixelSize: Theme.fontSmall
+                font.bold: communityItem.isActive
+                elide: Text.ElideRight
             }
 
             SequentialAnimation on pulseOpacity {
@@ -493,7 +573,9 @@ Rectangle {
 
             Rectangle {
                 id: downloadsNavButton
-                anchors.centerIn: parent
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.left: parent.left
+                anchors.leftMargin: root.isCollapsed ? Math.round((parent.width - width) / 2) : Theme.paddingSmall
                 width: 42
                 height: 42
                 radius: 9
@@ -516,6 +598,20 @@ Rectangle {
 
                 Behavior on color { ColorAnimation { duration: 120 } }
                 Behavior on border.color { ColorAnimation { duration: 120 } }
+            }
+
+            Text {
+                anchors.left: downloadsNavButton.right
+                anchors.leftMargin: Theme.paddingMedium
+                anchors.right: parent.right
+                anchors.rightMargin: Theme.paddingSmall
+                anchors.verticalCenter: parent.verticalCenter
+                visible: root.labelsVisible
+                text: qsTr("Downloads")
+                color: downloadsItem.isActive ? Theme.textPrimary : Theme.textSecondary
+                font.pixelSize: Theme.fontSmall
+                font.bold: downloadsItem.isActive
+                elide: Text.ElideRight
             }
 
             MouseArea {
@@ -572,7 +668,9 @@ Rectangle {
 
             Rectangle {
                 id: settingsNavButton
-                anchors.centerIn: parent
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.left: parent.left
+                anchors.leftMargin: root.isCollapsed ? Math.round((parent.width - width) / 2) : Theme.paddingSmall
                 width: 42
                 height: 42
                 radius: 9
@@ -595,6 +693,20 @@ Rectangle {
 
                 Behavior on color { ColorAnimation { duration: 120 } }
                 Behavior on border.color { ColorAnimation { duration: 120 } }
+            }
+
+            Text {
+                anchors.left: settingsNavButton.right
+                anchors.leftMargin: Theme.paddingMedium
+                anchors.right: parent.right
+                anchors.rightMargin: Theme.paddingSmall
+                anchors.verticalCenter: parent.verticalCenter
+                visible: root.labelsVisible
+                text: settingsItem.modelData.label
+                color: settingsItem.isCurrent ? Theme.textPrimary : Theme.textSecondary
+                font.pixelSize: Theme.fontSmall
+                font.bold: settingsItem.isCurrent
+                elide: Text.ElideRight
             }
 
             MouseArea {

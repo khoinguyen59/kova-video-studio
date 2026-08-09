@@ -11,8 +11,11 @@ QtObject {
     readonly property color accent:      "#7c4dff"
     readonly property color primary:     accent
     readonly property color accentLight: "#a27eff"
-    readonly property color textPrimary: "#e0e0f0"
-    readonly property color textSecondary: "#9090b0"
+    // These are deliberately brighter than the old muted values.  They are
+    // also used by the application palette so native Controls do not fall
+    // back to dark system text on a dark surface.
+    readonly property color textPrimary: "#f3f1ff"
+    readonly property color textSecondary: "#c7c2dc"
     readonly property color danger:      "#ef5350"
     readonly property color error:       danger
     readonly property color success:     "#66bb6a"

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "lastudio.example.v1",
+  "id": "voice-clone-long-en",
+  "title": "Voice clone — English narration",
+  "task": "voice-cloning",
+  "model": { "familyId": null, "required": false },
+  "capabilities": ["voice-cloning", "en"],
+  "inputs": { "text": "This longer example checks whether a cloned voice can keep a comfortable pace across several sentences. Review the pronunciation of names, numbers, and pauses before using the recording in a final video. Save the result only after you are satisfied with the voice and timing." },
+  "settings": { "lang": "en", "temperature": 0.6, "top_k": 20, "top_p": 0.9 },
+  "expected": { "output": "A longer cloned English narration waveform.", "manualChecks": ["Provide a permitted reference voice first.", "The output is not cut off."] }
+}

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "lastudio.example.v1",
+  "id": "tts-long-vi-narration",
+  "title": "Vietnamese long narration",
+  "task": "tts",
+  "model": { "familyId": null, "required": false },
+  "capabilities": ["tts", "vi"],
+  "inputs": {
+    "text": "Hôm nay chúng ta sẽ giới thiệu một quy trình dựng video ngắn. Trước hết, hãy nghe kỹ phần lời thoại và giữ nhịp đọc tự nhiên. Sau đó, kiểm tra tên riêng, số liệu và các từ tiếng Anh để giọng đọc không bị ngắt giữa câu. Khi hoàn tất, hãy lưu tệp âm thanh để dùng cho bước ghép tiếng."
+  },
+  "settings": { "lang": "vi", "temperature": 0.55, "top_k": 20, "top_p": 0.9 },
+  "expected": {
+    "output": "A longer Vietnamese narration waveform.",
+    "manualChecks": ["Pacing stays natural across several sentences.", "No sentence is cut off."]
+  }
+}

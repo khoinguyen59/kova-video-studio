@@ -35,6 +35,20 @@ ApplicationWindow {
     property bool qmlSmokeVoiceCloneLayoutResizePending: false
     title: appName + " - " + appVersion
     color: Theme.background
+    palette {
+        window: Theme.background
+        windowText: Theme.textPrimary
+        base: Theme.surface
+        alternateBase: Theme.surfaceAlt
+        text: Theme.textPrimary
+        button: Theme.surfaceAlt
+        buttonText: Theme.textPrimary
+        highlight: Theme.accent
+        highlightedText: "#ffffff"
+        placeholderText: Theme.textSecondary
+        toolTipBase: Theme.surface
+        toolTipText: Theme.textPrimary
+    }
 
     function updateBannerActionText() {
         if (AppController.updates.downloading) return qsTr("Downloading...")
@@ -512,7 +526,10 @@ ApplicationWindow {
             Sidebar {
                 id: sidebar
                 Layout.fillHeight: true
-                Layout.preferredWidth: 64
+                Layout.preferredWidth: sidebar.isCollapsed ? sidebar.collapsedWidth : sidebar.expandedWidth
+                Behavior on Layout.preferredWidth {
+                    NumberAnimation { duration: 180; easing.type: Easing.InOutQuad }
+                }
                 currentIndex: stack.currentIndex
                 activitiesActive: workflowsPopup.opened
                 downloadsActive: downloadsPopup.opened

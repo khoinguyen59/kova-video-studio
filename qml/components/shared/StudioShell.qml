@@ -49,7 +49,11 @@ RowLayout {
     
     property bool showLeftPanel: false
     property bool isLeftPanelOpen: true
-    property int mainContentMinimumWidth: 900
+    property int leftPanelWidth: 332
+    property int settingsPanelWidth: 332
+    property bool resizingLeftPanel: false
+    property bool resizingSettingsPanel: false
+    property int mainContentMinimumWidth: 640
     property int mainContentMinimumHeight: 620
     
     property alias leftPanelContent: leftPanelItem.children
@@ -63,6 +67,10 @@ RowLayout {
     signal requestModelSwitch(string familyId)
     signal requestRuntimeSwitch(string runtimeId)
     signal requestWorkflow()
+
+    function clampedPanelWidth(width) {
+        return Math.round(Math.max(240, Math.min(480, width)))
+    }
 
     function currentRuntimeItem() {
         var fam = activeFamily()
@@ -166,7 +174,7 @@ RowLayout {
 
     Rectangle {
         id: leftRail
-        Layout.preferredWidth: (root.showLeftPanel && root.isLeftPanelOpen) ? 332 : 0
+        Layout.preferredWidth: (root.showLeftPanel && root.isLeftPanelOpen) ? root.leftPanelWidth : 0
         Layout.fillHeight: true
         color: Theme.surface
         clip: true
@@ -191,6 +199,41 @@ RowLayout {
             visible: root.isLeftPanelOpen
         }
 
+    }
+
+    Rectangle {
+        id: leftPanelResizeHandle
+        Layout.preferredWidth: (root.showLeftPanel && root.isLeftPanelOpen) ? 8 : 0
+        Layout.fillHeight: true
+        visible: root.showLeftPanel && root.isLeftPanelOpen
+        color: leftPanelResizeMouse.containsMouse || root.resizingLeftPanel
+               ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.72) : "transparent"
+        z: 2
+
+        MouseArea {
+            id: leftPanelResizeMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            preventStealing: true
+            cursorShape: Qt.SizeHorCursor
+            property real pressX: 0
+            property int pressWidth: 0
+            onPressed: function(mouse) {
+                pressX = mouse.x
+                pressWidth = root.leftPanelWidth
+                root.resizingLeftPanel = true
+            }
+            onPositionChanged: function(mouse) {
+                if (pressed) root.leftPanelWidth = root.clampedPanelWidth(pressWidth + mouse.x - pressX)
+            }
+            onReleased: root.resizingLeftPanel = false
+            onCanceled: root.resizingLeftPanel = false
+        }
+
+        AppToolTip {
+            text: qsTr("Drag to resize the left panel")
+            visible: leftPanelResizeMouse.containsMouse
+        }
     }
 
     ColumnLayout {
@@ -540,8 +583,43 @@ RowLayout {
     }
 
     Rectangle {
+        id: settingsPanelResizeHandle
+        Layout.preferredWidth: (root.showSettingsPanel && root.isSettingsOpen) ? 8 : 0
+        Layout.fillHeight: true
+        visible: root.showSettingsPanel && root.isSettingsOpen
+        color: settingsPanelResizeMouse.containsMouse || root.resizingSettingsPanel
+               ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.72) : "transparent"
+        z: 2
+
+        MouseArea {
+            id: settingsPanelResizeMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            preventStealing: true
+            cursorShape: Qt.SizeHorCursor
+            property real pressX: 0
+            property int pressWidth: 0
+            onPressed: function(mouse) {
+                pressX = mouse.x
+                pressWidth = root.settingsPanelWidth
+                root.resizingSettingsPanel = true
+            }
+            onPositionChanged: function(mouse) {
+                if (pressed) root.settingsPanelWidth = root.clampedPanelWidth(pressWidth - (mouse.x - pressX))
+            }
+            onReleased: root.resizingSettingsPanel = false
+            onCanceled: root.resizingSettingsPanel = false
+        }
+
+        AppToolTip {
+            text: qsTr("Drag to resize the settings panel")
+            visible: settingsPanelResizeMouse.containsMouse
+        }
+    }
+
+    Rectangle {
         id: settingsRail
-        Layout.preferredWidth: (root.showSettingsPanel && root.isSettingsOpen) ? 332 : 0
+        Layout.preferredWidth: (root.showSettingsPanel && root.isSettingsOpen) ? root.settingsPanelWidth : 0
         Layout.fillHeight: true
         color: Theme.surface
         clip: true
