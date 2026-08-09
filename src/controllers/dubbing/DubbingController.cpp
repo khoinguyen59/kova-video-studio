@@ -46,6 +46,7 @@
 #include <QStandardPaths>
 #include <QStringList>
 #include <QTimer>
+#include <QRegularExpression>
 
 namespace LAStudio {
 
@@ -187,6 +188,25 @@ DubbingController::DubbingController(SttSessionController *sttSession, TtsEngine
     });
     connect(m_remoteMediaImport, &RemoteMediaImportService::finished, this,
             &DubbingController::onRemoteMediaDownloadFinished);
+    // The batch downloader intentionally has its own serial worker.  It must
+    // never cancel a one-off import that an operator started from the Dubbing
+    // source panel, and it never persists a submitted URL.
+    m_batchMediaImport = new RemoteMediaImportService(QString(), this);
+    connect(m_batchMediaImport, &RemoteMediaImportService::transferProgress, this,
+            [this](qint64 receivedBytes, qint64 totalBytes) {
+        const int index = mediaQueueIndex(m_activeMediaQueueDownloadId);
+        if (index < 0) return;
+        QVariantMap item = m_mediaQueueItems.at(index).toMap();
+        item.insert(QStringLiteral("receivedBytes"), receivedBytes);
+        item.insert(QStringLiteral("totalBytes"), totalBytes);
+        item.insert(QStringLiteral("downloadState"), QStringLiteral("downloading"));
+        item.insert(QStringLiteral("status"), totalBytes > 0
+                        ? QStringLiteral("Downloading %1 / %2 bytes").arg(receivedBytes).arg(totalBytes)
+                        : QStringLiteral("Downloading %1 bytes").arg(receivedBytes));
+        replaceMediaQueueItem(index, item);
+    });
+    connect(m_batchMediaImport, &RemoteMediaImportService::finished, this,
+            &DubbingController::onBatchMediaDownloadFinished);
     m_translationFix = new DubbingTranslationFixService(this);
     connect(m_translationFix, &DubbingTranslationFixService::stateChanged,
             this, [this]() {
@@ -383,6 +403,7 @@ DubbingController::DubbingController(SttSessionController *sttSession, TtsEngine
                 this, &DubbingController::scheduleAutomaticSetupAdvance);
 
     connect(m_runner, &DubbingJobRunner::stateChanged, this, [this]() {
+        updateMediaQueueProgressFromRunner();
         emit processingChanged();
         emit errorChanged();
         emit previewChanged();
@@ -449,11 +470,94 @@ DubbingController::DubbingController(SttSessionController *sttSession, TtsEngine
         }
         emit workflowChanged();
     });
+    // Batch work reuses the production runner one item at a time.  Delaying
+    // the transition by one event-loop turn lets the normal project/segment
+    // signal handlers commit the real result before the next stage begins.
+    connect(m_runner, &DubbingJobRunner::stageCompleted, this,
+            [this](const QString &nodeId, const QVariantMap &) {
+        if (!m_mediaQueueProcessing || m_activeMediaQueueItemId.isEmpty()) return;
+        QTimer::singleShot(0, this, [this, nodeId]() {
+            if (!m_mediaQueueProcessing || m_activeMediaQueueItemId.isEmpty()) return;
+            const int index = mediaQueueIndex(m_activeMediaQueueItemId);
+            if (index < 0) return;
+            QVariantMap item = m_mediaQueueItems.at(index).toMap();
+            QVariantList completedStages = item.value(QStringLiteral("completedStages")).toList();
+            if (!completedStages.contains(nodeId)) completedStages.append(nodeId);
+            item.insert(QStringLiteral("completedStages"), completedStages);
+            item.insert(QStringLiteral("progress"), 0);
+            replaceMediaQueueItem(index, item);
+
+            if (nodeId == QStringLiteral("ingest")) {
+                if (m_mediaQueueTasks.value(QStringLiteral("isolate")).toBool())
+                    startMediaQueueStage(QStringLiteral("source-separate"));
+                else
+                    startMediaQueueStage(QStringLiteral("transcribe"));
+                return;
+            }
+            if (nodeId == QStringLiteral("source-separate")) {
+                const QString outputDirectory = mediaQueueOutputDirectory(m_activeMediaQueueItemId);
+                QString error;
+                const bool wroteVocals = QFileInfo(m_project.analysisAudioPath).isFile()
+                    && replaceCopy(m_project.analysisAudioPath,
+                                   QDir(outputDirectory).filePath(QStringLiteral("vocals.wav")), &error);
+                if (wroteVocals) recordMediaQueueOutput(
+                    QStringLiteral("vocalsWav"), QDir(outputDirectory).filePath(QStringLiteral("vocals.wav")));
+                const bool wroteBackground = QFileInfo(m_project.backgroundAudioPath).isFile()
+                    && replaceCopy(m_project.backgroundAudioPath,
+                                   QDir(outputDirectory).filePath(QStringLiteral("background.wav")), &error);
+                if (wroteBackground) recordMediaQueueOutput(
+                    QStringLiteral("backgroundWav"), QDir(outputDirectory).filePath(QStringLiteral("background.wav")));
+                if (!wroteVocals || !wroteBackground) {
+                    completeCurrentMediaQueueItem(false, error.isEmpty()
+                        ? QStringLiteral("Voice isolation completed without writable vocal and background WAV files.")
+                        : error);
+                    return;
+                }
+                startMediaQueueStage(QStringLiteral("transcribe"));
+                return;
+            }
+            if (nodeId == QStringLiteral("transcribe")) {
+                if (!writeMediaQueueSubtitles(QStringLiteral("sourceSrt"), false)) return;
+                startMediaQueueStage(QStringLiteral("translate"));
+                return;
+            }
+            if (nodeId == QStringLiteral("translate")) {
+                if (!writeMediaQueueSubtitles(QStringLiteral("translatedSrt"), true)) return;
+                startMediaQueueStage(QStringLiteral("synthesize"));
+                return;
+            }
+            if (nodeId == QStringLiteral("synthesize")) {
+                startMediaQueueStage(QStringLiteral("mix"));
+                return;
+            }
+            if (nodeId == QStringLiteral("mix")) {
+                const QString outputPath = QDir(mediaQueueOutputDirectory(m_activeMediaQueueItemId))
+                    .filePath(QStringLiteral("voice.wav"));
+                QString error;
+                if (!QFileInfo(m_runner->previewPath()).isFile()
+                    || !replaceCopy(m_runner->previewPath(), outputPath, &error)) {
+                    completeCurrentMediaQueueItem(false, error.isEmpty()
+                        ? QStringLiteral("Voice synthesis completed without a writable WAV output.") : error);
+                    return;
+                }
+                recordMediaQueueOutput(QStringLiteral("voiceWav"), outputPath);
+                completeCurrentMediaQueueItem(true);
+            }
+        });
+    });
+    connect(m_runner, &DubbingJobRunner::errorOccurred, this, [this](const QString &message) {
+        if (!m_mediaQueueProcessing || m_activeMediaQueueItemId.isEmpty()) return;
+        QTimer::singleShot(0, this, [this, message]() {
+            if (!m_mediaQueueProcessing || m_activeMediaQueueItemId.isEmpty()) return;
+            completeCurrentMediaQueueItem(false, message);
+        });
+    });
 }
 
 bool DubbingController::processing() const
 {
     return m_automaticSetupActive
+        || m_mediaQueueProcessing
         || (m_translationFix && m_translationFix->busy())
         || m_runner->processing()
         || (m_workflowRunner && m_workflowRunner->running());
@@ -4438,6 +4542,622 @@ bool DubbingController::setIntentionalTimingOverlap(int segmentIndex, bool enabl
     return true;
 }
 
+int DubbingController::mediaQueueIndex(const QString &itemId) const
+{
+    for (int index = 0; index < m_mediaQueueItems.size(); ++index) {
+        if (m_mediaQueueItems.at(index).toMap().value(QStringLiteral("id")).toString() == itemId)
+            return index;
+    }
+    return -1;
+}
+
+void DubbingController::replaceMediaQueueItem(int index, const QVariantMap &item)
+{
+    if (index < 0 || index >= m_mediaQueueItems.size()) return;
+    m_mediaQueueItems[index] = item;
+    emit mediaQueueChanged();
+}
+
+bool DubbingController::mediaQueueDownloading() const
+{
+    if ((m_batchMediaImport && m_batchMediaImport->active())
+        || !m_activeMediaQueueDownloadId.isEmpty()) {
+        return true;
+    }
+    // Keep the queue busy across the event-loop handoff between two links.
+    // Otherwise a user could start a processing batch in the tiny gap after
+    // item N completes but before item N+1 has been started.
+    for (const QVariant &value : m_mediaQueueItems) {
+        const QString state = value.toMap().value(QStringLiteral("downloadState")).toString();
+        if (state == QStringLiteral("queued") || state == QStringLiteral("downloading")) return true;
+    }
+    return false;
+}
+
+int DubbingController::mediaQueueProgress() const
+{
+    int queuedJobs = 0;
+    int progressTotal = 0;
+    for (const QVariant &value : m_mediaQueueItems) {
+        const QVariantMap item = value.toMap();
+        const QString state = item.value(QStringLiteral("processState")).toString();
+        if (state != QStringLiteral("queued") && state != QStringLiteral("running")
+            && state != QStringLiteral("completed") && state != QStringLiteral("failed")
+            && state != QStringLiteral("cancelled")) {
+            continue;
+        }
+        ++queuedJobs;
+        if (state == QStringLiteral("completed") || state == QStringLiteral("failed")
+            || state == QStringLiteral("cancelled")) {
+            progressTotal += 100;
+        } else {
+            progressTotal += qBound(0, item.value(QStringLiteral("progress")).toInt(), 99);
+        }
+    }
+    return queuedJobs > 0 ? qRound(static_cast<qreal>(progressTotal) / queuedJobs) : 0;
+}
+
+QVariantMap DubbingController::normalizedMediaQueueTasks(const QVariantMap &tasks, QString *error) const
+{
+    QVariantMap normalized;
+    const bool isolate = tasks.value(QStringLiteral("isolate")).toBool();
+    const bool voice = tasks.value(QStringLiteral("voice")).toBool();
+    const bool translate = tasks.value(QStringLiteral("translate")).toBool() || voice;
+    const bool transcribe = tasks.value(QStringLiteral("transcribe")).toBool() || translate;
+    if (!isolate && !transcribe && !translate && !voice) {
+        if (error) *error = QStringLiteral("Choose at least one batch task: isolate, STT, translate, or voice.");
+        return {};
+    }
+    normalized.insert(QStringLiteral("isolate"), isolate);
+    normalized.insert(QStringLiteral("transcribe"), transcribe);
+    normalized.insert(QStringLiteral("translate"), translate);
+    normalized.insert(QStringLiteral("voice"), voice);
+    normalized.insert(QStringLiteral("audioFormat"), QStringLiteral("wav"));
+    return normalized;
+}
+
+int DubbingController::enqueueMediaLinks(const QString &urls)
+{
+    int added = 0;
+    QStringList rejected;
+    const QStringList lines = urls.split(QRegularExpression(QStringLiteral("[\\r\\n]+")), Qt::SkipEmptyParts);
+    for (const QString &line : lines) {
+        const QString source = line.trimmed();
+        if (source.isEmpty()) continue;
+        const QUrl url = QUrl::fromUserInput(source);
+        const QString scheme = url.scheme().toLower();
+        if (!url.isValid() || (scheme != QStringLiteral("https") && scheme != QStringLiteral("http"))) {
+            rejected.append(source.left(96));
+            continue;
+        }
+        QVariantMap item;
+        const QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        item.insert(QStringLiteral("id"), id);
+        // sourceUrl is short-lived memory only. It is erased the moment the
+        // downloader resolves the staged file and is never saved into a
+        // project, settings, history record, or output manifest.
+        item.insert(QStringLiteral("sourceUrl"), url.toString());
+        item.insert(QStringLiteral("displayName"), url.host().isEmpty()
+                    ? QStringLiteral("Queued media") : url.host());
+        item.insert(QStringLiteral("localPath"), QString());
+        item.insert(QStringLiteral("downloadState"), QStringLiteral("queued"));
+        item.insert(QStringLiteral("processState"), QStringLiteral("not-ready"));
+        item.insert(QStringLiteral("status"), QStringLiteral("Waiting to download"));
+        item.insert(QStringLiteral("selected"), false);
+        item.insert(QStringLiteral("progress"), 0);
+        item.insert(QStringLiteral("createdAt"), QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+        m_mediaQueueItems.append(item);
+        ++added;
+    }
+    if (added > 0) {
+        m_mediaQueueStatus = QStringLiteral("%1 link(s) queued for serial download").arg(added);
+        emit mediaQueueChanged();
+        startNextQueuedMediaDownload();
+    }
+    if (!rejected.isEmpty()) {
+        setError(QStringLiteral("Only valid HTTP(S) links can be queued. Rejected %1 line(s).").arg(rejected.size()));
+    } else if (added > 0) {
+        clearError();
+    }
+    return added;
+}
+
+int DubbingController::enqueueMediaFiles(const QVariantList &paths)
+{
+    int added = 0;
+    for (const QVariant &value : paths) {
+        const QString localPath = QFileInfo(PathUtils::urlToLocalPath(value.toString())).absoluteFilePath();
+        if (!QFileInfo(localPath).isFile()) continue;
+        QVariantMap item;
+        item.insert(QStringLiteral("id"), QUuid::createUuid().toString(QUuid::WithoutBraces));
+        item.insert(QStringLiteral("displayName"), QFileInfo(localPath).fileName());
+        item.insert(QStringLiteral("localPath"), localPath);
+        item.insert(QStringLiteral("downloadState"), QStringLiteral("downloaded"));
+        item.insert(QStringLiteral("processState"), QStringLiteral("ready"));
+        item.insert(QStringLiteral("status"), QStringLiteral("Ready for selected batch tasks"));
+        item.insert(QStringLiteral("selected"), true);
+        item.insert(QStringLiteral("progress"), 0);
+        item.insert(QStringLiteral("createdAt"), QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+        m_mediaQueueItems.append(item);
+        ++added;
+    }
+    if (added > 0) {
+        m_mediaQueueStatus = QStringLiteral("%1 local media file(s) ready for batch processing").arg(added);
+        emit mediaQueueChanged();
+        clearError();
+    }
+    return added;
+}
+
+bool DubbingController::setMediaQueueItemSelected(const QString &itemId, bool selected)
+{
+    const int index = mediaQueueIndex(itemId);
+    if (index < 0) return false;
+    QVariantMap item = m_mediaQueueItems.at(index).toMap();
+    if (item.value(QStringLiteral("downloadState")).toString() != QStringLiteral("downloaded")) return false;
+    if (m_mediaQueueProcessing && item.value(QStringLiteral("processState")).toString() == QStringLiteral("running")) return false;
+    item.insert(QStringLiteral("selected"), selected);
+    replaceMediaQueueItem(index, item);
+    return true;
+}
+
+bool DubbingController::removeMediaQueueItem(const QString &itemId)
+{
+    const int index = mediaQueueIndex(itemId);
+    if (index < 0) return false;
+    const QVariantMap item = m_mediaQueueItems.at(index).toMap();
+    if (item.value(QStringLiteral("id")).toString() == m_activeMediaQueueDownloadId
+        || item.value(QStringLiteral("id")).toString() == m_activeMediaQueueItemId) {
+        setError(QStringLiteral("Cancel the active batch operation before removing that item."));
+        return false;
+    }
+    m_mediaQueueItems.removeAt(index);
+    emit mediaQueueChanged();
+    return true;
+}
+
+void DubbingController::clearCompletedMediaQueue()
+{
+    if (mediaQueueDownloading() || m_mediaQueueProcessing) {
+        setBusyError(QStringLiteral("Cancel or wait for the active batch operation before clearing completed items."));
+        return;
+    }
+    QVariantList retained;
+    for (const QVariant &value : std::as_const(m_mediaQueueItems)) {
+        const QString state = value.toMap().value(QStringLiteral("processState")).toString();
+        if (state != QStringLiteral("completed") && state != QStringLiteral("failed")
+            && state != QStringLiteral("cancelled")) {
+            retained.append(value);
+        }
+    }
+    m_mediaQueueItems = retained;
+    m_mediaQueueStatus = m_mediaQueueItems.isEmpty()
+        ? QStringLiteral("Queue cleared") : QStringLiteral("Completed batch items cleared");
+    emit mediaQueueChanged();
+}
+
+void DubbingController::startNextQueuedMediaDownload()
+{
+    if (m_mediaQueueCancelling) return;
+    if (!m_batchMediaImport || m_batchMediaImport->active() || !m_activeMediaQueueDownloadId.isEmpty()) return;
+    for (int index = 0; index < m_mediaQueueItems.size(); ++index) {
+        QVariantMap item = m_mediaQueueItems.at(index).toMap();
+        if (item.value(QStringLiteral("downloadState")).toString() != QStringLiteral("queued")) continue;
+        const QUrl url = QUrl::fromUserInput(item.value(QStringLiteral("sourceUrl")).toString());
+        if (!url.isValid()) {
+            item.insert(QStringLiteral("downloadState"), QStringLiteral("failed"));
+            item.insert(QStringLiteral("processState"), QStringLiteral("not-ready"));
+            item.insert(QStringLiteral("status"), QStringLiteral("Invalid queued media URL"));
+            item.remove(QStringLiteral("sourceUrl"));
+            replaceMediaQueueItem(index, item);
+            continue;
+        }
+        m_activeMediaQueueDownloadId = item.value(QStringLiteral("id")).toString();
+        item.insert(QStringLiteral("downloadState"), QStringLiteral("downloading"));
+        item.insert(QStringLiteral("status"), QStringLiteral("Downloading"));
+        replaceMediaQueueItem(index, item);
+        m_mediaQueueStatus = QStringLiteral("Downloading queued media %1").arg(index + 1);
+        emit mediaQueueChanged();
+        if (!m_batchMediaImport->download(url)) {
+            onBatchMediaDownloadFinished(false, QString(),
+                QStringLiteral("The queued media download could not be started."));
+        }
+        return;
+    }
+    if (!m_mediaQueueProcessing) {
+        m_mediaQueueStatus = QStringLiteral("All queued links have finished downloading");
+        emit mediaQueueChanged();
+    }
+}
+
+void DubbingController::onBatchMediaDownloadFinished(bool success, const QString &localPath,
+                                                      const QString &error)
+{
+    const int index = mediaQueueIndex(m_activeMediaQueueDownloadId);
+    const bool cancelled = m_mediaQueueCancelling;
+    m_activeMediaQueueDownloadId.clear();
+    if (index >= 0) {
+        QVariantMap item = m_mediaQueueItems.at(index).toMap();
+        item.remove(QStringLiteral("sourceUrl"));
+        item.insert(QStringLiteral("receivedBytes"), 0);
+        item.insert(QStringLiteral("totalBytes"), -1);
+        if (cancelled) {
+            item.insert(QStringLiteral("downloadState"), QStringLiteral("cancelled"));
+            item.insert(QStringLiteral("processState"), QStringLiteral("cancelled"));
+            item.insert(QStringLiteral("status"), QStringLiteral("Download cancelled"));
+            item.insert(QStringLiteral("selected"), false);
+        } else if (success && QFileInfo(localPath).isFile()) {
+            item.insert(QStringLiteral("displayName"), QFileInfo(localPath).fileName());
+            item.insert(QStringLiteral("localPath"), QFileInfo(localPath).absoluteFilePath());
+            item.insert(QStringLiteral("downloadState"), QStringLiteral("downloaded"));
+            item.insert(QStringLiteral("processState"), QStringLiteral("ready"));
+            item.insert(QStringLiteral("status"), QStringLiteral("Downloaded — select for batch processing"));
+            item.insert(QStringLiteral("selected"), true);
+        } else {
+            item.insert(QStringLiteral("downloadState"), QStringLiteral("failed"));
+            item.insert(QStringLiteral("processState"), QStringLiteral("not-ready"));
+            item.insert(QStringLiteral("status"), error.trimmed().isEmpty()
+                        ? QStringLiteral("Media download failed") : error.trimmed());
+            item.insert(QStringLiteral("selected"), false);
+        }
+        replaceMediaQueueItem(index, item);
+    }
+    m_mediaQueueStatus = cancelled ? QStringLiteral("Download queue cancelled") : (success
+        ? QStringLiteral("Downloaded queued media")
+        : QStringLiteral("Queued media download failed"));
+    emit mediaQueueChanged();
+    if (cancelled) {
+        m_mediaQueueCancelling = false;
+        emit mediaQueueChanged();
+        return;
+    }
+    QTimer::singleShot(0, this, &DubbingController::startNextQueuedMediaDownload);
+}
+
+DubbingProject DubbingController::newMediaQueueProject(const QVariantMap &item) const
+{
+    DubbingProject project;
+    const QString root = QDir(PathUtils::dataDir()).filePath(QStringLiteral("dubbing/batch-projects"));
+    const QString base = QFileInfo(item.value(QStringLiteral("localPath")).toString()).completeBaseName()
+        .replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9._-]+")), QStringLiteral("-"));
+    const QString safeBase = base.isEmpty() ? QStringLiteral("media") : base.left(80);
+    project.projectPath = QDir(root).filePath(
+        QStringLiteral("%1-%2.ladub.json").arg(safeBase, item.value(QStringLiteral("id")).toString().left(12)));
+    project.sourceLanguage = m_mediaQueueOriginalProject.sourceLanguage;
+    project.targetLanguage = m_mediaQueueOriginalProject.targetLanguage;
+    project.dubbingQuality = m_mediaQueueOriginalProject.dubbingQuality;
+    project.ttsVoiceId = m_mediaQueueOriginalProject.ttsVoiceId;
+    project.cloneVoicePresetId = project.ttsVoiceId;
+    project.durationControl = m_mediaQueueOriginalProject.durationControl;
+    project.workflowNodeConfigurations = m_mediaQueueOriginalNodeConfigurations;
+    project.transcriptConfiguration = m_mediaQueueOriginalProject.transcriptConfiguration;
+    project.subtitleConfiguration = m_mediaQueueOriginalProject.subtitleConfiguration;
+    project.timingConfiguration = m_mediaQueueOriginalProject.timingConfiguration;
+    project.customRewriteConfiguration = m_mediaQueueOriginalProject.customRewriteConfiguration;
+    project.speakers = m_mediaQueueOriginalProject.speakers;
+    project.workflowEntryMode = QStringLiteral("step");
+    return project;
+}
+
+QString DubbingController::mediaQueueOutputDirectory(const QString &itemId) const
+{
+    return QDir(PathUtils::dataDir()).filePath(QStringLiteral("dubbing/batch-output/%1").arg(itemId));
+}
+
+void DubbingController::recordMediaQueueOutput(const QString &key, const QString &path)
+{
+    const int index = mediaQueueIndex(m_activeMediaQueueItemId);
+    if (index < 0) return;
+    QVariantMap item = m_mediaQueueItems.at(index).toMap();
+    QVariantMap outputs = item.value(QStringLiteral("outputs")).toMap();
+    outputs.insert(key, path);
+    item.insert(QStringLiteral("outputs"), outputs);
+    item.insert(QStringLiteral("outputDirectory"), mediaQueueOutputDirectory(m_activeMediaQueueItemId));
+    replaceMediaQueueItem(index, item);
+}
+
+bool DubbingController::writeMediaQueueSubtitles(const QString &key, bool useTargetText)
+{
+    const QString fileName = useTargetText ? QStringLiteral("translated.srt") : QStringLiteral("source.srt");
+    const QString outputPath = QDir(mediaQueueOutputDirectory(m_activeMediaQueueItemId)).filePath(fileName);
+    QString error;
+    if (!writeDubbingSubtitles(m_project.segments, outputPath, useTargetText, &error)) {
+        completeCurrentMediaQueueItem(false, error.isEmpty()
+            ? QStringLiteral("Could not write the batch subtitle output.") : error);
+        return false;
+    }
+    recordMediaQueueOutput(key, outputPath);
+    return true;
+}
+
+bool DubbingController::startMediaQueue(const QVariantMap &tasks)
+{
+    if (mediaQueueDownloading() || linkImporting() || processing()) {
+        setBusyError(QStringLiteral("Wait for active import, download, or Dubbing work before starting the media batch."));
+        return false;
+    }
+    QString error;
+    const QVariantMap normalizedTasks = normalizedMediaQueueTasks(tasks, &error);
+    if (normalizedTasks.isEmpty()) {
+        setError(error);
+        return false;
+    }
+    int selectedReady = 0;
+    for (int index = 0; index < m_mediaQueueItems.size(); ++index) {
+        QVariantMap item = m_mediaQueueItems.at(index).toMap();
+        if (!item.value(QStringLiteral("selected")).toBool()
+            || item.value(QStringLiteral("downloadState")).toString() != QStringLiteral("downloaded")
+            || !QFileInfo(item.value(QStringLiteral("localPath")).toString()).isFile()) {
+            continue;
+        }
+        item.insert(QStringLiteral("processState"), QStringLiteral("queued"));
+        item.insert(QStringLiteral("status"), QStringLiteral("Waiting for serial batch processing"));
+        item.insert(QStringLiteral("progress"), 0);
+        item.insert(QStringLiteral("completedStages"), QVariantList{});
+        item.insert(QStringLiteral("outputs"), QVariantMap{});
+        item.remove(QStringLiteral("error"));
+        replaceMediaQueueItem(index, item);
+        ++selectedReady;
+    }
+    if (selectedReady == 0) {
+        setError(QStringLiteral("Select at least one successfully downloaded media item for the batch."));
+        return false;
+    }
+    m_mediaQueueOriginalProject = m_project;
+    m_mediaQueueOriginalNodeConfigurations = m_workflowNodeConfigurations;
+    m_mediaQueueOriginalPreviewPath = m_runner->previewPath();
+    m_mediaQueueOriginalExportPath = m_runner->exportPath();
+    m_mediaQueueOriginalProjectCaptured = true;
+    m_mediaQueueTasks = normalizedTasks;
+    m_mediaQueueProcessing = true;
+    m_mediaQueueCancelling = false;
+    m_mediaQueueStatus = QStringLiteral("Preparing %1 selected media item(s)").arg(selectedReady);
+    clearError();
+    emit mediaQueueChanged();
+    emit processingChanged();
+    QTimer::singleShot(0, this, &DubbingController::startNextMediaQueueItem);
+    return true;
+}
+
+void DubbingController::startNextMediaQueueItem()
+{
+    if (!m_mediaQueueProcessing) return;
+    if (m_mediaQueueCancelling) {
+        finishMediaQueueRun(QStringLiteral("Batch cancelled"));
+        return;
+    }
+    for (int index = 0; index < m_mediaQueueItems.size(); ++index) {
+        QVariantMap item = m_mediaQueueItems.at(index).toMap();
+        if (item.value(QStringLiteral("processState")).toString() != QStringLiteral("queued")) continue;
+        const QString localPath = item.value(QStringLiteral("localPath")).toString();
+        if (!QFileInfo(localPath).isFile()) {
+            item.insert(QStringLiteral("processState"), QStringLiteral("failed"));
+            item.insert(QStringLiteral("status"), QStringLiteral("Downloaded staging file is no longer available"));
+            item.insert(QStringLiteral("error"), item.value(QStringLiteral("status")));
+            replaceMediaQueueItem(index, item);
+            continue;
+        }
+        m_activeMediaQueueItemId = item.value(QStringLiteral("id")).toString();
+        m_project = newMediaQueueProject(item);
+        m_workflowNodeConfigurations = m_project.workflowNodeConfigurations;
+        m_stepOutputs.clear();
+        m_lastCompletedStepId.clear();
+        m_runner->setBackgroundAudioPath(QString());
+        m_runner->setPreviewPath(QString());
+        m_runner->setExportPath(QString());
+        item.insert(QStringLiteral("processState"), QStringLiteral("running"));
+        item.insert(QStringLiteral("status"), QStringLiteral("Starting import and media validation"));
+        item.insert(QStringLiteral("stage"), QStringLiteral("ingest"));
+        item.insert(QStringLiteral("progress"), 0);
+        item.insert(QStringLiteral("outputDirectory"), mediaQueueOutputDirectory(m_activeMediaQueueItemId));
+        replaceMediaQueueItem(index, item);
+        if (!QDir().mkpath(mediaQueueOutputDirectory(m_activeMediaQueueItemId))) {
+            completeCurrentMediaQueueItem(false, QStringLiteral("Cannot create the batch output directory."));
+            return;
+        }
+        m_mediaQueueStatus = QStringLiteral("Processing %1").arg(item.value(QStringLiteral("displayName")).toString());
+        emit projectChanged();
+        emit workflowChanged();
+        emit processingChanged();
+        startMediaQueueStage(QStringLiteral("ingest"));
+        return;
+    }
+    finishMediaQueueRun(QStringLiteral("Selected media batch finished"));
+}
+
+void DubbingController::startMediaQueueStage(const QString &stage)
+{
+    if (!m_mediaQueueProcessing || m_activeMediaQueueItemId.isEmpty()) return;
+    if (stage == QStringLiteral("transcribe") && !m_mediaQueueTasks.value(QStringLiteral("transcribe")).toBool()) {
+        completeCurrentMediaQueueItem(true);
+        return;
+    }
+    if (stage == QStringLiteral("translate") && !m_mediaQueueTasks.value(QStringLiteral("translate")).toBool()) {
+        startMediaQueueStage(QStringLiteral("synthesize"));
+        return;
+    }
+    if (stage == QStringLiteral("synthesize") && !m_mediaQueueTasks.value(QStringLiteral("voice")).toBool()) {
+        completeCurrentMediaQueueItem(true);
+        return;
+    }
+    const int index = mediaQueueIndex(m_activeMediaQueueItemId);
+    if (index < 0) return;
+    QVariantMap item = m_mediaQueueItems.at(index).toMap();
+    item.insert(QStringLiteral("stage"), stage);
+    item.insert(QStringLiteral("status"), QStringLiteral("Running %1").arg(visibleStepForNode(stage)));
+    item.insert(QStringLiteral("progress"), 0);
+    replaceMediaQueueItem(index, item);
+    m_mediaQueueStage = stage;
+    m_runner->clearError();
+    emit mediaQueueChanged();
+    emit processingChanged();
+
+    if (stage == QStringLiteral("ingest")) {
+        m_runner->startIngest(m_project.sourceMediaPath.isEmpty()
+            ? item.value(QStringLiteral("localPath")).toString() : m_project.sourceMediaPath);
+    } else if (stage == QStringLiteral("source-separate")) {
+        const QString audioPath = m_project.masterAudioPath;
+        if (audioPath.isEmpty()) {
+            completeCurrentMediaQueueItem(false, QStringLiteral("Media validation did not produce a master audio path."));
+            return;
+        }
+        m_runner->startSourceSeparation(audioPath,
+            m_workflowNodeConfigurations.value(QStringLiteral("source-separate")).toMap());
+    } else if (stage == QStringLiteral("transcribe")) {
+        transcribeSource();
+    } else if (stage == QStringLiteral("translate")) {
+        translateSource();
+    } else if (stage == QStringLiteral("synthesize")) {
+        generateAudio();
+    } else if (stage == QStringLiteral("mix")) {
+        if (!m_runner->renderPreview(m_project.segments, m_project.projectPath)) {
+            completeCurrentMediaQueueItem(false, QStringLiteral("Could not start WAV mix rendering for this batch item."));
+            return;
+        }
+    }
+
+    if (stage != QStringLiteral("mix") && !m_runner->processing()) {
+        const QString message = m_runner->lastError().trimmed().isEmpty()
+            ? QStringLiteral("The %1 batch stage did not start.").arg(visibleStepForNode(stage))
+            : m_runner->lastError();
+        completeCurrentMediaQueueItem(false, message);
+    }
+}
+
+void DubbingController::updateMediaQueueProgressFromRunner()
+{
+    if (!m_mediaQueueProcessing || m_activeMediaQueueItemId.isEmpty()) return;
+    const int index = mediaQueueIndex(m_activeMediaQueueItemId);
+    if (index < 0) return;
+    QVariantMap item = m_mediaQueueItems.at(index).toMap();
+    QStringList stages{QStringLiteral("ingest")};
+    if (m_mediaQueueTasks.value(QStringLiteral("isolate")).toBool()) stages.append(QStringLiteral("source-separate"));
+    if (m_mediaQueueTasks.value(QStringLiteral("transcribe")).toBool()) stages.append(QStringLiteral("transcribe"));
+    if (m_mediaQueueTasks.value(QStringLiteral("translate")).toBool()) stages.append(QStringLiteral("translate"));
+    if (m_mediaQueueTasks.value(QStringLiteral("voice")).toBool()) {
+        stages.append(QStringLiteral("synthesize"));
+        stages.append(QStringLiteral("mix"));
+    }
+    const int stageIndex = qMax(0, stages.indexOf(m_mediaQueueStage));
+    const int runnerProgress = qBound(0, m_runner->progress(), 100);
+    const int progress = qBound(0, qRound((stageIndex * 100.0 + runnerProgress) / stages.size()), 99);
+    if (item.value(QStringLiteral("progress")).toInt() != progress) {
+        item.insert(QStringLiteral("progress"), progress);
+        replaceMediaQueueItem(index, item);
+    }
+}
+
+void DubbingController::completeCurrentMediaQueueItem(bool success, const QString &message)
+{
+    const int index = mediaQueueIndex(m_activeMediaQueueItemId);
+    if (index < 0) return;
+    QVariantMap item = m_mediaQueueItems.at(index).toMap();
+    QString finalMessage = message.trimmed();
+    if (success) {
+        QString saveError;
+        if (!m_project.save(&saveError)) {
+            success = false;
+            finalMessage = saveError;
+        } else {
+            const QString projectCopy = QDir(mediaQueueOutputDirectory(m_activeMediaQueueItemId))
+                .filePath(QStringLiteral("project.ladub.json"));
+            if (!replaceCopy(m_project.projectPath, projectCopy, &saveError)) {
+                success = false;
+                finalMessage = saveError;
+            } else {
+                recordMediaQueueOutput(QStringLiteral("project"), projectCopy);
+            }
+        }
+    }
+    item = m_mediaQueueItems.at(index).toMap();
+    item.insert(QStringLiteral("processState"), success ? QStringLiteral("completed") : QStringLiteral("failed"));
+    item.insert(QStringLiteral("progress"), 100);
+    item.insert(QStringLiteral("stage"), success ? QStringLiteral("completed") : QStringLiteral("failed"));
+    item.insert(QStringLiteral("status"), success ? QStringLiteral("Completed")
+                : (finalMessage.isEmpty() ? QStringLiteral("Failed") : finalMessage));
+    if (!success) item.insert(QStringLiteral("error"), item.value(QStringLiteral("status")));
+    replaceMediaQueueItem(index, item);
+    m_mediaQueueStatus = success ? QStringLiteral("Completed %1").arg(item.value(QStringLiteral("displayName")).toString())
+                                 : QStringLiteral("Failed %1").arg(item.value(QStringLiteral("displayName")).toString());
+    m_activeMediaQueueItemId.clear();
+    m_mediaQueueStage.clear();
+    emit mediaQueueChanged();
+    QTimer::singleShot(0, this, &DubbingController::startNextMediaQueueItem);
+}
+
+void DubbingController::finishMediaQueueRun(const QString &message)
+{
+    m_mediaQueueProcessing = false;
+    m_mediaQueueCancelling = false;
+    m_activeMediaQueueItemId.clear();
+    m_mediaQueueStage.clear();
+    if (m_mediaQueueOriginalProjectCaptured) {
+        m_project = m_mediaQueueOriginalProject;
+        m_workflowNodeConfigurations = m_mediaQueueOriginalNodeConfigurations;
+        m_runner->setBackgroundAudioPath(m_project.backgroundAudioPath);
+        m_runner->setPreviewPath(m_mediaQueueOriginalPreviewPath);
+        m_runner->setExportPath(m_mediaQueueOriginalExportPath);
+        m_mediaQueueOriginalProjectCaptured = false;
+    }
+    m_mediaQueueStatus = message.isEmpty() ? QStringLiteral("Media batch finished") : message;
+    emit projectChanged();
+    emit segmentsChanged();
+    emit workflowChanged();
+    emit mediaQueueChanged();
+    emit processingChanged();
+}
+
+void DubbingController::cancelMediaQueue()
+{
+    if (mediaQueueDownloading()) {
+        m_mediaQueueCancelling = true;
+        for (int index = 0; index < m_mediaQueueItems.size(); ++index) {
+            QVariantMap item = m_mediaQueueItems.at(index).toMap();
+            const QString downloadState = item.value(QStringLiteral("downloadState")).toString();
+            if (downloadState == QStringLiteral("queued")) {
+                item.remove(QStringLiteral("sourceUrl"));
+                item.insert(QStringLiteral("downloadState"), QStringLiteral("cancelled"));
+                item.insert(QStringLiteral("processState"), QStringLiteral("cancelled"));
+                item.insert(QStringLiteral("status"), QStringLiteral("Cancelled before download"));
+                item.insert(QStringLiteral("selected"), false);
+                replaceMediaQueueItem(index, item);
+            }
+        }
+        m_mediaQueueStatus = QStringLiteral("Cancelling download queue");
+        emit mediaQueueChanged();
+        if (m_batchMediaImport && m_batchMediaImport->active()) {
+            m_batchMediaImport->cancel();
+        } else {
+            m_activeMediaQueueDownloadId.clear();
+            m_mediaQueueCancelling = false;
+            m_mediaQueueStatus = QStringLiteral("Download queue cancelled");
+            emit mediaQueueChanged();
+        }
+        return;
+    }
+    if (!m_mediaQueueProcessing) return;
+    m_mediaQueueCancelling = true;
+    for (int index = 0; index < m_mediaQueueItems.size(); ++index) {
+        QVariantMap item = m_mediaQueueItems.at(index).toMap();
+        if (item.value(QStringLiteral("processState")).toString() == QStringLiteral("queued")) {
+            item.insert(QStringLiteral("processState"), QStringLiteral("cancelled"));
+            item.insert(QStringLiteral("status"), QStringLiteral("Cancelled before processing"));
+            replaceMediaQueueItem(index, item);
+        }
+    }
+    if (m_runner && m_runner->processing()) m_runner->cancel();
+    const int activeIndex = mediaQueueIndex(m_activeMediaQueueItemId);
+    if (activeIndex >= 0) {
+        QVariantMap activeItem = m_mediaQueueItems.at(activeIndex).toMap();
+        activeItem.insert(QStringLiteral("processState"), QStringLiteral("cancelled"));
+        activeItem.insert(QStringLiteral("status"), QStringLiteral("Cancelled during ")
+                          + activeItem.value(QStringLiteral("stage")).toString());
+        activeItem.insert(QStringLiteral("progress"), qBound(0, activeItem.value(QStringLiteral("progress")).toInt(), 99));
+        replaceMediaQueueItem(activeIndex, activeItem);
+    }
+    if (!m_runner || !m_runner->processing()) finishMediaQueueRun(QStringLiteral("Batch cancelled"));
+}
+
 bool DubbingController::importMediaFromLink(const QString &url)
 {
     const QUrl sourceUrl = QUrl::fromUserInput(url.trimmed());
@@ -4736,6 +5456,10 @@ void DubbingController::generateAudio()
 
 void DubbingController::cancelProcessing()
 {
+    if (m_mediaQueueProcessing) {
+        cancelMediaQueue();
+        return;
+    }
     const bool wasAutomatic = m_workflowMode == QStringLiteral("automatic")
         || m_automaticSetupActive;
     m_automaticSetupActive = false;

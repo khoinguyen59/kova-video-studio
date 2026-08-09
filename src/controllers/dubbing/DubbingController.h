@@ -66,6 +66,15 @@ class DubbingController : public QObject
     Q_PROPERTY(bool downloadedMediaReady READ downloadedMediaReady NOTIFY linkImportChanged)
     Q_PROPERTY(QString downloadedMediaPath READ downloadedMediaPath NOTIFY linkImportChanged)
     Q_PROPERTY(QString downloadedMediaFileName READ downloadedMediaFileName NOTIFY linkImportChanged)
+    // Batch media stays deliberately separate from the one-off link-import
+    // affordance above.  A batch item represents a locally staged media file
+    // and its durable per-item outputs; source URLs are never retained after
+    // the download has completed.
+    Q_PROPERTY(QVariantList mediaQueueItems READ mediaQueueItems NOTIFY mediaQueueChanged)
+    Q_PROPERTY(bool mediaQueueDownloading READ mediaQueueDownloading NOTIFY mediaQueueChanged)
+    Q_PROPERTY(bool mediaQueueProcessing READ mediaQueueProcessing NOTIFY mediaQueueChanged)
+    Q_PROPERTY(QString mediaQueueStatus READ mediaQueueStatus NOTIFY mediaQueueChanged)
+    Q_PROPERTY(int mediaQueueProgress READ mediaQueueProgress NOTIFY mediaQueueChanged)
     Q_PROPERTY(QVariantList workflowNodes READ workflowNodes NOTIFY workflowChanged)
     // Presentation-only aggregation of the durable workflow node ids.  The
     // serialized graph deliberately keeps its existing ids so projects made
@@ -178,6 +187,11 @@ public:
     bool downloadedMediaReady() const;
     QString downloadedMediaPath() const { return m_downloadedMediaPath; }
     QString downloadedMediaFileName() const;
+    QVariantList mediaQueueItems() const { return m_mediaQueueItems; }
+    bool mediaQueueDownloading() const;
+    bool mediaQueueProcessing() const { return m_mediaQueueProcessing; }
+    QString mediaQueueStatus() const { return m_mediaQueueStatus; }
+    int mediaQueueProgress() const;
     QVariantList workflowNodes() const;
     QVariantList workflowStages() const;
     QVariantMap workflowNodeConfigurations() const { return m_workflowNodeConfigurations; }
@@ -254,6 +268,19 @@ public:
     Q_INVOKABLE bool downloadMediaFromLink(const QString &url);
     Q_INVOKABLE bool handoffDownloadedMediaToDubbing();
     Q_INVOKABLE void cancelMediaLinkImport();
+    // Each non-empty line is an independent public media URL.  Downloading is
+    // serial and does not persist URLs, cookies, credentials, or browser state.
+    Q_INVOKABLE int enqueueMediaLinks(const QString &urls);
+    Q_INVOKABLE int enqueueMediaFiles(const QVariantList &paths);
+    Q_INVOKABLE bool setMediaQueueItemSelected(const QString &itemId, bool selected);
+    Q_INVOKABLE bool removeMediaQueueItem(const QString &itemId);
+    Q_INVOKABLE void clearCompletedMediaQueue();
+    // Runs the selected downloaded files one at a time.  Task dependencies are
+    // explicit: translation and voice generation require STT; voice generation
+    // requires translation.  Audio is emitted as WAV to avoid an implicit codec
+    // conversion or a lossy fallback.
+    Q_INVOKABLE bool startMediaQueue(const QVariantMap &tasks);
+    Q_INVOKABLE void cancelMediaQueue();
     Q_INVOKABLE void transcribeSource();
     Q_INVOKABLE void translateSource();
     Q_INVOKABLE void generateAudio();
@@ -370,12 +397,14 @@ signals:
     void cloneVoiceSelectionChanged();
     void colabSetupChanged();
     void timingResolutionChanged();
+    void mediaQueueChanged();
     void workflowSetupRequired(const QString &nodeId, const QString &setupKind,
                                const QString &message);
 
 private slots:
     void onIngestFinished(bool success, const QVariantMap &manifest);
     void onRemoteMediaDownloadFinished(bool success, const QString &localPath, const QString &error);
+    void onBatchMediaDownloadFinished(bool success, const QString &localPath, const QString &error);
 
 private:
     bool ensureProject(const QString &path);
@@ -427,6 +456,19 @@ private:
     void refreshColabSetupSnapshot(const QString &stageId, bool verified);
     QVariantMap effectiveTranscriptConfiguration(bool captureOcrSettings);
     void applyStoredSubtitleOcrConfiguration();
+    int mediaQueueIndex(const QString &itemId) const;
+    void replaceMediaQueueItem(int index, const QVariantMap &item);
+    void startNextQueuedMediaDownload();
+    void startNextMediaQueueItem();
+    void startMediaQueueStage(const QString &stage);
+    void completeCurrentMediaQueueItem(bool success, const QString &message = QString());
+    void finishMediaQueueRun(const QString &message = QString());
+    void updateMediaQueueProgressFromRunner();
+    QVariantMap normalizedMediaQueueTasks(const QVariantMap &tasks, QString *error) const;
+    DubbingProject newMediaQueueProject(const QVariantMap &item) const;
+    QString mediaQueueOutputDirectory(const QString &itemId) const;
+    void recordMediaQueueOutput(const QString &key, const QString &path);
+    bool writeMediaQueueSubtitles(const QString &key, bool useTargetText);
 
     DubbingProject m_project;
     Settings *m_settings = nullptr;
@@ -450,12 +492,26 @@ private:
     QVariantMap m_timingResolutionPreview;
     QVariantList m_timingUndoSegments;
     RemoteMediaImportService *m_remoteMediaImport = nullptr;
+    RemoteMediaImportService *m_batchMediaImport = nullptr;
     QString m_pendingLinkedMediaPath;
     QString m_downloadedMediaPath;
     bool m_downloadOnly = false;
     QString m_linkImportStatus;
     qint64 m_linkImportReceivedBytes = 0;
     qint64 m_linkImportTotalBytes = -1;
+    QVariantList m_mediaQueueItems;
+    QString m_activeMediaQueueDownloadId;
+    QString m_activeMediaQueueItemId;
+    QVariantMap m_mediaQueueTasks;
+    QString m_mediaQueueStage;
+    QString m_mediaQueueStatus;
+    bool m_mediaQueueProcessing = false;
+    bool m_mediaQueueCancelling = false;
+    DubbingProject m_mediaQueueOriginalProject;
+    QVariantMap m_mediaQueueOriginalNodeConfigurations;
+    QString m_mediaQueueOriginalPreviewPath;
+    QString m_mediaQueueOriginalExportPath;
+    bool m_mediaQueueOriginalProjectCaptured = false;
     QVariantList m_history;
     QVariantMap m_workflowNodeConfigurations;
     SttSessionController *m_sttSession = nullptr;

@@ -23,6 +23,8 @@ private slots:
     void controllerCommitsDirectLinkOnlyAfterRealProbeAndNormalization();
     void standaloneDownloadHandsOffOwnedMediaWithoutSecondDownload();
     void standaloneDownloadKeepsExistingProjectWhenProbeFails();
+    void controllerQueuesMultipleDirectDownloadsWithoutPersistingUrls();
+    void mediaBatchContinuesAfterARealWorkerFailure();
     void downloadRouteAndDubbingLinkControlAreWired();
 };
 

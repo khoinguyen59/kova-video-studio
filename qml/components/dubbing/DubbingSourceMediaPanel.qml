@@ -36,6 +36,7 @@ Rectangle {
 
     signal browseRequested()
     signal linkImportRequested(string url)
+    signal mediaQueueRequested(string urls)
     signal cancelLinkImportRequested()
     signal segmentSelected(int index)
     signal subtitleEditorRequested()
@@ -325,44 +326,49 @@ Rectangle {
 
         // Keep the direct-link import action above the fill-height preview so
         // it remains visible at short window heights and high display scale.
-        RowLayout {
+        ColumnLayout {
             Layout.fillWidth: true
             spacing: Theme.paddingSmall
-            TextField {
+            TextArea {
                 id: directMediaLink
                 Layout.fillWidth: true
-                enabled: !root.dubbing.processing && !root.dubbing.linkImporting
-                placeholderText: qsTr("Import direct media, YouTube, TikTok, or Douyin link")
+                Layout.minimumHeight: 82
+                enabled: !root.dubbing.mediaQueueProcessing
+                placeholderText: qsTr("Queue direct media, YouTube, TikTok, or Douyin links — one public link per line")
                 color: Theme.textPrimary
                 placeholderTextColor: Theme.textSecondary
                 font.pixelSize: Theme.fontSmall
                 selectByMouse: true
-                leftPadding: Theme.paddingMedium
-                rightPadding: Theme.paddingMedium
-                background: Rectangle { radius: Theme.radiusSmall; color: Qt.rgba(1, 1, 1, 0.035); border.color: parent.activeFocus ? Theme.accent : Qt.rgba(1, 1, 1, 0.09); border.width: parent.activeFocus ? 2 : 1 }
-                onAccepted: {
-                    if (text.trim().length > 0)
-                        root.linkImportRequested(text.trim())
+                wrapMode: TextEdit.WrapAnywhere
+                leftPadding: Theme.paddingMedium; rightPadding: Theme.paddingMedium
+                topPadding: Theme.paddingSmall; bottomPadding: Theme.paddingSmall
+                background: Rectangle { radius: Theme.radiusSmall; color: Qt.rgba(1, 1, 1, 0.035); border.color: directMediaLink.activeFocus ? Theme.accent : Qt.rgba(1, 1, 1, 0.09); border.width: directMediaLink.activeFocus ? 2 : 1 }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                PrimaryButton {
+                    text: qsTr("Add link(s) to media queue")
+                    iconName: "download"
+                    quiet: true
+                    enabled: directMediaLink.text.trim().length > 0 && !root.dubbing.mediaQueueProcessing
+                    onClicked: {
+                        root.mediaQueueRequested(directMediaLink.text)
+                        directMediaLink.clear()
+                    }
                 }
-            }
-            PrimaryButton {
-                text: qsTr("Import link")
-                iconName: "download"
-                quiet: true
-                enabled: directMediaLink.text.trim().length > 0 && !root.dubbing.processing && !root.dubbing.linkImporting
-                onClicked: root.linkImportRequested(directMediaLink.text.trim())
-            }
-            PrimaryButton {
-                visible: root.dubbing.linkImporting
-                text: qsTr("Cancel")
-                iconName: "close"
-                quiet: true
-                onClicked: root.cancelLinkImportRequested()
+                PrimaryButton {
+                    visible: root.dubbing.mediaQueueDownloading || root.dubbing.mediaQueueProcessing
+                    text: qsTr("Cancel queue")
+                    iconName: "close"
+                    quiet: true
+                    onClicked: root.dubbing.cancelMediaQueue()
+                }
+                Item { Layout.fillWidth: true }
             }
         }
         Text {
             Layout.fillWidth: true
-            visible: root.dubbing.linkImporting
+            visible: false
             color: Theme.textSecondary
             font.pixelSize: Theme.fontSmall
             text: {
@@ -372,6 +378,14 @@ Rectangle {
                 return total > 0 ? status + " — " + root.formatBytes(received) + " / " + root.formatBytes(total)
                                  : status + (received > 0 ? " — " + root.formatBytes(received) : "")
             }
+        }
+
+        Text {
+            Layout.fillWidth: true
+            visible: root.dubbing.mediaQueueDownloading || root.dubbing.mediaQueueProcessing
+            color: Theme.textSecondary
+            font.pixelSize: Theme.fontSmall
+            text: root.dubbing.mediaQueueStatus
         }
 
         Rectangle {

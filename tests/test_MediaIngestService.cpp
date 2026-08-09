@@ -512,6 +512,69 @@ void TestMediaIngestService::standaloneDownloadKeepsExistingProjectWhenProbeFail
     QCOMPARE(invalidServer.requestCount(), 1);
 }
 
+void TestMediaIngestService::controllerQueuesMultipleDirectDownloadsWithoutPersistingUrls()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString fixturePath = dir.filePath(QStringLiteral("batch-fixture.wav"));
+    const QVector<float> samples(8000, 0.02F);
+    QVERIFY(WavIO::saveFloat(fixturePath, samples.constData(), samples.size(), 16000));
+    QFile fixture(fixturePath);
+    QVERIFY(fixture.open(QIODevice::ReadOnly));
+    const QByteArray body = fixture.readAll();
+    DirectMediaServer first(body);
+    DirectMediaServer second(body);
+    QVERIFY(first.start());
+    QVERIFY(second.start());
+
+    DubbingController controller(nullptr, nullptr);
+    QCOMPARE(controller.enqueueMediaLinks(
+                 first.url().toString() + QStringLiteral("\n") + second.url().toString()), 2);
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.mediaQueueDownloading(), 15000);
+    QCOMPARE(first.requestCount(), 1);
+    QCOMPARE(second.requestCount(), 1);
+    const QVariantList items = controller.mediaQueueItems();
+    QCOMPARE(items.size(), 2);
+    for (const QVariant &value : items) {
+        const QVariantMap item = value.toMap();
+        QCOMPARE(item.value(QStringLiteral("downloadState")).toString(), QStringLiteral("downloaded"));
+        QCOMPARE(item.value(QStringLiteral("processState")).toString(), QStringLiteral("ready"));
+        QVERIFY(item.value(QStringLiteral("selected")).toBool());
+        QVERIFY(QFileInfo(item.value(QStringLiteral("localPath")).toString()).isFile());
+        QVERIFY(!item.contains(QStringLiteral("sourceUrl")));
+        QVERIFY(!item.value(QStringLiteral("localPath")).toString().contains(QStringLiteral("temporary=")));
+    }
+}
+
+void TestMediaIngestService::mediaBatchContinuesAfterARealWorkerFailure()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString fixturePath = dir.filePath(QStringLiteral("batch-worker-failure.wav"));
+    const QVector<float> samples(8000, 0.02F);
+    QVERIFY(WavIO::saveFloat(fixturePath, samples.constData(), samples.size(), 16000));
+
+    // The controller has no STT session in this regression.  Each item still
+    // runs the real ingest worker, then the real transcription worker rejects
+    // its unavailable dependency.  This asserts the asynchronous error path
+    // terminates that item and advances the serial queue instead of leaving a
+    // permanent "running" item.
+    DubbingController controller(nullptr, nullptr);
+    QCOMPARE(controller.enqueueMediaFiles({fixturePath, fixturePath}), 2);
+    QVERIFY(controller.startMediaQueue({{QStringLiteral("transcribe"), true}}));
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.mediaQueueProcessing(), 20000);
+
+    const QVariantList items = controller.mediaQueueItems();
+    QCOMPARE(items.size(), 2);
+    for (const QVariant &value : items) {
+        const QVariantMap item = value.toMap();
+        QCOMPARE(item.value(QStringLiteral("processState")).toString(), QStringLiteral("failed"));
+        QVERIFY(!item.value(QStringLiteral("error")).toString().trimmed().isEmpty());
+        QVERIFY(item.value(QStringLiteral("progress")).toInt() >= 0);
+    }
+    QVERIFY(controller.mediaQueueStatus().contains(QStringLiteral("finished"), Qt::CaseInsensitive));
+}
+
 void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
 {
     const QDir sourceRoot(QStringLiteral(LASTUDIO_SOURCE_DIR));
@@ -531,14 +594,19 @@ void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
     QVERIFY(main.contains(QStringLiteral("id: mediaDownloadLoader")));
     QVERIFY(main.contains(QStringLiteral("MediaDownloadPage")));
     QVERIFY(main.contains(QStringLiteral("case 14: return mediaDownloadLoader.status === Loader.Ready")));
-    QVERIFY(page.contains(QStringLiteral("downloadMediaFromLink")));
-    QVERIFY(page.contains(QStringLiteral("handoffDownloadedMediaToDubbing")));
-    QVERIFY(page.contains(QStringLiteral("downloadedMediaPath")));
-    QVERIFY(page.contains(QStringLiteral("Use in Dubbing")));
-    QVERIFY(page.contains(QStringLiteral("public YouTube, TikTok, or Douyin video")));
-    QVERIFY(page.contains(QStringLiteral("playlists, login/cookies, DRM/paywalls")));
-    QVERIFY(dubbingSource.contains(QStringLiteral("Import direct media, YouTube, TikTok, or Douyin link")));
-    QCOMPARE(dubbingSource.count(QStringLiteral("Import direct media, YouTube, TikTok, or Douyin link")), 1);
+    QVERIFY(page.contains(QStringLiteral("enqueueMediaLinks(sourceUrl.text)")));
+    QVERIFY(page.contains(QStringLiteral("startMediaQueue({")));
+    QVERIFY(page.contains(QStringLiteral("mediaQueueItems")));
+    QVERIFY(page.contains(QStringLiteral("source.srt")));
+    QVERIFY(page.contains(QStringLiteral("translated.srt")));
+    QVERIFY(page.contains(QStringLiteral("voice.wav")));
+    QVERIFY(page.contains(QStringLiteral("vocals.wav")));
+    QVERIFY(page.contains(QStringLiteral("background.wav")));
+    QVERIFY(page.contains(QStringLiteral("public YouTube, TikTok, and Douyin pages")));
+    QVERIFY(page.contains(QStringLiteral("Playlists, login/cookies, DRM/paywalls")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("mediaQueueRequested")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("Queue direct media, YouTube, TikTok, or Douyin links")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("Add link(s) to media queue")));
     QVERIFY(dubbingSource.contains(QStringLiteral("Keep the direct-link import action above the fill-height preview")));
     QVERIFY(popup.contains(QStringLiteral("AppController.downloads.allDownloads")));
 }

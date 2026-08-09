@@ -105,6 +105,7 @@ private slots:
     void unresolvedTranscriptConflictsBlockTranslationAndManualReviewPersists();
     void aiReconciliationCapabilityAndReviewDecisionsPreserveEvidence();
     void transcriptConflictUiAndColabSetupWireProductionController();
+    void mediaBatchQueueWiresSerialRealOutputs();
 };
 
 } // namespace LAStudio

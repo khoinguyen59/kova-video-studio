@@ -870,6 +870,7 @@ Item {
                     onBrowseRequested: mediaFileDialog.open()
                     onSubtitleEditorRequested: subtitleEditorDialog.open()
                     onLinkImportRequested: function(url) { root.dubbing.importMediaFromLink(url) }
+                    onMediaQueueRequested: function(urls) { root.dubbing.enqueueMediaLinks(urls) }
                     onCancelLinkImportRequested: root.dubbing.cancelMediaLinkImport()
                     onSegmentSelected: root.selectedSegment = index
                     onSelectedSegmentChanged: root.selectedSegment = selectedSegment

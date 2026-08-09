@@ -4619,5 +4619,59 @@ void TestDubbingProject::transcriptConflictUiAndColabSetupWireProductionControll
     QVERIFY(adapterSource.contains(QStringLiteral("unresolvedConflicts")));
 }
 
+void TestDubbingProject::mediaBatchQueueWiresSerialRealOutputs()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const QString stagedMedia = temporary.filePath(QStringLiteral("queued-media.wav"));
+    QVERIFY(writeFixtureFile(stagedMedia, QByteArrayLiteral("staged-media")));
+
+    DubbingController controller(nullptr, nullptr);
+    QCOMPARE(controller.enqueueMediaFiles({stagedMedia}), 1);
+    QCOMPARE(controller.mediaQueueItems().size(), 1);
+    const QVariantMap queued = controller.mediaQueueItems().first().toMap();
+    QCOMPARE(queued.value(QStringLiteral("downloadState")).toString(), QStringLiteral("downloaded"));
+    QCOMPARE(queued.value(QStringLiteral("processState")).toString(), QStringLiteral("ready"));
+    QVERIFY(queued.value(QStringLiteral("selected")).toBool());
+    QVERIFY(!controller.startMediaQueue({}));
+    QVERIFY(controller.lastError().contains(QStringLiteral("Choose at least one batch task")));
+
+    const QDir sourceRoot(QStringLiteral(LASTUDIO_SOURCE_DIR));
+    QFile controllerSource(sourceRoot.filePath(QStringLiteral("src/controllers/dubbing/DubbingController.cpp")));
+    QFile queuePage(sourceRoot.filePath(QStringLiteral("qml/pages/MediaDownloadPage.qml")));
+    QFile sourcePanel(sourceRoot.filePath(QStringLiteral("qml/components/dubbing/DubbingSourceMediaPanel.qml")));
+    QVERIFY(controllerSource.open(QIODevice::ReadOnly));
+    QVERIFY(queuePage.open(QIODevice::ReadOnly));
+    QVERIFY(sourcePanel.open(QIODevice::ReadOnly));
+    const QString controllerText = QString::fromUtf8(controllerSource.readAll());
+    const QString queuePageText = QString::fromUtf8(queuePage.readAll());
+    const QString sourcePanelText = QString::fromUtf8(sourcePanel.readAll());
+
+    QVERIFY(controllerText.contains(QStringLiteral("m_batchMediaImport")));
+    QVERIFY(controllerText.contains(QStringLiteral("startNextQueuedMediaDownload")));
+    QVERIFY(controllerText.contains(QStringLiteral("m_runner->startIngest")));
+    QVERIFY(controllerText.contains(QStringLiteral("m_runner->startSourceSeparation")));
+    QVERIFY(controllerText.contains(QStringLiteral("transcribeSource();")));
+    QVERIFY(controllerText.contains(QStringLiteral("translateSource();")));
+    QVERIFY(controllerText.contains(QStringLiteral("generateAudio();")));
+    QVERIFY(controllerText.contains(QStringLiteral("m_runner->renderPreview")));
+    QVERIFY(controllerText.contains(QStringLiteral("source.srt")));
+    QVERIFY(controllerText.contains(QStringLiteral("translated.srt")));
+    QVERIFY(controllerText.contains(QStringLiteral("voice.wav")));
+    QVERIFY(controllerText.contains(QStringLiteral("vocals.wav")));
+    QVERIFY(controllerText.contains(QStringLiteral("background.wav")));
+    QVERIFY(controllerText.contains(QStringLiteral("item.remove(QStringLiteral(\"sourceUrl\"))")));
+
+    QVERIFY(queuePageText.contains(QStringLiteral("TextArea")));
+    QVERIFY(queuePageText.contains(QStringLiteral("enqueueMediaLinks(sourceUrl.text)")));
+    QVERIFY(queuePageText.contains(QStringLiteral("startMediaQueue({")));
+    QVERIFY(queuePageText.contains(QStringLiteral("mediaQueueProgress")));
+    QVERIFY(queuePageText.contains(QStringLiteral("source.srt")));
+    QVERIFY(queuePageText.contains(QStringLiteral("translated.srt")));
+    QVERIFY(queuePageText.contains(QStringLiteral("voice.wav")));
+    QVERIFY(sourcePanelText.contains(QStringLiteral("mediaQueueRequested")));
+    QVERIFY(sourcePanelText.contains(QStringLiteral("Add link(s) to media queue")));
+}
+
 
 } // namespace LAStudio
