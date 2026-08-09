@@ -6,11 +6,50 @@ Cap nhat: 2026-08-09
 
 | Muc | Trang thai |
 | --- | --- |
-| Latest packaged candidate | `0.0.2.34` |
-| Artifact | `out/LA-Studio-0.0.2.34/LA-Studio-0.0.2.34.exe` |
-| SHA-256 | `5F86C2715A8F32F842EBADCAE3118547CB3CFB846E7206D04DE777B712DE178C` |
-| Current source | `main` at `ed03461`; batch controls now exist in the actual Dubbing workspace, with Dubbing-specific pane resizers. Version/source/package consistency verified for `0.0.2.34`. |
+| Latest packaged candidate | `0.0.2.35` |
+| Artifact | `out/LA-Studio-0.0.2.35/LA-Studio-0.0.2.35.exe` |
+| SHA-256 | `47BED51542DF28B2F5B7EFE0475C221C7DBFF1D96BC7E722D02D9BE9A79B1741` |
+| Current source | `main` at `5e80743`; pasted share text is normalized to its public URL and the Dubbing library now supports independent later actions. Version/source/package consistency verified for `0.0.2.35`. |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
+
+## Candidate 0.0.2.35 - shared links and independent Dubbing actions
+
+- The Dubbing input accepts a full copied Douyin/TikTok-style share message.
+  It extracts only each embedded `http(s)` URL before validation/download;
+  captions, short codes and “copy this link” text are neither persisted nor
+  sent to the resolver. Plain one-link-per-line input is retained.
+- **Add link(s) to download queue** now only queues/downloads media. It does
+  not open an action dialog or commit a workflow. After items become
+  downloaded, **Downloaded media & actions** lets the user tick any subset and
+  run exactly one of Import/Normalize, Isolator, STT, Translate, TTS/Voice or
+  Export/Output. The previous all-in-one batch remains an explicit advanced
+  choice.
+- Later actions restore the selected item's saved Dubbing project/artifacts;
+  they do not clear other items or silently run following stages. Export uses
+  the existing generated `voice.wav` and records the actual exported media
+  path. Missing prerequisites are shown as exact errors, not silently rerun.
+- Fixed the public-video adapter lookup: the portable package puts `yt-dlp.exe`
+  beside the application, while FFmpeg remains in `media-tools`. The runtime
+  locator now follows that real layout, fixing the `not-ready` state caused by
+  a correctly staged adapter being invisible to the app.
+
+### Evidence 0.0.2.35
+
+- New loopback regression embeds a public URL inside share-text and verifies
+  that exactly one staged download occurs. A second controller regression
+  imports two items, selects only one for a later action, and proves the
+  unselected item's saved project is not rerun or cleared. Existing package
+  lookup and QML/control regressions were updated for the real UI.
+- Targeted `TestMediaIngestService` and `TestDubbingProject` PASS; QML lint
+  PASS; full CTest **39/39 PASS** in 57.98 seconds. `graphify update .` ran
+  after source edits.
+- Portable audit confirmed source/FileVersion/ProductVersion `0.0.2.35`, the
+  SHA above, Qt `qwindows`/`qoffscreen`, RuntimeHost, FFmpeg/FFprobe and
+  root-level `yt-dlp` (`2026.07.04`). Staging/runtime and license manifests
+  both passed at 19 required artifacts.
+- No visible GUI or live Douyin/Colab/API request was run. Live platform
+  availability still depends on the public URL/service and the user-configured
+  route; it is not claimed by the loopback regression.
 
 ## Candidate 0.0.2.34 - Dubbing workspace queue controls
 

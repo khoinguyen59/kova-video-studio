@@ -353,6 +353,25 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 - `0.0.2.20` package audit passed with PE FileVersion/ProductVersion,
   SHA-256, Qt/FFmpeg/OCR/Paddle runtime and license inventory verified.
 
+### 2026-08-09 - 0.0.2.35 shared-link Dubbing library
+
+- A copied social share message is normalized at the controller boundary:
+  `enqueueMediaLinks()` extracts only embedded HTTP(S) URLs before any remote
+  validation, and removes each short-lived source URL after download. This is
+  test-covered with share text around a loopback URL; it is not a live-Douyin
+  claim.
+- The Dubbing media queue is now a downloaded-media library. Download and
+  later production actions are separate: a selected subset may run only
+  Import/Normalize, Isolator, STT, Translate, TTS/Voice or Export/Output.
+  Later actions restore the selected item's saved project and preserve other
+  items' outputs. Full multi-stage batching remains an explicit advanced mode.
+- The portable `yt-dlp.exe` resides beside `LA-Studio-*.exe`, unlike FFmpeg
+  under `media-tools`. `MediaRuntimeLocator` now mirrors the staged layout;
+  the root adapter is discovered instead of reporting a false not-ready state.
+- Source/test commit `5e80743` is on `main`. Targeted media and Dubbing
+  regressions, QML lint and full CTest 39/39 passed. Candidate `0.0.2.35`
+  is internally packaged/audited; no GUI or live remote acceptance was run.
+
 ## Quy tac duy tri
 
 - Doc `AI_AGENT_REQUEST.md` truoc task; sau task cap nhat response latest, summary cumulative va memory nay khi da co bang chung.

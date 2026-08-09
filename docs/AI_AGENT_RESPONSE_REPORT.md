@@ -1,52 +1,62 @@
-# AI agent response - 0.0.2.34 Dubbing workspace controls
+# AI agent response - 0.0.2.35 shared-link Dubbing library
 
 Date: 2026-08-09
 
-## What changed
+## Result
 
-The screenshot exposed a real placement error: batch controls were reachable
-only from the separate Download route, not from the Dubbing Import/Download
-workspace the user was using. This candidate corrects that placement.
+The copied Douyin sharing text is now accepted directly. For example, pasting
+the complete message containing `https://v.douyin.com/uZt0JMXfADs/` causes LA
+Studio to extract and queue only that URL. The surrounding short code,
+caption and “copy this link” instructions are discarded before the download
+resolver sees them.
 
-- In Dubbing Import/Download, **Queue & batch settings** is now next to
-  **Add link(s) to media queue**. Adding link(s) also opens the queue directly.
-- The queue dialog contains downloaded-item selection, Isolate/STT/Translate/
-  Voice tasks, real status/error/output paths, and **Run selected batch**.
-- The two choices are visible in that dialog:
-  - **Complete one video, then next** runs selected tasks end-to-end per item.
-  - **Complete each step for all videos** runs one selected production stage
-    across the selected items before continuing to the next stage.
-- Both choices call the existing production controller; Direct Colab, API
-  Gateway and explicit Local selection remain separate and no fallback was
-  introduced.
-- Dubbing now also has two visible draggable rails: History/Preview and
-  Preview/step workspace. This is separate from the generic StudioShell rails
-  because DubbingPage owns a different layout.
+The Dubbing screen now separates downloading from production work:
 
-## Validation
+1. Paste one or more raw links or complete share messages, then click
+   **Add link(s) to download queue**. This step only downloads.
+2. Wait for an item to show as downloaded, then click **Downloaded media &
+   actions**.
+3. Tick exactly the downloaded videos you want, choose one action, then click
+   **Run selected action**. A later action can choose a different subset.
 
-- Targeted `TestMediaIngestService`: PASS (6.14 seconds).
-- QML lint: PASS.
-- Full CTest: **39/39 PASS**; the completed CTest log records 39 passed and
-  zero failed test entries, including offscreen QML route smoke.
-- `graphify update .`: completed after source changes.
-- Portable internal package:
-  [LA-Studio-0.0.2.34.exe](C:/Users/Nguyen%20Trong%20Khoi/Downloads/LA-STUDIO/out/LA-Studio-0.0.2.34/LA-Studio-0.0.2.34.exe)
-  - FileVersion/ProductVersion: `0.0.2.34`
-  - SHA-256: `5F86C2715A8F32F842EBADCAE3118547CB3CFB846E7206D04DE777B712DE178C`
-  - `qwindows`, `qoffscreen`, FFmpeg, FFprobe, LAStudioRuntimeHost, Subtitle
-    OCR runtime manifest and Tesseract 5.5.1 were directly verified.
+The available one-action choices are Import/Normalize, Isolator,
+Transcribe/STT, Translate, TTS/Voice and Export/Output. Their prerequisites
+are intentional: for example, Translate needs that item's earlier STT output,
+and Export needs its earlier generated voice WAV. The previous end-to-end
+batch remains under **Full workflow (advanced)** for the cases where it is
+wanted.
 
-## Manual acceptance still required
+## Fixed package issue
 
-No visible desktop GUI or live Colab/API job was opened. In `0.0.2.34`, add
-one or more public links in Dubbing, press **Add link(s) to media queue** or
-**Queue & batch settings**, wait for each selected item to download, choose
-tasks/order, then press **Run selected batch**. Drag either thin divider to
-resize its neighboring panel. A real configured worker is needed to verify a
-remote production run.
+The earlier `not-ready` items were not selectable because the downloads had
+already failed: the app searched for `yt-dlp.exe` in `media-tools`, while the
+portable package correctly staged it beside the app executable. The runtime
+lookup now follows the real package layout. This is independent of whether a
+specific public Douyin URL is currently downloadable.
 
-## Source delivery
+## Verification
 
-- Source/test commit: `ed03461 fix: expose dubbing batch controls in workspace`
-- Branch: `main`; source was pushed to `origin/main`.
+- Controller regression: full share text containing a public link downloads
+  exactly the extracted URL into owned staging.
+- Controller regression: two imported items can later select only one for an
+  action; the other retains its completed project/artifacts and is not rerun.
+- Targeted media/Dubbing tests: PASS. QML lint: PASS. Full CTest: **39/39
+  PASS** (57.98 s). `graphify update .` completed after edits.
+- Package audit: FileVersion and ProductVersion both `0.0.2.35`; root
+  `yt-dlp` reports `2026.07.04`; FFmpeg reports successfully; `qwindows`,
+  `qoffscreen`, RuntimeHost and the staged manifests are present.
+
+## Artifact and delivery
+
+- [LA-Studio-0.0.2.35.exe](C:/Users/Nguyen%20Trong%20Khoi/Downloads/LA-STUDIO/out/LA-Studio-0.0.2.35/LA-Studio-0.0.2.35.exe)
+- SHA-256: `47BED51542DF28B2F5B7EFE0475C221C7DBFF1D96BC7E722D02D9BE9A79B1741`
+- Source/test commit: `5e80743 fix: support shared links and independent dubbing actions`
+- Branch: `main`, pushed to `origin/main`.
+
+## Manual acceptance still needed
+
+I did not open the visible app or invoke a live Douyin/Colab/API service.
+Test the copied message above in `0.0.2.35`, wait for a downloaded state,
+select an item, then run the chosen action with your already configured route.
+If a public site blocks or changes access, the app will report that concrete
+download error rather than marking it selectable.
