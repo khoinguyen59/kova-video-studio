@@ -9,7 +9,7 @@ Cap nhat: 2026-08-11
 | Latest packaged candidate | `0.0.6.3` |
 | Artifact | `out/LA-Studio-0.0.6.3/LA-Studio-0.0.6.3.exe` |
 | SHA-256 | `B3322735B67EEE453FA5549AB35CB5DC95D2E578B68A9BEC7BCDE25F1FDB3137` |
-| Current source | `main` at `b26ba3a`; the 0.0.6.3 package is unchanged and later, un-packaged Subtitle OCR notebook fixes are present in source. |
+| Current source | `main` at `c4689c1`; the 0.0.6.3 package is unchanged and later, un-packaged Subtitle OCR notebook fixes are present in source. |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
 
 ## Candidate 0.0.6.3 - Dubbing workbench restructure
@@ -46,6 +46,16 @@ Cap nhat: 2026-08-11
   pins plus the import probe; it passed **32/32**. Full CTest printed
   **39/39 passed**; the outer terminal deadline occurred only after CTest had
   printed that completed summary, so its shell exit code was not captured.
+- A later live Colab failure exposed a separate, mixed Pillow installation:
+  Pillow 12's `PIL/ImageText.py` was present while the older
+  `PIL/_typing.py` lacked `_Ink`. `c4689c1` force-reinstalls the coherent
+  `Pillow==12.0.0` wheel after the Paddle OCR extras and probes both
+  `ImageText` and `_Ink` before importing PaddleOCR. The notebook revision is
+  now `subtitle-ocr-2026-08-11.4`.
+- The generated-notebook gate now requires that exact Pillow install and both
+  import probes. It passed **32/32**; a direct wheel-content check confirmed
+  that Pillow 12's `ImageText.py` and `PIL._typing._Ink` match. Full CTest
+  completed with **39/39 passed, 0 failed** in 56.51 seconds.
 - The correction is on `main`, but is not retroactively inside the staged
   `0.0.6.3` portable artifact. It still requires a fresh Colab runtime for
   live acceptance.

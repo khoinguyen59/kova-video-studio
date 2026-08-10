@@ -42,6 +42,20 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   sau khi in summary, nen khong co exit-code capture rieng. Khong co live
   Colab/GPU test va khong co package moi trong batch nay.
 
+### 2026-08-11 - Subtitle OCR Pillow package coherence repair (unpackaged)
+
+- Log Colab sau pin Paddle stack cho thay mot loi doc lap: `PIL/ImageText.py`
+  cua Pillow 12 import `_Ink`, nhung `PIL/_typing.py` tren runtime lai la file
+  cu va khong co ky hieu nay. Day la Pillow bi ghi de mot phan, khong phai loi
+  `ccache`, CUDA hay PaddleOCR model.
+- Commit `c4689c1` force-reinstall `Pillow==12.0.0` sau PaddleOCR/PaddleX extras
+  va truoc probe worker. Probe import ca `PIL.ImageText` va
+  `PIL._typing._Ink` truoc `PaddleOCR`, nen runtime lai bi tron se fail som o
+  dependency gate thay vi lam worker/Uvicorn bi chet.
+- Generated notebooks 32/32 PASS; direct audit wheel Pillow 12 PASS;
+  `graphify update .` completed; full CTest 39/39 PASS in 56.51s. Khong co
+  live Colab/GPU test va khong co EXE moi, vi day chi la notebook hotfix.
+
 ### 2026-08-11 - 0.0.6.3 internal package
 
 - Commit `6219edc` reworks the Dubbing workbench without removing LA Studio
