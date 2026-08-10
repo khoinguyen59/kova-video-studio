@@ -30,20 +30,21 @@ import threading
 from pathlib import Path
 
 import paddle
-import torch
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 from paddleocr import PaddleOCR
 
-if not torch.cuda.is_available() or not paddle.device.is_compiled_with_cuda():
+if not paddle.device.is_compiled_with_cuda():
     raise RuntimeError("CUDA is unavailable. Choose a Colab GPU runtime; CPU fallback is disabled.")
+paddle.device.set_device("gpu:0")
+GPU_NAME = paddle.device.cuda.get_device_name(0)
 
 MODEL_ID = "pp-ocrv5-multilingual-3.1"
 MODEL_NAME = "PP-OCRv5 Multilingual 3.1"
 UPSTREAM_MODEL = "PaddlePaddle/PaddleOCR PP-OCRv5"
 UPSTREAM_VERSION = "PaddleOCR 3.1.1"
 LICENSE = "Apache-2.0"
-WORKER_REVISION = "subtitle-ocr-2026-08-01.1"
+WORKER_REVISION = "subtitle-ocr-2026-08-11.2"
 RESPONSE_CONTRACT = "subtitle-ocr-crops-v1"
 TOKEN = os.environ["LA_STUDIO_COLAB_SUBTITLE_OCR_TOKEN"]
 MAX_UPLOAD_BYTES = 16 * 1024 * 1024
@@ -147,7 +148,7 @@ def health(_: None = Depends(authorize)):
     return {
         "ready": True,
         "device": "cuda",
-        "gpu": torch.cuda.get_device_name(0),
+        "gpu": GPU_NAME,
         "model": MODEL_ID,
         "variant": "fixed",
         "upstream_model": UPSTREAM_MODEL,

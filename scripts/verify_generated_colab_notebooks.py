@@ -179,6 +179,16 @@ def main() -> int:
                         mismatches.append(
                             f"Translation worker lacks the retry-and-continue patch contract: {generated.name}"
                         )
+                if capability == "subtitle-ocr":
+                    if "import torch" in worker_source or "torch.cuda" in worker_source:
+                        mismatches.append(
+                            f"Subtitle OCR worker imports Torch and can conflict with Paddle NCCL: {generated.name}"
+                        )
+                    if "paddle.device.set_device(\"gpu:0\")" not in worker_source \
+                            or "paddle.device.cuda.get_device_name(0)" not in worker_source:
+                        mismatches.append(
+                            f"Subtitle OCR worker does not prove its Paddle CUDA device before serving: {generated.name}"
+                        )
                 if model == "vibevoice" and 'SUPPORTED_LANGUAGES = ["en"]' not in worker_source:
                     mismatches.append(
                         f"VibeVoice Realtime must advertise its upstream English-only capability: {generated.name}"
