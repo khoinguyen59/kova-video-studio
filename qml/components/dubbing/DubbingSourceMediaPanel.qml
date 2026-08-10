@@ -34,7 +34,15 @@ Rectangle {
     // Link/download settings are useful before a source is chosen, but must not
     // consume the video canvas once an editor is working on an OCR scan area.
     property bool sourceSetupExpanded: true
-    readonly property int sourceSetupMaximumHeight: root.hasLoadedSource ? 160 : 420
+    // A loaded source gets a compact, scrollable change/download drawer.  This
+    // leaves the canvas usable even when an operator deliberately re-opens it.
+    readonly property int sourceSetupMaximumHeight: root.hasLoadedSource ? 96 : 420
+    // This is a display frame only. It never crops or stretches the source:
+    // VideoOutput continues to preserve the source pixels inside the frame.
+    property string previewFrameMode: "source"
+    readonly property real previewFrameAspectRatio: previewFrameMode === "16:9" ? 16 / 9
+                                                   : (previewFrameMode === "9:16" ? 9 / 16
+                                                      : (previewFrameMode === "1:1" ? 1 : 0))
     readonly property var subtitleStyle: (root.dubbing.subtitleConfiguration || {}).style || ({})
     readonly property string activeSubtitleText: {
         for (var i = 0; i < root.dubbing.segments.length; ++i) {
@@ -177,7 +185,35 @@ Rectangle {
                 && controlsAutoHide.delayMs === 2000
                 && subtitleEditorButton.width > 0
                 && subtitlePreviewOverlay.width > 0
+                && previewFrame.width > 0
+                && previewFrame.height > 0
                 && (!root.hasLoadedSource || !sourceSetupPanel.visible)
+    }
+
+    // The offscreen route test accepts a production file-picker fixture.  It
+    // validates the post-selection layout contract rather than only checking
+    // that source setup is present in the source text.
+    function qmlSmokeLoadedSourceLayoutCheck() {
+        if (!root.hasLoadedSource || sourceSetupPanel.visible || !openVideoButton.visible)
+            return false
+        var originalFrameMode = root.previewFrameMode
+        root.previewFrameMode = "16:9"
+        var landscapeRatio = previewFrame.height > 0
+                ? previewFrame.width / previewFrame.height : 0
+        root.previewFrameMode = "9:16"
+        var portraitRatio = previewFrame.height > 0
+                ? previewFrame.width / previewFrame.height : 0
+        root.previewFrameMode = originalFrameMode
+        return Math.abs(landscapeRatio - 16 / 9) < 0.01
+                && Math.abs(portraitRatio - 9 / 16) < 0.01
+    }
+
+    // Selection can originate from the native file dialog, a downloaded-media
+    // row, or an automated preflight Fix action.  Keep the post-selection
+    // visual state deterministic instead of relying only on a later QML
+    // property-notify turn to collapse the download drawer.
+    function collapseSourceSetupAfterSelection() {
+        root.sourceSetupExpanded = false
     }
 
     MediaControlsAutoHide {
@@ -325,6 +361,16 @@ Rectangle {
                     root.sourceSetupExpanded = !root.sourceSetupExpanded
                 }
             }
+            PrimaryButton {
+                id: openVideoButton
+                objectName: "dubbingOpenVideoButton"
+                text: root.hasLoadedSource ? qsTr("Replace video") : qsTr("Open video")
+                iconName: "folder"
+                quiet: true
+                enabled: !root.dubbing.processing && !root.dubbing.linkImporting
+                toolTip: qsTr("Choose a local video or audio file. Choosing a source closes download setup and restores the canvas.")
+                onClicked: root.browseRequested()
+            }
             Button {
                 id: previewFocusToggle
                 objectName: "dubbingPreviewFocusToggle"
@@ -336,6 +382,31 @@ Rectangle {
                     if (!root.previewFocusMode)
                         root.sourceSetupExpanded = false
                     root.previewFocusRequested(!root.previewFocusMode)
+                }
+            }
+            AppComboBox {
+                id: previewFrameModeSelector
+                objectName: "dubbingPreviewFrameModeSelector"
+                Layout.preferredWidth: 112
+                implicitHeight: 32
+                model: [
+                    { text: qsTr("Fit source"), value: "source" },
+                    { text: qsTr("16:9"), value: "16:9" },
+                    { text: qsTr("9:16"), value: "9:16" },
+                    { text: qsTr("1:1"), value: "1:1" }
+                ]
+                textRole: "text"
+                currentIndex: {
+                    for (var index = 0; index < model.length; ++index)
+                        if (model[index].value === root.previewFrameMode)
+                            return index
+                    return 0
+                }
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Preview frame ratio. The source video remains uncropped and unstretched.")
+                onActivated: function(index) {
+                    if (index >= 0 && index < model.length)
+                        root.previewFrameMode = model[index].value
                 }
             }
             Item { Layout.fillWidth: true }
@@ -602,11 +673,39 @@ Rectangle {
                 Text { anchors.horizontalCenter: parent.horizontalCenter; text: qsTr("Add source media"); color: Theme.textPrimary; font.pixelSize: Theme.fontMedium; font.bold: true; width: parent.width; horizontalAlignment: Text.AlignHCenter }
                 Text { anchors.horizontalCenter: parent.horizontalCenter; text: qsTr("WAV, MP3, MP4 or MKV"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
             }
-            VideoOutput { id: videoOutput; anchors.fill: parent; visible: root.isVideoSource; fillMode: VideoOutput.PreserveAspectFit }
+            Item {
+                id: previewFrame
+                objectName: "dubbingPreviewFrame"
+                anchors.centerIn: parent
+                width: root.previewFrameAspectRatio > 0
+                       ? Math.min(previewSurface.width,
+                                  previewSurface.height * root.previewFrameAspectRatio)
+                       : previewSurface.width
+                height: root.previewFrameAspectRatio > 0
+                        ? Math.min(previewSurface.height,
+                                   previewSurface.width / root.previewFrameAspectRatio)
+                        : previewSurface.height
+
+                Rectangle {
+                    anchors.fill: parent
+                    color: "#11121a"
+                    radius: Theme.radiusSmall
+                    visible: root.isVideoSource
+                }
+                VideoOutput {
+                    id: videoOutput
+                    anchors.fill: parent
+                    visible: root.isVideoSource
+                    fillMode: VideoOutput.PreserveAspectFit
+                }
+            }
             Rectangle {
                 id: dubbingOcrRoiOverlay
                 objectName: "dubbingSubtitleOcrRoiOverlay"
-                readonly property rect content: videoOutput.contentRect
+                readonly property rect content: Qt.rect(previewFrame.x + videoOutput.contentRect.x,
+                                                        previewFrame.y + videoOutput.contentRect.y,
+                                                        videoOutput.contentRect.width,
+                                                        videoOutput.contentRect.height)
                 visible: root.isVideoSource && root.dubbing.dubbingOcrRoiVisible
                          && content.width > 0 && content.height > 0
                 x: content.x + root.draftOcrRoi.x * content.width
@@ -694,13 +793,14 @@ Rectangle {
                 readonly property string alignment: root.subtitleStyle.alignment || "bottom"
                 readonly property real safeMargin: Number(root.subtitleStyle.safeMargin || 0.06)
                 visible: root.isVideoSource && root.activeSubtitleText.length > 0
-                width: Math.max(80, parent.width * Number(root.subtitleStyle.maxWidth || 0.82))
+                width: Math.max(80, previewFrame.width * Number(root.subtitleStyle.maxWidth || 0.82))
                 height: subtitlePreviewText.implicitHeight + Theme.paddingSmall * 2
-                x: alignment === "custom" ? parent.width * Number(root.subtitleStyle.positionX || 0.5) - width / 2
-                                           : (parent.width - width) / 2
-                y: alignment === "top" ? parent.height * safeMargin
-                  : alignment === "custom" ? parent.height * Number(root.subtitleStyle.positionY || 0.90) - height / 2
-                                             : parent.height - height - parent.height * safeMargin - previewControls.height
+                x: alignment === "custom"
+                   ? previewFrame.x + previewFrame.width * Number(root.subtitleStyle.positionX || 0.5) - width / 2
+                   : previewFrame.x + (previewFrame.width - width) / 2
+                y: alignment === "top" ? previewFrame.y + previewFrame.height * safeMargin
+                  : alignment === "custom" ? previewFrame.y + previewFrame.height * Number(root.subtitleStyle.positionY || 0.90) - height / 2
+                                             : previewFrame.y + previewFrame.height - height - previewFrame.height * safeMargin - previewControls.height
                 radius: Theme.radiusSmall
                 color: "transparent"
                 z: 2
@@ -763,7 +863,7 @@ Rectangle {
             Rectangle {
                 id: previewControls
                 objectName: "dubbingSharedMediaControls"
-                anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
+                anchors.left: previewFrame.left; anchors.right: previewFrame.right; anchors.bottom: previewFrame.bottom
                 height: 44
                 visible: root.dubbing.sourceMediaPath.length > 0 && (opacity > 0 || controlsAutoHide.controlsVisible)
                 opacity: controlsAutoHide.controlsVisible ? 1 : 0

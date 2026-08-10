@@ -647,7 +647,7 @@ void TestRemoteExecution::workflowActivityOnlyDisplaysMeasuredProgress()
     QFile cmake(sourceRoot.filePath(QStringLiteral("CMakeLists.txt")));
     QVERIFY(cmake.open(QIODevice::ReadOnly));
     const QString cmakeSource = QString::fromUtf8(cmake.readAll());
-    QVERIFY(cmakeSource.contains(QStringLiteral("set(LASTUDIO_VERSION \"0.0.6.1\"")));
+    QVERIFY(cmakeSource.contains(QStringLiteral("set(LASTUDIO_VERSION \"0.0.6.2\"")));
     QVERIFY(cmakeSource.contains(QStringLiteral("four single digits (0-9)")));
 
     for (const QString &relativePath : {QStringLiteral("scripts/build.ps1"),
@@ -727,6 +727,10 @@ void TestRemoteExecution::workflowActivityOnlyDisplaysMeasuredProgress()
     QVERIFY(sourcePanelSource.contains(QStringLiteral("id: sourceSetupPanel")));
     QVERIFY(sourcePanelSource.contains(QStringLiteral("visible: !root.hasLoadedSource || root.sourceSetupExpanded")));
     QVERIFY(sourcePanelSource.contains(QStringLiteral("Change / download source")));
+    QVERIFY(sourcePanelSource.contains(QStringLiteral("dubbingOpenVideoButton")));
+    QVERIFY(sourcePanelSource.contains(QStringLiteral("collapseSourceSetupAfterSelection")));
+    QVERIFY(sourcePanelSource.contains(QStringLiteral("dubbingPreviewFrame")));
+    QVERIFY(sourcePanelSource.contains(QStringLiteral("previewFrameAspectRatio")));
     QVERIFY(sourcePanelSource.contains(QStringLiteral("Layout.minimumHeight: root.isVideoSource")));
     QVERIFY(sourcePanelSource.contains(QStringLiteral("Edit OCR scan area")));
     QVERIFY(sourcePanelSource.contains(QStringLiteral("OCR scan area locked while running")));
@@ -739,6 +743,20 @@ void TestRemoteExecution::workflowActivityOnlyDisplaysMeasuredProgress()
     QVERIFY(projectStatusSource.contains(QStringLiteral("Add speaker label")));
     QVERIFY(projectStatusSource.contains(QStringLiteral("Set before starting a job")));
     QVERIFY(projectStatusSource.contains(QStringLiteral("Execution and rewrite policy only")));
+
+    QFile workflowHeader(sourceRoot.filePath(
+        QStringLiteral("qml/components/dubbing/DubbingWorkflowHeader.qml")));
+    QVERIFY(workflowHeader.open(QIODevice::ReadOnly));
+    const QString workflowHeaderSource = QString::fromUtf8(workflowHeader.readAll());
+    QVERIFY(workflowHeaderSource.contains(QStringLiteral("projectStatusOpen")));
+    QVERIFY(workflowHeaderSource.contains(QStringLiteral("projectStatusToggled")));
+    QVERIFY(workflowHeaderSource.contains(QStringLiteral("dubbingProjectStatusToggle")));
+    QVERIFY(workflowHeaderSource.contains(QStringLiteral("qmlSmokeClickProjectStatusToggle")));
+
+    QVERIFY(pageSource.contains(QStringLiteral("isProjectStatusPanelOpen")));
+    QVERIFY(pageSource.contains(QStringLiteral("dubbingProjectStatusPanel")));
+    QVERIFY(pageSource.contains(QStringLiteral("root.isProjectStatusPanelOpen = false")));
+    QVERIFY(pageSource.contains(QStringLiteral("qmlSmokeLoadedSourceLayoutCheck")));
 }
 
 void TestRemoteExecution::everyGpuControllerUsesExactVerifiedColabRoute()

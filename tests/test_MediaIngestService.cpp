@@ -953,6 +953,14 @@ void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
     QVERIFY(dubbingPage.contains(QStringLiteral("property bool previewFocusMode")));
     QVERIFY(dubbingSource.contains(QStringLiteral("dubbingPreviewFocusToggle")));
     QVERIFY(dubbingSource.contains(QStringLiteral("Focus video")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("dubbingOpenVideoButton")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("Replace video")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("dubbingPreviewFrameModeSelector")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("previewFrameAspectRatio")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("id: previewFrame")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("VideoOutput.PreserveAspectFit")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("qmlSmokeLoadedSourceLayoutCheck")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("collapseSourceSetupAfterSelection")));
     QVERIFY(dubbingSource.contains(QStringLiteral("sourceSetupMaximumHeight")));
     QVERIFY(dubbingSource.contains(QStringLiteral("dubbingSourceSetupScrollView")));
     QVERIFY(popup.contains(QStringLiteral("AppController.downloads.allDownloads")));

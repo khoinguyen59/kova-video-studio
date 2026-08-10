@@ -33,6 +33,9 @@ Item {
     property string playingVoiceClipPath: ""
     property bool isHistoryOpen: true
     property bool isNodeInspectorOpen: true
+    // The lower project controls are useful setup information, but they must
+    // not permanently steal height from a loaded video or OCR canvas.
+    property bool isProjectStatusPanelOpen: true
     property bool previewFocusMode: false
     // Dubbing has its own three-pane workspace and therefore cannot inherit
     // StudioShell's generic resizers. Keep these widths local to this real
@@ -131,7 +134,10 @@ Item {
 
     function acceptSelectedSourceMedia(urlOrPath) {
         var path = AppController.files.urlToLocalPath(String(urlOrPath))
-        return dubbing.importMedia(path)
+        var accepted = dubbing.importMedia(path)
+        if (accepted)
+            sourceMediaPanel.collapseSourceSetupAfterSelection()
+        return accepted
     }
 
     function stageIdForNode(nodeId) {
@@ -415,12 +421,35 @@ Item {
             ApplicationWindow.window.recordQmlSmokeDubbing("file-picker-boundary", "accept",
                                                             "source-empty", "source-persisted")
             automaticPreflightDialog.qmlSmokeSelectLanguages()
+            // Let the real item tree receive both the controller update and
+            // the deterministic drawer-collapse request before inspecting
+            // geometry.  This is a layout settle boundary, not a mock wait.
+            qmlSmokeAutomaticPhase = 30
+            return 0
+        }
+        if (qmlSmokeAutomaticPhase === 30) {
             qmlSmokeAutomaticPhase = 3
             return 0
         }
         if (qmlSmokeAutomaticPhase === 3) {
             if (dubbing.sourceMediaPath === "" || dubbing.sourceLanguage !== "zh" || dubbing.targetLanguage !== "vi") {
                 qmlSmokeTranscriptSourceFailure = "Source media or language selection was not persisted into DubbingController"
+                return -1
+            }
+            if (!sourceMediaPanel.qmlSmokeLoadedSourceLayoutCheck()) {
+                qmlSmokeTranscriptSourceFailure = "Loaded-source layout did not hide source setup, expose Open video, or preserve the selectable preview frame ratios"
+                return -1
+            }
+            if (!dubbingWorkflowHeader.qmlSmokeClickProjectStatusToggle()
+                    || root.isProjectStatusPanelOpen
+                    || dubbingProjectStatusPanel.visible) {
+                qmlSmokeTranscriptSourceFailure = "Project controls toggle did not collapse the lower workspace panel"
+                return -1
+            }
+            if (!dubbingWorkflowHeader.qmlSmokeClickProjectStatusToggle()
+                    || !root.isProjectStatusPanelOpen
+                    || !dubbingProjectStatusPanel.visible) {
+                qmlSmokeTranscriptSourceFailure = "Project controls toggle did not restore the lower workspace panel"
                 return -1
             }
             if (!automaticPreflightDialog.qmlSmokeClickNext()) {
@@ -751,6 +780,7 @@ Item {
         spacing: 0
 
         DubbingWorkflowHeader {
+            id: dubbingWorkflowHeader
             dubbing: root.dubbing
             steps: [
                 { stepId: "import", title: qsTr("Import/Download"), iconName: "folder", complete: (root.workflowStage("import") || {}).state === "completed", active: root.stageIdForNode(root.displayedStepId) === "import" },
@@ -769,6 +799,7 @@ Item {
             defaultExportPath: root.defaultExportPath()
             historyOpen: root.isHistoryOpen
             settingsOpen: root.isNodeInspectorOpen
+            projectStatusOpen: root.isProjectStatusPanelOpen
             onStepSelected: function(stepId) {
                 root.followRunningStep = false
                 root.reviewStepId = root.actionNodeForStage(stepId)
@@ -776,6 +807,7 @@ Item {
             }
             onHistoryToggled: root.isHistoryOpen = !root.isHistoryOpen
             onSettingsToggled: root.isNodeInspectorOpen = !root.isNodeInspectorOpen
+            onProjectStatusToggled: root.isProjectStatusPanelOpen = !root.isProjectStatusPanelOpen
             onGenerateRequested: {
                 automaticPreflightDialog.openPreflight()
             }
@@ -953,13 +985,18 @@ Item {
                     onCancelLinkImportRequested: root.dubbing.cancelMediaLinkImport()
                     onSegmentSelected: root.selectedSegment = index
                     onSelectedSegmentChanged: root.selectedSegment = selectedSegment
-                    onPreviewFocusRequested: function(focused) { root.previewFocusMode = focused }
+                    onPreviewFocusRequested: function(focused) {
+                        root.previewFocusMode = focused
+                        if (focused)
+                            root.isProjectStatusPanelOpen = false
+                    }
                 }
                 Rectangle {
                     id: dubbingTimelineResizeHandle
                     objectName: "dubbingTimelineResizeHandle"
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 8
+                    visible: !root.previewFocusMode
+                    Layout.preferredHeight: visible ? 8 : 0
                     radius: 4
                     color: timelineResizeMouseArea.containsMouse || timelineResizeMouseArea.pressed
                            ? Theme.accent
@@ -985,10 +1022,11 @@ Item {
                     }
                 }
                 Panel {
+                    visible: !root.previewFocusMode
                     Layout.fillWidth: true
-                    Layout.minimumHeight: 96
-                    Layout.maximumHeight: 360
-                    Layout.preferredHeight: root.dubbingTimelinePanelHeight
+                    Layout.minimumHeight: visible ? 96 : 0
+                    Layout.maximumHeight: visible ? 360 : 0
+                    Layout.preferredHeight: visible ? root.dubbingTimelinePanelHeight : 0
                     ColumnLayout { anchors.fill: parent; anchors.margins: Theme.paddingMedium; spacing: Theme.paddingSmall
                         RowLayout { Layout.fillWidth: true
                             Text { text: qsTr("TIMELINE"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.bold: true; font.letterSpacing: 1.1; Layout.fillWidth: true }
@@ -1682,10 +1720,15 @@ Item {
         }
 
         DubbingProjectStatusPanel {
+            id: dubbingProjectStatusPanel
             dubbing: root.dubbing
             enabled: true
             languageCatalog: root.languageCatalog
             currentStepTitle: root.stepTitle(root.dubbing.currentStepId)
+            visible: root.isProjectStatusPanelOpen
+            Layout.minimumHeight: 0
+            Layout.preferredHeight: visible ? 168 : 0
+            Layout.bottomMargin: visible ? Theme.paddingMedium : 0
             onAdaptiveSetupRequested: qualityDialog.openForMode("adaptive")
             onCustomSetupRequested: qualityDialog.openForMode("custom")
         }

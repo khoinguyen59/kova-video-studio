@@ -16,10 +16,12 @@ Rectangle {
     required property string defaultExportPath
     property bool historyOpen: false
     property bool settingsOpen: false
+    property bool projectStatusOpen: true
 
     signal stepSelected(string stepId)
     signal historyToggled()
     signal settingsToggled()
+    signal projectStatusToggled()
     signal generateRequested()
     signal pauseRequested()
     signal stopRequested()
@@ -27,6 +29,13 @@ Rectangle {
     signal colabSetupRequested()
     signal saveRequested()
     signal exportRequested()
+
+    function qmlSmokeClickProjectStatusToggle() {
+        if (!projectStatusToggle.enabled)
+            return false
+        projectStatusToggle.click()
+        return true
+    }
 
     Layout.fillWidth: true
     Layout.preferredHeight: 58
@@ -45,6 +54,14 @@ Rectangle {
             toolTip: root.historyOpen ? qsTr("Hide dubbing history") : qsTr("Show dubbing history")
             active: root.historyOpen
             onClicked: root.historyToggled()
+        }
+        SidebarToggleButton {
+            id: projectStatusToggle
+            objectName: "dubbingProjectStatusToggle"
+            iconName: "sliders"
+            toolTip: root.projectStatusOpen ? qsTr("Hide project controls") : qsTr("Show project controls")
+            active: root.projectStatusOpen
+            onClicked: root.projectStatusToggled()
         }
 
         RowLayout {
