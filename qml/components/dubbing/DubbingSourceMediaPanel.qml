@@ -435,7 +435,8 @@ Rectangle {
                         Layout.fillWidth: true
                         spacing: Theme.paddingSmall
                         PrimaryButton {
-                            text: qsTr("Set up browser session")
+                            objectName: "dubbingDouyinChromiumSetupButton"
+                            text: qsTr("Set up Chromium")
                             iconName: "folder"
                             quiet: true
                             enabled: root.dubbing.douyinBrowserAvailable && !root.dubbing.douyinBrowserBusy

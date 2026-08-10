@@ -524,8 +524,9 @@ void TestSubtitleOcrRuntimeService::responsiveLayoutSharedMediaAndHomeCardsAreWi
     QVERIFY(controllerSource.contains(QStringLiteral("m_lastSourceImportUrl")));
     QVERIFY(!controllerSource.contains(QStringLiteral("new RemoteMediaImportService")));
 
-    QVERIFY(mediaDownloadSource.contains(QStringLiteral("Use in Subtitle OCR")));
-    QVERIFY(mediaDownloadSource.contains(QStringLiteral("subtitleOcr.useDownloadedMedia")));
+    QVERIFY(mediaDownloadSource.contains(QStringLiteral("Open Dubbing actions")));
+    QVERIFY(!mediaDownloadSource.contains(QStringLiteral("Use in Subtitle OCR")));
+    QVERIFY(!mediaDownloadSource.contains(QStringLiteral("subtitleOcr.useDownloadedMedia")));
     QVERIFY(mediaDownloadSource.contains(QStringLiteral("openSubtitleOcrRequested")));
     QVERIFY(mainSource.contains(QStringLiteral("onOpenSubtitleOcrRequested")));
     QVERIFY(mainSource.contains(QStringLiteral("width: 1024, height: 720")));

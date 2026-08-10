@@ -11,23 +11,18 @@ Rectangle {
 
     color: Theme.background
     signal openDubbingRequested()
+    // Kept for route compatibility; Download no longer runs OCR or Dubbing tasks.
     signal openSubtitleOcrRequested()
 
     readonly property var dubbing: AppController.dubbing
-    readonly property var subtitleOcr: AppController.subtitleOcr
-    property string batchExecutionMode: "per-media"
 
-    ButtonGroup { id: batchExecutionModeGroup }
-
-    function firstSelectedDownloadedPath() {
-        var items = root.dubbing.mediaQueueItems
+    function downloadedCount() {
+        var count = 0
+        var items = root.dubbing.mediaQueueItems || []
         for (var index = 0; index < items.length; ++index) {
-            if (items[index].selected === true && items[index].downloadState === "downloaded"
-                    && items[index].localPath) {
-                return items[index].localPath
-            }
+            if (items[index].downloadState === "downloaded") count += 1
         }
-        return ""
+        return count
     }
 
     ScrollView {
@@ -45,17 +40,91 @@ Rectangle {
                 Layout.fillWidth: true
                 spacing: Theme.paddingSmall
                 Text {
-                    text: qsTr("Download and batch media")
+                    text: qsTr("Download media")
                     color: Theme.textPrimary
                     font.pixelSize: 26
                     font.bold: true
                 }
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("Queue public media downloads, select several downloaded files, then run the real Dubbing workers serially. The queue never substitutes local inference for a configured Colab or API route.")
+                    text: qsTr("Download public media here. No media processing starts on this page; choose downloaded files later from Dubbing.")
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fontSmall
                     wrapMode: Text.WordWrap
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                radius: Theme.radiusMedium
+                color: Qt.rgba(0.45, 0.20, 1.0, 0.08)
+                border.color: Qt.rgba(0.55, 0.35, 1.0, 0.35)
+                border.width: 1
+                implicitHeight: browserSessionLayout.implicitHeight + Theme.paddingLarge * 2
+
+                ColumnLayout {
+                    id: browserSessionLayout
+                    anchors.fill: parent
+                    anchors.margins: Theme.paddingLarge
+                    spacing: Theme.paddingSmall
+                    Text {
+                        text: qsTr("Douyin Chromium session")
+                        color: Theme.textPrimary
+                        font.pixelSize: Theme.fontLarge
+                        font.bold: true
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: root.dubbing.douyinBrowserVerified
+                              ? qsTr("Connected. Douyin downloads use the LA Studio profile; Chrome and Edge cookies are never read.")
+                              : qsTr("Optional. Set up a separate Chromium profile, sign in to Douyin, then check the connection before downloading.")
+                        color: Theme.textSecondary
+                        font.pixelSize: Theme.fontSmall
+                        wrapMode: Text.WordWrap
+                    }
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: Theme.paddingSmall
+                        PrimaryButton {
+                            objectName: "mediaDownloadBrowserSetupButton"
+                            text: qsTr("Set up Chromium")
+                            iconName: "folder"
+                            enabled: !root.dubbing.douyinBrowserBusy
+                                     && !root.dubbing.mediaQueueDownloading
+                                     && !root.dubbing.mediaQueueProcessing
+                            onClicked: root.dubbing.openDouyinBrowserSession()
+                        }
+                        PrimaryButton {
+                            objectName: "mediaDownloadBrowserCheckButton"
+                            text: qsTr("Check connection")
+                            iconName: "play"
+                            quiet: true
+                            enabled: root.dubbing.douyinBrowserConfigured
+                                     && !root.dubbing.douyinBrowserBusy
+                                     && !root.dubbing.mediaQueueDownloading
+                                     && !root.dubbing.mediaQueueProcessing
+                            onClicked: root.dubbing.checkDouyinBrowserSession()
+                        }
+                        PrimaryButton {
+                            objectName: "mediaDownloadBrowserDisableButton"
+                            visible: root.dubbing.douyinBrowserVerified
+                            text: qsTr("Disable")
+                            iconName: "close"
+                            quiet: true
+                            onClicked: root.dubbing.disconnectDouyinBrowserSession()
+                        }
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: root.dubbing.douyinBrowserStatus !== ""
+                              ? root.dubbing.douyinBrowserStatus
+                              : (root.dubbing.douyinBrowserAvailable
+                                 ? qsTr("Chromium helper is ready.")
+                                 : qsTr("Chromium helper is not available. Install Playwright and Chromium in the configured Python environment."))
+                        color: root.dubbing.douyinBrowserVerified ? Theme.success : Theme.textSecondary
+                        font.pixelSize: Theme.fontSmall
+                        wrapMode: Text.WordWrap
+                    }
                 }
             }
 
@@ -81,17 +150,18 @@ Rectangle {
                     }
                     Text {
                         Layout.fillWidth: true
-                        text: qsTr("One HTTPS link per line. Direct media files and public YouTube, TikTok, and Douyin pages are supported. Playlists, DRM/paywalls, user-info URLs, and unsafe redirects are blocked. Douyin cookies are optional and used only for the current download run. HTTP is allowed only for local loopback testing.")
+                        text: qsTr("Paste one HTTPS link per line. Direct media files and public YouTube, TikTok, and Douyin pages are supported. Douyin share text is filtered to the URL before the download starts.")
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fontSmall
                         wrapMode: Text.WordWrap
                     }
                     TextArea {
                         id: sourceUrl
+                        objectName: "mediaDownloadLinkInput"
                         Layout.fillWidth: true
                         Layout.minimumHeight: 138
                         enabled: !root.dubbing.mediaQueueProcessing
-                        placeholderText: qsTr("One public media link per line\nhttps://example.com/video-1.mp4\nhttps://www.youtube.com/watch?v=...")
+                        placeholderText: qsTr("Paste public links here, one per line\nhttps://example.com/video-1.mp4\nhttps://www.youtube.com/watch?v=...")
                         selectByMouse: true
                         color: Theme.textPrimary
                         placeholderTextColor: Theme.textSecondary
@@ -109,7 +179,8 @@ Rectangle {
                         Layout.fillWidth: true
                         spacing: Theme.paddingSmall
                         PrimaryButton {
-                            text: qsTr("Add links to download queue")
+                            objectName: "mediaDownloadButton"
+                            text: qsTr("Download")
                             iconName: "download"
                             enabled: sourceUrl.text.trim() !== "" && !root.dubbing.mediaQueueProcessing
                             onClicked: {
@@ -118,10 +189,11 @@ Rectangle {
                             }
                         }
                         PrimaryButton {
-                            text: qsTr("Cancel batch")
+                            objectName: "mediaDownloadCancelButton"
+                            text: qsTr("Cancel downloads")
                             iconName: "close"
                             quiet: true
-                            visible: root.dubbing.mediaQueueDownloading || root.dubbing.mediaQueueProcessing
+                            visible: root.dubbing.mediaQueueDownloading
                             onClicked: root.dubbing.cancelMediaQueue()
                         }
                         Item { Layout.fillWidth: true }
@@ -132,8 +204,8 @@ Rectangle {
                         Text {
                             Layout.fillWidth: true
                             text: root.dubbing.douyinCookieConfigured
-                                  ? qsTr("Douyin cookies: %1 (temporary for this run)").arg(root.dubbing.douyinCookieFileName)
-                                  : qsTr("If Douyin reports that fresh cookies are needed, choose a Netscape cookie file here. The app never reads browser cookies automatically.")
+                                  ? qsTr("Douyin cookies: %1 (temporary for this download run)").arg(root.dubbing.douyinCookieFileName)
+                                  : qsTr("Netscape cookies are optional and used only when Douyin requires them. Browser cookies are never imported automatically.")
                             color: Theme.textSecondary
                             font.pixelSize: Theme.fontSmall
                             wrapMode: Text.WordWrap
@@ -152,70 +224,6 @@ Rectangle {
                             quiet: true
                             enabled: !root.dubbing.mediaQueueDownloading && !root.dubbing.mediaQueueProcessing
                             onClicked: root.dubbing.clearDouyinCookieFile()
-                        }
-                    }
-                    Rectangle {
-                        Layout.fillWidth: true
-                        implicitHeight: browserSessionLayout.implicitHeight + Theme.paddingMedium * 2
-                        radius: Theme.radiusSmall
-                        color: Qt.rgba(0.45, 0.20, 1.0, 0.08)
-                        border.color: Qt.rgba(0.55, 0.35, 1.0, 0.35)
-                        border.width: 1
-                        ColumnLayout {
-                            id: browserSessionLayout
-                            anchors.fill: parent
-                            anchors.margins: Theme.paddingMedium
-                            spacing: Theme.paddingSmall
-                            Text {
-                                text: qsTr("Managed Chromium session for Douyin")
-                                color: Theme.textPrimary
-                                font.bold: true
-                            }
-                            Text {
-                                Layout.fillWidth: true
-                                text: root.dubbing.douyinBrowserVerified
-                                      ? qsTr("Verified. Douyin downloads use this app-owned profile and page JavaScript; Chrome/Edge cookies are never read.")
-                                      : qsTr("Optional alternative to yt-dlp cookies. Set up a separate app-owned Chromium profile, sign in, then check it before downloading.")
-                                color: Theme.textSecondary
-                                font.pixelSize: Theme.fontSmall
-                                wrapMode: Text.WordWrap
-                            }
-                            Flow {
-                                Layout.fillWidth: true
-                                spacing: Theme.paddingSmall
-                                PrimaryButton {
-                                    text: qsTr("Set up browser session")
-                                    iconName: "folder"
-                                    quiet: true
-                                    enabled: root.dubbing.douyinBrowserAvailable && !root.dubbing.douyinBrowserBusy
-                                             && !root.dubbing.mediaQueueDownloading && !root.dubbing.mediaQueueProcessing
-                                    onClicked: root.dubbing.openDouyinBrowserSession()
-                                }
-                                PrimaryButton {
-                                    text: qsTr("Check connection")
-                                    iconName: "play"
-                                    quiet: true
-                                    enabled: root.dubbing.douyinBrowserAvailable && root.dubbing.douyinBrowserConfigured
-                                             && !root.dubbing.douyinBrowserBusy && !root.dubbing.mediaQueueDownloading
-                                             && !root.dubbing.mediaQueueProcessing
-                                    onClicked: root.dubbing.checkDouyinBrowserSession()
-                                }
-                                PrimaryButton {
-                                    visible: root.dubbing.douyinBrowserVerified
-                                    text: qsTr("Disable")
-                                    iconName: "close"
-                                    quiet: true
-                                    onClicked: root.dubbing.disconnectDouyinBrowserSession()
-                                }
-                            }
-                            Text {
-                                Layout.fillWidth: true
-                                visible: root.dubbing.douyinBrowserStatus !== ""
-                                text: root.dubbing.douyinBrowserStatus
-                                color: root.dubbing.douyinBrowserVerified ? Theme.success : Theme.textSecondary
-                                font.pixelSize: Theme.fontSmall
-                                wrapMode: Text.WordWrap
-                            }
                         }
                     }
                     Text {
@@ -243,10 +251,10 @@ Rectangle {
                 color: Theme.surface
                 border.color: Qt.rgba(Theme.success.r, Theme.success.g, Theme.success.b, 0.38)
                 border.width: 1
-                implicitHeight: queueLayout.implicitHeight + Theme.paddingLarge * 2
+                implicitHeight: downloadedLayout.implicitHeight + Theme.paddingLarge * 2
 
                 ColumnLayout {
-                    id: queueLayout
+                    id: downloadedLayout
                     anchors.fill: parent
                     anchors.margins: Theme.paddingLarge
                     spacing: Theme.paddingSmall
@@ -255,99 +263,32 @@ Rectangle {
                         Layout.fillWidth: true
                         Text {
                             Layout.fillWidth: true
-                            text: qsTr("Downloaded media queue")
+                            text: qsTr("Downloaded media")
                             color: Theme.success
                             font.pixelSize: Theme.fontLarge
                             font.bold: true
                         }
                         Text {
-                            text: root.dubbing.mediaQueueProcessing
-                                  ? qsTr("%1% real runner progress").arg(root.dubbing.mediaQueueProgress)
-                                  : qsTr("Select downloaded files")
+                            text: qsTr("%1 file(s)").arg(root.downloadedCount())
                             color: Theme.textSecondary
                             font.pixelSize: Theme.fontSmall
                         }
                     }
                     Text {
                         Layout.fillWidth: true
-                        text: qsTr("Select any downloaded items and queue the real Dubbing tasks. Each item owns an output folder: STT writes source.srt, translation writes translated.srt, voice writes voice.wav, and isolation writes vocals.wav plus background.wav. Translation and voice include their required real dependency stages automatically; no local fallback is introduced.")
+                        text: qsTr("Downloaded files stay here until you choose them later from Dubbing.")
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fontSmall
                         wrapMode: Text.WordWrap
                     }
-                    Flow {
-                        Layout.fillWidth: true
-                        spacing: Theme.paddingMedium
-                        CheckBox { id: isolateTask; text: qsTr("Isolate audio") }
-                        CheckBox { id: transcribeTask; text: qsTr("STT to source.srt") }
-                        CheckBox { id: translateTask; text: qsTr("Translate to translated.srt") }
-                        CheckBox { id: voiceTask; text: qsTr("Voice / cloned voice to WAV") }
-                    }
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 3
-                        Text {
-                            text: qsTr("Batch execution order")
-                            color: Theme.textPrimary
-                            font.pixelSize: Theme.fontSmall
-                            font.bold: true
-                        }
-                        Text {
-                            Layout.fillWidth: true
-                            text: root.batchExecutionMode === "per-media"
-                                  ? qsTr("Finish every selected task for one video before starting the next video.")
-                                  : qsTr("Run the current task for every selected video, then advance the whole queue to the next task.")
-                            color: Theme.textSecondary
-                            font.pixelSize: Theme.fontSmall
-                            wrapMode: Text.WordWrap
-                        }
-                        Flow {
-                            Layout.fillWidth: true
-                            spacing: Theme.paddingMedium
-                            RadioButton {
-                                id: perMediaOrder
-                                text: qsTr("Complete one video, then next")
-                                checked: root.batchExecutionMode === "per-media"
-                                ButtonGroup.group: batchExecutionModeGroup
-                                onToggled: if (checked) root.batchExecutionMode = "per-media"
-                            }
-                            RadioButton {
-                                id: perStageOrder
-                                text: qsTr("Complete each step for all videos")
-                                checked: root.batchExecutionMode === "stage-by-stage"
-                                ButtonGroup.group: batchExecutionModeGroup
-                                onToggled: if (checked) root.batchExecutionMode = "stage-by-stage"
-                            }
-                        }
-                    }
                     RowLayout {
                         Layout.fillWidth: true
                         PrimaryButton {
-                            text: qsTr("Run selected batch")
-                            iconName: "play"
-                            enabled: !root.dubbing.mediaQueueDownloading && !root.dubbing.mediaQueueProcessing
-                            onClicked: {
-                                if (root.dubbing.startMediaQueue({
-                                        "isolate": isolateTask.checked,
-                                        "transcribe": transcribeTask.checked,
-                                        "translate": translateTask.checked,
-                                        "voice": voiceTask.checked,
-                                        "executionMode": root.batchExecutionMode
-                                    })) {
-                                    root.openDubbingRequested()
-                                }
-                            }
-                        }
-                        PrimaryButton {
-                            text: qsTr("Use in Subtitle OCR")
-                            iconName: "scan"
-                            quiet: true
-                            enabled: !root.dubbing.mediaQueueDownloading && !root.dubbing.mediaQueueProcessing
-                                     && root.firstSelectedDownloadedPath() !== ""
-                            onClicked: {
-                                if (root.subtitleOcr.useDownloadedMedia(root.firstSelectedDownloadedPath()))
-                                    root.openSubtitleOcrRequested()
-                            }
+                            objectName: "mediaDownloadOpenDubbingButton"
+                            text: qsTr("Open Dubbing actions")
+                            iconName: "workflow"
+                            enabled: root.downloadedCount() > 0
+                            onClicked: root.openDubbingRequested()
                         }
                         PrimaryButton {
                             text: qsTr("Clear finished")
@@ -367,8 +308,9 @@ Rectangle {
                             implicitHeight: itemLayout.implicitHeight + Theme.paddingMedium * 2
                             radius: Theme.radiusSmall
                             color: Theme.surfaceAlt
-                            border.color: modelData.processState === "failed" ? Theme.error
-                                        : (modelData.processState === "completed" ? Theme.success : Qt.rgba(1, 1, 1, 0.10))
+                            border.color: modelData.downloadState === "failed" || modelData.downloadState === "needs-auth"
+                                          ? Theme.error
+                                          : (modelData.downloadState === "downloaded" ? Theme.success : Qt.rgba(1, 1, 1, 0.10))
                             border.width: 1
 
                             ColumnLayout {
@@ -378,11 +320,6 @@ Rectangle {
                                 spacing: Theme.paddingSmall
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    CheckBox {
-                                        checked: modelData.selected === true
-                                        enabled: modelData.downloadState === "downloaded" && modelData.processState !== "running"
-                                        onToggled: root.dubbing.setMediaQueueItemSelected(modelData.id, checked)
-                                    }
                                     Text {
                                         Layout.fillWidth: true
                                         text: modelData.displayName || qsTr("Queued media")
@@ -391,15 +328,13 @@ Rectangle {
                                         elide: Text.ElideMiddle
                                     }
                                     Text {
-                                        text: modelData.processState === "running"
-                                              ? qsTr("%1%").arg(modelData.progress || 0)
-                                              : (modelData.processState || modelData.downloadState)
-                                        color: Theme.textSecondary
+                                        text: modelData.downloadState || qsTr("queued")
+                                        color: modelData.downloadState === "downloaded" ? Theme.success : Theme.textSecondary
                                         font.pixelSize: Theme.fontSmall
                                     }
                                     PrimaryButton {
                                         visible: modelData.downloadState === "needs-auth"
-                                        text: qsTr("Retry with cookies")
+                                        text: qsTr("Retry")
                                         quiet: true
                                         enabled: !root.dubbing.mediaQueueDownloading && !root.dubbing.mediaQueueProcessing
                                         onClicked: root.dubbing.retryMediaQueueItem(modelData.id)
@@ -407,14 +342,14 @@ Rectangle {
                                     PrimaryButton {
                                         text: qsTr("Remove")
                                         quiet: true
-                                        enabled: modelData.processState !== "running" && modelData.downloadState !== "downloading"
+                                        enabled: !root.dubbing.mediaQueueDownloading && modelData.downloadState !== "downloading"
                                         onClicked: root.dubbing.removeMediaQueueItem(modelData.id)
                                     }
                                 }
                                 Text {
                                     Layout.fillWidth: true
                                     text: modelData.status || ""
-                                    color: (modelData.processState === "failed" || modelData.downloadState === "needs-auth")
+                                    color: modelData.downloadState === "failed" || modelData.downloadState === "needs-auth"
                                            ? Theme.error : Theme.textSecondary
                                     font.pixelSize: Theme.fontSmall
                                     wrapMode: Text.WrapAnywhere
@@ -427,30 +362,13 @@ Rectangle {
                                     font.pixelSize: Theme.fontSmall
                                     wrapMode: Text.WrapAnywhere
                                 }
-                                Text {
-                                    Layout.fillWidth: true
-                                    visible: modelData.outputs && Object.keys(modelData.outputs).length > 0
-                                    text: {
-                                        var outputs = modelData.outputs || {}
-                                        var lines = []
-                                        if (outputs.sourceSrt) lines.push("STT SRT: " + outputs.sourceSrt)
-                                        if (outputs.translatedSrt) lines.push("Translated SRT: " + outputs.translatedSrt)
-                                        if (outputs.voiceWav) lines.push("Voice WAV: " + outputs.voiceWav)
-                                        if (outputs.vocalsWav) lines.push("Vocals WAV: " + outputs.vocalsWav)
-                                        if (outputs.backgroundWav) lines.push("Background WAV: " + outputs.backgroundWav)
-                                        return lines.join("\n")
-                                    }
-                                    color: Theme.success
-                                    font.pixelSize: Theme.fontSmall
-                                    wrapMode: Text.WrapAnywhere
-                                }
                             }
                         }
                     }
                     Text {
                         Layout.fillWidth: true
                         visible: root.dubbing.mediaQueueItems.length === 0
-                        text: qsTr("No queued media yet. Add one or more links above.")
+                        text: qsTr("No downloads yet. Paste one or more public links above.")
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fontSmall
                     }

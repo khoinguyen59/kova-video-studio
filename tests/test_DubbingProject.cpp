@@ -4664,11 +4664,13 @@ void TestDubbingProject::mediaBatchQueueWiresSerialRealOutputs()
 
     QVERIFY(queuePageText.contains(QStringLiteral("TextArea")));
     QVERIFY(queuePageText.contains(QStringLiteral("enqueueMediaLinks(sourceUrl.text)")));
-    QVERIFY(queuePageText.contains(QStringLiteral("startMediaQueue({")));
-    QVERIFY(queuePageText.contains(QStringLiteral("mediaQueueProgress")));
-    QVERIFY(queuePageText.contains(QStringLiteral("source.srt")));
-    QVERIFY(queuePageText.contains(QStringLiteral("translated.srt")));
-    QVERIFY(queuePageText.contains(QStringLiteral("voice.wav")));
+    QVERIFY(queuePageText.contains(QStringLiteral("objectName: \"mediaDownloadButton\"")));
+    QVERIFY(queuePageText.contains(QStringLiteral("text: qsTr(\"Set up Chromium\")")));
+    QVERIFY(queuePageText.contains(QStringLiteral("openDouyinBrowserSession()")));
+    QVERIFY(!queuePageText.contains(QStringLiteral("startMediaQueue({")));
+    QVERIFY(!queuePageText.contains(QStringLiteral("source.srt")));
+    QVERIFY(!queuePageText.contains(QStringLiteral("translated.srt")));
+    QVERIFY(!queuePageText.contains(QStringLiteral("voice.wav")));
     QVERIFY(sourcePanelText.contains(QStringLiteral("mediaQueueRequested")));
     QVERIFY(sourcePanelText.contains(QStringLiteral("Add link(s) to download queue")));
     QVERIFY(sourcePanelText.contains(QStringLiteral("Downloaded media & actions")));
