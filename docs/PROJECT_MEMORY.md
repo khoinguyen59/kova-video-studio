@@ -28,6 +28,20 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 - Notebook moi co `WORKER_REVISION=subtitle-ocr-2026-08-11.2`. EXE 0.0.6.3
   khong bi ghi de; can candidate moi neu can dong goi hotfix vao app.
 
+### 2026-08-11 - Subtitle OCR transitive Torch repair (unpackaged)
+
+- Log sau `adc7e04` chung minh worker moi da khong import Torch truc tiep,
+  nhung `PaddleOCR 3.1.1 -> PaddleX moi -> ModelScope -> Torch` van nap
+  `libtorch_cuda.so` va vỡ NCCL. Day la nguyen nhan goc; `connection refused`
+  la hau qua Uvicorn chua khoi dong.
+- Commit `b26ba3a` ghim stack Colab vao Paddle GPU 3.1.0, PaddleOCR 3.1.1 va
+  PaddleX 3.1.0 co extras OCR, force-reinstall khong cache, va probe import
+  PaddleOCR/CUDA truoc worker. Audit wheel PaddleX 3.1.0 xac nhan model
+  resolver khong import ModelScope.
+- Verifier 32/32 PASS; CTest da in 39/39 passed nhung terminal wrapper het han
+  sau khi in summary, nen khong co exit-code capture rieng. Khong co live
+  Colab/GPU test va khong co package moi trong batch nay.
+
 ### 2026-08-11 - 0.0.6.3 internal package
 
 - Commit `6219edc` reworks the Dubbing workbench without removing LA Studio

@@ -9,7 +9,7 @@ Cap nhat: 2026-08-11
 | Latest packaged candidate | `0.0.6.3` |
 | Artifact | `out/LA-Studio-0.0.6.3/LA-Studio-0.0.6.3.exe` |
 | SHA-256 | `B3322735B67EEE453FA5549AB35CB5DC95D2E578B68A9BEC7BCDE25F1FDB3137` |
-| Current source | `main` at `adc7e04`; the 0.0.6.3 package is unchanged and a later, un-packaged Subtitle OCR notebook hotfix is present in source. |
+| Current source | `main` at `b26ba3a`; the 0.0.6.3 package is unchanged and later, un-packaged Subtitle OCR notebook fixes are present in source. |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
 
 ## Candidate 0.0.6.3 - Dubbing workbench restructure
@@ -31,15 +31,24 @@ Cap nhat: 2026-08-11
 
 ## Post-package Subtitle OCR notebook hotfix
 
-- `adc7e04` removes PyTorch from the exact PP-OCRv5 Colab worker. The worker
-  now uses Paddle only to require `gpu:0` and obtain the GPU name, avoiding the
-  reproduced NCCL ABI failure (`libtorch_cuda.so: undefined symbol:
-  ncclCommShrink`) before Uvicorn could bind `/health`.
-- The generated notebook and verifier passed **32/32** exact-notebook checks;
-  a fresh full CTest run passed **39/39**. This proves generator/notebook and
-  desktop regressions, not a live Colab execution.
-- The correction is in source/GitHub now but is not retroactively inside the
-  already staged `0.0.6.3` portable artifact.
+- The original `adc7e04` removal of a direct Torch import did not cover the
+  later Colab log: PaddleOCR 3.1.1 was resolving a newer PaddleX, which
+  imported ModelScope and therefore Torch indirectly. That is the real path
+  behind `libtorch_cuda.so: undefined symbol: ncclCommShrink`; connection
+  refused is only the resulting worker startup failure.
+- `b26ba3a` pins the notebook's complete tested dependency set to
+  `paddlepaddle-gpu==3.1.0`, `paddleocr==3.1.1`, and
+  `paddlex[ie,multimodal,ocr,trans]==3.1.0`. It force-reinstalls this set and
+  runs a real `from paddleocr import PaddleOCR` CUDA probe before starting the
+  server. The exact PaddleX 3.1.0 wheel was inspected: its model resolver does
+  not import ModelScope.
+- The generated-notebook verifier is now a regression gate for those exact
+  pins plus the import probe; it passed **32/32**. Full CTest printed
+  **39/39 passed**; the outer terminal deadline occurred only after CTest had
+  printed that completed summary, so its shell exit code was not captured.
+- The correction is on `main`, but is not retroactively inside the staged
+  `0.0.6.3` portable artifact. It still requires a fresh Colab runtime for
+  live acceptance.
 
 ## Candidate 0.0.6.1 - Dubbing preview workspace package
 
