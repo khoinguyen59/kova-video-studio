@@ -1,38 +1,51 @@
-# AI agent response - 0.0.6.1 internal package
+# AI agent response - 0.0.6.2 internal package
 
 Date: 2026-08-10
 
 ## Result
 
-The new internal portable package is available at:
+The internal portable package is available at:
 
-`out/LA-Studio-0.0.6.1/LA-Studio-0.0.6.1.exe`
+`out/LA-Studio-0.0.6.2/LA-Studio-0.0.6.2.exe`
 
-- SHA-256: `5C32FC68A1F7CBAF50873DFADC7F5D23B150B9AF77E6A9B54AEA40F9117CD39E`
-- FileVersion: `0.0.6.1`
-- ProductVersion: `0.0.6.1`
-- Source/version commit on `main`: `718f2e6 build: advance internal candidate to 0.0.6.1`
+- SHA-256: `52B7B4228742C5C769F80C1EE9E315F55B6406FFBF32E0FE1F6FE7FFBFE05B45`
+- FileVersion / ProductVersion: `0.0.6.2`
+- Source commit on `main`: `9b39b3c fix: prioritize dubbing preview workspace`
 
-This package includes the completed Dubbing preview workspace source batch:
-the central 16:9 video canvas is wider by default, loaded-source controls are
-bounded and scrollable, **Focus video** temporarily clears adjacent workspaces,
-and the Timeline has its own height drag handle. Existing Dubbing functions,
-OCR, media queue, Chromium/cookie controls, Direct Colab, API Gateway and
-exports remain in the product.
+The change is restricted to the Dubbing workspace layout. It keeps the
+existing LA Studio features and adds these controls:
 
-Only two package folders are retained: `LA-Studio-0.0.6.0` and
-`LA-Studio-0.0.6.1`. No older candidate was overwritten.
+- **Open video** / **Replace video** is always available in the preview header.
+- Selecting a local source collapses the link, cookie, and Chromium setup
+  drawer deterministically; the drawer is still available through **Change /
+  download source** when needed.
+- The preview frame can be switched between **Fit source**, **16:9**, **9:16**,
+  and **1:1**. The source remains uncropped and uses aspect-fit rendering.
+- **Focus video** removes the timeline and project-control panel from the
+  workspace temporarily. The new sliders button beside the History toggle
+  shows or hides the lower Language & Voice, Dubbing Quality, Speakers, and
+  Output panel independently.
+- OCR and subtitle-preview coordinates now follow the selected preview frame,
+  so changing the display ratio does not offset the scan region or subtitles.
 
-## Verification
+Only three versioned portable folders are retained:
+`LA-Studio-0.0.6.0`, `LA-Studio-0.0.6.1`, and `LA-Studio-0.0.6.2`.
 
-- QML lint passed.
-- Targeted media/remote/offscreen-QML regression: **4/4 passed**.
-- Full CTest: **39/39 passed** (57.83 seconds).
-- Package staging and license audits both passed with **19 required artifacts**.
-- Independent artifact checks found Qt `qwindows.dll` and `qoffscreen.dll`,
-  `LAStudioRuntimeHost.exe`, FFmpeg/FFprobe, yt-dlp, Subtitle OCR/PaddleOCR
-  manifests, the Spleeter Colab notebook and third-party notices.
+## Verification performed
 
-The package is internal-only: its eSpeak payload is SHA-256 verified but
-unsigned. No GUI, browser, live Douyin URL, API Gateway or Colab worker was
-opened, so those remain manual acceptance checks rather than claimed passes.
+- QML lint: passed.
+- Targeted media, remote, and offscreen-QML regressions: **4/4 passed**.
+- Full CTest at version `0.0.6.2`: **39/39 passed**.
+- `graphify update .`: completed after the source changes.
+- Portable package staging completed. Independent artifact checks confirmed
+  the versioned EXE, `LAStudioRuntimeHost.exe`, `qwindows.dll`, `qoffscreen.dll`,
+  FFmpeg, FFprobe, yt-dlp, the Spleeter notebook, and remote-worker document.
+
+## Limits of this verification
+
+No visible desktop GUI, browser, live Douyin link, API Gateway, or Colab worker
+was opened. The offscreen QML regression does use the production file-picker
+boundary and verifies the post-selection drawer, preview-ratio logic, and
+project-control toggle, but it is not a substitute for manually viewing a
+real video in the packaged app. The package remains internal-only because its
+eSpeak payload is SHA-256 verified but unsigned.

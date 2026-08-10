@@ -500,3 +500,18 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   `LASTUDIO_DOUYIN_PYTHON`, and reports the selected interpreter when the
   dependency is missing.
 - Portable internal `0.0.2.38` was staged; QML lint and full CTest 39/39 pass.
+
+### 2026-08-10 - 0.0.6.2 preview-first Dubbing workspace
+
+- Dubbing's source drawer now collapses immediately after a source is accepted
+  through the production picker. The preview header exposes Open/Replace video
+  and explicit ratio choices (Fit source, 16:9, 9:16, 1:1).
+- The display frame uses aspect-fit only; OCR ROI, subtitle overlay and media
+  controls are frame-relative. Focus video hides the timeline and lower
+  project controls, and a header sliders toggle restores/hides those controls
+  without changing any project settings.
+- Regressions include the live QML source-selection boundary plus frame-ratio
+  and lower-panel-toggle contracts. QML lint, targeted 4/4 and full CTest 39/39
+  passed. Graphify was updated. Internal portable package 0.0.6.2 is staged
+  under `out/LA-Studio-0.0.6.2`; it was not launched visibly and no live remote
+  service was claimed.

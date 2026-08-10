@@ -714,3 +714,24 @@ Cap nhat: 2026-08-10
 - Candidate `0.0.2.38` was staged with matching version metadata and SHA-256;
   full CTest 39/39 and QML lint passed. It is internal-only due to unsigned
   eSpeak.
+
+### 2026-08-10 - 0.0.6.2 Dubbing preview workspace
+
+- Loaded-source setup is now collapsed deterministically at the real
+  file-picker boundary. The compact setup drawer remains explicitly available,
+  while **Open video** / **Replace video** remains visible in the preview
+  header.
+- The Dubbing preview supports Fit source, 16:9, 9:16 and 1:1 display frames
+  without crop or stretch. OCR ROI, subtitle overlay and playback controls use
+  the selected frame rather than the entire panel.
+- **Focus video** clears the timeline and lower project controls; the new
+  header sliders toggle independently shows/hides the lower controls. Existing
+  Dubbing routes and features were not removed.
+- QML lint, targeted media/remote/offscreen-QML checks (4/4) and full CTest
+  (39/39) passed. `graphify update .` completed. Portable internal package
+  `out/LA-Studio-0.0.6.2/LA-Studio-0.0.6.2.exe` has File/Product Version
+  `0.0.6.2` and SHA-256
+  `52B7B4228742C5C769F80C1EE9E315F55B6406FFBF32E0FE1F6FE7FFBFE05B45`.
+- Source commit `9b39b3c` was pushed directly to `main`. No GUI or live remote
+  service was opened; visual acceptance with a real packaged video remains a
+  manual gate.
