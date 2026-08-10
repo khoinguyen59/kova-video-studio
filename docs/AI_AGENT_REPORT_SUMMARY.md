@@ -9,8 +9,33 @@ Cap nhat: 2026-08-10
 | Latest packaged candidate | `0.0.6.0` |
 | Artifact | `out/LA-Studio-0.0.6.0/LA-Studio-0.0.6.0.exe` |
 | SHA-256 | `9768C4C7990B6FD1164EEFC455683B4DECFBA4DABB778A8152FD6B02D5F31736` |
-| Current source | `main`; the Dubbing workspace source controls can collapse after a media selection, leaving a usable video/OCR area while route setup remains available on demand. Internal version/source/package consistency verified for `0.0.6.0`. |
+| Current source | `main` at `b86eb90`; Dubbing now prioritizes a wider, resizable video canvas. Loaded-source controls are bounded and scrollable, Focus video hides side workspaces without changing the project, and the timeline has a vertical resize handle. The latest packaged candidate remains `0.0.6.0`. |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
+
+## Source batch after 0.0.6.0 - Dubbing preview workspace
+
+- Studied the matching OpenCut repository at
+  `C:/Users/Nguyen Trong Khoi/Downloads/OpenCut-reference` (remote
+  `OpenCut-app/OpenCut`, commit `4d8c49e`). Its separate Browser/Preview/
+  Inspector upper workspace and bottom Timeline informed the layout only;
+  no OpenCut code or replacement workflow was imported.
+- The actual LA Studio Dubbing panel retains the existing media queue,
+  Chromium/cookie controls, Direct Colab/API Gateway routes, OCR, and exports.
+  Once a source exists, its source setup is a `160 px` scrollable panel so it
+  cannot shrink the video to a strip. The central Preview default widened to
+  `860 px` (minimum `620 px`) and has larger 16:9-oriented bounds.
+- **Focus video** temporarily hides History, the stage workspace, and node
+  inspector. A dedicated horizontal divider resizes the independent Timeline
+  from `96` to `360 px`; all layout controls are source/QML controls, not a
+  mock overlay.
+- QML lint PASS; targeted media/remote/offscreen route regression **4/4
+  PASS**; full CTest **39/39 PASS**. The first QML smoke caught an invalid
+  tooltip property and passed after its direct repair. `graphify update .`
+  ran after editing. No visible GUI, live video, browser, Douyin, API, or
+  Colab worker was opened.
+- No package was created because the explicit three-folder limit is already
+  occupied by `0.0.2.39`, `0.0.2.40`, and `0.0.6.0`. The next package is
+  `0.0.6.1` after the user frees one slot; no candidate will be overwritten.
 
 ## Candidate 0.0.6.0 - internal version carry and Dubbing workspace package
 

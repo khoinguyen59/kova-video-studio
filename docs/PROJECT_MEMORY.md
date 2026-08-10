@@ -16,6 +16,26 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 
 ## Lich su cap san pham
 
+### 2026-08-10 - Dubbing preview workspace source batch (sau 0.0.6.0)
+
+- OpenCut tham khao duoc giu ngoai source LA Studio tai
+  `C:/Users/Nguyen Trong Khoi/Downloads/OpenCut-reference`, remote
+  `OpenCut-app/OpenCut`, commit `4d8c49e`. Chi tham khao bo cuc Browser /
+  Preview / Inspector va Timeline doc lap; khong copy code hay thay the tinh
+  nang, workflow, route Colab/API cua LA Studio.
+- DubbingSourceMediaPanel gioi han vung source/download/Chromium thanh
+  ScrollView toi da 160 px sau khi co source. Video canvas giu minimum/
+  preferred 16:9 thuc dung; source setup, media queue, cookie va Chromium van
+  mo lai bang **Change / download source**.
+- DubbingPage co Preview rong mac dinh 860 px, minimum 620 px, **Focus
+  video** de an tam History/step/inspector (khong doi project), va handle doc
+  lap cho Timeline 96--360 px. Commit source/test: `b86eb90` tren `main`.
+- QML lint PASS; targeted media/remote/offscreen QML PASS 4/4; fresh full
+  CTest PASS 39/39. Smoke ban dau bat loi `Button.toolTip` va da sua sang
+  attached ToolTip truoc khi gate PASS. Khong mo GUI, browser, video hay
+  worker song. Khong co package moi vi da du 3 folder; package tiep theo phai
+  la `0.0.6.1` sau khi user giai phong mot slot.
+
 ### 2026-08-10 - 0.0.6.0 internal version carry
 
 - Version noi bo dung bon truong mot chu so va carry tai 9: `0.0.0.9` thanh
