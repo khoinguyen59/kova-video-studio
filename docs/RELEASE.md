@@ -5,7 +5,7 @@ This runbook is for Windows x64 releases. Do not promote a release because a tag
 ## Preconditions
 
 - `main` is green at the intended commit and the working tree is clean.
-- `LASTUDIO_VERSION` in `CMakeLists.txt` matches the intended `vMAJOR.MINOR.RELEASE.BUILD` tag.
+- `LASTUDIO_VERSION` in `CMakeLists.txt` matches the intended `vMAJOR.MINOR.RELEASE.BUILD` tag. Each of the four internal version fields is one digit only; carry at `9` (`0.0.0.9` then `0.0.1.0`), never use a suffix-like field such as `0.0.2.40`.
 - The previous stable release and its assets remain available for rollback.
 - The release workflow has access to the approved code-signing capability and has no unreviewed secret changes.
 - Every executable third-party payload passes its configured integrity and signature gate. In particular, do not build a release from an eSpeak NG MSI unless it has both the catalog SHA-256 and a valid Authenticode signature; the currently audited upstream `1.52.0` MSI is unsigned and is not release-eligible.
@@ -46,7 +46,7 @@ release.
    rehearsal builds and validates the staged payload with `package.ps1 -SkipInstaller`; it does
    not create an installer, tag, or GitHub Release. Resolve any rehearsal failure before cutting
    the tag.
-3. Create an annotated, signed tag and verify it locally. Stable tags use `vMAJOR.MINOR.RELEASE.BUILD`; preview tags use `vMAJOR.MINOR.RELEASE.BUILD-beta.N` (or `-alpha.N` / `-rc.N`). The numeric core must match `LASTUDIO_VERSION`. Increment the fourth field for each internal build: `0.0.0.1` through `0.0.0.9`, then `0.0.1.0`:
+3. Create an annotated, signed tag and verify it locally. Stable tags use `vMAJOR.MINOR.RELEASE.BUILD`; preview tags use `vMAJOR.MINOR.RELEASE.BUILD-beta.N` (or `-alpha.N` / `-rc.N`). The numeric core must match `LASTUDIO_VERSION` and contains exactly four single-digit fields. Increment the fourth field for each internal build: `0.0.0.1` through `0.0.0.9`, then `0.0.1.0`:
 
    ```powershell
    git tag -s vMAJOR.MINOR.RELEASE.BUILD -m "LA Studio vMAJOR.MINOR.RELEASE.BUILD"

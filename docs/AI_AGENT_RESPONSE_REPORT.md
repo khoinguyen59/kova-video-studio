@@ -1,147 +1,41 @@
-# AI agent response - 0.0.2.36 explicit Douyin cookie retry
+# AI agent response - 0.0.6.0 internal package
 
-Date: 2026-08-09
+Date: 2026-08-10
 
 ## Result
 
-The current yt-dlp package (`2026.07.04`) still requires fresh cookies for
-the tested Douyin short link. The fix keeps the normal no-cookie behavior and
-adds an explicit, user-controlled recovery path:
+Created the internal portable package:
 
-1. In Import/Download or the Dubbing source panel, choose a fresh Netscape
-   tab-separated cookie file with **Choose Douyin cookies** before starting a
-   download.
-2. Paste the raw link or full Douyin share text and add it to the queue.
-3. If yt-dlp reports the fresh-cookie diagnostic, the queue item is shown as
-   `needs-auth` and exposes **Retry with cookies**. Select the cookie file,
-   then press that button; the original link is retained only in memory for
-   this retry.
+- [LA-Studio-0.0.6.0.exe](C:/Users/Nguyen%20Trong%20Khoi/Downloads/LA-STUDIO/out/LA-Studio-0.0.6.0/LA-Studio-0.0.6.0.exe)
+- SHA-256: `9768C4C7990B6FD1164EEFC455683B4DECFBA4DABB778A8152FD6B02D5F31736`
+- FileVersion/ProductVersion: `0.0.6.0` / `0.0.6.0`
 
-The app never reads Chrome/browser cookie stores. The selected file is checked
-for readability, size (1 byte–16 MiB) and Netscape tab-separated structure,
-then copied to an owner-only temporary file for the resolver. The temporary
-copy is deleted after resolver success/failure/cancel/destruction. No cookie
-contents, path, URL, token or credential is written to project/settings/history,
-output metadata or logs. On successful retry, the source URL and cookie
-configuration are cleared.
+The version scheme is now enforced in the build toolchain. A version must use
+exactly four single digits and carry at `9`: `0.0.0.9` then `0.0.1.0`.
+`0.0.2.40` is rejected by CMake, the build/package scripts, and release-tag
+validation. This package includes the current Dubbing workspace improvements:
+source controls can collapse after choosing media, the video/OCR area retains
+a useful size, and other setup controls remain accessible while a job is
+visible in Activity.
 
 ## Verification
 
-- Targeted media regression: PASS. It covers default `--no-cookies`, explicit
-  `--cookies`, temp-copy cleanup, actionable fresh-cookie diagnostics, and a
-  real controller retry from `needs-auth` to a downloaded loopback media file.
-- QML lint: PASS.
-- Full CTest: **39/39 PASS** after the final source/test changes.
-- Portable staging: FileVersion/ProductVersion `0.0.2.36`; yt-dlp
-  `2026.07.04`; FFmpeg `N-125829-gfe953596e9-20260728`; qwindows/qoffscreen,
-  RuntimeHost, Colab worker templates and 19/19 staging/license artifacts
-  verified.
+- PowerShell parsing: build, package, and release-version scripts passed.
+- Version behavior: `v0.0.6.0` accepted; `v0.0.2.40` and CMake version
+  `0.0.2.40` rejected as intended.
+- QML lint: passed.
+- Targeted media/remote/offscreen QML regression: **4/4 passed**.
+- Full CTest: **39/39 passed**.
+- Portable package audit: passed. It verified root EXE/RuntimeHost, Qt
+  `qwindows` and `qoffscreen`, FFmpeg/FFprobe, yt-dlp `2026.07.04`, Tesseract
+  `5.5.1`, Colab notebook payloads, and the prepared PaddleOCR health
+  manifest. Package staging and license manifests both reported 19 required
+  artifacts.
 
-## Artifact
+## Retention and scope
 
-- [LA-Studio-0.0.2.36.exe](C:/Users/Nguyen%20Trong%20Khoi/Downloads/LA-STUDIO/out/LA-Studio-0.0.2.36/LA-Studio-0.0.2.36.exe)
-- SHA-256: `745D6776350C2408824126E006FE4449ACACAA4B439C4DD1EE76FC1637B3D7C1`
-- Package: internal portable build; eSpeak MSI is hash-verified but unsigned.
-
-## Manual acceptance still needed
-
-I did not open the visible app, browser or a live Douyin/Colab service. The
-remaining acceptance is to export a fresh Netscape cookie file from the user's
-browser, choose it in `0.0.2.36`, retry the same Douyin link, and confirm the
-download becomes selectable. Public-link availability and account/cookie
-validity are external conditions and are not claimed by the loopback tests.
-
-## Follow-up implementation - dedicated Douyin Chromium session (2026-08-10)
-
-The next fix follows the browser-session approach researched after the
-`yt-dlp` fresh-cookie failures. LA Studio now has an app-owned Playwright
-helper at `scripts/douyin_browser_session.py` and a C++ process boundary in
-`src/dubbing/media/DouyinBrowserSessionService.*`.
-
-- **Profile isolation:** the session is stored under the LA Studio data
-  directory (`~/.lastudio/douyin-browser-profile`, or the explicit
-  `LASTUDIO_DOUYIN_BROWSER_PROFILE` override). The code never reads or
-  imports Chrome, Edge, or Firefox profiles and never passes
-  `--cookies-from-browser`.
-- **Explicit lifecycle:** Import/Download and the Dubbing source panel now
-  expose **Set up browser session**, **Check connection**, and **Disable**.
-  Setup opens the separate managed Chromium profile for the user to sign in;
-  Check verifies an authenticated Douyin session; only a verified session is
-  allowed to download Douyin pages through the browser worker.
-- **Dynamic page path:** the helper opens the Douyin page with Playwright,
-  captures a real video response/`video` resource, and streams it to LA Studio
-  staging with the managed session's cookies and referer. Signed URLs and
-  cookie values are not emitted to the app or logs. The source URL remains a
-  short-lived process argument and is not persisted.
-- **Fallback remains explicit:** normal links still use the managed yt-dlp
-  adapter with `--no-cookies`; the existing user-selected Netscape cookie file
-  remains available as a separate recovery path. There is no silent Local or
-  browser fallback when a route was not verified.
-- **Packaging:** `scripts/package.ps1` stages the helper under
-  `douyin-browser/douyin_browser_session.py`. Python Playwright and its
-  Chromium binary are intentionally user-installed dependencies; the app does
-  not download or control a user's existing browser.
-
-### Verification for this follow-up
-
-- `python -m py_compile scripts/douyin_browser_session.py`: PASS.
-- Helper contract checks: dedicated `--profile`/`--mode`/`--url`/`--output`
-  arguments only; no browser-cookie import flags: PASS.
-- Targeted `TestMediaIngestService` + `PrepareQmlRouteSmokeRuntime` +
-  `QmlRouteSmoke`: **3/3 PASS**.
-- Full CTest: **39/39 PASS** after rebuilding the current source.
-- QML lint: PASS.
-- `graphify update .`: completed; graph updated to 12,648 nodes / 25,403
-  edges.
-
-No visible GUI, user browser profile, login, or live authenticated Douyin
-download was performed. Manual acceptance is still required: install
-Playwright/Chromium in the configured Python environment, click **Set up
-browser session**, sign in in the separate window, close it, click **Check
-connection**, then download one Douyin share link. The current source is
-verified; no new versioned EXE was packaged in this follow-up.
-
-## Follow-up fix - Python interpreter selection (2026-08-10)
-
-The 0.0.2.37 screenshot showed the helper was invoked with a Python that did
-not contain Playwright, even though another Python installation on the machine
-did. `DouyinBrowserSessionService` now scans Python executables on `PATH` and
-selects the first one that successfully imports Playwright. Explicit
-`LASTUDIO_DOUYIN_PYTHON` and bundled interpreter overrides remain authoritative.
-If no candidate has Playwright, the UI reports the exact selected interpreter
-and the supported override instead of only saying that Chromium failed.
-
-- Build/regression: QML lint PASS, targeted 3/3 PASS, full CTest **39/39
-  PASS**, Graphify update completed.
-- Internal portable candidate **0.0.2.38**:
-  `out/LA-Studio-0.0.2.38/LA-Studio-0.0.2.38.exe`.
-- FileVersion/ProductVersion: `0.0.2.38` / `0.0.2.38`.
-- SHA-256:
-  `9C61FD5AE7D0DFF810D20A3CE7AF870F5D63131B369BE6017FC03C97DEB28496`.
-- The candidate remains internal-only because the staged eSpeak payload is
-  unsigned.
-
-## Follow-up UI correction - Download route scope (2026-08-10)
-
-The standalone **Download** route is now download-only. Its page no longer
-contains Dubbing action checkboxes, batch execution order, STT/translation/TTS
-output descriptions, or a run-processing button. Those controls remain in the
-Dubbing media queue dialog, where they belong.
-
-- The main action is now **Download**; adding links still starts the real
-  download queue through the existing controller, rather than merely creating
-  an inert list entry.
-- **Douyin Chromium session** is a prominent card on the Download route with
-  **Set up Chromium**, **Check connection**, and **Disable**. It remains
-  app-profile-only and does not import browser cookies.
-- Downloaded media is shown as a simple library with retry/remove controls and
-  an **Open Dubbing actions** hand-off. No processing is started from this
-  page.
-- Regression after the UI split: QML lint PASS, targeted 5/5 PASS, full CTest
-  **39/39 PASS**.
-- Internal portable candidate **0.0.2.37** was staged at
-  `out/LA-Studio-0.0.2.37/LA-Studio-0.0.2.37.exe`; FileVersion and
-  ProductVersion both equal `0.0.2.37`. SHA-256:
-  `0F407605841B752C9579DEA1884989BAB7BCFA13DF99496BB83DC122F707322A`.
-  It is an internal build because the verified eSpeak payload is unsigned;
-  it is not a distributable release.
+There are exactly three remaining package folders:
+`LA-Studio-0.0.2.39`, `LA-Studio-0.0.2.40`, and `LA-Studio-0.0.6.0`.
+No GUI, browser, live Douyin, or live Colab worker was opened for this build.
+The package is internal-only because the staged eSpeak component is
+SHA-verified but unsigned.

@@ -6,7 +6,7 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 
 - Desktop local-first: STT, TTS, Voice Cloning, Voice Design, Alignment, Translation, Dubbing, LLM Chat, Download va Subtitle OCR.
 - API Gateway va Direct Colab la hai route doc lap. Token/URL Colab chi o memory session, khong persist vao project/report.
-- Package noi bo moi nhat: `0.0.2.34` tai `out/LA-Studio-0.0.2.34/LA-Studio-0.0.2.34.exe`, SHA-256 `5F86C2715A8F32F842EBADCAE3118547CB3CFB846E7206D04DE777B712DE178C`. FileVersion/ProductVersion `0.0.2.34`; full CTest 39/39, QML lint va direct portable audit PASS. Manual GUI/live Colab luon la gate rieng.
+- Package noi bo moi nhat: `0.0.6.0` tai `out/LA-Studio-0.0.6.0/LA-Studio-0.0.6.0.exe`, SHA-256 `9768C4C7990B6FD1164EEFC455683B4DECFBA4DABB778A8152FD6B02D5F31736`. FileVersion/ProductVersion `0.0.6.0`; full CTest 39/39, QML lint va direct portable audit PASS. Manual GUI/live Colab luon la gate rieng.
 - `0.0.2.23` duoc giu nguyen nhung khong duoc chap nhan: audit bat thieu evidence trace route/model/worker truoc-sau. `0.0.2.24` bo sung trace va package moi, khong ghi de candidate cu.
 - `0.0.2.21` khong duoc chap nhan cho Dubbing Automatic: gate/preflight co
   dead-end media va no-op Configure. `0.0.2.22` sua duong ingest truoc gate,
@@ -15,6 +15,18 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   offscreen khong co native active window.
 
 ## Lich su cap san pham
+
+### 2026-08-10 - 0.0.6.0 internal version carry
+
+- Version noi bo dung bon truong mot chu so va carry tai 9: `0.0.0.9` thanh
+  `0.0.1.0`. CMake, `build.ps1`, `package.ps1` va
+  `verify_release_version.ps1` deu tu choi `0.0.2.40`; source default va
+  package da dong bo o `0.0.6.0`.
+- Regression them contract cho version policy vao `TestRemoteExecution` va
+  giu cac regression Dubbing layout hien tai. QML lint PASS, targeted 4/4
+  PASS, full CTest 39/39 PASS. Package portable verified FileVersion,
+  ProductVersion, SHA, Qt plugins, RuntimeHost, FFmpeg, yt-dlp, Tesseract va
+  PaddleOCR health manifest. Khong mo GUI hay goi service song.
 
 ### 2026-08-09 - 0.0.2.34 Dubbing workspace queue controls
 

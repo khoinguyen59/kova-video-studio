@@ -1,16 +1,44 @@
 # Bao cao tong hop LA Studio
 
-Cap nhat: 2026-08-09
+Cap nhat: 2026-08-10
 
 ## Baseline hien tai
 
 | Muc | Trang thai |
 | --- | --- |
-| Latest packaged candidate | `0.0.2.36` |
-| Artifact | `out/LA-Studio-0.0.2.36/LA-Studio-0.0.2.36.exe` |
-| SHA-256 | `745D6776350C2408824126E006FE4449ACACAA4B439C4DD1EE76FC1637B3D7C1` |
-| Current source | `main`; Dubbing public-media import now supports an explicitly selected, memory-only Netscape cookie file with a needs-auth state and retry action. Version/source/package consistency verified for `0.0.2.36`. |
+| Latest packaged candidate | `0.0.6.0` |
+| Artifact | `out/LA-Studio-0.0.6.0/LA-Studio-0.0.6.0.exe` |
+| SHA-256 | `9768C4C7990B6FD1164EEFC455683B4DECFBA4DABB778A8152FD6B02D5F31736` |
+| Current source | `main`; the Dubbing workspace source controls can collapse after a media selection, leaving a usable video/OCR area while route setup remains available on demand. Internal version/source/package consistency verified for `0.0.6.0`. |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
+
+## Candidate 0.0.6.0 - internal version carry and Dubbing workspace package
+
+- Version identifiers now have exactly four single-digit fields. The carry rule
+  is enforced consistently by CMake, build/package scripts and release-tag
+  validation: `0.0.0.9` carries to `0.0.1.0`; values such as `0.0.2.40` are
+  rejected before configure/package.
+- The prior Dubbing layout batch is included: source/download setup collapses
+  after a source is loaded, the video workspace has a bounded useful height,
+  OCR edit mode exposes its scan area without source controls covering it, and
+  current running activity remains observable without locking unrelated setup.
+- The manually retained package folders are exactly three:
+  `LA-Studio-0.0.2.39`, `LA-Studio-0.0.2.40`, and `LA-Studio-0.0.6.0`.
+
+### Evidence 0.0.6.0
+
+- PowerShell syntax checks passed for build, package and release-version
+  scripts. `v0.0.6.0` was accepted; `v0.0.2.40` and CMake
+  `LASTUDIO_VERSION=0.0.2.40` were rejected with the carry-rule diagnostic.
+- QML lint passed. Targeted media/remote/offscreen QML regression passed
+  **4/4**; full CTest passed **39/39**.
+- Portable package audit passed: FileVersion/ProductVersion `0.0.6.0`, SHA
+  above, Qt `qwindows`/`qoffscreen`, RuntimeHost, FFmpeg/FFprobe, yt-dlp
+  `2026.07.04`, Tesseract `5.5.1`, and the prepared PaddleOCR health manifest
+  are present and verified. The staging and license manifests both passed
+  `19 required artifacts` during packaging.
+- No visible desktop GUI, user browser, live Douyin URL or live Colab worker
+  was opened. Those remain manual acceptance checks.
 
 ## Candidate 0.0.2.36 - explicit Douyin cookie retry
 
