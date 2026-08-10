@@ -6,7 +6,7 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 
 - Desktop local-first: STT, TTS, Voice Cloning, Voice Design, Alignment, Translation, Dubbing, LLM Chat, Download va Subtitle OCR.
 - API Gateway va Direct Colab la hai route doc lap. Token/URL Colab chi o memory session, khong persist vao project/report.
-- Package noi bo moi nhat: `0.0.6.1` tai `out/LA-Studio-0.0.6.1/LA-Studio-0.0.6.1.exe`, SHA-256 `5C32FC68A1F7CBAF50873DFADC7F5D23B150B9AF77E6A9B54AEA40F9117CD39E`. Source/FileVersion/ProductVersion deu `0.0.6.1`; QML lint, targeted 4/4, full CTest 39/39 va portable audit 19 artifact PASS. Manual GUI/live Colab luon la gate rieng.
+- Package noi bo moi nhat: `0.0.6.3` tai `out/LA-Studio-0.0.6.3/LA-Studio-0.0.6.3.exe`, SHA-256 `B3322735B67EEE453FA5549AB35CB5DC95D2E578B68A9BEC7BCDE25F1FDB3137`. Source/FileVersion/ProductVersion deu `0.0.6.3`; QML lint, full CTest 39/39, portable artifact audit va hidden offscreen startup smoke PASS. Manual GUI/live Colab luon la gate rieng.
 - `0.0.2.23` duoc giu nguyen nhung khong duoc chap nhan: audit bat thieu evidence trace route/model/worker truoc-sau. `0.0.2.24` bo sung trace va package moi, khong ghi de candidate cu.
 - `0.0.2.21` khong duoc chap nhan cho Dubbing Automatic: gate/preflight co
   dead-end media va no-op Configure. `0.0.2.22` sua duong ingest truoc gate,
@@ -15,6 +15,22 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   offscreen khong co native active window.
 
 ## Lich su cap san pham
+
+### 2026-08-11 - 0.0.6.3 internal package
+
+- Commit `6219edc` reworks the Dubbing workbench without removing LA Studio
+  capabilities: task controls can live in the left shelf, the central preview
+  is no longer permanently covered by node configuration, contextual detail
+  stays on the right, and the Timeline is a dedicated full-width lower area.
+  System Logs are Settings-only.
+- QML lint and a fresh complete CTest run passed **39/39**. Package staging
+  verified its own manifests; an independent audit confirmed the versioned
+  application, Qt platform plugins, RuntimeHost, FFmpeg/FFprobe, yt-dlp,
+  managed Douyin helper, OCR runtimes, and relevant Colab notebooks. A hidden
+  offscreen launch remained alive for five seconds before deliberate shutdown.
+- The package is internal-only because its eSpeak payload remains SHA-verified
+  but unsigned. There are currently four candidate folders in `out`, so the
+  requested maximum of three is not yet restored.
 
 ### 2026-08-10 - 0.0.6.1 internal package
 

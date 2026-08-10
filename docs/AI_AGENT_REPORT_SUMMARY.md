@@ -1,16 +1,33 @@
 # Bao cao tong hop LA Studio
 
-Cap nhat: 2026-08-10
+Cap nhat: 2026-08-11
 
 ## Baseline hien tai
 
 | Muc | Trang thai |
 | --- | --- |
-| Latest packaged candidate | `0.0.6.1` |
-| Artifact | `out/LA-Studio-0.0.6.1/LA-Studio-0.0.6.1.exe` |
-| SHA-256 | `5C32FC68A1F7CBAF50873DFADC7F5D23B150B9AF77E6A9B54AEA40F9117CD39E` |
-| Current source | `main` at `718f2e6`; Dubbing retains the wider, resizable video canvas from `b86eb90`, and source/FileVersion/ProductVersion are all `0.0.6.1`. |
+| Latest packaged candidate | `0.0.6.3` |
+| Artifact | `out/LA-Studio-0.0.6.3/LA-Studio-0.0.6.3.exe` |
+| SHA-256 | `B3322735B67EEE453FA5549AB35CB5DC95D2E578B68A9BEC7BCDE25F1FDB3137` |
+| Current source | `main` at `6219edc`; source/FileVersion/ProductVersion are all `0.0.6.3`. |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
+
+## Candidate 0.0.6.3 - Dubbing workbench restructure
+
+- The Dubbing workspace now separates the selectable left task shelf, central
+  preview, contextual right review panel, and full-width lower Timeline. It
+  keeps existing LA Studio tasks, routes, and panels rather than replacing the
+  product workflow with a mock editor.
+- QML lint passed; full CTest passed **39/39**. The package build succeeded,
+  and a hidden offscreen package-startup smoke confirmed the staged Qt/QML
+  payload could start without opening a user-visible app.
+- Independent artifact audit verified `qwindows`/`qoffscreen`, RuntimeHost,
+  FFmpeg/FFprobe, yt-dlp, Douyin helper, Subtitle OCR, PaddleOCR, and relevant
+  Colab notebooks. Live browser/Colab/API and visual desktop acceptance were
+  intentionally not run.
+- The package is `out/LA-Studio-0.0.6.3/LA-Studio-0.0.6.3.exe`. Four portable
+  candidate folders are presently present (`0.0.6.0`--`0.0.6.3`), so the
+  requested three-candidate retention limit still needs cleanup.
 
 ## Candidate 0.0.6.1 - Dubbing preview workspace package
 
