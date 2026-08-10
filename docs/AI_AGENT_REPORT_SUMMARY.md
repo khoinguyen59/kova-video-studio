@@ -625,3 +625,13 @@ Cap nhat: 2026-08-09
 - No new versioned EXE was packaged and no live authenticated Douyin download
   was claimed. Manual acceptance requires installing Playwright/Chromium,
   signing in through the managed profile and pressing Check connection.
+
+### 2026-08-10 - Download route scope correction
+
+- Standalone Download now only downloads and lists media. Dubbing task
+  checkboxes, execution order, and processing outputs were removed from this
+  route; the Dubbing media queue remains the owner of those actions.
+- Replaced the misleading queue-only label with a visible **Download** action
+  and added a prominent **Set up Chromium** card with connection/disable
+  controls.
+- QML lint PASS; targeted checks 5/5 PASS; full CTest **39/39 PASS**.

@@ -433,3 +433,13 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 - Tests after final source changes: QML lint PASS, targeted media/QML 3/3
   PASS, full CTest 39/39 PASS, and graphify update completed. No new EXE was
   packaged; live authenticated Douyin acceptance remains manual.
+
+### 2026-08-10 - Download page is download-only
+
+- `qml/pages/MediaDownloadPage.qml` no longer owns Dubbing action selection.
+  It only downloads public links, manages the app-owned Douyin Chromium
+  session/cookies, lists downloaded files, and hands off to Dubbing.
+- The visible primary action is `Download`; processing controls remain in
+  `qml/components/dubbing/DubbingMediaQueueDialog.qml`.
+- After updating the affected regression expectations: QML lint PASS, targeted
+  5/5 PASS, full CTest 39/39 PASS.

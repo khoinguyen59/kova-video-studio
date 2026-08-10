@@ -100,3 +100,22 @@ Playwright/Chromium in the configured Python environment, click **Set up
 browser session**, sign in in the separate window, close it, click **Check
 connection**, then download one Douyin share link. The current source is
 verified; no new versioned EXE was packaged in this follow-up.
+
+## Follow-up UI correction - Download route scope (2026-08-10)
+
+The standalone **Download** route is now download-only. Its page no longer
+contains Dubbing action checkboxes, batch execution order, STT/translation/TTS
+output descriptions, or a run-processing button. Those controls remain in the
+Dubbing media queue dialog, where they belong.
+
+- The main action is now **Download**; adding links still starts the real
+  download queue through the existing controller, rather than merely creating
+  an inert list entry.
+- **Douyin Chromium session** is a prominent card on the Download route with
+  **Set up Chromium**, **Check connection**, and **Disable**. It remains
+  app-profile-only and does not import browser cookies.
+- Downloaded media is shown as a simple library with retry/remove controls and
+  an **Open Dubbing actions** hand-off. No processing is started from this
+  page.
+- Regression after the UI split: QML lint PASS, targeted 5/5 PASS, full CTest
+  **39/39 PASS**.
