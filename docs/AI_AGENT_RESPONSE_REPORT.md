@@ -101,6 +101,26 @@ browser session**, sign in in the separate window, close it, click **Check
 connection**, then download one Douyin share link. The current source is
 verified; no new versioned EXE was packaged in this follow-up.
 
+## Follow-up fix - Python interpreter selection (2026-08-10)
+
+The 0.0.2.37 screenshot showed the helper was invoked with a Python that did
+not contain Playwright, even though another Python installation on the machine
+did. `DouyinBrowserSessionService` now scans Python executables on `PATH` and
+selects the first one that successfully imports Playwright. Explicit
+`LASTUDIO_DOUYIN_PYTHON` and bundled interpreter overrides remain authoritative.
+If no candidate has Playwright, the UI reports the exact selected interpreter
+and the supported override instead of only saying that Chromium failed.
+
+- Build/regression: QML lint PASS, targeted 3/3 PASS, full CTest **39/39
+  PASS**, Graphify update completed.
+- Internal portable candidate **0.0.2.38**:
+  `out/LA-Studio-0.0.2.38/LA-Studio-0.0.2.38.exe`.
+- FileVersion/ProductVersion: `0.0.2.38` / `0.0.2.38`.
+- SHA-256:
+  `9C61FD5AE7D0DFF810D20A3CE7AF870F5D63131B369BE6017FC03C97DEB28496`.
+- The candidate remains internal-only because the staged eSpeak payload is
+  unsigned.
+
 ## Follow-up UI correction - Download route scope (2026-08-10)
 
 The standalone **Download** route is now download-only. Its page no longer

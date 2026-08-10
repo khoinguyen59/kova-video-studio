@@ -446,3 +446,11 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 - Internal portable `0.0.2.37` was staged with matching file/product version
   metadata and SHA-256 audit; it remains internal-only because eSpeak is
   unsigned.
+
+### 2026-08-10 - Playwright interpreter selection
+
+- `DouyinBrowserSessionService` no longer trusts only the first `python` on
+  PATH. It probes candidates for `import playwright`, preserves explicit
+  `LASTUDIO_DOUYIN_PYTHON`, and reports the selected interpreter when the
+  dependency is missing.
+- Portable internal `0.0.2.38` was staged; QML lint and full CTest 39/39 pass.

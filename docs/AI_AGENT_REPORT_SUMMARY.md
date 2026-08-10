@@ -638,3 +638,12 @@ Cap nhat: 2026-08-09
 - Internal portable candidate `0.0.2.37` was staged and version metadata was
   verified. It is not a distributable release because the eSpeak payload is
   unsigned.
+
+### 2026-08-10 - Playwright interpreter auto-selection
+
+- The managed Douyin service now probes Python candidates on `PATH` and uses
+  the first interpreter that can import Playwright, avoiding a false failure
+  when the first system Python lacks the dependency.
+- Candidate `0.0.2.38` was staged with matching version metadata and SHA-256;
+  full CTest 39/39 and QML lint passed. It is internal-only due to unsigned
+  eSpeak.
