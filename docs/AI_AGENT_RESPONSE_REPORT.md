@@ -119,3 +119,9 @@ Dubbing media queue dialog, where they belong.
   page.
 - Regression after the UI split: QML lint PASS, targeted 5/5 PASS, full CTest
   **39/39 PASS**.
+- Internal portable candidate **0.0.2.37** was staged at
+  `out/LA-Studio-0.0.2.37/LA-Studio-0.0.2.37.exe`; FileVersion and
+  ProductVersion both equal `0.0.2.37`. SHA-256:
+  `0F407605841B752C9579DEA1884989BAB7BCFA13DF99496BB83DC122F707322A`.
+  It is an internal build because the verified eSpeak payload is unsigned;
+  it is not a distributable release.

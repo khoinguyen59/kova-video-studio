@@ -635,3 +635,6 @@ Cap nhat: 2026-08-09
   and added a prominent **Set up Chromium** card with connection/disable
   controls.
 - QML lint PASS; targeted checks 5/5 PASS; full CTest **39/39 PASS**.
+- Internal portable candidate `0.0.2.37` was staged and version metadata was
+  verified. It is not a distributable release because the eSpeak payload is
+  unsigned.

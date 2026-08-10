@@ -443,3 +443,6 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   `qml/components/dubbing/DubbingMediaQueueDialog.qml`.
 - After updating the affected regression expectations: QML lint PASS, targeted
   5/5 PASS, full CTest 39/39 PASS.
+- Internal portable `0.0.2.37` was staged with matching file/product version
+  metadata and SHA-256 audit; it remains internal-only because eSpeak is
+  unsigned.
