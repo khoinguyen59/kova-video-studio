@@ -6,7 +6,7 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 
 - Desktop local-first: STT, TTS, Voice Cloning, Voice Design, Alignment, Translation, Dubbing, LLM Chat, Download va Subtitle OCR.
 - API Gateway va Direct Colab la hai route doc lap. Token/URL Colab chi o memory session, khong persist vao project/report.
-- Package noi bo moi nhat: `0.0.6.0` tai `out/LA-Studio-0.0.6.0/LA-Studio-0.0.6.0.exe`, SHA-256 `9768C4C7990B6FD1164EEFC455683B4DECFBA4DABB778A8152FD6B02D5F31736`. FileVersion/ProductVersion `0.0.6.0`; full CTest 39/39, QML lint va direct portable audit PASS. Manual GUI/live Colab luon la gate rieng.
+- Package noi bo moi nhat: `0.0.6.1` tai `out/LA-Studio-0.0.6.1/LA-Studio-0.0.6.1.exe`, SHA-256 `5C32FC68A1F7CBAF50873DFADC7F5D23B150B9AF77E6A9B54AEA40F9117CD39E`. Source/FileVersion/ProductVersion deu `0.0.6.1`; QML lint, targeted 4/4, full CTest 39/39 va portable audit 19 artifact PASS. Manual GUI/live Colab luon la gate rieng.
 - `0.0.2.23` duoc giu nguyen nhung khong duoc chap nhan: audit bat thieu evidence trace route/model/worker truoc-sau. `0.0.2.24` bo sung trace va package moi, khong ghi de candidate cu.
 - `0.0.2.21` khong duoc chap nhan cho Dubbing Automatic: gate/preflight co
   dead-end media va no-op Configure. `0.0.2.22` sua duong ingest truoc gate,
@@ -15,6 +15,20 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   offscreen khong co native active window.
 
 ## Lich su cap san pham
+
+### 2026-08-10 - 0.0.6.1 internal package
+
+- User da giai phong slot package; candidate `0.0.6.1` duoc tao moi, khong ghi
+  de candidate cu. Hai folder con lai la `LA-Studio-0.0.6.0` va
+  `LA-Studio-0.0.6.1`, nam duoi gioi han toi da ba phien ban.
+- CMake default va regression version da dong bo o `0.0.6.1` trong commit
+  `718f2e6`. EXE co dung FileVersion/ProductVersion va SHA o phan Hien trang.
+- Package portable da xac minh 19 staging artifact va 19 license artifact;
+  qwindows/qoffscreen, RuntimeHost, FFmpeg/FFprobe, yt-dlp, Subtitle OCR,
+  PaddleOCR va Colab notebooks deu ton tai. eSpeak van la payload noi bo
+  SHA-verified nhung unsigned.
+- Khong mo GUI, browser, video hay remote worker; package audit khong thay the
+  manual desktop/live service acceptance.
 
 ### 2026-08-10 - Dubbing preview workspace source batch (sau 0.0.6.0)
 
@@ -33,8 +47,8 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 - QML lint PASS; targeted media/remote/offscreen QML PASS 4/4; fresh full
   CTest PASS 39/39. Smoke ban dau bat loi `Button.toolTip` va da sua sang
   attached ToolTip truoc khi gate PASS. Khong mo GUI, browser, video hay
-  worker song. Khong co package moi vi da du 3 folder; package tiep theo phai
-  la `0.0.6.1` sau khi user giai phong mot slot.
+  worker song. Batch nay da duoc dong goi thanh `0.0.6.1` sau khi user giai
+  phong mot slot.
 
 ### 2026-08-10 - 0.0.6.0 internal version carry
 

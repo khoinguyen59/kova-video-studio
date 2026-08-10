@@ -6,11 +6,27 @@ Cap nhat: 2026-08-10
 
 | Muc | Trang thai |
 | --- | --- |
-| Latest packaged candidate | `0.0.6.0` |
-| Artifact | `out/LA-Studio-0.0.6.0/LA-Studio-0.0.6.0.exe` |
-| SHA-256 | `9768C4C7990B6FD1164EEFC455683B4DECFBA4DABB778A8152FD6B02D5F31736` |
-| Current source | `main` at `b86eb90`; Dubbing now prioritizes a wider, resizable video canvas. Loaded-source controls are bounded and scrollable, Focus video hides side workspaces without changing the project, and the timeline has a vertical resize handle. The latest packaged candidate remains `0.0.6.0`. |
+| Latest packaged candidate | `0.0.6.1` |
+| Artifact | `out/LA-Studio-0.0.6.1/LA-Studio-0.0.6.1.exe` |
+| SHA-256 | `5C32FC68A1F7CBAF50873DFADC7F5D23B150B9AF77E6A9B54AEA40F9117CD39E` |
+| Current source | `main` at `718f2e6`; Dubbing retains the wider, resizable video canvas from `b86eb90`, and source/FileVersion/ProductVersion are all `0.0.6.1`. |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
+
+## Candidate 0.0.6.1 - Dubbing preview workspace package
+
+- Created only after the user removed old package folders. The retained
+  candidates are `LA-Studio-0.0.6.0` and `LA-Studio-0.0.6.1`; no existing
+  candidate was overwritten and the count remains below the three-folder cap.
+- CMake default, generated application resource version, EXE FileVersion and
+  EXE ProductVersion are all `0.0.6.1` (`718f2e6`).
+- QML lint passed; targeted media/remote/offscreen route regression passed
+  **4/4**; full CTest passed **39/39** in 57.83 seconds.
+- The portable package audit passed both staging and license manifests with
+  **19 required artifacts**. The independently checked folder contains Qt
+  `qwindows`/`qoffscreen`, RuntimeHost, FFmpeg/FFprobe, yt-dlp, Subtitle OCR,
+  PaddleOCR and the Colab notebooks.
+- This is a package and automated/offscreen validation only. The app, browser,
+  live Douyin URL, API Gateway and Colab worker were not opened.
 
 ## Source batch after 0.0.6.0 - Dubbing preview workspace
 
@@ -33,9 +49,7 @@ Cap nhat: 2026-08-10
   tooltip property and passed after its direct repair. `graphify update .`
   ran after editing. No visible GUI, live video, browser, Douyin, API, or
   Colab worker was opened.
-- No package was created because the explicit three-folder limit is already
-  occupied by `0.0.2.39`, `0.0.2.40`, and `0.0.6.0`. The next package is
-  `0.0.6.1` after the user frees one slot; no candidate will be overwritten.
+- This source batch is delivered in the audited `0.0.6.1` candidate above.
 
 ## Candidate 0.0.6.0 - internal version carry and Dubbing workspace package
 

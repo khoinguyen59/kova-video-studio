@@ -1,61 +1,38 @@
-# AI agent response - Dubbing preview workspace source batch
+# AI agent response - 0.0.6.1 internal package
 
 Date: 2026-08-10
 
 ## Result
 
-The Dubbing workspace keeps every existing LA Studio feature and route, but
-now gives the video canvas priority instead of letting source/download controls
-compress it.
+The new internal portable package is available at:
 
-- The default central Preview workspace is wider (`860 px`, minimum `620 px`).
-- After a source is loaded, source/download/Chromium controls use a bounded,
-  scrollable panel (`160 px` maximum) rather than consuming the video height.
-  They remain reachable through **Change / download source**.
-- The player has a larger 16:9-oriented minimum/preferred canvas, so subtitle
-  OCR's draggable region remains usable.
-- **Focus video** temporarily hides History, the stage workspace, and the node
-  inspector. **Exit video focus** restores them; no project, route, model, or
-  processing state is changed.
-- A real horizontal handle between Preview and Timeline lets the user resize
-  the Timeline from `96` to `360 px`; dragging it down gives the canvas more
-  height.
+`out/LA-Studio-0.0.6.1/LA-Studio-0.0.6.1.exe`
 
-Source/test commit on `main`: `b86eb90 feat(dubbing): prioritize resizable
-video canvas`.
+- SHA-256: `5C32FC68A1F7CBAF50873DFADC7F5D23B150B9AF77E6A9B54AEA40F9117CD39E`
+- FileVersion: `0.0.6.1`
+- ProductVersion: `0.0.6.1`
+- Source/version commit on `main`: `718f2e6 build: advance internal candidate to 0.0.6.1`
 
-## Reference research
+This package includes the completed Dubbing preview workspace source batch:
+the central 16:9 video canvas is wider by default, loaded-source controls are
+bounded and scrollable, **Focus video** temporarily clears adjacent workspaces,
+and the Timeline has its own height drag handle. Existing Dubbing functions,
+OCR, media queue, Chromium/cookie controls, Direct Colab, API Gateway and
+exports remain in the product.
 
-The matching OpenCut reference is available at
-`C:/Users/Nguyen Trong Khoi/Downloads/OpenCut-reference`, remote
-`https://github.com/OpenCut-app/OpenCut.git`, commit `4d8c49e`.
-
-Its shell follows the CapCut-like composition requested here: Browser/media at
-left, Preview in the central upper workspace, Inspector at right, and Timeline
-as a separate lower panel. Its web UI also uses explicit resizable-panel
-separators. LA Studio now follows those layout principles while retaining its
-own Dubbing, Direct Colab, API Gateway, OCR, queue, speaker, and export
-features.
+Only two package folders are retained: `LA-Studio-0.0.6.0` and
+`LA-Studio-0.0.6.1`. No older candidate was overwritten.
 
 ## Verification
 
-- QML lint: passed.
+- QML lint passed.
 - Targeted media/remote/offscreen-QML regression: **4/4 passed**.
-- Full CTest: **39/39 passed**.
-- The initial QML smoke run exposed an invalid `Button.toolTip` property on
-  the new focus control. It was corrected to the attached `ToolTip` API, then
-  the QML route loaded and the complete test suite passed.
-- `graphify update .` completed after source changes.
+- Full CTest: **39/39 passed** (57.83 seconds).
+- Package staging and license audits both passed with **19 required artifacts**.
+- Independent artifact checks found Qt `qwindows.dll` and `qoffscreen.dll`,
+  `LAStudioRuntimeHost.exe`, FFmpeg/FFprobe, yt-dlp, Subtitle OCR/PaddleOCR
+  manifests, the Spleeter Colab notebook and third-party notices.
 
-This is automated/offscreen evidence. No user GUI, live video, browser,
-Douyin, API, or Colab worker was opened for this batch.
-
-## Package status
-
-No EXE was created for this source batch. The retention rule permits at most
-three package folders and all three slots are currently occupied:
-`LA-Studio-0.0.2.39`, `LA-Studio-0.0.2.40`, and `LA-Studio-0.0.6.0`.
-
-The next package must be `0.0.6.1`. It can be created without overwriting a
-candidate once one old package folder is removed by the user; that avoids
-violating the explicit three-version limit.
+The package is internal-only: its eSpeak payload is SHA-256 verified but
+unsigned. No GUI, browser, live Douyin URL, API Gateway or Colab worker was
+opened, so those remain manual acceptance checks rather than claimed passes.
