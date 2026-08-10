@@ -33,14 +33,19 @@ Item {
     property string playingVoiceClipPath: ""
     property bool isHistoryOpen: true
     property bool isNodeInspectorOpen: true
+    property bool previewFocusMode: false
     // Dubbing has its own three-pane workspace and therefore cannot inherit
     // StudioShell's generic resizers. Keep these widths local to this real
     // layout so users can resize History, Preview and the step workspace.
-    property int dubbingHistoryPanelWidth: 300
-    property int dubbingPreviewPanelWidth: 500
-    property int dubbingStepPanelWidth: 670
+    property int dubbingHistoryPanelWidth: 280
+    property int dubbingPreviewPanelWidth: 860
+    property int dubbingTimelinePanelHeight: 146
+    property int dubbingStepPanelWidth: 500
     function clampedDubbingPanelWidth(value, minimum, maximum) {
         return Math.max(minimum, Math.min(maximum, Math.round(value)))
+    }
+    function clampedDubbingTimelineHeight(value) {
+        return Math.max(96, Math.min(360, Math.round(value)))
     }
     // The QML smoke route exercises the transcript selector, then two dialogs
     // whose geometry is only valid on the following event-loop turn.  Keep the
@@ -892,7 +897,7 @@ Item {
                 dubbing: root.dubbing
                 enabled: !root.dubbing.processing
                 panelWidth: root.dubbingHistoryPanelWidth
-                expanded: root.isHistoryOpen
+                expanded: root.isHistoryOpen && !root.previewFocusMode
                 onClearRequested: clearHistoryDialog.open()
                 onDeleteRequested: function(historyId) {
                     root.pendingHistoryDeleteId = historyId
@@ -910,7 +915,7 @@ Item {
                 radius: 4
                 color: historyResizeMouseArea.containsMouse || historyResizeMouseArea.pressed
                        ? Theme.accent : Qt.rgba(Theme.textSecondary.r, Theme.textSecondary.g, Theme.textSecondary.b, 0.28)
-                visible: root.isHistoryOpen
+                visible: root.isHistoryOpen && !root.previewFocusMode
                 ToolTip.visible: historyResizeMouseArea.containsMouse
                 ToolTip.text: qsTr("Drag to resize Dubbing History")
                 MouseArea {
@@ -929,12 +934,18 @@ Item {
             }
 
             ColumnLayout {
-                Layout.fillWidth: true; Layout.fillHeight: true; Layout.preferredWidth: root.dubbingPreviewPanelWidth; spacing: Theme.paddingMedium
+                id: dubbingPreviewWorkspace
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.minimumWidth: 620
+                Layout.preferredWidth: root.dubbingPreviewPanelWidth
+                spacing: Theme.paddingMedium
 
                 DubbingSourceMediaPanel {
                     id: sourceMediaPanel
                     dubbing: root.dubbing
                     selectedSegment: root.selectedSegment
+                    previewFocusMode: root.previewFocusMode
                     onBrowseRequested: mediaFileDialog.open()
                     onSubtitleEditorRequested: subtitleEditorDialog.open()
                     onLinkImportRequested: function(url) { root.dubbing.importMediaFromLink(url) }
@@ -942,9 +953,42 @@ Item {
                     onCancelLinkImportRequested: root.dubbing.cancelMediaLinkImport()
                     onSegmentSelected: root.selectedSegment = index
                     onSelectedSegmentChanged: root.selectedSegment = selectedSegment
+                    onPreviewFocusRequested: function(focused) { root.previewFocusMode = focused }
+                }
+                Rectangle {
+                    id: dubbingTimelineResizeHandle
+                    objectName: "dubbingTimelineResizeHandle"
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 8
+                    radius: 4
+                    color: timelineResizeMouseArea.containsMouse || timelineResizeMouseArea.pressed
+                           ? Theme.accent
+                           : Qt.rgba(Theme.textSecondary.r, Theme.textSecondary.g, Theme.textSecondary.b, 0.28)
+                    ToolTip.visible: timelineResizeMouseArea.containsMouse
+                    ToolTip.text: qsTr("Drag to resize Dubbing timeline")
+                    MouseArea {
+                        id: timelineResizeMouseArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.SizeVerCursor
+                        property real pressY: 0
+                        property int pressHeight: 0
+                        onPressed: function(mouse) {
+                            pressY = mouse.y
+                            pressHeight = root.dubbingTimelinePanelHeight
+                        }
+                        onPositionChanged: function(mouse) {
+                            if (pressed)
+                                root.dubbingTimelinePanelHeight = root.clampedDubbingTimelineHeight(
+                                            pressHeight - (mouse.y - pressY))
+                        }
+                    }
                 }
                 Panel {
-                    Layout.fillWidth: true; Layout.preferredHeight: 146
+                    Layout.fillWidth: true
+                    Layout.minimumHeight: 96
+                    Layout.maximumHeight: 360
+                    Layout.preferredHeight: root.dubbingTimelinePanelHeight
                     ColumnLayout { anchors.fill: parent; anchors.margins: Theme.paddingMedium; spacing: Theme.paddingSmall
                         RowLayout { Layout.fillWidth: true
                             Text { text: qsTr("TIMELINE"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.bold: true; font.letterSpacing: 1.1; Layout.fillWidth: true }
@@ -970,7 +1014,8 @@ Item {
                 radius: 4
                 color: workspaceResizeMouseArea.containsMouse || workspaceResizeMouseArea.pressed
                        ? Theme.accent : Qt.rgba(Theme.textSecondary.r, Theme.textSecondary.g, Theme.textSecondary.b, 0.28)
-                ToolTip.visible: workspaceResizeMouseArea.containsMouse
+                visible: !root.previewFocusMode
+                ToolTip.visible: visible && workspaceResizeMouseArea.containsMouse
                 ToolTip.text: qsTr("Drag to resize Dubbing Preview")
                 MouseArea {
                     id: workspaceResizeMouseArea
@@ -988,6 +1033,7 @@ Item {
             }
 
             Panel {
+                visible: !root.previewFocusMode
                 Layout.fillWidth: true; Layout.fillHeight: true; Layout.preferredWidth: root.dubbingStepPanelWidth
                 ColumnLayout {
                     anchors.fill: parent; anchors.margins: Theme.paddingMedium; spacing: Theme.paddingSmall
@@ -1627,7 +1673,7 @@ Item {
                     nodeId: root.displayedStepId
                     node: root.workflowNode(root.displayedStepId)
                     nodeTitle: root.stepTitle(root.displayedStepId)
-                    visible: root.isNodeInspectorOpen
+                    visible: !root.previewFocusMode && root.isNodeInspectorOpen
                              && node && node.configurable === true
                     onCloseRequested: root.isNodeInspectorOpen = false
                     onRewriteSetupRequested: qualityDialog.openForMode("custom")

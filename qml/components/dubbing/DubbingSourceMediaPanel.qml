@@ -28,9 +28,13 @@ Rectangle {
     property var draftOcrRoi: root.dubbing.dubbingOcrRoi || ({ x: 0.08, y: 0.80, width: 0.84, height: 0.16 })
     property bool ocrRoiDragging: false
     property bool ocrRoiEditMode: false
+    // The Dubbing workspace can give the video canvas its own focused view
+    // without changing the active project, workflow, or media source.
+    property bool previewFocusMode: false
     // Link/download settings are useful before a source is chosen, but must not
     // consume the video canvas once an editor is working on an OCR scan area.
     property bool sourceSetupExpanded: true
+    readonly property int sourceSetupMaximumHeight: root.hasLoadedSource ? 160 : 420
     readonly property var subtitleStyle: (root.dubbing.subtitleConfiguration || {}).style || ({})
     readonly property string activeSubtitleText: {
         for (var i = 0; i < root.dubbing.segments.length; ++i) {
@@ -47,10 +51,13 @@ Rectangle {
     signal cancelLinkImportRequested()
     signal segmentSelected(int index)
     signal subtitleEditorRequested()
+    signal previewFocusRequested(bool focused)
 
     Layout.fillWidth: true
     Layout.fillHeight: true
-    Layout.minimumHeight: 300
+    // Keep a real canvas available for a 16:9 source and OCR ROI handles.  The
+    // source/download controls below are scrollable after a media file exists.
+    Layout.minimumHeight: root.isVideoSource ? 540 : 300
     color: Theme.surface
     radius: Theme.radiusMedium
     border.color: Qt.rgba(1, 1, 1, 0.08)
@@ -192,6 +199,11 @@ Rectangle {
         // canvas. Re-opening source setup remains an explicit user action.
         root.sourceSetupExpanded = !root.hasLoadedSource
     }
+    onPreviewFocusModeChanged: {
+        // A focused canvas must never be squeezed by optional download controls.
+        if (root.previewFocusMode)
+            root.sourceSetupExpanded = false
+    }
 
     MediaPlayer {
         id: mediaPlayer
@@ -307,7 +319,24 @@ Rectangle {
                 objectName: "dubbingSourceSetupToggle"
                 text: root.sourceSetupExpanded ? qsTr("Hide source setup") : qsTr("Change / download source")
                 enabled: !root.dubbing.mediaQueueProcessing
-                onClicked: root.sourceSetupExpanded = !root.sourceSetupExpanded
+                onClicked: {
+                    if (root.previewFocusMode)
+                        root.previewFocusRequested(false)
+                    root.sourceSetupExpanded = !root.sourceSetupExpanded
+                }
+            }
+            Button {
+                id: previewFocusToggle
+                objectName: "dubbingPreviewFocusToggle"
+                text: root.previewFocusMode ? qsTr("Exit video focus") : qsTr("Focus video")
+                enabled: root.isVideoSource
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Give the video canvas the central workspace; source setup stays available from Change / download source.")
+                onClicked: {
+                    if (!root.previewFocusMode)
+                        root.sourceSetupExpanded = false
+                    root.previewFocusRequested(!root.previewFocusMode)
+                }
             }
             Item { Layout.fillWidth: true }
             Rectangle {
@@ -351,15 +380,32 @@ Rectangle {
         // Show source setup by default only until a source exists. Keeping it
         // expanded after a video loads squeezed the preview to a thin strip,
         // which made OCR region editing impractical.
-        ColumnLayout {
+        ScrollView {
             id: sourceSetupPanel
+            objectName: "dubbingSourceSetupScrollView"
             Layout.fillWidth: true
             visible: !root.hasLoadedSource || root.sourceSetupExpanded
-            spacing: Theme.paddingSmall
-            TextArea {
-                id: directMediaLink
-                Layout.fillWidth: true
-                Layout.minimumHeight: 82
+            Layout.minimumHeight: 0
+            Layout.maximumHeight: root.sourceSetupMaximumHeight
+            Layout.preferredHeight: visible
+                                  ? Math.min(sourceSetupContent.implicitHeight,
+                                             root.sourceSetupMaximumHeight)
+                                  : 0
+            clip: true
+            contentWidth: availableWidth
+            contentHeight: sourceSetupContent.implicitHeight
+            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+            ScrollBar.vertical.policy: contentHeight > height
+                                       ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+
+            ColumnLayout {
+                id: sourceSetupContent
+                width: sourceSetupPanel.availableWidth
+                spacing: Theme.paddingSmall
+                TextArea {
+                    id: directMediaLink
+                    Layout.fillWidth: true
+                    Layout.minimumHeight: 82
                 enabled: !root.dubbing.mediaQueueProcessing
                 placeholderText: qsTr("Queue direct media, YouTube, TikTok, or Douyin links — one public link per line")
                 color: Theme.textPrimary
@@ -371,9 +417,9 @@ Rectangle {
                 topPadding: Theme.paddingSmall; bottomPadding: Theme.paddingSmall
                 background: Rectangle { radius: Theme.radiusSmall; color: Qt.rgba(1, 1, 1, 0.035); border.color: directMediaLink.activeFocus ? Theme.accent : Qt.rgba(1, 1, 1, 0.09); border.width: directMediaLink.activeFocus ? 2 : 1 }
             }
-            RowLayout {
-                Layout.fillWidth: true
-                PrimaryButton {
+                RowLayout {
+                    Layout.fillWidth: true
+                    PrimaryButton {
                     id: addQueueLinksButton
                     text: qsTr("Add link(s) to download queue")
                     iconName: "download"
@@ -384,7 +430,7 @@ Rectangle {
                         directMediaLink.clear()
                     }
                 }
-                PrimaryButton {
+                    PrimaryButton {
                     id: openMediaQueueButton
                     objectName: "dubbingOpenMediaQueueButton"
                     text: qsTr("Downloaded media & actions")
@@ -394,19 +440,19 @@ Rectangle {
                     toolTip: qsTr("Choose any downloaded videos and run one action when you decide")
                     onClicked: mediaQueueDialog.open()
                 }
-                PrimaryButton {
+                    PrimaryButton {
                     visible: root.dubbing.mediaQueueDownloading || root.dubbing.mediaQueueProcessing
                     text: qsTr("Cancel queue")
                     iconName: "close"
                     quiet: true
                     onClicked: root.dubbing.cancelMediaQueue()
                 }
-                Item { Layout.fillWidth: true }
-            }
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Theme.paddingSmall
-                Text {
+                    Item { Layout.fillWidth: true }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.paddingSmall
+                    Text {
                     Layout.fillWidth: true
                     text: root.dubbing.douyinCookieConfigured
                           ? qsTr("Douyin cookies: %1 (used for this download run only)").arg(root.dubbing.douyinCookieFileName)
@@ -415,14 +461,14 @@ Rectangle {
                     font.pixelSize: Theme.fontSmall
                     elide: Text.ElideMiddle
                 }
-                PrimaryButton {
+                    PrimaryButton {
                     text: qsTr("Choose Douyin cookies")
                     iconName: "folder"
                     quiet: true
                     enabled: !root.dubbing.mediaQueueDownloading && !root.dubbing.mediaQueueProcessing
                     onClicked: douyinCookieFileDialog.open()
                 }
-                PrimaryButton {
+                    PrimaryButton {
                     visible: root.dubbing.douyinCookieConfigured
                     text: qsTr("Clear")
                     iconName: "close"
@@ -430,25 +476,25 @@ Rectangle {
                     enabled: !root.dubbing.mediaQueueDownloading && !root.dubbing.mediaQueueProcessing
                     onClicked: root.dubbing.clearDouyinCookieFile()
                 }
-            }
-            Rectangle {
-                Layout.fillWidth: true
-                implicitHeight: browserSessionLayout.implicitHeight + Theme.paddingMedium * 2
+                }
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: browserSessionLayout.implicitHeight + Theme.paddingMedium * 2
                 radius: Theme.radiusSmall
                 color: Qt.rgba(0.45, 0.20, 1.0, 0.08)
                 border.color: Qt.rgba(0.55, 0.35, 1.0, 0.35)
                 border.width: 1
-                ColumnLayout {
-                    id: browserSessionLayout
-                    anchors.fill: parent
-                    anchors.margins: Theme.paddingMedium
-                    spacing: Theme.paddingSmall
-                    Text {
+                    ColumnLayout {
+                        id: browserSessionLayout
+                        anchors.fill: parent
+                        anchors.margins: Theme.paddingMedium
+                        spacing: Theme.paddingSmall
+                        Text {
                         text: qsTr("Managed Chromium session for Douyin")
                         color: Theme.textPrimary
                         font.bold: true
                     }
-                    Text {
+                        Text {
                         Layout.fillWidth: true
                         text: root.dubbing.douyinBrowserVerified
                               ? qsTr("Verified. Douyin downloads use this app-owned profile and page JavaScript.")
@@ -457,7 +503,7 @@ Rectangle {
                         font.pixelSize: Theme.fontSmall
                         wrapMode: Text.WordWrap
                     }
-                    Flow {
+                        Flow {
                         Layout.fillWidth: true
                         spacing: Theme.paddingSmall
                         PrimaryButton {
@@ -486,7 +532,7 @@ Rectangle {
                             onClicked: root.dubbing.disconnectDouyinBrowserSession()
                         }
                     }
-                    Text {
+                        Text {
                         Layout.fillWidth: true
                         visible: root.dubbing.douyinBrowserStatus !== ""
                         text: root.dubbing.douyinBrowserStatus
@@ -494,16 +540,17 @@ Rectangle {
                         font.pixelSize: Theme.fontSmall
                         wrapMode: Text.WordWrap
                     }
+                    }
                 }
-            }
-            Text {
-                Layout.fillWidth: true
-                visible: root.dubbing.mediaQueueItems.length > 0
-                text: qsTr("%1 item(s) in the download library. Download first; later open Downloaded media & actions to choose a separate subset for Import, STT, Translate, TTS, or Export.")
-                      .arg(root.dubbing.mediaQueueItems.length)
-                color: Theme.textSecondary
-                font.pixelSize: Theme.fontSmall
-                wrapMode: Text.WordWrap
+                Text {
+                    Layout.fillWidth: true
+                    visible: root.dubbing.mediaQueueItems.length > 0
+                    text: qsTr("%1 item(s) in the download library. Download first; later open Downloaded media & actions to choose a separate subset for Import, STT, Translate, TTS, or Export.")
+                          .arg(root.dubbing.mediaQueueItems.length)
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSmall
+                    wrapMode: Text.WordWrap
+                }
             }
         }
         Text {
@@ -535,10 +582,10 @@ Rectangle {
             // Preserve a practical canvas for 16:9 video and OCR handles even
             // on high-DPI displays. The surrounding panel may grow further.
             Layout.minimumHeight: root.isVideoSource
-                                  ? Math.min(480, Math.max(340, width * 0.50))
+                                  ? Math.min(520, Math.max(400, width * 0.50))
                                   : 220
             Layout.preferredHeight: root.isVideoSource
-                                    ? Math.min(520, Math.max(380, width * 0.56))
+                                    ? Math.min(660, Math.max(500, width * 0.58))
                                     : 260
             radius: Theme.radiusSmall
             color: Qt.rgba(0, 0, 0, 0.30)
