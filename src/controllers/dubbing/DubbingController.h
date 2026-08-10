@@ -30,6 +30,7 @@ class Settings;
 class ColabSession;
 class VoiceClonePresetService;
 class RemoteMediaImportService;
+class DouyinBrowserSessionService;
 class SubtitleOcrController;
 
 class DubbingController : public QObject
@@ -78,6 +79,11 @@ class DubbingController : public QObject
     Q_PROPERTY(int mediaQueueProgress READ mediaQueueProgress NOTIFY mediaQueueChanged)
     Q_PROPERTY(bool douyinCookieConfigured READ douyinCookieConfigured NOTIFY douyinCookieChanged)
     Q_PROPERTY(QString douyinCookieFileName READ douyinCookieFileName NOTIFY douyinCookieChanged)
+    Q_PROPERTY(bool douyinBrowserAvailable READ douyinBrowserAvailable NOTIFY douyinBrowserChanged)
+    Q_PROPERTY(bool douyinBrowserConfigured READ douyinBrowserConfigured NOTIFY douyinBrowserChanged)
+    Q_PROPERTY(bool douyinBrowserBusy READ douyinBrowserBusy NOTIFY douyinBrowserChanged)
+    Q_PROPERTY(bool douyinBrowserVerified READ douyinBrowserVerified NOTIFY douyinBrowserChanged)
+    Q_PROPERTY(QString douyinBrowserStatus READ douyinBrowserStatus NOTIFY douyinBrowserChanged)
     Q_PROPERTY(QVariantList workflowNodes READ workflowNodes NOTIFY workflowChanged)
     // Presentation-only aggregation of the durable workflow node ids.  The
     // serialized graph deliberately keeps its existing ids so projects made
@@ -197,6 +203,11 @@ public:
     int mediaQueueProgress() const;
     bool douyinCookieConfigured() const { return !m_douyinCookieFilePath.isEmpty(); }
     QString douyinCookieFileName() const { return QFileInfo(m_douyinCookieFilePath).fileName(); }
+    bool douyinBrowserAvailable() const;
+    bool douyinBrowserConfigured() const;
+    bool douyinBrowserBusy() const;
+    bool douyinBrowserVerified() const { return m_douyinBrowserVerified; }
+    QString douyinBrowserStatus() const { return m_douyinBrowserStatus; }
     QVariantList workflowNodes() const;
     QVariantList workflowStages() const;
     QVariantMap workflowNodeConfigurations() const { return m_workflowNodeConfigurations; }
@@ -279,6 +290,9 @@ public:
     Q_INVOKABLE int enqueueMediaLinks(const QString &urls);
     Q_INVOKABLE bool setDouyinCookieFile(const QString &path);
     Q_INVOKABLE void clearDouyinCookieFile();
+    Q_INVOKABLE bool openDouyinBrowserSession();
+    Q_INVOKABLE bool checkDouyinBrowserSession(const QString &url = QString());
+    Q_INVOKABLE void disconnectDouyinBrowserSession();
     Q_INVOKABLE int enqueueMediaFiles(const QVariantList &paths);
     Q_INVOKABLE bool setMediaQueueItemSelected(const QString &itemId, bool selected);
     Q_INVOKABLE bool retryMediaQueueItem(const QString &itemId);
@@ -408,6 +422,7 @@ signals:
     void timingResolutionChanged();
     void mediaQueueChanged();
     void douyinCookieChanged();
+    void douyinBrowserChanged();
     void workflowSetupRequired(const QString &nodeId, const QString &setupKind,
                                const QString &message);
 
@@ -509,6 +524,7 @@ private:
     QVariantList m_timingUndoSegments;
     RemoteMediaImportService *m_remoteMediaImport = nullptr;
     RemoteMediaImportService *m_batchMediaImport = nullptr;
+    DouyinBrowserSessionService *m_douyinBrowserSession = nullptr;
     QString m_pendingLinkedMediaPath;
     QString m_downloadedMediaPath;
     bool m_downloadOnly = false;
@@ -517,6 +533,8 @@ private:
     qint64 m_linkImportTotalBytes = -1;
     QVariantList m_mediaQueueItems;
     QString m_douyinCookieFilePath;
+    bool m_douyinBrowserVerified = false;
+    QString m_douyinBrowserStatus;
     QString m_activeMediaQueueDownloadId;
     QString m_activeMediaQueueItemId;
     QVariantMap m_mediaQueueTasks;

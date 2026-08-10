@@ -254,6 +254,7 @@ set(LASTUDIO_SOURCES
     src/dubbing/media/MediaToolService.cpp
     src/dubbing/media/AtomicMediaCommit.cpp
     src/dubbing/media/MediaIngestService.cpp
+    src/dubbing/media/DouyinBrowserSessionService.cpp
     src/dubbing/media/RemoteMediaImportService.cpp
     src/controllers/app/WorkflowActivityManager.cpp
     src/workflows/WorkflowTypes.cpp
@@ -454,6 +455,7 @@ set(LASTUDIO_HEADERS
     src/dubbing/media/MediaToolService.h
     src/dubbing/media/AtomicMediaCommit.h
     src/dubbing/media/MediaIngestService.h
+    src/dubbing/media/DouyinBrowserSessionService.h
     src/dubbing/media/RemoteMediaImportService.h
     src/controllers/app/WorkflowActivityManager.h
     src/workflows/WorkflowTypes.h

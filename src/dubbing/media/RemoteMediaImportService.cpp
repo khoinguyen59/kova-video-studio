@@ -2,6 +2,7 @@
 
 #include "core/PathUtils.h"
 #include "core/MediaRuntimeLocator.h"
+#include "dubbing/media/DouyinBrowserSessionService.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -70,6 +71,7 @@ RemoteMediaImportService::RemoteMediaImportService(const QString &storageRoot, Q
                         ? QDir(PathUtils::cacheDir()).filePath(QStringLiteral("dubbing/link-imports"))
                         : QDir::cleanPath(storageRoot))
     , m_network(new QNetworkAccessManager(this))
+    , m_browserSession(new DouyinBrowserSessionService(this))
     , m_resolverTimeoutMs(qMax(1, resolverTimeoutMs))
 {
     connect(&m_resolver, &QProcess::readyReadStandardOutput, this,
@@ -112,6 +114,22 @@ RemoteMediaImportService::RemoteMediaImportService(const QString &storageRoot, Q
         // download starts so credentials never outlive the resolver phase.
         m_cookieFile.reset();
         validateAndStartDirectDownload(resolved);
+            });
+    connect(m_browserSession, &DouyinBrowserSessionService::downloadFinished, this,
+            [this](bool success, const QString &localPath, const QString &error) {
+        if (!m_browserDownloadActive || !m_active) return;
+        m_browserDownloadActive = false;
+        m_active = false;
+        if (success && QFileInfo(localPath).isFile() && QFileInfo(localPath).size() > 0) {
+            emit transferProgress(QFileInfo(localPath).size(), QFileInfo(localPath).size());
+            emit finished(true, localPath, {});
+            return;
+        }
+        QFile::remove(m_outputPath);
+        m_outputPath.clear();
+        emit finished(false, {}, error.trimmed().isEmpty()
+                                  ? QStringLiteral("The managed Chromium session could not download this Douyin page.")
+                                  : error);
     });
 }
 
@@ -196,6 +214,14 @@ QStringList RemoteMediaImportService::publicVideoResolverArguments(const QUrl &s
     return arguments;
 }
 
+bool isDouyinUrl(const QUrl &sourceUrl)
+{
+    const QString host = sourceUrl.host().trimmed().toLower();
+    return sourceUrl.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) == 0
+        && sourceUrl.userInfo().isEmpty()
+        && (host == QStringLiteral("douyin.com") || host.endsWith(QStringLiteral(".douyin.com")));
+}
+
 bool RemoteMediaImportService::isSupportedSource(const QUrl &sourceUrl) const
 {
     if (!sourceUrl.isValid() || sourceUrl.host().trimmed().isEmpty() || !sourceUrl.userInfo().isEmpty())
@@ -221,6 +247,8 @@ bool RemoteMediaImportService::isPublicVideoPage(const QUrl &sourceUrl) const
 
 bool RemoteMediaImportService::resolvePublicVideoPage(const QUrl &sourceUrl)
 {
+    if (m_douyinBrowserEnabled && isDouyinUrl(sourceUrl))
+        return resolvePublicVideoInBrowser(sourceUrl);
     const QString executable = MediaRuntimeLocator::resolve().ytDlp;
     if (executable.isEmpty()) {
         emit finished(false, {}, QStringLiteral("Public-video support requires the managed yt-dlp adapter."));
@@ -251,6 +279,38 @@ bool RemoteMediaImportService::resolvePublicVideoPage(const QUrl &sourceUrl)
             m_resolver.kill();
         }
     });
+    return true;
+}
+
+bool RemoteMediaImportService::resolvePublicVideoInBrowser(const QUrl &sourceUrl)
+{
+    if (!m_browserSession) {
+        emit finished(false, {}, QStringLiteral("The managed Chromium session is unavailable in this build."));
+        return false;
+    }
+    QString error;
+    if (!m_browserSession->available(&error)) {
+        emit finished(false, {}, error);
+        return false;
+    }
+    if (!QDir().mkpath(m_storageRoot)) {
+        emit finished(false, {}, QStringLiteral("Cannot create LA Studio media staging storage."));
+        return false;
+    }
+    const QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    m_outputPath = QDir(m_storageRoot).filePath(id + QStringLiteral("-douyin.mp4"));
+    QFile::remove(m_outputPath);
+    m_active = true;
+    m_browserDownloadActive = true;
+    if (!m_browserSession->download(sourceUrl, m_outputPath, &error)) {
+        m_browserDownloadActive = false;
+        m_active = false;
+        m_outputPath.clear();
+        emit finished(false, {}, error.isEmpty()
+                                  ? QStringLiteral("The managed Chromium session could not be started.")
+                                  : error);
+        return false;
+    }
     return true;
 }
 
@@ -402,6 +462,12 @@ void RemoteMediaImportService::cancel()
     if (m_resolver.state() != QProcess::NotRunning) {
         m_pendingResolverTerminationError = QStringLiteral("Media link import canceled.");
         m_resolver.kill();
+        return;
+    }
+    if (m_browserDownloadActive && m_browserSession) {
+        m_browserSession->cancel();
+        m_browserDownloadActive = false;
+        if (m_active) fail(QStringLiteral("Media link import canceled."));
         return;
     }
     if (m_active) fail(QStringLiteral("Media link import canceled."));

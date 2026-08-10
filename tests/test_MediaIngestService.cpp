@@ -5,6 +5,7 @@
 #include "audio/WavIO.h"
 #include "dubbing/media/MediaIngestService.h"
 #include "dubbing/media/RemoteMediaImportService.h"
+#include "dubbing/media/DouyinBrowserSessionService.h"
 
 #include <QDir>
 #include <QFile>
@@ -420,6 +421,36 @@ void TestMediaIngestService::resolverArgumentsUseExplicitCookiesOnlyWhenProvided
     QVERIFY(withCookies.contains(cookiePath));
     QVERIFY(!withCookies.contains(QStringLiteral("--no-cookies")));
     QCOMPARE(withCookies.last(), source.toString(QUrl::FullyEncoded));
+}
+
+void TestMediaIngestService::douyinBrowserArgumentsUseDedicatedProfileOnly()
+{
+    const QStringList arguments = DouyinBrowserSessionService::helperArguments(
+        QStringLiteral("C:/app/douyin-browser/douyin_browser_session.py"),
+        QStringLiteral("C:/app-data/douyin-browser-profile"), QStringLiteral("download"),
+        QUrl(QStringLiteral("https://v.douyin.com/fixture/")),
+        QStringLiteral("C:/app-data/staging/video.mp4"));
+    QVERIFY(arguments.contains(QStringLiteral("--mode")));
+    QCOMPARE(arguments.at(arguments.indexOf(QStringLiteral("--mode")) + 1), QStringLiteral("download"));
+    QVERIFY(arguments.contains(QStringLiteral("--profile")));
+    QVERIFY(arguments.contains(QStringLiteral("C:/app-data/douyin-browser-profile")));
+    QVERIFY(arguments.contains(QStringLiteral("--url")));
+    QVERIFY(arguments.contains(QStringLiteral("https://v.douyin.com/fixture/")));
+    QVERIFY(arguments.contains(QStringLiteral("--output")));
+    QVERIFY(arguments.contains(QStringLiteral("C:/app-data/staging/video.mp4")));
+    QVERIFY(!arguments.contains(QStringLiteral("--cookies")));
+    QVERIFY(!arguments.contains(QStringLiteral("--cookies-from-browser")));
+}
+
+void TestMediaIngestService::douyinBrowserDoesNotUseBrowserCookieImportFlags()
+{
+    const QStringList arguments = DouyinBrowserSessionService::helperArguments(
+        QStringLiteral("helper.py"), QStringLiteral("profile"), QStringLiteral("check"),
+        QUrl(QStringLiteral("https://www.douyin.com/")));
+    const QString joined = arguments.join(QLatin1Char(' '));
+    QVERIFY(!joined.contains(QStringLiteral("cookies"), Qt::CaseInsensitive));
+    QVERIFY(!joined.contains(QStringLiteral("chrome"), Qt::CaseInsensitive));
+    QVERIFY(!joined.contains(QStringLiteral("edge"), Qt::CaseInsensitive));
 }
 
 void TestMediaIngestService::explicitCookieFileIsCopiedTemporarilyAndRemovedAfterResolver()
@@ -876,6 +907,12 @@ void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
     QVERIFY(page.contains(QStringLiteral("public YouTube, TikTok, and Douyin pages")));
     QVERIFY(page.contains(QStringLiteral("Douyin cookies are optional")));
     QVERIFY(page.contains(QStringLiteral("never reads browser cookies automatically")));
+    QVERIFY(page.contains(QStringLiteral("Managed Chromium session for Douyin")));
+    QVERIFY(page.contains(QStringLiteral("openDouyinBrowserSession()")));
+    QVERIFY(page.contains(QStringLiteral("checkDouyinBrowserSession()")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("Managed Chromium session for Douyin")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("openDouyinBrowserSession()")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("checkDouyinBrowserSession()")));
     QVERIFY(dubbingSource.contains(QStringLiteral("mediaQueueRequested")));
     QVERIFY(dubbingSource.contains(QStringLiteral("Queue direct media, YouTube, TikTok, or Douyin links")));
     QVERIFY(dubbingSource.contains(QStringLiteral("Add link(s) to download queue")));

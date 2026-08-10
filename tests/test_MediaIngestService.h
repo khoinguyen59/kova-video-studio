@@ -21,6 +21,8 @@ private slots:
     void resolverTimeoutCanRetry();
     void resolverArgumentsKeepUntrustedUrlPositional();
     void resolverArgumentsUseExplicitCookiesOnlyWhenProvided();
+    void douyinBrowserArgumentsUseDedicatedProfileOnly();
+    void douyinBrowserDoesNotUseBrowserCookieImportFlags();
     void explicitCookieFileIsCopiedTemporarilyAndRemovedAfterResolver();
     void resolverFreshCookieDiagnosticIsActionable();
     void controllerRetainsDouyinLinkForCookieRetry();

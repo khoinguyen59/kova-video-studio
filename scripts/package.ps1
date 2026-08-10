@@ -535,6 +535,33 @@ Pinned binary version: $version
     Write-Host ">> Staged pinned yt-dlp $version" -ForegroundColor Green
 }
 
+function Stage-DouyinBrowserHelper {
+    param(
+        [Parameter(Mandatory = $true)][string] $RepositoryRoot,
+        [Parameter(Mandatory = $true)][string] $DeployRoot,
+        [Parameter(Mandatory = $true)][string] $StageRoot
+    )
+
+    # Playwright and Chromium remain an explicit user-installed dependency;
+    # this only stages the auditable helper beside the portable application.
+    # It uses an app-owned profile and never reads a browser's default profile.
+    $source = Join-Path $RepositoryRoot "scripts\douyin_browser_session.py"
+    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+        throw "Douyin browser-session helper was not found at '$source'."
+    }
+    $targetDirectory = Join-Path $DeployRoot "douyin-browser"
+    New-Item -ItemType Directory -Path $targetDirectory -Force | Out-Null
+    Copy-Item -LiteralPath $source -Destination (Join-Path $targetDirectory "douyin_browser_session.py") -Force
+    $licenseDir = Join-Path $StageRoot "licenses\lastudio-douyin-browser"
+    New-Item -ItemType Directory -Path $licenseDir -Force | Out-Null
+    @"
+LA Studio Douyin browser-session helper
+This helper is part of LA Studio and is distributed under the project license.
+It requires a user-installed Python Playwright package and Chromium browser.
+"@ | Set-Content -LiteralPath (Join-Path $licenseDir "NOTICE.txt") -Encoding UTF8
+    Write-Host ">> Staged app-owned Douyin browser-session helper" -ForegroundColor Green
+}
+
 function Stage-ThirdPartyLicenseTexts {
     param(
         [Parameter(Mandatory = $true)]
@@ -1026,6 +1053,7 @@ $sevenZipSource = Ensure-ArchiveExtractor -DeployRoot $deployRoot -VcpkgRoot $Vc
 Ensure-Bsdtar -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir -BuildDirectory $buildDir -Triplet $vcpkgTriplet
 Ensure-FfmpegRuntime -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir
 Ensure-YtDlpRuntime -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir
+Stage-DouyinBrowserHelper -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir
 Stage-SubtitleOcrRuntimeManifest -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir -BuildDirectory $buildDir -Triplet $vcpkgTriplet
 Stage-PaddleOcrRuntime -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir -PaddleRuntimeRoot $PaddleRuntimeRoot
 Stage-ThirdPartyLicenseTexts -RepositoryRoot $RepoRoot -StageRoot $stageDir -BuildDirectory $buildDir -Triplet $vcpkgTriplet -QtRoot $QtRoot -SevenZipSource $sevenZipSource

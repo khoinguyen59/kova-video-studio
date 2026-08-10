@@ -14,6 +14,7 @@
 #include "dubbing/DubbingTimingService.h"
 #include "dubbing/EspeakNgPhonemizer.h"
 #include "dubbing/media/RemoteMediaImportService.h"
+#include "dubbing/media/DouyinBrowserSessionService.h"
 #include "dubbing/workflow/DubbingWorkflowDefinition.h"
 #include "dubbing/workflow/DubbingWorkflowNodes.h"
 #include "workflows/WorkflowGraphRunner.h"
@@ -214,6 +215,26 @@ DubbingController::DubbingController(SttSessionController *sttSession, TtsEngine
     });
     connect(m_batchMediaImport, &RemoteMediaImportService::finished, this,
             &DubbingController::onBatchMediaDownloadFinished);
+    m_douyinBrowserSession = new DouyinBrowserSessionService(this);
+    connect(m_douyinBrowserSession, &DouyinBrowserSessionService::statusChanged, this,
+            [this](const QString &status) {
+        m_douyinBrowserStatus = status;
+        emit douyinBrowserChanged();
+    });
+    connect(m_douyinBrowserSession, &DouyinBrowserSessionService::loginFinished, this,
+            [this](bool success, const QString &message) {
+        m_douyinBrowserStatus = message;
+        if (!success) m_douyinBrowserVerified = false;
+        emit douyinBrowserChanged();
+    });
+    connect(m_douyinBrowserSession, &DouyinBrowserSessionService::connectionChecked, this,
+            [this](bool success, const QString &message) {
+        m_douyinBrowserVerified = success;
+        m_douyinBrowserStatus = message;
+        if (m_remoteMediaImport) m_remoteMediaImport->setDouyinBrowserEnabled(success);
+        if (m_batchMediaImport) m_batchMediaImport->setDouyinBrowserEnabled(success);
+        emit douyinBrowserChanged();
+    });
     m_translationFix = new DubbingTranslationFixService(this);
     connect(m_translationFix, &DubbingTranslationFixService::stateChanged,
             this, [this]() {
@@ -4822,6 +4843,76 @@ void DubbingController::clearDouyinCookieFile()
     if (m_douyinCookieFilePath.isEmpty()) return;
     m_douyinCookieFilePath.clear();
     emit douyinCookieChanged();
+}
+
+bool DubbingController::douyinBrowserAvailable() const
+{
+    return m_douyinBrowserSession && m_douyinBrowserSession->available();
+}
+
+bool DubbingController::douyinBrowserConfigured() const
+{
+    return m_douyinBrowserSession && m_douyinBrowserSession->profileExists();
+}
+
+bool DubbingController::douyinBrowserBusy() const
+{
+    return m_douyinBrowserSession && m_douyinBrowserSession->busy();
+}
+
+bool DubbingController::openDouyinBrowserSession()
+{
+    if (linkImporting() || mediaQueueDownloading() || mediaQueueProcessing() || processing()) {
+        setBusyError(QStringLiteral("Wait for the current media operation before opening the Douyin browser session."));
+        return false;
+    }
+    if (!m_douyinBrowserSession) {
+        setError(QStringLiteral("The managed Douyin browser session is unavailable in this build."));
+        return false;
+    }
+    QString error;
+    if (!m_douyinBrowserSession->openLogin(&error)) {
+        setError(error);
+        emit douyinBrowserChanged();
+        return false;
+    }
+    clearError();
+    emit douyinBrowserChanged();
+    return true;
+}
+
+bool DubbingController::checkDouyinBrowserSession(const QString &url)
+{
+    if (linkImporting() || mediaQueueDownloading() || mediaQueueProcessing() || processing()) {
+        setBusyError(QStringLiteral("Wait for the current media operation before checking the Douyin browser session."));
+        return false;
+    }
+    if (!m_douyinBrowserSession) {
+        setError(QStringLiteral("The managed Douyin browser session is unavailable in this build."));
+        return false;
+    }
+    const QUrl source = url.trimmed().isEmpty()
+        ? QUrl(QStringLiteral("https://www.douyin.com/"))
+        : QUrl::fromUserInput(url.trimmed());
+    QString error;
+    if (!source.isValid() || !m_douyinBrowserSession->checkConnection(source, &error)) {
+        setError(error.isEmpty() ? QStringLiteral("Enter a valid Douyin URL to check the session.") : error);
+        return false;
+    }
+    clearError();
+    emit douyinBrowserChanged();
+    return true;
+}
+
+void DubbingController::disconnectDouyinBrowserSession()
+{
+    if (m_douyinBrowserSession && m_douyinBrowserSession->busy())
+        m_douyinBrowserSession->cancel();
+    m_douyinBrowserVerified = false;
+    m_douyinBrowserStatus = QStringLiteral("Managed Douyin browser session disabled for this run");
+    if (m_remoteMediaImport) m_remoteMediaImport->setDouyinBrowserEnabled(false);
+    if (m_batchMediaImport) m_batchMediaImport->setDouyinBrowserEnabled(false);
+    emit douyinBrowserChanged();
 }
 
 int DubbingController::enqueueMediaFiles(const QVariantList &paths)

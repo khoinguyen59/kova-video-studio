@@ -405,6 +405,70 @@ Rectangle {
                     onClicked: root.dubbing.clearDouyinCookieFile()
                 }
             }
+            Rectangle {
+                Layout.fillWidth: true
+                implicitHeight: browserSessionLayout.implicitHeight + Theme.paddingMedium * 2
+                radius: Theme.radiusSmall
+                color: Qt.rgba(0.45, 0.20, 1.0, 0.08)
+                border.color: Qt.rgba(0.55, 0.35, 1.0, 0.35)
+                border.width: 1
+                ColumnLayout {
+                    id: browserSessionLayout
+                    anchors.fill: parent
+                    anchors.margins: Theme.paddingMedium
+                    spacing: Theme.paddingSmall
+                    Text {
+                        text: qsTr("Managed Chromium session for Douyin")
+                        color: Theme.textPrimary
+                        font.bold: true
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: root.dubbing.douyinBrowserVerified
+                              ? qsTr("Verified. Douyin downloads use this app-owned profile and page JavaScript.")
+                              : qsTr("Optional separate profile for Douyin pages that reject yt-dlp cookies. Chrome/Edge cookies are never read.")
+                        color: Theme.textSecondary
+                        font.pixelSize: Theme.fontSmall
+                        wrapMode: Text.WordWrap
+                    }
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: Theme.paddingSmall
+                        PrimaryButton {
+                            text: qsTr("Set up browser session")
+                            iconName: "folder"
+                            quiet: true
+                            enabled: root.dubbing.douyinBrowserAvailable && !root.dubbing.douyinBrowserBusy
+                                     && !root.dubbing.mediaQueueDownloading && !root.dubbing.mediaQueueProcessing
+                            onClicked: root.dubbing.openDouyinBrowserSession()
+                        }
+                        PrimaryButton {
+                            text: qsTr("Check connection")
+                            iconName: "play"
+                            quiet: true
+                            enabled: root.dubbing.douyinBrowserAvailable && root.dubbing.douyinBrowserConfigured
+                                     && !root.dubbing.douyinBrowserBusy && !root.dubbing.mediaQueueDownloading
+                                     && !root.dubbing.mediaQueueProcessing
+                            onClicked: root.dubbing.checkDouyinBrowserSession()
+                        }
+                        PrimaryButton {
+                            visible: root.dubbing.douyinBrowserVerified
+                            text: qsTr("Disable")
+                            iconName: "close"
+                            quiet: true
+                            onClicked: root.dubbing.disconnectDouyinBrowserSession()
+                        }
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        visible: root.dubbing.douyinBrowserStatus !== ""
+                        text: root.dubbing.douyinBrowserStatus
+                        color: root.dubbing.douyinBrowserVerified ? Theme.success : Theme.textSecondary
+                        font.pixelSize: Theme.fontSmall
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
             Text {
                 Layout.fillWidth: true
                 visible: root.dubbing.mediaQueueItems.length > 0
