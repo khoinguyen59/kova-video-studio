@@ -188,7 +188,11 @@ def main() -> int:
                         '"paddlepaddle-gpu==3.1.0"',
                         '"paddleocr==3.1.1"',
                         '"paddlex[ie,multimodal,ocr,trans]==3.1.0"',
+                        '"Pillow==12.0.0"',
                         'assert version("paddlex") == "3.1.0"',
+                        'assert version("pillow") == "12.0.0"',
+                        'from PIL import ImageText',
+                        'from PIL._typing import _Ink',
                         'from paddleocr import PaddleOCR',
                     )
                     if any(marker not in worker_source for marker in required_stack_markers):

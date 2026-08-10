@@ -44,7 +44,7 @@ MODEL_NAME = "PP-OCRv5 Multilingual 3.1"
 UPSTREAM_MODEL = "PaddlePaddle/PaddleOCR PP-OCRv5"
 UPSTREAM_VERSION = "PaddleOCR 3.1.1"
 LICENSE = "Apache-2.0"
-WORKER_REVISION = "subtitle-ocr-2026-08-11.3"
+WORKER_REVISION = "subtitle-ocr-2026-08-11.4"
 RESPONSE_CONTRACT = "subtitle-ocr-crops-v1"
 TOKEN = os.environ["LA_STUDIO_COLAB_SUBTITLE_OCR_TOKEN"]
 MAX_UPLOAD_BYTES = 16 * 1024 * 1024
@@ -270,6 +270,11 @@ def build_notebook() -> dict:
                 # 3.1.0 trio together and reinstall it deterministically.
                 %pip install -q --upgrade --force-reinstall --no-cache-dir "paddlepaddle-gpu==3.1.0" -i https://www.paddlepaddle.org.cn/packages/stable/cu118/
                 %pip install -q --upgrade --force-reinstall --no-cache-dir "paddleocr==3.1.1" "paddlex[ie,multimodal,ocr,trans]==3.1.0" "fastapi==0.115.12" "uvicorn==0.34.3" "python-multipart==0.0.20"
+                # A partially overwritten Colab Pillow package can combine
+                # Pillow 12's ImageText.py with an older PIL._typing.py,
+                # producing "cannot import name _Ink".  Reinstall the exact
+                # wheel after the OCR extras so PIL is one coherent package.
+                %pip install -q --upgrade --force-reinstall --no-cache-dir --only-binary=:all: "Pillow==12.0.0"
             """)},
             {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [], "source": lines("""
                 # Fail in this explicit dependency probe rather than after the
@@ -277,15 +282,18 @@ def build_notebook() -> dict:
                 # import path that the worker will use; Torch is deliberately
                 # neither imported nor required by this OCR worker.
                 from importlib.metadata import version
+                from PIL import ImageText
+                from PIL._typing import _Ink
                 import paddle
                 from paddleocr import PaddleOCR
 
                 assert version("paddlepaddle-gpu") == "3.1.0", version("paddlepaddle-gpu")
                 assert version("paddlex") == "3.1.0", version("paddlex")
                 assert version("paddleocr") == "3.1.1", version("paddleocr")
+                assert version("pillow") == "12.0.0", version("pillow")
                 assert paddle.device.is_compiled_with_cuda(), "Choose a Colab GPU runtime; CPU fallback is disabled."
                 paddle.device.set_device("gpu:0")
-                print("Verified Paddle-only OCR stack:", paddle.__version__, version("paddlex"), version("paddleocr"))
+                print("Verified Paddle-only OCR stack:", paddle.__version__, version("paddlex"), version("paddleocr"), version("pillow"))
             """)},
             {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [], "source": lines(writer)},
             {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [],
