@@ -605,3 +605,23 @@ Cap nhat: 2026-08-09
   staged runtime/license inventory 19/19 and staged offscreen smoke PASS.
 - No visible GUI or live Colab worker was opened; live audio/service acceptance
   remains a manual gate.
+
+### 2026-08-10 - dedicated Douyin Chromium session
+
+- The fresh-cookie failure was not treated as a reason to scrape a user's
+  existing browser. `scripts/douyin_browser_session.py` now runs a separate,
+  app-owned Playwright Chromium profile at `~/.lastudio/douyin-browser-profile`.
+- Import/Download and the Dubbing source panel expose setup/check/disable
+  controls. A successful check is required before a Douyin download can use
+  the browser worker. The worker navigates the page, captures a real video
+  resource and streams it to app staging with session cookies/referer; it does
+  not print or persist cookies or signed URLs.
+- The existing explicit Netscape cookie + yt-dlp path remains available and
+  the browser route never silently falls back to Local inference or a browser
+  cookie import. Package staging now includes the helper script; Playwright and
+  Chromium remain explicit user-installed dependencies.
+- Regression: helper argument/privacy contract, targeted media/QML checks,
+  QML lint and full CTest **39/39 PASS**. `graphify update .` completed.
+- No new versioned EXE was packaged and no live authenticated Douyin download
+  was claimed. Manual acceptance requires installing Playwright/Chromium,
+  signing in through the managed profile and pressing Check connection.

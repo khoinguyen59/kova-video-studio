@@ -416,3 +416,20 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   actionable error, and controller retry. QML lint and full CTest 39/39 pass.
   Internal portable candidate `0.0.2.36` is hash-audited; live Douyin access
   remains an explicit manual gate.
+
+### 2026-08-10 - Douyin browser-session route
+
+- Added `DouyinBrowserSessionService` and
+  `scripts/douyin_browser_session.py`. The helper owns a persistent Chromium
+  profile under LA Studio data, uses Playwright page JavaScript to discover a
+  video resource, and streams the response into app staging.
+- Browser setup/check/disable is exposed in both Download and Dubbing source
+  UI. The C++ resolver enables the browser path only after a successful
+  authenticated-session check; otherwise the normal yt-dlp/no-cookie or
+  explicitly selected Netscape-cookie paths remain unchanged.
+- No Chrome/Edge/Firefox profile import, `--cookies-from-browser`, cookie
+  logging, or signed-URL persistence is permitted. Packaging stages the helper
+  but intentionally does not install Python/Playwright/Chromium for the user.
+- Tests after final source changes: QML lint PASS, targeted media/QML 3/3
+  PASS, full CTest 39/39 PASS, and graphify update completed. No new EXE was
+  packaged; live authenticated Douyin acceptance remains manual.
