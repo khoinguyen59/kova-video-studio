@@ -647,7 +647,7 @@ void TestRemoteExecution::workflowActivityOnlyDisplaysMeasuredProgress()
     QFile cmake(sourceRoot.filePath(QStringLiteral("CMakeLists.txt")));
     QVERIFY(cmake.open(QIODevice::ReadOnly));
     const QString cmakeSource = QString::fromUtf8(cmake.readAll());
-    QVERIFY(cmakeSource.contains(QStringLiteral("set(LASTUDIO_VERSION \"0.0.6.0\"")));
+    QVERIFY(cmakeSource.contains(QStringLiteral("set(LASTUDIO_VERSION \"0.0.6.1\"")));
     QVERIFY(cmakeSource.contains(QStringLiteral("four single digits (0-9)")));
 
     for (const QString &relativePath : {QStringLiteral("scripts/build.ps1"),
