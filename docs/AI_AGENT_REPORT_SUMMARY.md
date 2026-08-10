@@ -9,7 +9,7 @@ Cap nhat: 2026-08-11
 | Latest packaged candidate | `0.0.6.3` |
 | Artifact | `out/LA-Studio-0.0.6.3/LA-Studio-0.0.6.3.exe` |
 | SHA-256 | `B3322735B67EEE453FA5549AB35CB5DC95D2E578B68A9BEC7BCDE25F1FDB3137` |
-| Current source | `main` at `6219edc`; source/FileVersion/ProductVersion are all `0.0.6.3`. |
+| Current source | `main` at `adc7e04`; the 0.0.6.3 package is unchanged and a later, un-packaged Subtitle OCR notebook hotfix is present in source. |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
 
 ## Candidate 0.0.6.3 - Dubbing workbench restructure
@@ -28,6 +28,18 @@ Cap nhat: 2026-08-11
 - The package is `out/LA-Studio-0.0.6.3/LA-Studio-0.0.6.3.exe`. Four portable
   candidate folders are presently present (`0.0.6.0`--`0.0.6.3`), so the
   requested three-candidate retention limit still needs cleanup.
+
+## Post-package Subtitle OCR notebook hotfix
+
+- `adc7e04` removes PyTorch from the exact PP-OCRv5 Colab worker. The worker
+  now uses Paddle only to require `gpu:0` and obtain the GPU name, avoiding the
+  reproduced NCCL ABI failure (`libtorch_cuda.so: undefined symbol:
+  ncclCommShrink`) before Uvicorn could bind `/health`.
+- The generated notebook and verifier passed **32/32** exact-notebook checks;
+  a fresh full CTest run passed **39/39**. This proves generator/notebook and
+  desktop regressions, not a live Colab execution.
+- The correction is in source/GitHub now but is not retroactively inside the
+  already staged `0.0.6.3` portable artifact.
 
 ## Candidate 0.0.6.1 - Dubbing preview workspace package
 

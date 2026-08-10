@@ -6,7 +6,7 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 
 - Desktop local-first: STT, TTS, Voice Cloning, Voice Design, Alignment, Translation, Dubbing, LLM Chat, Download va Subtitle OCR.
 - API Gateway va Direct Colab la hai route doc lap. Token/URL Colab chi o memory session, khong persist vao project/report.
-- Package noi bo moi nhat: `0.0.6.3` tai `out/LA-Studio-0.0.6.3/LA-Studio-0.0.6.3.exe`, SHA-256 `B3322735B67EEE453FA5549AB35CB5DC95D2E578B68A9BEC7BCDE25F1FDB3137`. Source/FileVersion/ProductVersion deu `0.0.6.3`; QML lint, full CTest 39/39, portable artifact audit va hidden offscreen startup smoke PASS. Manual GUI/live Colab luon la gate rieng.
+- Package noi bo moi nhat: `0.0.6.3` tai `out/LA-Studio-0.0.6.3/LA-Studio-0.0.6.3.exe`, SHA-256 `B3322735B67EEE453FA5549AB35CB5DC95D2E578B68A9BEC7BCDE25F1FDB3137`. QML lint, full CTest 39/39, portable artifact audit va hidden offscreen startup smoke PASS. Source hien co hotfix Subtitle OCR Colab chua nam trong EXE nay; manual GUI/live Colab luon la gate rieng.
 - `0.0.2.23` duoc giu nguyen nhung khong duoc chap nhan: audit bat thieu evidence trace route/model/worker truoc-sau. `0.0.2.24` bo sung trace va package moi, khong ghi de candidate cu.
 - `0.0.2.21` khong duoc chap nhan cho Dubbing Automatic: gate/preflight co
   dead-end media va no-op Configure. `0.0.2.22` sua duong ingest truoc gate,
@@ -15,6 +15,18 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   offscreen khong co native active window.
 
 ## Lich su cap san pham
+
+### 2026-08-11 - Subtitle OCR Colab NCCL hotfix (unpackaged)
+
+- Log Colab cho thay worker PP-OCRv5 chet truoc `/health`: sau khi Paddle nap
+  NCCL, `import torch` cua `libtorch_cuda.so` doi symbol `ncclCommShrink` ma
+  NCCL dang nap khong co. `Connection refused` chi la hau qua worker chua bind
+  port, khong phai loi tunnel hay model OCR.
+- Commit `adc7e04` bo PyTorch khoi exact OCR worker. Paddle tu dat `gpu:0` va
+  lay ten GPU bang API Paddle; CPU fallback van bi cam. Verifier 32/32 va full
+  CTest 39/39 PASS. Khong co live Colab/GPU test trong may local.
+- Notebook moi co `WORKER_REVISION=subtitle-ocr-2026-08-11.2`. EXE 0.0.6.3
+  khong bi ghi de; can candidate moi neu can dong goi hotfix vao app.
 
 ### 2026-08-11 - 0.0.6.3 internal package
 
