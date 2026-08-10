@@ -73,7 +73,11 @@ Rectangle {
                     iconName: modelData.iconName
                     complete: modelData.complete
                     active: modelData.active
-                    enabled: !root.dubbing.settingsLocked
+                    // A running job must not prevent the operator from
+                    // selecting another stage to inspect its output or prepare
+                    // a later worker. Run/configure controls remain guarded by
+                    // the active stage and workflow mode.
+                    enabled: true
                     onSelected: root.stepSelected(stepId)
                 }
             }

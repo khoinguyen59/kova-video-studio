@@ -644,6 +644,30 @@ void TestRemoteExecution::settingsControlsExposeDescriptionsAndKeyboardFocus()
 void TestRemoteExecution::workflowActivityOnlyDisplaysMeasuredProgress()
 {
     const QDir sourceRoot(QStringLiteral(LASTUDIO_SOURCE_DIR));
+    QFile cmake(sourceRoot.filePath(QStringLiteral("CMakeLists.txt")));
+    QVERIFY(cmake.open(QIODevice::ReadOnly));
+    const QString cmakeSource = QString::fromUtf8(cmake.readAll());
+    QVERIFY(cmakeSource.contains(QStringLiteral("set(LASTUDIO_VERSION \"0.0.6.0\"")));
+    QVERIFY(cmakeSource.contains(QStringLiteral("four single digits (0-9)")));
+
+    for (const QString &relativePath : {QStringLiteral("scripts/build.ps1"),
+                                        QStringLiteral("scripts/package.ps1")}) {
+        QFile versionScript(sourceRoot.filePath(relativePath));
+        QVERIFY2(versionScript.open(QIODevice::ReadOnly), qPrintable(relativePath));
+        const QString versionScriptSource = QString::fromUtf8(versionScript.readAll());
+        QVERIFY2(versionScriptSource.contains(QStringLiteral("^[0-9]\\.[0-9]\\.[0-9]\\.[0-9]$")),
+                 qPrintable(relativePath));
+        QVERIFY2(versionScriptSource.contains(QStringLiteral("four single digits (0-9)")),
+                 qPrintable(relativePath));
+    }
+
+    QFile releaseVersionScript(sourceRoot.filePath(QStringLiteral("scripts/verify_release_version.ps1")));
+    QVERIFY(releaseVersionScript.open(QIODevice::ReadOnly));
+    const QString releaseVersionScriptSource = QString::fromUtf8(releaseVersionScript.readAll());
+    QVERIFY(releaseVersionScriptSource.contains(
+        QStringLiteral("^v([0-9]\\.[0-9]\\.[0-9]\\.[0-9])")));
+    QVERIFY(releaseVersionScriptSource.contains(QStringLiteral("four single digits with carry at 9")));
+
     QFile manager(sourceRoot.filePath(QStringLiteral("src/controllers/app/WorkflowActivityManager.cpp")));
     QVERIFY(manager.open(QIODevice::ReadOnly));
     const QString managerSource = QString::fromUtf8(manager.readAll());
@@ -660,6 +684,8 @@ void TestRemoteExecution::workflowActivityOnlyDisplaysMeasuredProgress()
         QVERIFY2(managerSource.contains(workflow), qPrintable(workflow));
     }
     QVERIFY(managerSource.contains(QStringLiteral("progressAvailable")));
+    QVERIFY(managerSource.contains(QStringLiteral("progressScope")));
+    QVERIFY(managerSource.contains(QStringLiteral("progressLabel")));
     QVERIFY(managerSource.contains(QStringLiteral("addExecutionDetails")));
     QVERIFY(managerSource.contains(QStringLiteral("Direct Colab GPU")));
     QVERIFY(managerSource.contains(QStringLiteral("API Gateway")));
@@ -668,8 +694,51 @@ void TestRemoteExecution::workflowActivityOnlyDisplaysMeasuredProgress()
     QVERIFY(popup.open(QIODevice::ReadOnly));
     const QString popupSource = QString::fromUtf8(popup.readAll());
     QVERIFY(popupSource.contains(QStringLiteral("function executionDetails")));
+    QVERIFY(popupSource.contains(QStringLiteral("function progressText")));
+    QVERIFY(popupSource.contains(QStringLiteral("workflow.progressScope === \"artifact\"")));
+    QVERIFY(popupSource.contains(QStringLiteral("Artifact transfer")));
     QVERIFY(popupSource.contains(QStringLiteral("qsTr(\"Working\")")));
     QVERIFY(popupSource.contains(QStringLiteral("modelData.progressAvailable !== false")));
+
+    QFile page(sourceRoot.filePath(QStringLiteral("qml/pages/DubbingPage.qml")));
+    QVERIFY(page.open(QIODevice::ReadOnly));
+    const QString pageSource = QString::fromUtf8(page.readAll());
+    QVERIFY(pageSource.contains(QStringLiteral("property bool followRunningStep")));
+    QVERIFY(pageSource.contains(QStringLiteral("root.followRunningStep = false")));
+    QVERIFY(pageSource.contains(QStringLiteral("function openOcrColabSetup")));
+    QVERIFY(pageSource.contains(QStringLiteral("function ocrSetupEditable")));
+    QVERIFY(pageSource.contains(QStringLiteral("subtitle-ocr")));
+    QVERIFY(pageSource.contains(QStringLiteral("Set up OCR Colab GPU")));
+
+    QFile nodeSettings(sourceRoot.filePath(
+        QStringLiteral("qml/components/dubbing/DubbingNodeSettingsPanel.qml")));
+    QVERIFY(nodeSettings.open(QIODevice::ReadOnly));
+    const QString nodeSettingsSource = QString::fromUtf8(nodeSettings.readAll());
+    QVERIFY(nodeSettingsSource.contains(QStringLiteral("function startColabSetup")));
+    QVERIFY(nodeSettingsSource.contains(QStringLiteral("qsTr(\"Colab setup\")")));
+    QVERIFY(nodeSettingsSource.contains(QStringLiteral("!root.dubbing.settingsLocked && !root.isCurrentRunningNode()")));
+
+    QFile sourcePanel(sourceRoot.filePath(
+        QStringLiteral("qml/components/dubbing/DubbingSourceMediaPanel.qml")));
+    QVERIFY(sourcePanel.open(QIODevice::ReadOnly));
+    const QString sourcePanelSource = QString::fromUtf8(sourcePanel.readAll());
+    QVERIFY(sourcePanelSource.contains(QStringLiteral("property bool ocrRoiEditMode")));
+    QVERIFY(sourcePanelSource.contains(QStringLiteral("property bool sourceSetupExpanded")));
+    QVERIFY(sourcePanelSource.contains(QStringLiteral("id: sourceSetupPanel")));
+    QVERIFY(sourcePanelSource.contains(QStringLiteral("visible: !root.hasLoadedSource || root.sourceSetupExpanded")));
+    QVERIFY(sourcePanelSource.contains(QStringLiteral("Change / download source")));
+    QVERIFY(sourcePanelSource.contains(QStringLiteral("Layout.minimumHeight: root.isVideoSource")));
+    QVERIFY(sourcePanelSource.contains(QStringLiteral("Edit OCR scan area")));
+    QVERIFY(sourcePanelSource.contains(QStringLiteral("OCR scan area locked while running")));
+    QVERIFY(sourcePanelSource.contains(QStringLiteral("preventStealing: true")));
+
+    QFile projectStatus(sourceRoot.filePath(
+        QStringLiteral("qml/components/dubbing/DubbingProjectStatusPanel.qml")));
+    QVERIFY(projectStatus.open(QIODevice::ReadOnly));
+    const QString projectStatusSource = QString::fromUtf8(projectStatus.readAll());
+    QVERIFY(projectStatusSource.contains(QStringLiteral("Add speaker label")));
+    QVERIFY(projectStatusSource.contains(QStringLiteral("Set before starting a job")));
+    QVERIFY(projectStatusSource.contains(QStringLiteral("Execution and rewrite policy only")));
 }
 
 void TestRemoteExecution::everyGpuControllerUsesExactVerifiedColabRoute()

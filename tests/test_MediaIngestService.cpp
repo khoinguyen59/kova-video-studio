@@ -930,7 +930,8 @@ void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
                                                    "                        directMediaLink.clear()\n"
                                                    "                    }")));
     QVERIFY(dubbingSource.contains(QStringLiteral("DubbingMediaQueueDialog")));
-    QVERIFY(dubbingSource.contains(QStringLiteral("Keep the direct-link import action above the fill-height preview")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("Show source setup by default only until a source exists")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("Change / download source")));
     QVERIFY(dubbingQueueDialog.contains(QStringLiteral("Downloaded media")));
     QVERIFY(dubbingQueueDialog.contains(QStringLiteral("Import / Normalize")));
     QVERIFY(dubbingQueueDialog.contains(QStringLiteral("Export / Output")));

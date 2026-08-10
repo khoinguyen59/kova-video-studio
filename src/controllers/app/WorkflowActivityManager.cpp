@@ -600,8 +600,15 @@ QVariantMap WorkflowActivityManager::dubbingWorkflow() const
                         true);
     workflow.insert(QStringLiteral("progressAvailable"), visibleProgressAvailable);
     if (useArtifactTransferProgress) {
+        const QString artifact = artifactTransfer.value(QStringLiteral("artifact")).toString().trimmed();
         workflow.insert(QStringLiteral("progressScope"), QStringLiteral("artifact"));
-        workflow.insert(QStringLiteral("artifact"), artifactTransfer.value(QStringLiteral("artifact")));
+        workflow.insert(QStringLiteral("artifact"), artifact);
+        // This byte counter belongs only to the file currently being
+        // transferred, never to the entire multi-stage Dubbing workflow.
+        workflow.insert(QStringLiteral("progressLabel"),
+                        artifact.isEmpty()
+                            ? QStringLiteral("Artifact transfer")
+                            : QStringLiteral("Artifact: %1").arg(artifact));
         workflow.insert(QStringLiteral("receivedBytes"), artifactTransfer.value(QStringLiteral("receivedBytes")));
         workflow.insert(QStringLiteral("totalBytes"), artifactTransfer.value(QStringLiteral("totalBytes")));
     }

@@ -66,6 +66,16 @@ Rectangle {
             quiet: root.modelState() === 3
             onClicked: root.runModelAction()
         }
+        PrimaryButton {
+            visible: root.remoteRouteConfigurable()
+            text: qsTr("Colab setup")
+            iconName: "cloud"
+            quiet: true
+            Layout.preferredWidth: 116
+            enabled: root.setupEditable()
+            toolTip: qsTr("Switch this inactive stage to Direct Colab GPU and connect its exact worker")
+            onClicked: root.startColabSetup()
+        }
         PrimaryButton { iconName: "reload"; iconOnly: true; toolTip: qsTr("Reload model"); quiet: true; visible: root.canReload(); enabled: !root.lifecycleBusy(); onClicked: root.reloadRequested() }
         PrimaryButton { iconName: "power"; iconOnly: true; toolTip: qsTr("Unload model"); quiet: true; visible: root.canUnload(); enabled: !root.lifecycleBusy(); onClicked: root.unloadRequested() }
         PrimaryButton { visible: root.canRun; iconName: "play"; iconOnly: true; toolTip: qsTr("Run"); enabled: !root.dubbing.processing && root.runReady; onClicked: root.runRequested() }
@@ -79,7 +89,7 @@ Rectangle {
             iconName: "spark"
             quiet: true
             loading: root.dubbing.translationFixing
-            enabled: !root.dubbing.processing
+            enabled: root.setupEditable()
             onClicked: root.fixRequested()
         }
         PrimaryButton { visible: root.nextNodeId !== "" && root.nextReady; text: qsTr("Next"); iconName: "chevron-right"; enabled: !root.dubbing.processing; onClicked: root.nextRequested() }
@@ -113,7 +123,7 @@ Rectangle {
                 for (var i = 0; i < model.length; ++i) if (model[i].id === requested) return i
                 return 0
             }
-            enabled: !root.dubbing.processing
+            enabled: root.setupEditable()
             onActivated: function(index) {
                 var provider = model[index].id
                 if (provider === "colab-direct") {
@@ -165,7 +175,7 @@ Rectangle {
                 ? qsTr("Local model selected above")
                 : qsTr("Refresh the selected provider's model catalog")
             text: (root.node && root.node.parameters && root.node.parameters.modelId) || ""
-            enabled: !root.dubbing.processing && translationProvider.currentIndex !== 0
+            enabled: root.setupEditable() && translationProvider.currentIndex !== 0
             selectByMouse: true
             onEditingFinished: root.dubbing.setWorkflowNodeParameters(root.nodeId,
                                                                         { "modelId": text.trim() })
@@ -190,7 +200,7 @@ Rectangle {
             text: qsTr("Configure route")
             iconName: "settings"
             quiet: true
-            enabled: !root.dubbing.processing
+            enabled: root.setupEditable()
             onClicked: root.openRemoteConfiguration(translationProvider.model[translationProvider.currentIndex].id)
         }
     }
@@ -464,6 +474,14 @@ Rectangle {
             apiGatewayDialog.open()
         }
     }
+    function startColabSetup() {
+        if (!root.setupEditable()) return
+        var selected = root.currentRemoteModel()
+        if (root.dubbing.colabNotebookForNode(root.nodeId, selected) === "")
+            selected = root.dubbing.defaultColabModelForNode(root.nodeId)
+        if (!root.dubbing.selectWorkflowColabModel(root.nodeId, selected)) return
+        root.openRemoteConfiguration("colab-direct")
+    }
     function remoteModelOptions() {
         var provider = (root.node && root.node.parameters && root.node.parameters.executionProvider) || "local-dev"
         if (provider === "colab-direct")
@@ -483,7 +501,16 @@ Rectangle {
         }
         return options
     }
-    function lifecycleBusy() { return [2, 4, 5].indexOf(root.modelState()) >= 0 || root.dubbing.processing }
+    function isCurrentRunningNode() {
+        return root.dubbing.processing && root.nodeId === root.dubbing.currentStepId
+    }
+    // Manual work can continue while the operator prepares a later stage.
+    // Do not mutate the active worker or an approved automatic workflow.
+    function setupEditable() {
+        return !root.dubbing.processing
+               || (!root.dubbing.settingsLocked && !root.isCurrentRunningNode())
+    }
+    function lifecycleBusy() { return [2, 4, 5].indexOf(root.modelState()) >= 0 || !root.setupEditable() }
     function canLoad() { return root.node && root.node.configurable === true && [1, 6].indexOf(root.modelState()) >= 0 }
     function canReload() { return root.node && root.node.configurable === true && root.modelState() === 3 }
     function canUnload() { return root.node && root.node.configurable === true && [3, 6].indexOf(root.modelState()) >= 0 }

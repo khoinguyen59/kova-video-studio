@@ -35,6 +35,16 @@ Popup {
         return parts.join("  â€¢  ")
     }
 
+    function progressText(workflow) {
+        if (workflow.progressAvailable === false) return qsTr("Working")
+        var percent = Math.max(0, Math.min(100, workflow.progress || 0))
+        if (workflow.progressScope === "artifact") {
+            var label = workflow.progressLabel || qsTr("Artifact transfer")
+            return qsTr("%1% of %2").arg(percent).arg(label)
+        }
+        return qsTr("%1%").arg(percent)
+    }
+
     background: Rectangle {
         color: Theme.surface
         radius: Theme.radiusMedium
@@ -405,13 +415,12 @@ Popup {
                                     }
 
                                     Text {
-                                        text: workflowRow.progressAvailable
-                                              ? qsTr("%1%").arg(Math.max(0, Math.min(100, workflowRow.modelData.progress || 0)))
-                                              : qsTr("Working")
+                                        text: root.progressText(workflowRow.modelData)
                                         color: workflowRow.modelData.progressEstimated ? Theme.warning : Theme.textSecondary
                                         font.pixelSize: Theme.fontSmall
-                                        Layout.preferredWidth: 38
+                                        Layout.preferredWidth: workflowRow.modelData.progressScope === "artifact" ? 148 : 52
                                         horizontalAlignment: Text.AlignRight
+                                        elide: Text.ElideLeft
                                     }
                                 }
                             }

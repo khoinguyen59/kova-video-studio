@@ -13,7 +13,9 @@ Rectangle {
 
     required property var dubbing
     property int selectedSegment: -1
-    readonly property bool isVideoSource: root.dubbing.sourceMediaPath.length > 0 && /\.(mp4|mkv|mov|webm|avi)$/i.test(root.dubbing.sourceMediaPath)
+    readonly property string sourceMediaPath: root.dubbing.sourceMediaPath || ""
+    readonly property bool hasLoadedSource: root.sourceMediaPath.length > 0
+    readonly property bool isVideoSource: root.hasLoadedSource && /\.(mp4|mkv|mov|webm|avi)$/i.test(root.sourceMediaPath)
     readonly property bool hasDubbedPreview: root.dubbing.dubbedVocalPath.length > 0
     property string previewMode: "source"
     readonly property bool showingDubbedMedia: root.previewMode === "dubbed" && root.hasDubbedPreview
@@ -25,6 +27,10 @@ Rectangle {
     property int sourceSwitchAttempts: 0
     property var draftOcrRoi: root.dubbing.dubbingOcrRoi || ({ x: 0.08, y: 0.80, width: 0.84, height: 0.16 })
     property bool ocrRoiDragging: false
+    property bool ocrRoiEditMode: false
+    // Link/download settings are useful before a source is chosen, but must not
+    // consume the video canvas once an editor is working on an OCR scan area.
+    property bool sourceSetupExpanded: true
     readonly property var subtitleStyle: (root.dubbing.subtitleConfiguration || {}).style || ({})
     readonly property string activeSubtitleText: {
         for (var i = 0; i < root.dubbing.segments.length; ++i) {
@@ -164,6 +170,7 @@ Rectangle {
                 && controlsAutoHide.delayMs === 2000
                 && subtitleEditorButton.width > 0
                 && subtitlePreviewOverlay.width > 0
+                && (!root.hasLoadedSource || !sourceSetupPanel.visible)
     }
 
     MediaControlsAutoHide {
@@ -178,6 +185,12 @@ Rectangle {
             if (!root.ocrRoiDragging)
                 root.draftOcrRoi = root.dubbing.dubbingOcrRoi
         }
+    }
+
+    onSourceMediaPathChanged: {
+        // A newly selected/downloaded source should immediately receive the
+        // canvas. Re-opening source setup remains an explicit user action.
+        root.sourceSetupExpanded = !root.hasLoadedSource
     }
 
     MediaPlayer {
@@ -237,7 +250,10 @@ Rectangle {
         else
             root.switchPreviewMode("source")
     }
-    Component.onCompleted: root.previewMode = root.hasDubbedPreview ? "dubbed" : "source"
+    Component.onCompleted: {
+        root.previewMode = root.hasDubbedPreview ? "dubbed" : "source"
+        root.sourceSetupExpanded = !root.hasLoadedSource
+    }
     Timer {
         id: sourceSwitchFallback
         interval: 120
@@ -286,6 +302,13 @@ Rectangle {
                 enabled: root.dubbing.hasProject && !root.dubbing.processing
                 onClicked: root.subtitleEditorRequested()
             }
+            Button {
+                id: sourceSetupToggle
+                objectName: "dubbingSourceSetupToggle"
+                text: root.sourceSetupExpanded ? qsTr("Hide source setup") : qsTr("Change / download source")
+                enabled: !root.dubbing.mediaQueueProcessing
+                onClicked: root.sourceSetupExpanded = !root.sourceSetupExpanded
+            }
             Item { Layout.fillWidth: true }
             Rectangle {
                 Layout.preferredWidth: 230
@@ -325,10 +348,13 @@ Rectangle {
         }
         Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1, 1, 1, 0.07) }
 
-        // Keep the direct-link import action above the fill-height preview so
-        // it remains visible at short window heights and high display scale.
+        // Show source setup by default only until a source exists. Keeping it
+        // expanded after a video loads squeezed the preview to a thin strip,
+        // which made OCR region editing impractical.
         ColumnLayout {
+            id: sourceSetupPanel
             Layout.fillWidth: true
+            visible: !root.hasLoadedSource || root.sourceSetupExpanded
             spacing: Theme.paddingSmall
             TextArea {
                 id: directMediaLink
@@ -503,8 +529,17 @@ Rectangle {
         }
 
         Rectangle {
+            id: previewSurface
             Layout.fillWidth: true
             Layout.fillHeight: true
+            // Preserve a practical canvas for 16:9 video and OCR handles even
+            // on high-DPI displays. The surrounding panel may grow further.
+            Layout.minimumHeight: root.isVideoSource
+                                  ? Math.min(480, Math.max(340, width * 0.50))
+                                  : 220
+            Layout.preferredHeight: root.isVideoSource
+                                    ? Math.min(520, Math.max(380, width * 0.56))
+                                    : 260
             radius: Theme.radiusSmall
             color: Qt.rgba(0, 0, 0, 0.30)
             border.color: Qt.rgba(1, 1, 1, 0.06)
@@ -531,14 +566,18 @@ Rectangle {
                 y: content.y + root.draftOcrRoi.y * content.height
                 width: root.draftOcrRoi.width * content.width
                 height: root.draftOcrRoi.height * content.height
-                color: Qt.rgba(0.45, 0.20, 1.0, 0.16)
-                border.color: Theme.primary
-                border.width: 2
-                z: 4
+                color: root.ocrRoiEditMode
+                       ? Qt.rgba(0.45, 0.20, 1.0, 0.22)
+                       : Qt.rgba(0.45, 0.20, 1.0, 0.11)
+                border.color: root.ocrRoiEditMode ? Theme.accentLight : Theme.primary
+                border.width: root.ocrRoiEditMode ? 3 : 2
+                z: 8
                 MouseArea {
                     anchors.fill: parent
                     property real grabX: 0
                     property real grabY: 0
+                    enabled: root.ocrRoiEditMode && !root.dubbing.processing
+                    preventStealing: true
                     cursorShape: Qt.SizeAllCursor
                     onPressed: function(mouse) { grabX = mouse.x; grabY = mouse.y; root.ocrRoiDragging = true }
                     onPositionChanged: function(mouse) {
@@ -548,6 +587,26 @@ Rectangle {
                     onReleased: root.commitDubbingOcrRoi()
                     onCanceled: root.commitDubbingOcrRoi()
                 }
+                Rectangle {
+                    visible: root.ocrRoiEditMode || root.dubbing.processing
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.margins: 4
+                    implicitWidth: scanAreaLabel.implicitWidth + 12
+                    implicitHeight: scanAreaLabel.implicitHeight + 6
+                    radius: 5
+                    color: root.dubbing.processing ? Qt.rgba(Theme.warning.r, Theme.warning.g, Theme.warning.b, 0.92)
+                                                   : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.92)
+                    Text {
+                        id: scanAreaLabel
+                        anchors.centerIn: parent
+                        text: root.dubbing.processing ? qsTr("OCR scan area locked while running")
+                                                       : qsTr("Drag scan area · resize handles")
+                        color: Theme.textPrimary
+                        font.pixelSize: 10
+                        font.bold: true
+                    }
+                }
                 Repeater {
                     model: [ { key: "tl", x: 0, y: 0 }, { key: "tr", x: 1, y: 0 },
                              { key: "bl", x: 0, y: 1 }, { key: "br", x: 1, y: 1 },
@@ -555,13 +614,16 @@ Rectangle {
                              { key: "t", x: 0.5, y: 0 }, { key: "b", x: 0.5, y: 1 } ]
                     delegate: Rectangle {
                         objectName: "dubbingSubtitleOcrRoiHandle_" + modelData.key
-                        width: 12; height: 12; radius: 6
+                        visible: root.ocrRoiEditMode && !root.dubbing.processing
+                        width: 16; height: 16; radius: 8
                         x: modelData.x * parent.width - width / 2
                         y: modelData.y * parent.height - height / 2
                         color: Theme.primary; border.color: Theme.textPrimary; border.width: 1
                         z: 2
                         MouseArea {
                             anchors.fill: parent
+                            enabled: !root.dubbing.processing
+                            preventStealing: true
                             cursorShape: Qt.SizeFDiagCursor
                             onPressed: root.ocrRoiDragging = true
                             onPositionChanged: function(mouse) {
@@ -735,9 +797,20 @@ Rectangle {
             Layout.fillWidth: true
             visible: root.dubbing.dubbingOcrRoiVisible
             spacing: Theme.paddingSmall
+            Button {
+                text: root.ocrRoiEditMode ? qsTr("Done editing scan area") : qsTr("Edit OCR scan area")
+                enabled: !root.dubbing.processing && root.isVideoSource
+                onClicked: {
+                    // OCR editing always prioritizes the canvas over optional
+                    // download controls, so the complete scan box is visible.
+                    root.sourceSetupExpanded = false
+                    root.ocrRoiEditMode = !root.ocrRoiEditMode
+                }
+            }
             Button { text: qsTr("Preset lower region"); enabled: !root.dubbing.processing && root.isVideoSource; onClicked: root.dubbing.presetDubbingOcrLowerRegion() }
             Button { text: qsTr("Reset region"); enabled: !root.dubbing.processing && root.isVideoSource; onClicked: root.dubbing.resetDubbingOcrRoi() }
             Button { text: qsTr("Preview crop"); enabled: !root.dubbing.processing && root.isVideoSource; onClicked: root.dubbing.previewDubbingOcrCrop(mediaPlayer.position) }
+            Text { visible: root.isVideoSource; text: root.dubbing.processing ? qsTr("OCR scan area is locked while Transcribe runs.") : (root.ocrRoiEditMode ? qsTr("Drag the purple area to move it; drag a round handle to resize it.") : qsTr("Click Edit OCR scan area before moving or resizing the scan box.")); color: root.dubbing.processing ? Theme.warning : Theme.textSecondary; topPadding: 7; font.pixelSize: 10 }
             Text { visible: root.isVideoSource; text: qsTr("ROI: x %1, y %2, w %3, h %4").arg(Number(root.draftOcrRoi.x).toFixed(3)).arg(Number(root.draftOcrRoi.y).toFixed(3)).arg(Number(root.draftOcrRoi.width).toFixed(3)).arg(Number(root.draftOcrRoi.height).toFixed(3)); color: Theme.textSecondary; topPadding: 7; font.pixelSize: 10 }
             Text { visible: !root.isVideoSource; text: qsTr("Choose a video to set the OCR scan region."); color: Theme.textSecondary; topPadding: 7; font.pixelSize: 10 }
         }

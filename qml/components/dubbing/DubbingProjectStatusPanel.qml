@@ -15,7 +15,7 @@ Rectangle {
     signal customSetupRequested()
 
     Layout.fillWidth: true
-    Layout.preferredHeight: 136
+    Layout.preferredHeight: 168
     Layout.leftMargin: Theme.paddingMedium
     Layout.rightMargin: Theme.paddingMedium
     Layout.bottomMargin: Theme.paddingMedium
@@ -34,6 +34,7 @@ Rectangle {
             Layout.fillHeight: true
             spacing: 4
             Text { text: qsTr("LANGUAGE & VOICE"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.bold: true; font.letterSpacing: 1.1 }
+            Text { Layout.fillWidth: true; text: qsTr("Project languages for STT, translation and TTS. Set before starting a job."); color: Theme.textSecondary; font.pixelSize: 10; wrapMode: Text.WordWrap }
             RowLayout {
                 Layout.fillWidth: true
                 AppComboBox {
@@ -68,7 +69,14 @@ Rectangle {
                     }
                 }
             }
-            PrimaryButton { text: qsTr("Add speaker"); iconName: "users"; quiet: true; onClicked: root.dubbing.addSpeaker() }
+            PrimaryButton {
+                text: qsTr("Add speaker label")
+                iconName: "users"
+                quiet: true
+                enabled: !root.dubbing.processing
+                toolTip: qsTr("Create a label for a different person; assign each label a voice later in TTS")
+                onClicked: root.dubbing.addSpeaker()
+            }
         }
 
         Rectangle { Layout.fillHeight: true; Layout.preferredWidth: 1; color: Qt.rgba(1, 1, 1, 0.08) }
@@ -85,6 +93,7 @@ Rectangle {
                 font.bold: true
                 font.letterSpacing: 1.1
             }
+            Text { Layout.fillWidth: true; text: qsTr("Execution and rewrite policy only; it does not start a job or choose speakers."); color: Theme.textSecondary; font.pixelSize: 10; wrapMode: Text.WordWrap }
 
             Rectangle {
                 Layout.fillWidth: true
@@ -106,6 +115,9 @@ Rectangle {
                         text: qsTr("Fast")
                         iconName: "activity"
                         selected: root.dubbing.dubbingQuality === "fast"
+                        enabled: !root.dubbing.processing
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Fast: use the selected stage routes without adaptive LLM rewrite.")
                         onClicked: root.dubbing.dubbingQuality = "fast"
                     }
                     QualityModeButton {
@@ -116,6 +128,9 @@ Rectangle {
                         iconName: "spark"
                         selected: root.dubbing.dubbingQuality === "adaptive"
                         warning: selected && !root.dubbing.adaptiveReady
+                        enabled: !root.dubbing.processing
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Adaptive: use the configured LLM to rewrite translations that do not fit timing.")
                         onClicked: root.dubbing.dubbingQuality = "adaptive"
                     }
                     QualityModeButton {
@@ -126,6 +141,9 @@ Rectangle {
                         iconName: "sliders"
                         selected: root.dubbing.dubbingQuality === "custom"
                         warning: selected && !root.dubbing.customReady
+                        enabled: !root.dubbing.processing
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Custom: choose the rewrite model and behavior yourself.")
                         onClicked: {
                             root.dubbing.dubbingQuality = "custom"
                             root.customSetupRequested()
@@ -154,6 +172,7 @@ Rectangle {
                       ? qsTr("Configure Custom") : qsTr("Configure LLM")
                 iconName: "settings"
                 quiet: true
+                enabled: !root.dubbing.processing
                 onClicked: {
                     if (root.dubbing.dubbingQuality === "custom")
                         root.customSetupRequested()
@@ -174,6 +193,7 @@ Rectangle {
                 Text { text: qsTr("SPEAKERS"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.bold: true; font.letterSpacing: 1.1; Layout.fillWidth: true }
                 Text { text: root.dubbing.speakers.length; color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
             }
+            Text { Layout.fillWidth: true; text: qsTr("Labels for voice assignment after STT. Speaker 1 is the default placeholder, not an extra cloned voice."); color: Theme.textSecondary; font.pixelSize: 10; wrapMode: Text.WordWrap }
             Flow {
                 Layout.fillWidth: true
                 spacing: Theme.paddingSmall
@@ -189,6 +209,9 @@ Rectangle {
                         border.color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.28)
                         border.width: 1
                         Text { id: speakerLabel; anchors.centerIn: parent; text: modelData.name || qsTr("Speaker %1").arg(index + 1); color: Theme.textPrimary; font.pixelSize: Theme.fontSmall }
+                        ToolTip.visible: speakerHover.hovered
+                        ToolTip.text: qsTr("Assign a TTS or saved voice to this speaker in the TTS step.")
+                        HoverHandler { id: speakerHover }
                     }
                 }
                 Text { visible: root.dubbing.speakers.length === 0; text: qsTr("No speakers assigned"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
@@ -203,6 +226,7 @@ Rectangle {
             Layout.fillHeight: true
             spacing: Theme.paddingSmall
             Text { text: qsTr("OUTPUT"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.bold: true; font.letterSpacing: 1.1 }
+            Text { Layout.fillWidth: true; text: qsTr("Current processing state and final media path. This column does not change project setup."); color: Theme.textSecondary; font.pixelSize: 10; wrapMode: Text.WordWrap }
             Text { text: root.dubbing.workflowMode === "automatic" ? qsTr("Full workflow") : (root.dubbing.workflowMode === "step" ? qsTr("Manual node run") : qsTr("Choose an action")); color: root.dubbing.workflowMode === "idle" ? Theme.textSecondary : Theme.accentLight; font.pixelSize: Theme.fontSmall; font.bold: true }
             Text { Layout.fillWidth: true; text: qsTr("Current: %1").arg(root.currentStepTitle); color: root.dubbing.processing ? Theme.warning : Theme.textSecondary; font.pixelSize: Theme.fontSmall; elide: Text.ElideRight }
             Text { Layout.fillWidth: true; text: root.dubbing.exportPath.length > 0 ? root.dubbing.exportPath : (root.dubbing.previewPath.length > 0 ? root.dubbing.previewPath : qsTr("Final output has not been created.")); color: root.dubbing.exportPath.length > 0 ? Theme.success : Theme.textSecondary; font.pixelSize: 10; elide: Text.ElideMiddle }

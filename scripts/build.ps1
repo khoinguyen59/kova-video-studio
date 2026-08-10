@@ -165,8 +165,8 @@ function Normalize-AppVersion {
             $Value = $Value.Substring(1)
         }
     }
-    if ($Value -notmatch '^\d+\.\d+\.\d+\.\d+$') {
-        throw "Version must use MAJOR.MINOR.RELEASE.BUILD format; got '$Value'."
+    if ($Value -notmatch '^[0-9]\.[0-9]\.[0-9]\.[0-9]$') {
+        throw "Version must use four single digits (0-9), carrying at 9 (for example 0.0.1.0); got '$Value'."
     }
     return $Value
 }

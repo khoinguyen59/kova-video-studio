@@ -23,8 +23,11 @@ Item {
     property int selectedSegment: -1
     property bool isVideoSource: dubbing.sourceMediaPath.length > 0 && /\.(mp4|mkv|mov|webm|avi)$/i.test(dubbing.sourceMediaPath)
     property string reviewStepId: "import"
-    readonly property string displayedStepId: (dubbing.processing || dubbing.lastError !== "")
-                                              ? dubbing.currentStepId : reviewStepId
+    // Follow the active worker by default, but let an operator inspect and
+    // prepare a different manual stage while the current stage is running.
+    // The active worker remains protected by its own controls.
+    property bool followRunningStep: true
+    readonly property string displayedStepId: reviewStepId
     property string observedCompletedStep: ""
     property string playingSeparationStem: ""
     property string playingVoiceClipPath: ""
@@ -68,8 +71,10 @@ Item {
         target: dubbing
         function onWorkflowChanged() {
             if (dubbing.processing) {
-                root.reviewStepId = dubbing.currentStepId
+                if (root.followRunningStep)
+                    root.reviewStepId = dubbing.currentStepId
             } else if (dubbing.lastCompletedStepId !== "" && dubbing.lastCompletedStepId !== root.observedCompletedStep) {
+                root.followRunningStep = true
                 root.observedCompletedStep = dubbing.lastCompletedStepId
                 root.reviewStepId = dubbing.lastCompletedStepId
             }
@@ -177,6 +182,7 @@ Item {
             subtitleEditorDialog.open()
             return
         }
+        root.followRunningStep = true
         root.reviewStepId = next
         // "Next" means execute the next workflow node, not only highlight it.
         // rerunStep also provides controller-side diagnostics for rejected runs.
@@ -547,7 +553,27 @@ Item {
     }
 
     function runStep(stepId) {
+        root.followRunningStep = true
+        root.reviewStepId = stepId
         dubbing.rerunStep(stepId, root.defaultExportPath())
+    }
+
+    function openOcrColabSetup() {
+        // A Direct Colab OCR worker can be prepared while a different manual
+        // stage runs.  Never mutate the OCR route after Transcribe itself has
+        // started, nor after an Automatic workflow has frozen its approval.
+        if (!root.ocrSetupEditable()) return
+        var selected = (dubbing.transcriptConfiguration || {}).ocrColabModelId || ""
+        if (dubbing.colabNotebookForNode("subtitle-ocr", selected) === "")
+            selected = dubbing.defaultColabModelForNode("subtitle-ocr")
+        if (!dubbing.selectWorkflowColabModel("subtitle-ocr", selected)) return
+        dubbingColabSetupDialog.stageIds = ["subtitle-ocr"]
+        dubbingColabSetupDialog.open()
+    }
+
+    function ocrSetupEditable() {
+        return !dubbing.processing
+               || (!dubbing.settingsLocked && dubbing.currentStepId !== "transcribe")
     }
 
     function generatedClipCount() {
@@ -722,26 +748,26 @@ Item {
         DubbingWorkflowHeader {
             dubbing: root.dubbing
             steps: [
-                { stepId: "import", title: qsTr("Import/Download"), iconName: "folder", complete: (root.workflowStage("import") || {}).state === "completed", active: root.stageIdForNode(root.dubbing.currentStepId) === "import" },
-                { stepId: "normalize", title: qsTr("Normalize"), iconName: "activity", complete: (root.workflowStage("normalize") || {}).state === "completed", active: root.stageIdForNode(root.dubbing.currentStepId) === "normalize" },
-                { stepId: "isolator", title: qsTr("Isolator"), iconName: "waves", complete: (root.workflowStage("isolator") || {}).state === "completed", active: root.stageIdForNode(root.dubbing.currentStepId) === "isolator" },
-                { stepId: "transcribe", title: qsTr("Transcribe/STT"), iconName: "mic", complete: (root.workflowStage("transcribe") || {}).state === "completed", active: root.stageIdForNode(root.dubbing.currentStepId) === "transcribe" },
-                { stepId: "translate", title: qsTr("Translate"), iconName: "translate", complete: (root.workflowStage("translate") || {}).state === "completed", active: root.stageIdForNode(root.dubbing.currentStepId) === "translate" },
-                { stepId: "subtitle", title: qsTr("Subtitle"), iconName: "edit", complete: (root.workflowStage("subtitle") || {}).state === "completed", active: root.stageIdForNode(root.dubbing.currentStepId) === "subtitle" },
-                { stepId: "tts", title: qsTr("TTS"), iconName: "volume", complete: (root.workflowStage("tts") || {}).state === "completed", active: root.stageIdForNode(root.dubbing.currentStepId) === "tts" },
-                { stepId: "alignment", title: qsTr("Alignment"), iconName: "alignment", complete: (root.workflowStage("alignment") || {}).state === "completed", active: root.stageIdForNode(root.dubbing.currentStepId) === "alignment" },
-                { stepId: "export", title: qsTr("Export/Output"), iconName: "download", complete: (root.workflowStage("export") || {}).state === "completed", active: root.stageIdForNode(root.dubbing.currentStepId) === "export" }
+                { stepId: "import", title: qsTr("Import/Download"), iconName: "folder", complete: (root.workflowStage("import") || {}).state === "completed", active: root.stageIdForNode(root.displayedStepId) === "import" },
+                { stepId: "normalize", title: qsTr("Normalize"), iconName: "activity", complete: (root.workflowStage("normalize") || {}).state === "completed", active: root.stageIdForNode(root.displayedStepId) === "normalize" },
+                { stepId: "isolator", title: qsTr("Isolator"), iconName: "waves", complete: (root.workflowStage("isolator") || {}).state === "completed", active: root.stageIdForNode(root.displayedStepId) === "isolator" },
+                { stepId: "transcribe", title: qsTr("Transcribe/STT"), iconName: "mic", complete: (root.workflowStage("transcribe") || {}).state === "completed", active: root.stageIdForNode(root.displayedStepId) === "transcribe" },
+                { stepId: "translate", title: qsTr("Translate"), iconName: "translate", complete: (root.workflowStage("translate") || {}).state === "completed", active: root.stageIdForNode(root.displayedStepId) === "translate" },
+                { stepId: "subtitle", title: qsTr("Subtitle"), iconName: "edit", complete: (root.workflowStage("subtitle") || {}).state === "completed", active: root.stageIdForNode(root.displayedStepId) === "subtitle" },
+                { stepId: "tts", title: qsTr("TTS"), iconName: "volume", complete: (root.workflowStage("tts") || {}).state === "completed", active: root.stageIdForNode(root.displayedStepId) === "tts" },
+                { stepId: "alignment", title: qsTr("Alignment"), iconName: "alignment", complete: (root.workflowStage("alignment") || {}).state === "completed", active: root.stageIdForNode(root.displayedStepId) === "alignment" },
+                { stepId: "export", title: qsTr("Export/Output"), iconName: "download", complete: (root.workflowStage("export") || {}).state === "completed", active: root.stageIdForNode(root.displayedStepId) === "export" }
             ]
             statusText: root.dubbing.processing
-                        ? (root.dubbing.progressAvailable
-                           ? qsTr("%1 · %2%").arg(root.stepTitle(root.dubbing.currentStepId)).arg(root.dubbing.progress)
-                           : qsTr("%1 · Working").arg(root.stepTitle(root.dubbing.currentStepId)))
+                        ? qsTr("%1 · Working").arg(root.stepTitle(root.dubbing.currentStepId))
                         : (root.dubbing.workflowMode === "step" ? qsTr("Ready for node run") : qsTr("Ready"))
             defaultExportPath: root.defaultExportPath()
             historyOpen: root.isHistoryOpen
             settingsOpen: root.isNodeInspectorOpen
             onStepSelected: function(stepId) {
-                if (!root.dubbing.processing) root.reviewStepId = root.actionNodeForStage(stepId)
+                root.followRunningStep = false
+                root.reviewStepId = root.actionNodeForStage(stepId)
+                root.isNodeInspectorOpen = true
             }
             onHistoryToggled: root.isHistoryOpen = !root.isHistoryOpen
             onSettingsToggled: root.isNodeInspectorOpen = !root.isNodeInspectorOpen
@@ -751,7 +777,10 @@ Item {
             onPauseRequested: root.dubbing.pauseAutomaticWorkflow()
             onStopRequested: root.dubbing.cancelProcessing()
             onWorkflowRequested: root.openWorkflowCanvas()
-            onColabSetupRequested: dubbingColabSetupDialog.open()
+            onColabSetupRequested: {
+                dubbingColabSetupDialog.stageIds = []
+                dubbingColabSetupDialog.open()
+            }
             onSaveRequested: root.dubbing.saveProject()
             onExportRequested: exportOptionsDialog.open()
         }
@@ -853,12 +882,15 @@ Item {
                 width: Math.max(dubbingWorkspaceScroller.width - Theme.paddingMedium * 2,
                                 implicitWidth)
                 height: dubbingWorkspaceScroller.height
-                enabled: !dubbing.settingsLocked
+                // Inspection stays available while a worker runs. Individual
+                // actions guard the active stage and automatic workflow.
+                enabled: true
                 spacing: Theme.paddingMedium
 
             DubbingHistoryPanel {
                 id: historyPanel
                 dubbing: root.dubbing
+                enabled: !root.dubbing.processing
                 panelWidth: root.dubbingHistoryPanelWidth
                 expanded: root.isHistoryOpen
                 onClearRequested: clearHistoryDialog.open()
@@ -1018,7 +1050,7 @@ Item {
                                             if (model[i].id === source) return i
                                         return 0
                                     }
-                                    enabled: !dubbing.processing
+                                    enabled: root.ocrSetupEditable()
                                     onActivated: function(index) {
                                         dubbing.setWorkflowNodeParameters("transcribe", {
                                             transcriptSource: model[index].id
@@ -1061,7 +1093,7 @@ Item {
                                             if (model[i].id === policy) return i
                                         return 0
                                     }
-                                    enabled: !dubbing.processing
+                                    enabled: root.ocrSetupEditable()
                                     onActivated: function(index) {
                                         dubbing.setTranscriptFusionPolicy(model[index].id)
                                     }
@@ -1137,6 +1169,55 @@ Item {
                                 color: Theme.textSecondary
                                 font.pixelSize: Theme.fontSmall
                                 wrapMode: Text.WordWrap
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                visible: (dubbing.transcriptConfiguration.transcriptSource || "stt") !== "stt"
+                                spacing: Theme.paddingSmall
+                                Text {
+                                    text: qsTr("OCR compute")
+                                    color: Theme.textPrimary
+                                    font.pixelSize: Theme.fontSmall
+                                }
+                                ComboBox {
+                                    id: dubbingOcrRouteMode
+                                    Layout.preferredWidth: 180
+                                    textRole: "label"
+                                    model: [
+                                        { id: "local-cpu", label: qsTr("Local CPU") },
+                                        { id: "colab-gpu", label: qsTr("Colab GPU") }
+                                    ]
+                                    currentIndex: (dubbing.transcriptConfiguration.ocrExecutionRoute || "local-cpu") === "colab-gpu" ? 1 : 0
+                                    enabled: root.ocrSetupEditable()
+                                    onActivated: function(index) {
+                                        if (model[index].id === "colab-gpu")
+                                            root.openOcrColabSetup()
+                                        else
+                                            dubbing.setWorkflowNodeParameters("transcribe", {
+                                                "ocrExecutionRoute": "local-cpu"
+                                            })
+                                    }
+                                }
+                                PrimaryButton {
+                                    text: (dubbing.transcriptConfiguration.ocrExecutionRoute || "local-cpu") === "colab-gpu"
+                                          ? qsTr("Configure / check OCR Colab") : qsTr("Set up OCR Colab GPU")
+                                    iconName: "cloud"
+                                    quiet: true
+                                    enabled: root.ocrSetupEditable()
+                                    toolTip: qsTr("Select the exact Subtitle OCR GPU notebook, then connect and verify its temporary worker")
+                                    onClicked: root.openOcrColabSetup()
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: !root.ocrSetupEditable()
+                                          ? qsTr("OCR route is locked while Transcribe runs.")
+                                          : (dubbing.processing
+                                             ? qsTr("You may prepare OCR while this different manual task runs.")
+                                             : qsTr("Choose and verify this before starting Transcribe."))
+                                    color: !root.ocrSetupEditable() ? Theme.warning : Theme.textSecondary
+                                    font.pixelSize: 10
+                                    wrapMode: Text.WordWrap
+                                }
                             }
                         }
                     }
@@ -1556,7 +1637,7 @@ Item {
 
         DubbingProjectStatusPanel {
             dubbing: root.dubbing
-            enabled: !root.dubbing.settingsLocked
+            enabled: true
             languageCatalog: root.languageCatalog
             currentStepTitle: root.stepTitle(root.dubbing.currentStepId)
             onAdaptiveSetupRequested: qualityDialog.openForMode("adaptive")
