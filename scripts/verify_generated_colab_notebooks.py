@@ -184,6 +184,17 @@ def main() -> int:
                         mismatches.append(
                             f"Subtitle OCR worker imports Torch and can conflict with Paddle NCCL: {generated.name}"
                         )
+                    required_stack_markers = (
+                        '"paddlepaddle-gpu==3.1.0"',
+                        '"paddleocr==3.1.1"',
+                        '"paddlex[ie,multimodal,ocr,trans]==3.1.0"',
+                        'assert version("paddlex") == "3.1.0"',
+                        'from paddleocr import PaddleOCR',
+                    )
+                    if any(marker not in worker_source for marker in required_stack_markers):
+                        mismatches.append(
+                            f"Subtitle OCR notebook does not pin and probe the Paddle-only 3.1.0 stack: {generated.name}"
+                        )
                     if "paddle.device.set_device(\"gpu:0\")" not in worker_source \
                             or "paddle.device.cuda.get_device_name(0)" not in worker_source:
                         mismatches.append(

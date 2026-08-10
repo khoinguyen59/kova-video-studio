@@ -44,7 +44,7 @@ MODEL_NAME = "PP-OCRv5 Multilingual 3.1"
 UPSTREAM_MODEL = "PaddlePaddle/PaddleOCR PP-OCRv5"
 UPSTREAM_VERSION = "PaddleOCR 3.1.1"
 LICENSE = "Apache-2.0"
-WORKER_REVISION = "subtitle-ocr-2026-08-11.2"
+WORKER_REVISION = "subtitle-ocr-2026-08-11.3"
 RESPONSE_CONTRACT = "subtitle-ocr-crops-v1"
 TOKEN = os.environ["LA_STUDIO_COLAB_SUBTITLE_OCR_TOKEN"]
 MAX_UPLOAD_BYTES = 16 * 1024 * 1024
@@ -263,8 +263,29 @@ def build_notebook() -> dict:
             """)},
             {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [], "source": lines("""
                 !nvidia-smi
-                %pip install -q "paddlepaddle-gpu==3.1.1" -i https://www.paddlepaddle.org.cn/packages/stable/cu118/
-                %pip install -q "paddleocr==3.1.1" "fastapi==0.115.12" "uvicorn==0.34.3" "python-multipart==0.0.20"
+                # PaddleOCR 3.1.1 only declares a lower bound for PaddleX.  A
+                # later PaddleX release imports ModelScope, which imports the
+                # preinstalled Colab Torch stack and can fail to link its NCCL
+                # symbols after Paddle is installed.  Keep the upstream-tested
+                # 3.1.0 trio together and reinstall it deterministically.
+                %pip install -q --upgrade --force-reinstall --no-cache-dir "paddlepaddle-gpu==3.1.0" -i https://www.paddlepaddle.org.cn/packages/stable/cu118/
+                %pip install -q --upgrade --force-reinstall --no-cache-dir "paddleocr==3.1.1" "paddlex[ie,multimodal,ocr,trans]==3.1.0" "fastapi==0.115.12" "uvicorn==0.34.3" "python-multipart==0.0.20"
+            """)},
+            {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [], "source": lines("""
+                # Fail in this explicit dependency probe rather than after the
+                # service has started.  This exercises the real PaddleOCR
+                # import path that the worker will use; Torch is deliberately
+                # neither imported nor required by this OCR worker.
+                from importlib.metadata import version
+                import paddle
+                from paddleocr import PaddleOCR
+
+                assert version("paddlepaddle-gpu") == "3.1.0", version("paddlepaddle-gpu")
+                assert version("paddlex") == "3.1.0", version("paddlex")
+                assert version("paddleocr") == "3.1.1", version("paddleocr")
+                assert paddle.device.is_compiled_with_cuda(), "Choose a Colab GPU runtime; CPU fallback is disabled."
+                paddle.device.set_device("gpu:0")
+                print("Verified Paddle-only OCR stack:", paddle.__version__, version("paddlex"), version("paddleocr"))
             """)},
             {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [], "source": lines(writer)},
             {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [],
