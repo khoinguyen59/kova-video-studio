@@ -5,6 +5,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStandardPaths>
@@ -33,6 +34,27 @@ QString applicationScript(const QString &applicationDirectory)
 #endif
 }
 
+bool interpreterHasPlaywright(const QString &python)
+{
+    if (python.isEmpty()) return false;
+    static QHash<QString, bool> cache;
+    const auto cached = cache.constFind(python);
+    if (cached != cache.cend()) return cached.value();
+
+    QProcess probe;
+    probe.start(python, {QStringLiteral("-c"), QStringLiteral("import playwright")});
+    const bool available = probe.waitForFinished(3000)
+        && probe.exitStatus() == QProcess::NormalExit && probe.exitCode() == 0;
+    cache.insert(python, available);
+    return available;
+}
+
+void appendPythonCandidate(QStringList &candidates, const QString &path)
+{
+    const QString value = existingFile(path);
+    if (!value.isEmpty() && !candidates.contains(value)) candidates.append(value);
+}
+
 QString findPython(const QString &applicationDirectory)
 {
     const QString configured = existingFile(qEnvironmentVariable("LASTUDIO_DOUYIN_PYTHON"));
@@ -45,9 +67,29 @@ QString findPython(const QString &applicationDirectory)
                                              .filePath(QStringLiteral("douyin-browser/bin/python3")));
 #endif
     if (!bundled.isEmpty()) return bundled;
-    const QString python = QStandardPaths::findExecutable(QStringLiteral("python"));
-    if (!python.isEmpty()) return python;
-    return QStandardPaths::findExecutable(QStringLiteral("python3"));
+
+    // QStandardPaths::findExecutable() returns only the first Python on PATH.
+    // Windows machines commonly have a Python launcher, a system Python, and
+    // Anaconda side by side; choose the first interpreter that can import the
+    // dependency instead of silently selecting an unusable one.
+    QStringList candidates;
+#ifdef Q_OS_WIN
+    const QStringList names{QStringLiteral("python.exe"), QStringLiteral("python3.exe")};
+#else
+    const QStringList names{QStringLiteral("python3"), QStringLiteral("python")};
+#endif
+    const QStringList pathEntries = qEnvironmentVariable("PATH").split(QDir::listSeparator(), Qt::SkipEmptyParts);
+    for (const QString &entry : pathEntries) {
+        const QDir directory(entry);
+        for (const QString &name : names) appendPythonCandidate(candidates, directory.filePath(name));
+    }
+    appendPythonCandidate(candidates, QStandardPaths::findExecutable(QStringLiteral("python")));
+    appendPythonCandidate(candidates, QStandardPaths::findExecutable(QStringLiteral("python3")));
+
+    for (const QString &candidate : candidates) {
+        if (interpreterHasPlaywright(candidate)) return candidate;
+    }
+    return candidates.isEmpty() ? QString() : candidates.constFirst();
 }
 
 QString defaultProfile()
@@ -117,6 +159,14 @@ bool DouyinBrowserSessionService::available(QString *error) const
     }
     if (value.script.isEmpty()) {
         if (error) *error = QStringLiteral("The managed Chromium session helper is not installed.");
+        return false;
+    }
+    if (!interpreterHasPlaywright(value.python)) {
+        if (error) {
+            *error = QStringLiteral("Playwright is not installed in the Python interpreter selected for LA Studio (%1). "
+                                   "Install it there, or set LASTUDIO_DOUYIN_PYTHON to a Python environment "
+                                   "that contains Playwright.").arg(value.python);
+        }
         return false;
     }
     return true;
