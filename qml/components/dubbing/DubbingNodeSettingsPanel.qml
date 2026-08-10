@@ -16,6 +16,10 @@ Rectangle {
     required property bool runReady
     required property string nextNodeId
     required property bool nextReady
+    // The Dubbing workbench uses this compact form inside the task shelf to
+    // the left of the video.  Keep the normal wide form for dialogs and any
+    // future full-width use instead of relying on a clipped RowLayout.
+    property bool compact: false
 
     signal configureRequested()
     signal loadRequested()
@@ -26,12 +30,15 @@ Rectangle {
     signal fixRequested()
 
     Layout.fillWidth: true
-    Layout.preferredHeight: root.remoteRouteConfigurable() ? 146 : 86
+    Layout.preferredHeight: root.compact
+                            ? (root.remoteRouteConfigurable() ? 258 : 174)
+                            : (root.remoteRouteConfigurable() ? 146 : 86)
     radius: Theme.radiusSmall
     color: Theme.surfaceAlt
     border.color: Qt.rgba(1, 1, 1, 0.08)
 
     RowLayout {
+        visible: !root.compact
         anchors.fill: parent
         anchors.margins: Theme.paddingSmall
         anchors.bottomMargin: root.remoteRouteConfigurable() ? Theme.paddingXL + Theme.paddingMedium : Theme.paddingSmall
@@ -93,6 +100,95 @@ Rectangle {
             onClicked: root.fixRequested()
         }
         PrimaryButton { visible: root.nextNodeId !== "" && root.nextReady; text: qsTr("Next"); iconName: "chevron-right"; enabled: !root.dubbing.processing; onClicked: root.nextRequested() }
+    }
+
+    // A narrow task shelf must stack the actions; otherwise the buttons are
+    // silently compressed or clipped at typical 1280px editor widths.
+    ColumnLayout {
+        visible: root.compact
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.margins: Theme.paddingSmall
+        anchors.bottomMargin: root.remoteRouteConfigurable()
+                              ? Theme.paddingXL + Theme.paddingMedium : Theme.paddingSmall
+        spacing: 5
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Theme.paddingSmall
+            LineIcon { name: "settings"; color: Theme.accentLight; Layout.preferredWidth: 16; Layout.preferredHeight: 16 }
+            Text {
+                Layout.fillWidth: true
+                text: root.node && root.node.configurable
+                      ? qsTr("%1 setup").arg(root.nodeTitle) : qsTr("%1 actions").arg(root.nodeTitle)
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fontSmall
+                font.bold: true
+                elide: Text.ElideRight
+            }
+            Text {
+                visible: root.node && root.node.configurable
+                text: root.modelStateLabel()
+                color: root.modelStateColor()
+                font.pixelSize: 10
+                font.bold: true
+            }
+        }
+        Text {
+            Layout.fillWidth: true
+            visible: root.node && root.node.roleDescription
+            text: root.node ? root.node.roleDescription : ""
+            color: Theme.textSecondary
+            font.pixelSize: 10
+            wrapMode: Text.WordWrap
+            maximumLineCount: 2
+            elide: Text.ElideRight
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Theme.paddingSmall
+            PrimaryButton {
+                visible: root.node && root.node.configurable === true
+                text: root.modelActionText()
+                iconName: root.modelActionIcon()
+                Layout.fillWidth: true
+                enabled: !root.lifecycleBusy()
+                quiet: root.modelState() === 3
+                onClicked: root.runModelAction()
+            }
+            PrimaryButton {
+                visible: root.remoteRouteConfigurable()
+                text: qsTr("Colab")
+                iconName: "cloud"
+                quiet: true
+                enabled: root.setupEditable()
+                toolTip: qsTr("Configure this task to use its Direct Colab GPU worker")
+                onClicked: root.startColabSetup()
+            }
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Theme.paddingSmall
+            PrimaryButton { iconName: "reload"; iconOnly: true; toolTip: qsTr("Reload model"); quiet: true; visible: root.canReload(); enabled: !root.lifecycleBusy(); onClicked: root.reloadRequested() }
+            PrimaryButton { iconName: "power"; iconOnly: true; toolTip: qsTr("Unload model"); quiet: true; visible: root.canUnload(); enabled: !root.lifecycleBusy(); onClicked: root.unloadRequested() }
+            PrimaryButton { visible: root.canRun; text: qsTr("Run task"); iconName: "play"; Layout.fillWidth: true; enabled: !root.dubbing.processing && root.runReady; onClicked: root.runRequested() }
+            PrimaryButton { visible: root.canRerun; text: qsTr("Run again"); iconName: "run-again"; Layout.fillWidth: true; quiet: true; enabled: !root.dubbing.processing && root.runReady; onClicked: root.runRequested() }
+            PrimaryButton {
+                visible: root.nodeId === "translate"
+                         && root.dubbing.dubbingQuality !== "fast"
+                         && root.dubbing.adaptiveProvider !== "local"
+                         && root.dubbing.translationFixCandidateCount > 0
+                text: qsTr("Fix %1").arg(root.dubbing.translationFixCandidateCount)
+                iconName: "spark"
+                quiet: true
+                loading: root.dubbing.translationFixing
+                enabled: root.setupEditable()
+                onClicked: root.fixRequested()
+            }
+            PrimaryButton { visible: root.nextNodeId !== "" && root.nextReady; text: qsTr("Next"); iconName: "chevron-right"; enabled: !root.dubbing.processing; onClicked: root.nextRequested() }
+        }
     }
 
     RowLayout {

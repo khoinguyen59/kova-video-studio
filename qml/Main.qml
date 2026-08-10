@@ -837,8 +837,12 @@ ApplicationWindow {
 
                 BottomLogPanel {
                     id: bottomLogPanel
+                    // Diagnostics belong to Settings instead of occupying
+                    // vertical space in every studio, especially Dubbing's
+                    // timeline workspace.
+                    visible: stack.currentIndex === 13
                     Layout.fillWidth: true
-                    Layout.preferredHeight: bottomLogPanel.implicitHeight
+                    Layout.preferredHeight: visible ? bottomLogPanel.implicitHeight : 0
                     
                     Behavior on Layout.preferredHeight {
                         enabled: !bottomLogPanel.isResizing

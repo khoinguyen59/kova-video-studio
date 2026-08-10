@@ -65,7 +65,9 @@ Rectangle {
     Layout.fillHeight: true
     // Keep a real canvas available for a 16:9 source and OCR ROI handles.  The
     // source/download controls below are scrollable after a media file exists.
-    Layout.minimumHeight: root.isVideoSource ? 540 : 300
+    // Keep enough height for a useful OCR canvas at 1280×800, but let the
+    // full-width timeline retain its own guaranteed editor space below.
+    Layout.minimumHeight: root.isVideoSource ? 400 : 300
     color: Theme.surface
     radius: Theme.radiusMedium
     border.color: Qt.rgba(1, 1, 1, 0.08)

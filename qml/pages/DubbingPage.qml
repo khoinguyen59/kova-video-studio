@@ -31,24 +31,34 @@ Item {
     property string observedCompletedStep: ""
     property string playingSeparationStem: ""
     property string playingVoiceClipPath: ""
-    property bool isHistoryOpen: true
-    property bool isNodeInspectorOpen: true
+    // Drawers must not permanently squeeze the editing canvas.  A selected
+    // workflow task opens its inspector explicitly; History remains available
+    // from the header toggle.
+    property bool isHistoryOpen: false
+    property bool isNodeInspectorOpen: false
+    // The right hand side has one owner at a time: either the task's live
+    // result/review surface or its advanced parameter inspector.  This avoids
+    // the old two-inspector layout competing for the same narrow space.
+    property bool isAdvancedNodeInspectorOpen: false
     // The lower project controls are useful setup information, but they must
     // not permanently steal height from a loaded video or OCR canvas.
+    // Show project-wide language/voice setup while a project is being
+    // configured.  It is deliberately collapsible from the header, so it
+    // never has to remain beneath the timeline after setup is complete.
     property bool isProjectStatusPanelOpen: true
     property bool previewFocusMode: false
     // Dubbing has its own three-pane workspace and therefore cannot inherit
     // StudioShell's generic resizers. Keep these widths local to this real
     // layout so users can resize History, Preview and the step workspace.
     property int dubbingHistoryPanelWidth: 280
-    property int dubbingPreviewPanelWidth: 860
-    property int dubbingTimelinePanelHeight: 146
-    property int dubbingStepPanelWidth: 500
+    property int dubbingPreviewPanelWidth: 720
+    property int dubbingTimelinePanelHeight: 260
+    property int dubbingStepPanelWidth: 380
     function clampedDubbingPanelWidth(value, minimum, maximum) {
         return Math.max(minimum, Math.min(maximum, Math.round(value)))
     }
     function clampedDubbingTimelineHeight(value) {
-        return Math.max(96, Math.min(360, Math.round(value)))
+        return Math.max(160, Math.min(520, Math.round(value)))
     }
     // The QML smoke route exercises the transcript selector, then two dialogs
     // whose geometry is only valid on the following event-loop turn.  Keep the
@@ -90,6 +100,7 @@ Item {
         function onWorkflowSetupRequired(nodeId, setupKind, message) {
             root.reviewStepId = nodeId === "adaptive-llm" ? "translate" : nodeId
             root.isNodeInspectorOpen = true
+            root.isAdvancedNodeInspectorOpen = false
             if (setupKind === "rewrite-model")
                 qualityDialog.openForMode("custom")
             else
@@ -253,6 +264,11 @@ Item {
     function beginQmlSmokeTranscriptSourceCheck() {
         qmlSmokeTranscriptSourcePhase = 0
         qmlSmokeTranscriptSourceFailure = ""
+        // The production workbench opens details only after selecting a task.
+        // The route smoke intentionally selects Transcribe so it validates the
+        // same left-controls/right-details state a user sees.
+        isNodeInspectorOpen = true
+        isAdvancedNodeInspectorOpen = false
     }
 
     // Return 0 while QML is settling, 1 for a verified route, and -1 for a
@@ -284,6 +300,11 @@ Item {
             if (dubbingTranscriptSourcePanel.width <= 0
                     || dubbingTranscriptSourceMode.width <= 0) {
                 qmlSmokeTranscriptSourceFailure = "transcript source layout has non-positive width"
+                return -1
+            }
+            if (!dubbingTaskShelf.visible || dubbingTimelinePanel.width <= 0
+                    || dubbingTimelineResizeHandle.height < 16) {
+                qmlSmokeTranscriptSourceFailure = "Dubbing workbench shelf or full-width timeline is unavailable"
                 return -1
             }
             if (dubbingWorkspaceScroller.contentWidth < dubbingWorkspaceRow.width) {
@@ -804,9 +825,14 @@ Item {
                 root.followRunningStep = false
                 root.reviewStepId = root.actionNodeForStage(stepId)
                 root.isNodeInspectorOpen = true
+                root.isAdvancedNodeInspectorOpen = false
             }
             onHistoryToggled: root.isHistoryOpen = !root.isHistoryOpen
-            onSettingsToggled: root.isNodeInspectorOpen = !root.isNodeInspectorOpen
+            onSettingsToggled: {
+                root.isNodeInspectorOpen = !root.isNodeInspectorOpen
+                if (!root.isNodeInspectorOpen)
+                    root.isAdvancedNodeInspectorOpen = false
+            }
             onProjectStatusToggled: root.isProjectStatusPanelOpen = !root.isProjectStatusPanelOpen
             onGenerateRequested: {
                 automaticPreflightDialog.openPreflight()
@@ -965,11 +991,157 @@ Item {
                 }
             }
 
+            // Task actions live to the left of the canvas.  The card is
+            // intentionally created only after choosing a task so a new
+            // project opens with an uncluttered central video workspace.
+            Panel {
+                id: dubbingTaskShelf
+                objectName: "dubbingTaskShelf"
+                visible: root.isNodeInspectorOpen && !root.previewFocusMode
+                Layout.preferredWidth: 280
+                Layout.minimumWidth: 250
+                Layout.maximumWidth: 360
+                Layout.fillHeight: true
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: Theme.paddingMedium
+                    spacing: Theme.paddingSmall
+                    RowLayout {
+                        Layout.fillWidth: true
+                        LineIcon { name: "workflow"; color: Theme.accentLight; Layout.preferredWidth: 17; Layout.preferredHeight: 17 }
+                        Text {
+                            Layout.fillWidth: true
+                            text: qsTr("TASK CONTROLS")
+                            color: Theme.textSecondary
+                            font.pixelSize: 10
+                            font.bold: true
+                            font.letterSpacing: 1
+                        }
+                        PrimaryButton {
+                            text: qsTr("Hide")
+                            iconName: "chevron-left"
+                            iconOnly: true
+                            quiet: true
+                            toolTip: qsTr("Hide task controls and details")
+                            onClicked: {
+                                root.isNodeInspectorOpen = false
+                                root.isAdvancedNodeInspectorOpen = false
+                            }
+                        }
+                    }
+                    DubbingNodeSettingsPanel {
+                        id: taskShelfNodeSettings
+                        dubbing: root.dubbing
+                        nodeId: root.displayedStepId
+                        node: root.workflowNode(nodeId)
+                        nodeTitle: root.stepTitle(nodeId)
+                        canRun: root.canRunStep(nodeId)
+                        canRerun: root.canRerunStep(nodeId)
+                        runReady: root.stepRunReady(nodeId)
+                        nextNodeId: root.nextNodeId(nodeId)
+                        nextReady: root.nextNodeReady(nodeId)
+                        compact: true
+                        visible: node !== null
+                        onConfigureRequested: nodeModelDialog.openFor(nodeId)
+                        onLoadRequested: dubbing.loadWorkflowNodeModel(nodeId)
+                        onUnloadRequested: dubbing.unloadWorkflowNodeModel(nodeId)
+                        onReloadRequested: dubbing.reloadWorkflowNodeModel(nodeId)
+                        onRunRequested: root.runStep(nodeId)
+                        onNextRequested: root.runNextNode(nodeId)
+                        onFixRequested: translationFixDialog.openForAll()
+                    }
+                    // Keep the primary STT/OCR source decision next to the
+                    // selected task.  Detailed conflict and OCR controls stay
+                    // in the right review pane, but this makes the active
+                    // transcript mode visible without making the operator hunt
+                    // through a second, permanently-open inspector.
+                    Rectangle {
+                        id: dubbingTranscriptSourcePanel
+                        objectName: "dubbingTranscriptSourcePanel"
+                        visible: root.displayedStepId === "transcribe"
+                        Layout.fillWidth: true
+                        implicitHeight: transcriptShelfSourceLayout.implicitHeight + Theme.paddingMedium * 2
+                        radius: Theme.radiusSmall
+                        color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.08)
+                        border.color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.28)
+                        border.width: 1
+
+                        ColumnLayout {
+                            id: transcriptShelfSourceLayout
+                            anchors.fill: parent
+                            anchors.margins: Theme.paddingMedium
+                            spacing: Theme.paddingSmall
+
+                            Text {
+                                text: qsTr("Transcript source")
+                                color: Theme.textPrimary
+                                font.bold: true
+                            }
+                            ComboBox {
+                                id: dubbingTranscriptSourceMode
+                                objectName: "dubbingTranscriptSourceMode"
+                                Layout.fillWidth: true
+                                textRole: "label"
+                                valueRole: "id"
+                                model: [
+                                    { id: "stt", label: qsTr("Chỉ STT") },
+                                    { id: "ocr", label: qsTr("Chỉ OCR") },
+                                    { id: "stt+ocr", label: qsTr("STT + OCR") }
+                                ]
+                                currentIndex: {
+                                    var source = dubbing.transcriptConfiguration.transcriptSource || "stt"
+                                    for (var i = 0; i < model.length; ++i)
+                                        if (model[i].id === source) return i
+                                    return 0
+                                }
+                                enabled: root.ocrSetupEditable()
+                                onActivated: function(index) {
+                                    dubbing.setWorkflowNodeParameters("transcribe", {
+                                        transcriptSource: model[index].id
+                                    })
+                                }
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: (dubbing.transcriptConfiguration.transcriptSource || "stt") === "ocr"
+                                      ? qsTr("OCR uses the selected Subtitle OCR route and ROI.")
+                                      : (dubbing.transcriptConfiguration.transcriptSource || "stt") === "stt+ocr"
+                                        ? qsTr("Both sources run; conflicts stay available for review.")
+                                        : qsTr("Uses speech-to-text only.")
+                                color: Theme.textSecondary
+                                font.pixelSize: 10
+                                wrapMode: Text.WordWrap
+                            }
+                        }
+                    }
+                    PrimaryButton {
+                        Layout.fillWidth: true
+                        visible: taskShelfNodeSettings.node
+                                 && taskShelfNodeSettings.node.configurable === true
+                        text: root.isAdvancedNodeInspectorOpen
+                              ? qsTr("Show task result") : qsTr("Advanced task settings")
+                        iconName: root.isAdvancedNodeInspectorOpen ? "file" : "sliders"
+                        quiet: true
+                        onClicked: root.isAdvancedNodeInspectorOpen = !root.isAdvancedNodeInspectorOpen
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: root.isAdvancedNodeInspectorOpen
+                              ? qsTr("The right panel shows detailed parameters for this task.")
+                              : qsTr("The right panel shows this task's output, review, and next action.")
+                        color: Theme.textSecondary
+                        font.pixelSize: 10
+                        wrapMode: Text.WordWrap
+                    }
+                    Item { Layout.fillHeight: true }
+                }
+            }
+
             ColumnLayout {
                 id: dubbingPreviewWorkspace
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                Layout.minimumWidth: 620
+                Layout.minimumWidth: 540
                 Layout.preferredWidth: root.dubbingPreviewPanelWidth
                 spacing: Theme.paddingMedium
 
@@ -989,57 +1161,6 @@ Item {
                         root.previewFocusMode = focused
                         if (focused)
                             root.isProjectStatusPanelOpen = false
-                    }
-                }
-                Rectangle {
-                    id: dubbingTimelineResizeHandle
-                    objectName: "dubbingTimelineResizeHandle"
-                    Layout.fillWidth: true
-                    visible: !root.previewFocusMode
-                    Layout.preferredHeight: visible ? 8 : 0
-                    radius: 4
-                    color: timelineResizeMouseArea.containsMouse || timelineResizeMouseArea.pressed
-                           ? Theme.accent
-                           : Qt.rgba(Theme.textSecondary.r, Theme.textSecondary.g, Theme.textSecondary.b, 0.28)
-                    ToolTip.visible: timelineResizeMouseArea.containsMouse
-                    ToolTip.text: qsTr("Drag to resize Dubbing timeline")
-                    MouseArea {
-                        id: timelineResizeMouseArea
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.SizeVerCursor
-                        property real pressY: 0
-                        property int pressHeight: 0
-                        onPressed: function(mouse) {
-                            pressY = mouse.y
-                            pressHeight = root.dubbingTimelinePanelHeight
-                        }
-                        onPositionChanged: function(mouse) {
-                            if (pressed)
-                                root.dubbingTimelinePanelHeight = root.clampedDubbingTimelineHeight(
-                                            pressHeight - (mouse.y - pressY))
-                        }
-                    }
-                }
-                Panel {
-                    visible: !root.previewFocusMode
-                    Layout.fillWidth: true
-                    Layout.minimumHeight: visible ? 96 : 0
-                    Layout.maximumHeight: visible ? 360 : 0
-                    Layout.preferredHeight: visible ? root.dubbingTimelinePanelHeight : 0
-                    ColumnLayout { anchors.fill: parent; anchors.margins: Theme.paddingMedium; spacing: Theme.paddingSmall
-                        RowLayout { Layout.fillWidth: true
-                            Text { text: qsTr("TIMELINE"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.bold: true; font.letterSpacing: 1.1; Layout.fillWidth: true }
-                            Text { text: qsTr("%1 segments").arg(dubbing.segments.length); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
-                        }
-                        WaveformView { Layout.fillWidth: true; Layout.fillHeight: true; framed: true; showPlaceholder: true; placeholderText: dubbing.sourceMediaPath.length > 0 ? qsTr("Waveform preview becomes available after audio analysis") : qsTr("Import media to begin") }
-                        RowLayout { Layout.fillWidth: true
-                            Text { text: qsTr("00:00"); color: Theme.textSecondary; font.pixelSize: 10 }
-                            Item { Layout.fillWidth: true }
-                            Text { text: dubbing.processing
-                                         ? (dubbing.progressAvailable ? qsTr("Processing %1%").arg(dubbing.progress) : qsTr("Processing"))
-                                         : qsTr("Edit transcript on the right"); color: Theme.textSecondary; font.pixelSize: 10 }
-                        }
                     }
                 }
             }
@@ -1065,14 +1186,20 @@ Item {
                     onPressed: function(mouse) { pressX = mouse.x; pressWidth = root.dubbingPreviewPanelWidth }
                     onPositionChanged: function(mouse) {
                         if (pressed)
-                            root.dubbingPreviewPanelWidth = root.clampedDubbingPanelWidth(pressWidth + mouse.x - pressX, 420, 1100)
+                            root.dubbingPreviewPanelWidth = root.clampedDubbingPanelWidth(pressWidth + mouse.x - pressX, 540, 1280)
                     }
                 }
             }
 
             Panel {
-                visible: !root.previewFocusMode
-                Layout.fillWidth: true; Layout.fillHeight: true; Layout.preferredWidth: root.dubbingStepPanelWidth
+                // This is the task result/review region. Parameter editing is
+                // explicitly switched into DubbingNodeInspector below so two
+                // right-side panels never overlap each other.
+                visible: !root.previewFocusMode && root.isNodeInspectorOpen
+                         && !root.isAdvancedNodeInspectorOpen
+                Layout.fillWidth: true; Layout.fillHeight: true
+                Layout.minimumWidth: 340
+                Layout.preferredWidth: root.dubbingStepPanelWidth
                 ColumnLayout {
                     anchors.fill: parent; anchors.margins: Theme.paddingMedium; spacing: Theme.paddingSmall
                     visible: root.displayedStepId === "transcribe" || root.displayedStepId === "translate"
@@ -1086,7 +1213,7 @@ Item {
                         runReady: root.stepRunReady(nodeId)
                         nextNodeId: root.nextNodeId(nodeId)
                         nextReady: root.nextNodeReady(nodeId)
-                        visible: true
+                        visible: false
                         onConfigureRequested: nodeModelDialog.openFor(nodeId)
                         onLoadRequested: dubbing.loadWorkflowNodeModel(nodeId)
                         onUnloadRequested: dubbing.unloadWorkflowNodeModel(nodeId)
@@ -1096,8 +1223,8 @@ Item {
                         onFixRequested: translationFixDialog.openForAll()
                     }
                     Rectangle {
-                        id: dubbingTranscriptSourcePanel
-                        objectName: "dubbingTranscriptSourcePanel"
+                        id: dubbingTranscriptSourceDetailsPanel
+                        objectName: "dubbingTranscriptSourceDetailsPanel"
                         visible: root.displayedStepId === "transcribe"
                         Layout.fillWidth: true
                         implicitHeight: transcriptSourceLayout.implicitHeight + Theme.paddingMedium * 2
@@ -1118,8 +1245,8 @@ Item {
                             RowLayout {
                                 Layout.fillWidth: true
                                 ComboBox {
-                                    id: dubbingTranscriptSourceMode
-                                    objectName: "dubbingTranscriptSourceMode"
+                                    id: dubbingTranscriptSourceModeDetails
+                                    objectName: "dubbingTranscriptSourceModeDetails"
                                     Layout.fillWidth: true
                                     textRole: "label"
                                     valueRole: "id"
@@ -1537,7 +1664,7 @@ Item {
                         runReady: root.stepRunReady(nodeId)
                         nextNodeId: root.nextNodeId(nodeId)
                         nextReady: root.nextNodeReady(nodeId)
-                        visible: ["import", "ingest", "source-separate", "synthesize", "fit-timing", "mix", "export"].indexOf(root.displayedStepId) >= 0
+                        visible: false
                         onConfigureRequested: nodeModelDialog.openFor(nodeId)
                         onLoadRequested: dubbing.loadWorkflowNodeModel(nodeId)
                         onUnloadRequested: dubbing.unloadWorkflowNodeModel(nodeId)
@@ -1712,9 +1839,114 @@ Item {
                     node: root.workflowNode(root.displayedStepId)
                     nodeTitle: root.stepTitle(root.displayedStepId)
                     visible: !root.previewFocusMode && root.isNodeInspectorOpen
+                             && root.isAdvancedNodeInspectorOpen
                              && node && node.configurable === true
-                    onCloseRequested: root.isNodeInspectorOpen = false
+                    onCloseRequested: root.isAdvancedNodeInspectorOpen = false
                     onRewriteSetupRequested: qualityDialog.openForMode("custom")
+                }
+            }
+        }
+
+        // The timeline is a top-level workbench region rather than a child of
+        // the video column.  It therefore remains centered and spans the
+        // complete Dubbing workspace, like an editor timeline.
+        Item {
+            id: dubbingTimelineResizeHandle
+            objectName: "dubbingTimelineResizeHandle"
+            Layout.fillWidth: true
+            Layout.leftMargin: Theme.paddingMedium
+            Layout.rightMargin: Theme.paddingMedium
+            Layout.preferredHeight: visible ? 18 : 0
+            visible: !root.previewFocusMode
+            z: 10
+
+            Rectangle {
+                width: 84
+                height: 4
+                radius: 2
+                anchors.centerIn: parent
+                color: timelineResizeMouseArea.containsMouse || timelineResizeMouseArea.pressed
+                       ? Theme.accent : Qt.rgba(Theme.textSecondary.r, Theme.textSecondary.g, Theme.textSecondary.b, 0.55)
+            }
+
+            ToolTip.visible: timelineResizeMouseArea.containsMouse
+            ToolTip.text: qsTr("Drag to resize Dubbing timeline")
+
+            MouseArea {
+                id: timelineResizeMouseArea
+                anchors.fill: parent
+                hoverEnabled: true
+                preventStealing: true
+                cursorShape: Qt.SizeVerCursor
+                property real pressY: 0
+                property int pressHeight: 0
+                onPressed: function(mouse) {
+                    pressY = mouse.y
+                    pressHeight = root.dubbingTimelinePanelHeight
+                }
+                onPositionChanged: function(mouse) {
+                    if (pressed) {
+                        root.dubbingTimelinePanelHeight = root.clampedDubbingTimelineHeight(
+                                    pressHeight - (mouse.y - pressY))
+                    }
+                }
+            }
+        }
+
+        Panel {
+            id: dubbingTimelinePanel
+            objectName: "dubbingTimelinePanel"
+            visible: !root.previewFocusMode
+            Layout.fillWidth: true
+            Layout.leftMargin: Theme.paddingMedium
+            Layout.rightMargin: Theme.paddingMedium
+            Layout.minimumHeight: visible ? 160 : 0
+            Layout.maximumHeight: visible ? 520 : 0
+            Layout.preferredHeight: visible ? root.dubbingTimelinePanelHeight : 0
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: Theme.paddingMedium
+                spacing: Theme.paddingSmall
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Text {
+                        text: qsTr("TIMELINE")
+                        color: Theme.textSecondary
+                        font.pixelSize: Theme.fontSmall
+                        font.bold: true
+                        font.letterSpacing: 1.1
+                        Layout.fillWidth: true
+                    }
+                    Text {
+                        text: qsTr("%1 segments").arg(dubbing.segments.length)
+                        color: Theme.textSecondary
+                        font.pixelSize: Theme.fontSmall
+                    }
+                }
+
+                WaveformView {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    framed: true
+                    showPlaceholder: true
+                    placeholderText: dubbing.sourceMediaPath.length > 0
+                                     ? qsTr("Waveform preview becomes available after audio analysis")
+                                     : qsTr("Import media to begin")
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Text { text: qsTr("00:00"); color: Theme.textSecondary; font.pixelSize: 10 }
+                    Item { Layout.fillWidth: true }
+                    Text {
+                        text: dubbing.processing
+                              ? (dubbing.progressAvailable ? qsTr("Processing %1%").arg(dubbing.progress) : qsTr("Processing"))
+                              : qsTr("Edit transcript in the task panel or inspector")
+                        color: Theme.textSecondary
+                        font.pixelSize: 10
+                    }
                 }
             }
         }

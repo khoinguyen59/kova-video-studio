@@ -55,12 +55,13 @@ Rectangle {
             active: root.historyOpen
             onClicked: root.historyToggled()
         }
-        SidebarToggleButton {
+        PrimaryButton {
             id: projectStatusToggle
             objectName: "dubbingProjectStatusToggle"
+            text: root.projectStatusOpen ? qsTr("Hide project setup") : qsTr("Project setup")
             iconName: "sliders"
-            toolTip: root.projectStatusOpen ? qsTr("Hide project controls") : qsTr("Show project controls")
-            active: root.projectStatusOpen
+            quiet: true
+            implicitWidth: Math.max(118, requiredContentWidth)
             onClicked: root.projectStatusToggled()
         }
 
@@ -76,27 +77,48 @@ Rectangle {
             }
         }
 
-        Repeater {
-            model: root.steps
-            delegate: Item {
-                required property var modelData
-                implicitWidth: step.implicitWidth
-                implicitHeight: step.implicitHeight
-                DubbingWorkflowStep {
-                    id: step
-                    anchors.fill: parent
-                    stepId: modelData.stepId
-                    title: modelData.title
-                    iconName: modelData.iconName
-                    complete: modelData.complete
-                    active: modelData.active
-                    // A running job must not prevent the operator from
-                    // selecting another stage to inspect its output or prepare
-                    // a later worker. Run/configure controls remain guarded by
-                    // the active stage and workflow mode.
-                    enabled: true
-                    onSelected: root.stepSelected(stepId)
+        // The flow is deliberately bounded to the left side of the top bar.
+        // It scrolls instead of forcing utility actions offscreen on 1280px
+        // displays or cutting labels near Export/Output.
+        Flickable {
+            id: workflowStepsFlickable
+            Layout.preferredWidth: Math.max(250, Math.min(root.width * 0.48, workflowStepsRow.implicitWidth))
+            Layout.minimumWidth: 220
+            Layout.maximumWidth: Math.max(250, root.width * 0.55)
+            Layout.fillHeight: true
+            contentWidth: workflowStepsRow.implicitWidth
+            contentHeight: height
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.HorizontalFlick
+
+            Row {
+                id: workflowStepsRow
+                height: workflowStepsFlickable.height
+                spacing: Theme.paddingSmall
+
+                Repeater {
+                    model: root.steps
+                    delegate: DubbingWorkflowStep {
+                        required property var modelData
+                        width: implicitWidth
+                        height: workflowStepsRow.height
+                        stepId: modelData.stepId
+                        title: modelData.title
+                        iconName: modelData.iconName
+                        complete: modelData.complete
+                        active: modelData.active
+                        // Inspection stays available while a worker runs;
+                        // individual run controls protect the active stage.
+                        enabled: true
+                        onSelected: root.stepSelected(stepId)
+                    }
                 }
+            }
+
+            ScrollBar.horizontal: ScrollBar {
+                policy: workflowStepsFlickable.contentWidth > workflowStepsFlickable.width
+                        ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
             }
         }
 

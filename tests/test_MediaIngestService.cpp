@@ -947,6 +947,10 @@ void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
     QVERIFY(dubbingPage.contains(QStringLiteral("dubbingHistoryResizeHandle")));
     QVERIFY(dubbingPage.contains(QStringLiteral("dubbingWorkspaceResizeHandle")));
     QVERIFY(dubbingPage.contains(QStringLiteral("dubbingTimelineResizeHandle")));
+    QVERIFY(dubbingPage.contains(QStringLiteral("dubbingTaskShelf")));
+    QVERIFY(dubbingPage.contains(QStringLiteral("isAdvancedNodeInspectorOpen")));
+    QVERIFY(dubbingPage.contains(QStringLiteral("Dubbing workbench shelf or full-width timeline is unavailable")));
+    QVERIFY(dubbingPage.contains(QStringLiteral("Layout.minimumWidth: 340")));
     QVERIFY(dubbingPage.contains(QStringLiteral("Drag to resize Dubbing History")));
     QVERIFY(dubbingPage.contains(QStringLiteral("Drag to resize Dubbing Preview")));
     QVERIFY(dubbingPage.contains(QStringLiteral("Drag to resize Dubbing timeline")));
@@ -963,6 +967,8 @@ void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
     QVERIFY(dubbingSource.contains(QStringLiteral("collapseSourceSetupAfterSelection")));
     QVERIFY(dubbingSource.contains(QStringLiteral("sourceSetupMaximumHeight")));
     QVERIFY(dubbingSource.contains(QStringLiteral("dubbingSourceSetupScrollView")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("Layout.minimumHeight: root.isVideoSource ? 400 : 300")));
+    QVERIFY(main.contains(QStringLiteral("visible: stack.currentIndex === 13")));
     QVERIFY(popup.contains(QStringLiteral("AppController.downloads.allDownloads")));
     QVERIFY(sidebar.contains(QStringLiteral("Expand navigation")));
     QVERIFY(sidebar.contains(QStringLiteral("labelsVisible")));
