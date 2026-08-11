@@ -855,7 +855,7 @@ Dialog {
         }
         contentItem: ColumnLayout {
             spacing: Theme.paddingMedium
-            Text { Layout.fillWidth: true; text: qsTr("Configure timing resolution for synthesized speech. Target-language subtitle review is a separate step after Translate."); color: Theme.textSecondary; wrapMode: Text.WordWrap }
+            Text { Layout.fillWidth: true; text: qsTr("Configure timing resolution and subtitle output. Target-language text review remains part of Translate; this presentation stage owns timing and subtitle presentation without exposing internal timing nodes."); color: Theme.textSecondary; wrapMode: Text.WordWrap }
             ComboBox {
                 id: timingMode
                 Layout.fillWidth: true

@@ -1145,7 +1145,7 @@ void TestDubbingProject::automaticPreflightFixTargetsAndNoOpConfigurationsAreExp
              QStringLiteral("node-model"));
     QCOMPARE(nodes.value(QStringLiteral("tts")).value(QStringLiteral("setupAction")).toString(),
              QStringLiteral("node-model"));
-    QCOMPARE(nodes.value(QStringLiteral("alignment")).value(QStringLiteral("setupAction")).toString(),
+    QCOMPARE(nodes.value(QStringLiteral("alignment-subtitle")).value(QStringLiteral("setupAction")).toString(),
              QStringLiteral("alignment"));
     QCOMPARE(nodes.value(QStringLiteral("export")).value(QStringLiteral("setupAction")).toString(),
              QStringLiteral("export"));
@@ -1333,7 +1333,7 @@ void TestDubbingProject::automaticSetupKeepsVerifiedDirectColabRouteAndReportsCu
     QVERIFY(!setupRows.isEmpty());
     const QVariantMap setup = setupRows.constFirst().toMap();
     QCOMPARE(setup.value(QStringLiteral("title")).toString(), QStringLiteral("Dubbing — Isolator"));
-    QVERIFY(setup.value(QStringLiteral("stageLabel")).toString().contains(QStringLiteral("Isolator (3/9)")));
+    QVERIFY(setup.value(QStringLiteral("stageLabel")).toString().contains(QStringLiteral("Isolator (3/8)")));
     QCOMPARE(setup.value(QStringLiteral("executionRoute")).toString(), QStringLiteral("Direct Colab GPU"));
 
     // This is the regression boundary: with remote-first disabled, the old
@@ -1831,24 +1831,33 @@ void TestDubbingProject::sourceSeparationExposesModelSelection()
              QStringLiteral("voice-isolation"));
 }
 
-void TestDubbingProject::workflowStagesExposeTranslatedSubtitleAfterTranslation()
+void TestDubbingProject::workflowStagesExposeEightUniquePresentationStages()
 {
     DubbingController controller(nullptr, nullptr);
     const QVariantList stages = controller.workflowStages();
-    QCOMPARE(stages.size(), 9);
+    QCOMPARE(stages.size(), 8);
     const QStringList expectedIds{
         QStringLiteral("import"), QStringLiteral("normalize"), QStringLiteral("isolator"),
-        QStringLiteral("transcribe"), QStringLiteral("translate"), QStringLiteral("subtitle"),
-        QStringLiteral("tts"), QStringLiteral("alignment"), QStringLiteral("export")};
+        QStringLiteral("transcribe"), QStringLiteral("alignment-subtitle"),
+        QStringLiteral("translate"), QStringLiteral("tts"), QStringLiteral("export")};
     const QStringList expectedTitles{
         QStringLiteral("Import/Download"), QStringLiteral("Normalize"), QStringLiteral("Isolator"),
-        QStringLiteral("Transcribe/STT"), QStringLiteral("Translate"), QStringLiteral("Subtitle"),
-        QStringLiteral("TTS"), QStringLiteral("Alignment"), QStringLiteral("Export/Output")};
+        QStringLiteral("Transcribe/STT"), QStringLiteral("Alignment/Subtitle"),
+        QStringLiteral("Translate"), QStringLiteral("TTS"), QStringLiteral("Export/Output")};
+    QSet<QString> stageIds;
+    QSet<QString> titles;
     QSet<QString> productionNodes;
     for (int index = 0; index < stages.size(); ++index) {
         const QVariantMap stage = stages.at(index).toMap();
         QCOMPARE(stage.value(QStringLiteral("id")).toString(), expectedIds.at(index));
         QCOMPARE(stage.value(QStringLiteral("title")).toString(), expectedTitles.at(index));
+        QVERIFY2(!stageIds.contains(stage.value(QStringLiteral("id")).toString()),
+                 "Presentation stage ids must be unique.");
+        stageIds.insert(stage.value(QStringLiteral("id")).toString());
+        QVERIFY2(!titles.contains(stage.value(QStringLiteral("title")).toString()),
+                 "Presentation stage titles must be unique.");
+        titles.insert(stage.value(QStringLiteral("title")).toString());
+        QVERIFY(stage.value(QStringLiteral("title")).toString() != QStringLiteral("Timing/Mix"));
         QVERIFY2(!stage.value(QStringLiteral("productionNodeIds")).toList().isEmpty(),
                  "Every presentation stage must remain backed by a production node.");
         QVERIFY(!stage.value(QStringLiteral("actionNodeId")).toString().isEmpty());
@@ -1861,15 +1870,33 @@ void TestDubbingProject::workflowStagesExposeTranslatedSubtitleAfterTranslation(
     const QVariantMap transcribe = stages.at(3).toMap();
     QVERIFY(transcribe.value(QStringLiteral("productionNodeIds")).toList()
                 .contains(QStringLiteral("review-transcript")));
-    const QVariantMap subtitles = stages.at(5).toMap();
-    QVERIFY(subtitles.value(QStringLiteral("productionNodeIds")).toList()
-                .contains(QStringLiteral("review-translation")));
-    const QVariantMap alignment = stages.at(7).toMap();
+    const QVariantMap alignment = stages.at(4).toMap();
     QVERIFY(alignment.value(QStringLiteral("productionNodeIds")).toList()
                 .contains(QStringLiteral("fit-timing")));
-    const QVariantMap exportStage = stages.at(8).toMap();
+    const QVariantMap translate = stages.at(5).toMap();
+    QVERIFY(translate.value(QStringLiteral("productionNodeIds")).toList()
+                .contains(QStringLiteral("review-translation")));
+    const QVariantMap exportStage = stages.at(7).toMap();
     QVERIFY(exportStage.value(QStringLiteral("productionNodeIds")).toList()
                 .contains(QStringLiteral("mix")));
+
+    const QVariantList preflightStages = controller.automaticPreflight()
+        .value(QStringLiteral("stages")).toList();
+    QCOMPARE(preflightStages.size(), expectedIds.size());
+    for (int index = 0; index < preflightStages.size(); ++index) {
+        const QVariantMap stage = preflightStages.at(index).toMap();
+        QCOMPARE(stage.value(QStringLiteral("id")).toString(), expectedIds.at(index));
+        QCOMPARE(stage.value(QStringLiteral("title")).toString(), expectedTitles.at(index));
+        QVERIFY(stage.value(QStringLiteral("id")).toString() != QStringLiteral("timing-mix"));
+    }
+
+    QFile page(QStringLiteral(LASTUDIO_SOURCE_DIR)
+               + QStringLiteral("/qml/pages/DubbingPage.qml"));
+    QVERIFY(page.open(QIODevice::ReadOnly));
+    const QString pageSource = QString::fromUtf8(page.readAll());
+    QVERIFY(pageSource.contains(QStringLiteral("steps: root.headerWorkflowSteps()")));
+    QVERIFY(!pageSource.contains(QStringLiteral("stepId: \"subtitle\"")));
+    QVERIFY(!pageSource.contains(QStringLiteral("stepId: \"timing-mix\"")));
 }
 
 void TestDubbingProject::colabSourceSeparationDoesNotFallbackToLocal()
@@ -2424,7 +2451,29 @@ void TestDubbingProject::dubbingEntryAndAutomaticSetupCannotBypassConfiguration(
     QVERIFY(pageSource.contains(QStringLiteral("dubbingEntryGate.openGate()")));
     QVERIFY(pageSource.contains(QStringLiteral("chooseDubbingEntryMode(\"automatic\")")));
     QVERIFY(pageSource.contains(QStringLiteral("chooseDubbingEntryMode(\"step\")")));
+    QVERIFY(pageSource.contains(QStringLiteral("projectSetupDialog.openFor(")));
+    QVERIFY(!pageSource.contains(QStringLiteral("DubbingProjectStatusPanel {")));
+    QVERIFY(pageSource.contains(QStringLiteral("property int dubbingPreviewPanelWidth: 1040")));
+    QVERIFY(pageSource.contains(QStringLiteral("property int dubbingTimelinePanelHeight: 340")));
     QVERIFY(!pageSource.contains(QStringLiteral("Component.onCompleted: dubbing.resetStandardWorkflowNodeModels()")));
+
+    QFile projectSetup(QStringLiteral(LASTUDIO_SOURCE_DIR)
+                       + QStringLiteral("/qml/components/dubbing/DubbingProjectSetupDialog.qml"));
+    QVERIFY(projectSetup.open(QIODevice::ReadOnly));
+    const QString projectSetupSource = QString::fromUtf8(projectSetup.readAll());
+    QVERIFY(projectSetupSource.contains(QStringLiteral("Automatic Dubbing setup")));
+    QVERIFY(projectSetupSource.contains(QStringLiteral("Project languages")));
+    QVERIFY(projectSetupSource.contains(QStringLiteral("Execution quality")));
+    QVERIFY(projectSetupSource.contains(QStringLiteral("Continue to preflight")));
+
+    QFile header(QStringLiteral(LASTUDIO_SOURCE_DIR)
+                 + QStringLiteral("/qml/components/dubbing/DubbingWorkflowHeader.qml"));
+    QVERIFY(header.open(QIODevice::ReadOnly));
+    const QString headerSource = QString::fromUtf8(header.readAll());
+    QVERIFY(headerSource.contains(QStringLiteral("compactActionCluster")));
+    QVERIFY(headerSource.contains(QStringLiteral("text: root.compactActionCluster ? \"\" : qsTr(\"Workflow\")")));
+    QVERIFY(headerSource.contains(QStringLiteral("iconOnly: root.compactActionCluster")));
+    QVERIFY(headerSource.contains(QStringLiteral("Flickable {")));
 }
 
 void TestDubbingProject::dubbingTranscriptionWaitsForFreshDecodedAudio()

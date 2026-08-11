@@ -52,8 +52,8 @@ Item {
     property int dubbingTaskShelfWidth: 260
     // Prefer a large central canvas. Side panes keep bounded widths and the
     // preview yields only when the operator explicitly drags a separator.
-    property int dubbingPreviewPanelWidth: 940
-    property int dubbingTimelinePanelHeight: 300
+    property int dubbingPreviewPanelWidth: 1040
+    property int dubbingTimelinePanelHeight: 340
     property int dubbingStepPanelWidth: 340
     // These breakpoints are derived from the actual non-overlapping minima:
     // History 240 + handle 8 + task shelf 220 + handle 8 + preview 540 +
@@ -147,10 +147,9 @@ Item {
         if (stepId === "source-separate") return qsTr("Isolator")
         if (stepId === "transcribe") return qsTr("Transcribe/STT")
         if (stepId === "review-transcript") return qsTr("Transcribe/STT")
-        if (stepId === "translate") return qsTr("Translate")
-        if (stepId === "review-translation" || stepId === "subtitle") return qsTr("Subtitle")
+        if (stepId === "fit-timing" || stepId === "review-conflicts" || stepId === "alignment-subtitle") return qsTr("Alignment/Subtitle")
+        if (stepId === "translate" || stepId === "review-translation") return qsTr("Translate")
         if (stepId === "synthesize") return qsTr("TTS")
-        if (stepId === "fit-timing" || stepId === "review-conflicts" || stepId === "alignment") return qsTr("Alignment")
         if (stepId === "mix") return qsTr("Export/Output")
         if (stepId === "export") return qsTr("Export/Output")
         return qsTr("Completed")
@@ -170,10 +169,9 @@ Item {
         if (nodeId === "source-separate") return "isolator"
         if (nodeId === "transcribe") return "transcribe"
         if (nodeId === "review-transcript") return "transcribe"
-        if (nodeId === "translate") return "translate"
-        if (nodeId === "review-translation") return "subtitle"
+        if (nodeId === "fit-timing" || nodeId === "review-conflicts") return "alignment-subtitle"
+        if (nodeId === "translate" || nodeId === "review-translation") return "translate"
         if (nodeId === "assign-voices" || nodeId === "synthesize") return "tts"
-        if (nodeId === "fit-timing" || nodeId === "review-conflicts") return "alignment"
         if (nodeId === "mix") return "export"
         if (nodeId === "export") return "export"
         return nodeId
@@ -229,7 +227,7 @@ Item {
         if (stepId === "ingest") return dubbing.normalizedAudioPath.length > 0
         if (stepId === "source-separate") return dubbing.vocalsPath.length > 0 && dubbing.backgroundPath.length > 0
         if (stepId === "transcribe" || stepId === "review-transcript") return dubbing.segments.length > 0
-        if (stepId === "translate" || stepId === "review-translation" || stepId === "subtitle") {
+        if (stepId === "translate" || stepId === "review-translation") {
             if (dubbing.segments.length === 0) return false
             for (var i = 0; i < dubbing.segments.length; ++i)
                 if (!(dubbing.segments[i].targetText || "").trim()) return false
@@ -241,7 +239,7 @@ Item {
                 if (!(dubbing.segments[j].clipPath || "")) return false
             return true
         }
-        if (stepId === "fit-timing" || stepId === "alignment") {
+        if (stepId === "fit-timing" || stepId === "alignment-subtitle") {
             if (dubbing.segments.length === 0) return false
             for (var k = 0; k < dubbing.segments.length; ++k)
                 if (!(dubbing.segments[k].clipPath || "")) return false
@@ -272,6 +270,32 @@ Item {
         if (node.configurable === true && node.selectedFamilyId
                 && node.providerState !== "ready") return false
         return true
+    }
+
+    function headerWorkflowSteps() {
+        var iconByStage = {
+            "import": "folder",
+            "normalize": "activity",
+            "isolator": "waves",
+            "transcribe": "mic",
+            "alignment-subtitle": "alignment",
+            "translate": "translate",
+            "tts": "volume",
+            "export": "download"
+        }
+        var stages = dubbing.workflowStages || []
+        var steps = []
+        for (var index = 0; index < stages.length; ++index) {
+            var stage = stages[index]
+            steps.push({
+                stepId: stage.id,
+                title: stage.title,
+                iconName: iconByStage[stage.id] || "workflow",
+                complete: stage.state === "completed",
+                active: root.stageIdForNode(root.displayedStepId) === stage.id
+            })
+        }
+        return steps
     }
 
     function beginQmlSmokeTranscriptSourceCheck() {
@@ -432,12 +456,12 @@ Item {
     // is initiated by the actual QML control's click() method; only the native
     // file-picker result is injected at its explicit picker boundary.
     function qmlSmokeAutomaticPreflightCheck() {
-        // "Subtitle" is an explicit post-translation review stage, but it has
-        // no route/model configuration of its own.  Keep the smoke journey on
-        // the stages that expose a real Configure control; the presentation
-        // order itself is asserted by the controller regression.
+        // Every visible stage is sourced from the controller presentation
+        // contract.  Keep the smoke journey on the stages that expose a real
+        // Configure control; presentation order is asserted by controller
+        // regression rather than reimplemented in QML.
         var configuredStages = ["import", "normalize", "isolator", "transcribe",
-                                "translate", "tts", "alignment", "export"]
+                                "alignment-subtitle", "translate", "tts", "export"]
         if (qmlSmokeAutomaticPhase === 0) {
             if (!dubbingEntryGate.visible) {
                 qmlSmokeTranscriptSourceFailure = "Dubbing entry gate did not block the workspace"
@@ -864,17 +888,7 @@ Item {
         DubbingWorkflowHeader {
             id: dubbingWorkflowHeader
             dubbing: root.dubbing
-            steps: [
-                { stepId: "import", title: qsTr("Import/Download"), iconName: "folder", complete: (root.workflowStage("import") || {}).state === "completed", active: root.stageIdForNode(root.displayedStepId) === "import" },
-                { stepId: "normalize", title: qsTr("Normalize"), iconName: "activity", complete: (root.workflowStage("normalize") || {}).state === "completed", active: root.stageIdForNode(root.displayedStepId) === "normalize" },
-                { stepId: "isolator", title: qsTr("Isolator"), iconName: "waves", complete: (root.workflowStage("isolator") || {}).state === "completed", active: root.stageIdForNode(root.displayedStepId) === "isolator" },
-                { stepId: "transcribe", title: qsTr("Transcribe/STT"), iconName: "mic", complete: (root.workflowStage("transcribe") || {}).state === "completed", active: root.stageIdForNode(root.displayedStepId) === "transcribe" },
-                { stepId: "translate", title: qsTr("Translate"), iconName: "translate", complete: (root.workflowStage("translate") || {}).state === "completed", active: root.stageIdForNode(root.displayedStepId) === "translate" },
-                { stepId: "subtitle", title: qsTr("Subtitle"), iconName: "edit", complete: (root.workflowStage("subtitle") || {}).state === "completed", active: root.stageIdForNode(root.displayedStepId) === "subtitle" },
-                { stepId: "tts", title: qsTr("TTS"), iconName: "volume", complete: (root.workflowStage("tts") || {}).state === "completed", active: root.stageIdForNode(root.displayedStepId) === "tts" },
-                { stepId: "alignment", title: qsTr("Alignment"), iconName: "alignment", complete: (root.workflowStage("alignment") || {}).state === "completed", active: root.stageIdForNode(root.displayedStepId) === "alignment" },
-                { stepId: "export", title: qsTr("Export/Output"), iconName: "download", complete: (root.workflowStage("export") || {}).state === "completed", active: root.stageIdForNode(root.displayedStepId) === "export" }
-            ]
+            steps: root.headerWorkflowSteps()
             statusText: root.dubbing.processing
                         ? qsTr("%1 · Working").arg(root.stepTitle(root.dubbing.currentStepId))
                         : (root.dubbing.workflowMode === "step" ? qsTr("Ready for node run") : qsTr("Ready"))

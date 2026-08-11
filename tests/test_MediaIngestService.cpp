@@ -985,7 +985,11 @@ void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
     QVERIFY(dubbingHeader.contains(QStringLiteral("id: headerActionCluster")));
     QVERIFY(dubbingHeader.contains(QStringLiteral("action cluster never scrolls")));
     QVERIFY(!dubbingHeader.contains(QStringLiteral("headerUtilitiesFlickable")));
-    QVERIFY(dubbingHeader.contains(QStringLiteral("text: qsTr(\"Workflow\")")));
+    // At narrower widths the label is intentionally replaced by an icon and
+    // tooltip so the action cluster never truncates into a misleading "Wor".
+    QVERIFY(dubbingHeader.contains(
+        QStringLiteral("text: root.compactActionCluster ? \"\" : qsTr(\"Workflow\")")));
+    QVERIFY(dubbingHeader.contains(QStringLiteral("toolTip: qsTr(\"Open workflow\")")));
     QVERIFY(dubbingPage.contains(QStringLiteral("dubbingWorkspaceScroller.width < 1450")));
     QVERIFY(dubbingPage.contains(QStringLiteral("dubbingWorkspaceScroller.width < 1080")));
     QVERIFY(dubbingPage.contains(QStringLiteral("actual non-overlapping minima")));

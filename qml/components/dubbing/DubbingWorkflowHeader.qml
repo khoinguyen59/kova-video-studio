@@ -23,6 +23,11 @@ Rectangle {
     // Kept for the production route smoke: project settings are a dialog, not
     // a permanent strip below the editor.
     property bool projectStatusOpen: false
+    // At compact editor widths, keep actions available as icon buttons with
+    // tooltips.  A partially visible word such as "Wor" is not a usable
+    // control; the workflow rail is the only header region permitted to scroll.
+    readonly property bool compactHeaderChrome: width < 1380
+    readonly property bool compactActionCluster: width < 1580
 
     signal stepSelected(string stepId)
     signal historyToggled()
@@ -66,18 +71,21 @@ Rectangle {
         PrimaryButton {
             id: projectStatusToggle
             objectName: "dubbingProjectStatusToggle"
-            text: qsTr("Project setup")
+            text: root.compactHeaderChrome ? "" : qsTr("Project setup")
             iconName: "sliders"
+            iconOnly: root.compactHeaderChrome
             quiet: true
-            Layout.minimumWidth: requiredContentWidth
-            Layout.preferredWidth: Math.max(112, requiredContentWidth)
+            Layout.minimumWidth: root.compactHeaderChrome ? 38 : requiredContentWidth
+            Layout.preferredWidth: root.compactHeaderChrome ? 38 : Math.max(112, requiredContentWidth)
+            toolTip: qsTr("Project setup")
+            accessibleName: toolTip
             onClicked: root.projectStatusToggled()
         }
 
         RowLayout {
-            Layout.preferredWidth: 154
-            Layout.minimumWidth: 132
-            Layout.maximumWidth: 154
+            Layout.preferredWidth: root.compactHeaderChrome ? 28 : 154
+            Layout.minimumWidth: root.compactHeaderChrome ? 28 : 132
+            Layout.maximumWidth: root.compactHeaderChrome ? 28 : 154
             spacing: Theme.paddingSmall
             LineIcon {
                 name: "dubbing"
@@ -86,7 +94,8 @@ Rectangle {
                 Layout.preferredHeight: 20
             }
             ColumnLayout {
-                Layout.fillWidth: true
+                Layout.fillWidth: !root.compactHeaderChrome
+                visible: !root.compactHeaderChrome
                 spacing: 0
                 Text {
                     Layout.fillWidth: true
@@ -157,28 +166,36 @@ Rectangle {
             PrimaryButton {
                 text: root.dubbing.processing ? qsTr("Running…") : qsTr("Generate")
                 iconName: root.dubbing.processing ? "activity" : "play"
-                Layout.minimumWidth: requiredContentWidth
-                Layout.preferredWidth: Math.max(126, requiredContentWidth)
+                iconOnly: root.compactActionCluster
+                Layout.minimumWidth: root.compactActionCluster ? 38 : requiredContentWidth
+                Layout.preferredWidth: root.compactActionCluster ? 38 : Math.max(126, requiredContentWidth)
                 enabled: !root.dubbing.settingsLocked && root.dubbing.sourceMediaPath.length > 0
+                toolTip: root.dubbing.processing ? qsTr("Running automatic dubbing") : qsTr("Generate final dubbing")
+                accessibleName: toolTip
                 onClicked: root.generateRequested()
             }
             PrimaryButton {
-                text: qsTr("Colab")
+                text: root.compactActionCluster ? "" : qsTr("Colab")
                 iconName: "cloud"
+                iconOnly: root.compactActionCluster
                 quiet: true
-                Layout.minimumWidth: requiredContentWidth
-                Layout.preferredWidth: Math.max(82, requiredContentWidth)
+                Layout.minimumWidth: root.compactActionCluster ? 38 : requiredContentWidth
+                Layout.preferredWidth: root.compactActionCluster ? 38 : Math.max(82, requiredContentWidth)
                 enabled: !root.dubbing.settingsLocked
                 toolTip: qsTr("Open Colab setup")
+                accessibleName: toolTip
                 onClicked: root.colabSetupRequested()
             }
             PrimaryButton {
-                text: qsTr("Workflow")
+                text: root.compactActionCluster ? "" : qsTr("Workflow")
                 iconName: "workflow"
+                iconOnly: root.compactActionCluster
                 quiet: true
-                Layout.minimumWidth: requiredContentWidth
-                Layout.preferredWidth: Math.max(112, requiredContentWidth)
+                Layout.minimumWidth: root.compactActionCluster ? 38 : requiredContentWidth
+                Layout.preferredWidth: root.compactActionCluster ? 38 : Math.max(112, requiredContentWidth)
                 enabled: !root.dubbing.settingsLocked
+                toolTip: qsTr("Open workflow")
+                accessibleName: toolTip
                 onClicked: root.workflowRequested()
             }
             PrimaryButton {

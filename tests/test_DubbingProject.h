@@ -29,7 +29,7 @@ private slots:
     void qualityModesExposeExpectedDefaultVoiceModel();
     void standardModesPreserveExplicitNodeModelsOnOpen();
     void sourceSeparationExposesModelSelection();
-    void workflowStagesExposeTranslatedSubtitleAfterTranslation();
+    void workflowStagesExposeEightUniquePresentationStages();
     void targetLanguageUpdatesVoiceNodeLanguage();
     void rejectsRerunningUnsupportedStep();
     void transcriptionRequiresReadyModel();

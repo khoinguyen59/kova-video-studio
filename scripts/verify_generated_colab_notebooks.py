@@ -190,7 +190,7 @@ def main() -> int:
                         '"paddlex[ie,multimodal,ocr,trans]==3.1.0"',
                         '"Pillow==12.0.0"',
                         'OCR_SITE_PACKAGES = Path("/content/la_studio_subtitle_ocr_site")',
-                        'BOOTSTRAP_REVISION = "subtitle-ocr-bootstrap-2026-08-11.7"',
+                        'BOOTSTRAP_REVISION = "subtitle-ocr-bootstrap-2026-08-11.8"',
                         'shutil.rmtree(Path("/content/la_studio_subtitle_ocr_venv"), ignore_errors=True)',
                         'shutil.rmtree(OCR_SITE_PACKAGES, ignore_errors=True)',
                         'bootstrap_pip("install", "--target", str(OCR_SITE_PACKAGES),',
@@ -214,9 +214,11 @@ def main() -> int:
                         mismatches.append(
                             f"Subtitle OCR notebook does not pin and probe the Paddle-only 3.1.0 stack: {generated.name}"
                         )
-                    if 'venv.EnvBuilder(with_pip=True, clear=True).create(VENV_DIR)' in worker_source:
+                    if ('venv.EnvBuilder' in worker_source
+                            or "'ensurepip'" in worker_source
+                            or '"ensurepip"' in worker_source):
                         mismatches.append(
-                            f"Subtitle OCR notebook still uses the broken Colab ensurepip bootstrap: {generated.name}"
+                            f"Subtitle OCR notebook still contains a broken Colab venv/ensurepip bootstrap: {generated.name}"
                         )
                     if '"-m", "virtualenv"' in worker_source or 'virtualenv==20.31.2' in worker_source:
                         mismatches.append(
