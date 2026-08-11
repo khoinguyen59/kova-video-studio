@@ -650,3 +650,25 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   passed. Graphify was updated. Internal portable package 0.0.6.2 is staged
   under `out/LA-Studio-0.0.6.2`; it was not launched visibly and no live remote
   service was claimed.
+
+### 2026-08-11 - 0.0.6.4 Dubbing header and Subtitle OCR bootstrap
+
+- The Dubbing UI contract is fixed panes, not overlaying drawers: a selected
+  task consumes left/right layout width around the central preview, while the
+  timeline spans the lower workspace. Language pair and execution quality are
+  delayed to the modal setup flow selected after Automatic or step-by-step.
+- `DubbingWorkflowHeader.qml` owns a runtime smoke layout check for the
+  non-scrolling action cluster and workflow rail. Compact controls are
+  intentional icon-only controls with tooltips; normal controls retain their
+  full label, including `Workflow`.
+- Subtitle OCR Colab was regenerated as `.9`; no `venv.EnvBuilder` or
+  `ensurepip` remains. Bootstrap is isolated with pip `--target` and an
+  explicit import/readiness probe. Stale Colab copies with `VENV_DIR` must be
+  discarded and reopened in a fresh runtime.
+- Validation: QML lint PASS, generated notebooks 32/32 PASS, full CTest 39/39
+  PASS in 59.24 s, and graphify update completed. Portable internal package
+  0.0.6.4 is staged at `out/LA-Studio-0.0.6.4/LA-Studio-0.0.6.4.exe` with 19
+  required runtime artifacts; SHA-256
+  `2367C0A735D20F6692C2EF6BCCF3EF22F097188C7C3C92175C6A728F3F0EC5EF`.
+- No interactive desktop or live Colab session was opened. Package stays
+  internal-only pending signed eSpeak remediation.

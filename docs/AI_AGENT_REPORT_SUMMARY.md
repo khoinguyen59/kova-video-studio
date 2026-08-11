@@ -939,3 +939,27 @@ Cap nhat: 2026-08-11
 - Source commit `9b39b3c` was pushed directly to `main`. No GUI or live remote
   service was opened; visual acceptance with a real packaged video remains a
   manual gate.
+
+### 2026-08-11 - 0.0.6.4 fixed-pane Dubbing header and OCR bootstrap
+
+- The Dubbing workspace retains its fixed-pane arrangement: left task rail,
+  central aspect-aware preview, right task review panel only after selection,
+  and a full-width lower timeline. Project language/quality are selected in
+  the post-mode project-setup dialog rather than a permanent lower strip.
+- A runtime QML smoke contract now proves the header has one flexible workflow
+  rail and one fixed action cluster. It accepts labelled controls at normal
+  width and intentional, tooltip-equipped icon-only controls at compact width,
+  preventing clipped `Workflow` fragments or header overlap.
+- The generated Subtitle OCR Colab notebook is now bootstrap revision `.9`.
+  It never creates a Python venv or calls `ensurepip`; it uses an app-owned
+  `--target` package directory. Any Colab traceback showing `VENV_DIR` or
+  `ensurepip` is an older notebook copy and requires reopening the tracked
+  notebook in a fresh runtime.
+- Evidence: QML lint PASS; exact generated notebooks **32/32**; full offscreen
+  CTest **39/39 PASS** in 59.24 seconds; graph update PASS. Portable internal
+  `out/LA-Studio-0.0.6.4/LA-Studio-0.0.6.4.exe` staged with 19 required runtime
+  artifacts and SHA-256
+  `2367C0A735D20F6692C2EF6BCCF3EF22F097188C7C3C92175C6A728F3F0EC5EF`.
+- The package has not been visibly launched and no live Colab worker was
+  claimed. It remains internal-only because the verified eSpeak payload is
+  unsigned.
