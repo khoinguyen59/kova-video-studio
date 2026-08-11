@@ -2,6 +2,26 @@
 
 Cap nhat: 2026-08-11
 
+## 2026-08-11 - Dubbing eight-stage contract and OCR bootstrap `.8`
+
+- Automatic Dubbing now exposes exactly eight stages from one C++ controller
+  contract: Import/Download, Normalize, Isolator, Transcribe/STT,
+  Alignment/Subtitle, Translate, TTS, and Export/Output. QML receives that
+  same list, so the header cannot add a stale Subtitle/Alignment/Timing/Mix
+  step. Translation review remains part of Translate; timing and conflict
+  review remain part of Alignment/Subtitle; mix remains part of Export.
+- Compact Dubbing header actions become accessible icon-only buttons below the
+  available-width breakpoint instead of clipping labels. The center preview
+  default is 1040 px and the timeline default is 340 px. The layout keeps task
+  shelf, preview and inspector as non-overlapping layout participants.
+- Current Subtitle OCR notebook bootstrap is
+  `subtitle-ocr-bootstrap-2026-08-11.8`. It never creates a venv or invokes
+  `ensurepip`; it uses the app-owned isolated target directory for the pinned
+  Paddle/PaddleOCR/PaddleX/Pillow stack.
+- Evidence: Python compile PASS, generated notebook verifier **32/32 PASS**,
+  diff check PASS, Graphify update PASS, full CTest **39/39 PASS** in 57.04 s.
+  No GUI, live Colab run, or new package is claimed.
+
 ## 2026-08-11 - Dubbing entry setup and compact-pane regression closure
 
 - The Automatic entry flow is now covered end-to-end by the production QML
