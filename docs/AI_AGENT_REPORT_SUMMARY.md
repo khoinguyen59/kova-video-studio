@@ -994,3 +994,24 @@ Cap nhat: 2026-08-11
 - The packaged OCR notebook is revision `.10`. No visible desktop app or live
   Colab worker was opened for this run. The package remains internal-only
   because its hash-verified eSpeak payload is unsigned.
+
+### 2026-08-12 - 0.0.6.6 Dubbing layout row and Subtitle OCR bootstrap repair
+
+- **Dubbing layout:** the preview workspace, the 28 px timeline resize handle,
+  and the timeline are sibling rows of `dubbingEditorLayout`. The handle is a
+  real layout row (not a high-z overlay), so the timeline pushes the video
+  workspace when enlarged.
+- **Subtitle OCR notebook:** revision
+  `subtitle-ocr-bootstrap-2026-08-12.11` permits source only for `GPUtil`
+  (`--no-binary=GPUtil`). PaddleX requires that source-only dependency; the
+  former global wheels-only resolver rejected it. Future pip failures print the
+  command and the final 12,000 log characters instead of a bare exception.
+- **Evidence:** generated notebook verification **32/32 PASS**; full CTest
+  **39/39 PASS** (57.97 s), including offscreen Dubbing QML geometry smoke;
+  `graphify update .` completed. Portable staging verified 19 artifacts.
+- **Artifact:** `out/LA-Studio-0.0.6.6/LA-Studio-0.0.6.6.exe` (Product/File
+  Version `0.0.6.6`; SHA-256
+  `EDEB7877AB397648ED643A5DC06FF30DADB19382EAF2640473C008CF602F78C1`).
+- No visible GUI or live Colab GPU session was opened. Run the new notebook in
+  a fresh Colab runtime; the package is internal-only because eSpeak is
+  hash-verified but unsigned.

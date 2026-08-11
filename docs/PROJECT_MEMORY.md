@@ -694,3 +694,16 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   SHA-256 `40015BFB9C9E44321785BDD20AD61E1673A631514C9EFD3641BAE74941780A84`).
 - No interactive GUI or live Colab run was performed. Package remains
   internal-only due to unsigned eSpeak payload.
+
+### 2026-08-12 - 0.0.6.6 layout and OCR bootstrap constraints
+
+- Keep Dubbing workspace, resize handle, and timeline as separate vertical
+  layout rows. Do not reintroduce absolute anchors or high-z overlay behavior;
+  lower bounds are workspace 240 px, resize target 28 px, and timeline 160 px.
+- Keep the narrow `--no-binary=GPUtil` exception in the Subtitle OCR notebook.
+  `GPUtil` is a PaddleX dependency without a wheel; without it,
+  `--only-binary=:all:` breaks the fresh Colab resolver. Retain detailed pip
+  diagnostics for future Colab image changes.
+- 0.0.6.6 evidence: generated notebook verifier 32/32; CTest 39/39 (57.97 s);
+  19-artifact portable package. SHA-256:
+  `EDEB7877AB397648ED643A5DC06FF30DADB19382EAF2640473C008CF602F78C1`.

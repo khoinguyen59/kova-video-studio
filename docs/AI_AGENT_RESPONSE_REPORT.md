@@ -117,3 +117,34 @@ No desktop GUI, user session, or live Colab GPU worker was opened. This is an
 internal package only: its eSpeak payload hash is verified but unsigned, so it
 must not be promoted to a public distributable release without signing
 remediation.
+
+## 2026-08-12 - completed: 0.0.6.6 Dubbing resize/layout and OCR bootstrap
+
+### Delivered
+
+- Reworked Dubbing editor geometry so the video workspace, 28 px resize target,
+  and full-width timeline use separate `ColumnLayout` rows. The timeline now
+  takes only real available height and cannot cover the video workspace.
+- Updated the Subtitle OCR generator and notebook to bootstrap revision `.11`.
+  The reported `CalledProcessError` came from wheels-only resolution rejecting
+  source-only `GPUtil`, a transitive PaddleX dependency. Only `GPUtil` is now
+  allowed to build from source; the rest stays wheels-only. Failures expose the
+  exact pip command and final install log tail.
+
+### Verification and package
+
+- Generated notebook verifier: **32/32 PASS**.
+- Full CTest: **39/39 PASS** in 57.97 seconds, including offscreen Dubbing QML
+  geometry coverage.
+- `graphify update .` completed; staging validated 19 required package files.
+- Portable internal executable:
+  `out/LA-Studio-0.0.6.6/LA-Studio-0.0.6.6.exe`
+  (Product/File Version `0.0.6.6`, SHA-256
+  `EDEB7877AB397648ED643A5DC06FF30DADB19382EAF2640473C008CF602F78C1`).
+
+### Boundary
+
+No desktop GUI or live Google Colab GPU session was opened. Run the fresh
+Subtitle OCR notebook in a new Colab runtime; if the upstream image changes,
+the notebook now exposes the resolver output necessary to diagnose it. The
+package remains for internal use because the verified eSpeak runtime is unsigned.
