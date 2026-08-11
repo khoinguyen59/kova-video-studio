@@ -9,8 +9,35 @@ Cap nhat: 2026-08-11
 | Latest packaged candidate | `0.0.6.3` |
 | Artifact | `out/LA-Studio-0.0.6.3/LA-Studio-0.0.6.3.exe` |
 | SHA-256 | `B3322735B67EEE453FA5549AB35CB5DC95D2E578B68A9BEC7BCDE25F1FDB3137` |
-| Current source | `main` at `23e7d0d`; the 0.0.6.3 package is unchanged and later, un-packaged Subtitle OCR notebook fixes are present in source. |
+| Current source | `main` at `8d256ce`; the 0.0.6.3 package is unchanged and the latest Dubbing/Subtitle OCR fixes are source-only. |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
+
+## Source batch after 0.0.6.3 - fixed Dubbing panes and OCR bootstrap
+
+- `8d256ce` keeps every LA Studio Dubbing task and route, but reorganizes the
+  workbench into fixed layout participants: optional History and task shelf on
+  the left, a central Preview, contextual task output on the right, and one
+  full-width Timeline below. Selecting a task now consumes real layout width
+  rather than overlaying the Preview or leaving an offscreen horizontal canvas.
+- Project language pair and execution quality no longer occupy a permanent
+  lower panel. They are chosen in `DubbingProjectSetupDialog` immediately
+  after Automatic or step-by-step mode, or reopened through **Project
+  settings**. The task rail is split into a separate scrollable row so action
+  labels such as **Workflow** cannot be squeezed into fragments. History,
+  Preview, and Timeline use `DragHandler`, so a resize continues after the
+  pointer leaves the old tiny handle.
+- The Subtitle OCR notebook no longer invokes the Colab stdlib venv bootstrap
+  that failed in `ensurepip`. It installs `virtualenv==20.31.2` from the host
+  pip, creates the isolated interpreter with its bundled pip wheel, then
+  retains the exact Paddle/PaddleOCR/PaddleX/Pillow pins and preflight.
+  Revision: `subtitle-ocr-2026-08-11.5`.
+- Evidence: the generated notebook verifier passed **32/32**; a fresh
+  virtualenv bootstrap smoke created an isolated Python with pip; `qmllint`
+  parsed the changed Dubbing files; source contract checks and `git diff
+  --check` passed. Full CTest/build is **blocked**, not passed: the current
+  machine has no Qt development kit (`Qt6Config.cmake` / `LA_QT` unavailable),
+  so no desktop/package or live Colab claim is made for this source batch.
+- The source commit is pushed directly to `origin/main`. No new EXE was built.
 
 ## Candidate 0.0.6.3 - Dubbing workbench restructure
 

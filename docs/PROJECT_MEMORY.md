@@ -7,6 +7,7 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 - Desktop local-first: STT, TTS, Voice Cloning, Voice Design, Alignment, Translation, Dubbing, LLM Chat, Download va Subtitle OCR.
 - API Gateway va Direct Colab la hai route doc lap. Token/URL Colab chi o memory session, khong persist vao project/report.
 - Package noi bo moi nhat: `0.0.6.3` tai `out/LA-Studio-0.0.6.3/LA-Studio-0.0.6.3.exe`, SHA-256 `B3322735B67EEE453FA5549AB35CB5DC95D2E578B68A9BEC7BCDE25F1FDB3137`. QML lint, full CTest 39/39, portable artifact audit va hidden offscreen startup smoke PASS. Source hien co hotfix Subtitle OCR Colab chua nam trong EXE nay; manual GUI/live Colab luon la gate rieng.
+- Source moi nhat `8d256ce` (chua dong goi) dua Dubbing ve layout pane co dinh: History/Task controls ben trai tuy chon, Preview o giua, task output ben phai va Timeline full-width ben duoi. Khong duoc bo tinh nang/route LA Studio khi sua UX. Language va execution quality phai hoi trong popup sau khi chon Automatic/step-by-step hoac tu **Project settings**, khong duoc nam thuong truc duoi Timeline. Full CTest cua batch nay chua chay duoc vi may hien tai thieu Qt development kit (`Qt6Config.cmake` / `LA_QT`); khong duoc ghi PASS thay cho loi nay.
 - `0.0.2.23` duoc giu nguyen nhung khong duoc chap nhan: audit bat thieu evidence trace route/model/worker truoc-sau. `0.0.2.24` bo sung trace va package moi, khong ghi de candidate cu.
 - `0.0.2.21` khong duoc chap nhan cho Dubbing Automatic: gate/preflight co
   dead-end media va no-op Configure. `0.0.2.22` sua duong ingest truoc gate,
@@ -15,6 +16,25 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   offscreen khong co native active window.
 
 ## Lich su cap san pham
+
+### 2026-08-11 - fixed Dubbing panes and Subtitle OCR bootstrap (unpackaged)
+
+- `8d256ce` thay horizontal Flickable cua Dubbing bang layout co dinh. Khi
+  chon task, left shelf va right result pane chiem dung layout width va day
+  Preview, khong de/che Preview. Header co hai hang: utility actions va task
+  rail scroll doc lap; khong cat label **Workflow**. Resize History/Preview/
+  Timeline dung `DragHandler` de keo lien tuc, khong chi nhan trong thanh 18px.
+- `DubbingProjectSetupDialog` chon source language, target language va
+  Fast/Adaptive/Custom sau khi chon mode. Lower `DubbingProjectStatusPanel`
+  khong con instantiate trong page; speaker/output chi duoc hien khi task can
+  thay vi chiem cho thuong truc.
+- Notebook Subtitle OCR revision `subtitle-ocr-2026-08-11.5` bo stdlib venv
+  bootstrap loi `ensurepip`; cai `virtualenv==20.31.2` bang host pip va tao
+  interpreter isolated truoc khi cai exact Paddle stack. Verifier co regression
+  cam legacy `venv.EnvBuilder(with_pip=True, clear=True).create(VENV_DIR)`.
+- Verifier generated notebooks PASS 32/32; virtualenv bootstrap smoke PASS;
+  QML parser PASS; diff check PASS. Build/CTest BLOCKED do Qt development kit
+  khong con tren may. Khong mo GUI, browser, worker Colab song, va khong tao EXE.
 
 ### 2026-08-11 - Subtitle OCR Colab NCCL hotfix (unpackaged)
 
