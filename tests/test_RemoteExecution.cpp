@@ -756,6 +756,7 @@ void TestRemoteExecution::workflowActivityOnlyDisplaysMeasuredProgress()
     QVERIFY(workflowHeaderSource.contains(QStringLiteral("Project settings")));
     QVERIFY(workflowHeaderSource.contains(QStringLiteral("Layout.preferredHeight: 84")));
     QVERIFY(workflowHeaderSource.contains(QStringLiteral("workflowStepsFlickable")));
+    QVERIFY(workflowHeaderSource.contains(QStringLiteral("dubbingHeaderUtilitiesFlickable")));
 
     QVERIFY(pageSource.contains(QStringLiteral("isProjectStatusPanelOpen")));
     QVERIFY(!pageSource.contains(QStringLiteral("DubbingProjectStatusPanel {")));

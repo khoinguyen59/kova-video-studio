@@ -84,27 +84,50 @@ Rectangle {
                     Text { text: root.dubbing.hasProject ? qsTr("Project workspace") : qsTr("New project"); color: Theme.textSecondary; font.pixelSize: 10; elide: Text.ElideRight }
                 }
             }
-            Item { Layout.fillWidth: true }
-            PrimaryButton {
-                text: root.dubbing.processing ? qsTr("Running…") : qsTr("Generate Final Dubbing")
-                iconName: root.dubbing.processing ? "activity" : "play"
-                enabled: !root.dubbing.settingsLocked && root.dubbing.sourceMediaPath.length > 0
-                onClicked: root.generateRequested()
-                AppToolTip { text: qsTr("Run every stage automatically and create the final dubbed output"); visible: parent.hovered }
-            }
-            PrimaryButton {
-                text: qsTr("Colab setup")
-                iconName: "cloud"
-                quiet: true
-                enabled: !root.dubbing.settingsLocked
-                onClicked: root.colabSetupRequested()
-            }
-            PrimaryButton {
-                text: qsTr("Workflow")
-                iconName: "workflow"
-                quiet: true
-                enabled: !root.dubbing.settingsLocked
-                onClicked: root.workflowRequested()
+            Item { Layout.preferredWidth: 0 }
+            // Keep complete action labels available on narrow windows. The
+            // utility strip scrolls rather than clipping the last button.
+            Flickable {
+                id: headerUtilitiesFlickable
+                objectName: "dubbingHeaderUtilitiesFlickable"
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                Layout.fillHeight: true
+                clip: true
+                contentWidth: headerUtilitiesRow.implicitWidth
+                contentHeight: height
+                flickableDirection: Flickable.HorizontalFlick
+                boundsBehavior: Flickable.StopAtBounds
+
+                Row {
+                    id: headerUtilitiesRow
+                    height: headerUtilitiesFlickable.height
+                    spacing: Theme.paddingSmall
+                    PrimaryButton {
+                        text: root.dubbing.processing ? qsTr("Running…") : qsTr("Generate Final Dubbing")
+                        iconName: root.dubbing.processing ? "activity" : "play"
+                        enabled: !root.dubbing.settingsLocked && root.dubbing.sourceMediaPath.length > 0
+                        onClicked: root.generateRequested()
+                    }
+                    PrimaryButton {
+                        text: qsTr("Colab setup")
+                        iconName: "cloud"
+                        quiet: true
+                        enabled: !root.dubbing.settingsLocked
+                        onClicked: root.colabSetupRequested()
+                    }
+                    PrimaryButton {
+                        text: qsTr("Workflow")
+                        iconName: "workflow"
+                        quiet: true
+                        enabled: !root.dubbing.settingsLocked
+                        onClicked: root.workflowRequested()
+                    }
+                }
+                ScrollBar.horizontal: ScrollBar {
+                    policy: headerUtilitiesFlickable.contentWidth > headerUtilitiesFlickable.width
+                            ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+                }
             }
         }
 

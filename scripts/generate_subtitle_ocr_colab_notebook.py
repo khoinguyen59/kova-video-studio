@@ -44,7 +44,7 @@ MODEL_NAME = "PP-OCRv5 Multilingual 3.1"
 UPSTREAM_MODEL = "PaddlePaddle/PaddleOCR PP-OCRv5"
 UPSTREAM_VERSION = "PaddleOCR 3.1.1"
 LICENSE = "Apache-2.0"
-WORKER_REVISION = "subtitle-ocr-2026-08-11.5"
+WORKER_REVISION = "subtitle-ocr-2026-08-11.6"
 RESPONSE_CONTRACT = "subtitle-ocr-crops-v1"
 TOKEN = os.environ["LA_STUDIO_COLAB_SUBTITLE_OCR_TOKEN"]
 MAX_UPLOAD_BYTES = 16 * 1024 * 1024
@@ -246,8 +246,13 @@ def build_notebook() -> dict:
         url_env="LA_STUDIO_COLAB_SUBTITLE_OCR_URL",
         model_env="LA_STUDIO_COLAB_SUBTITLE_OCR_MODEL",
         log_path="/content/la_studio_subtitle_ocr_worker.log",
-        worker_python="/content/la_studio_subtitle_ocr_venv/bin/python",
-        isolate_python=True,
+        # The dedicated package directory is placed before Colab's mutable
+        # global site-packages only for the worker process. It never invokes
+        # the Colab ensurepip module.
+        worker_environment={
+            "PYTHONPATH": "/content/la_studio_subtitle_ocr_site",
+            "PYTHONNOUSERSITE": "1",
+        },
     )
     return {
         "cells": [
@@ -268,19 +273,17 @@ def build_notebook() -> dict:
                 # Keep OCR out of Colab's mutable global site-packages. A
                 # global install can leave Pillow 12's ImageText.py beside an
                 # older PIL._typing.py, which causes the `_Ink` error reported
-                # in this notebook. The worker below uses only this clean venv.
+                # in this notebook. Do not create a venv: recent Colab Python
+                # images can have a broken ensurepip bootstrap.
                 import os
+                import shutil
                 import subprocess
                 import sys
                 from pathlib import Path
 
-                VENV_DIR = Path("/content/la_studio_subtitle_ocr_venv")
-                # Colab's Python 3.12 image can ship a broken or disabled
-                # ensurepip module. The standard virtual-environment bootstrap
-                # can then fail before OCR dependencies are installed.
-                # virtualenv seeds pip from its own wheel bundle instead of
-                # invoking ensurepip, while still creating a
-                # no-system-site-packages interpreter for the worker.
+                OCR_SITE_PACKAGES = Path("/content/la_studio_subtitle_ocr_site")
+                shutil.rmtree(OCR_SITE_PACKAGES, ignore_errors=True)
+                OCR_SITE_PACKAGES.mkdir(parents=True, exist_ok=True)
                 BOOTSTRAP_ENV = os.environ.copy()
                 BOOTSTRAP_ENV.pop("PYTHONPATH", None)
                 BOOTSTRAP_ENV["PYTHONNOUSERSITE"] = "1"
@@ -288,26 +291,16 @@ def build_notebook() -> dict:
                 def bootstrap_pip(*arguments):
                     subprocess.check_call([sys.executable, "-m", "pip", *arguments], env=BOOTSTRAP_ENV)
 
-                bootstrap_pip("install", "--no-cache-dir", "--upgrade", "--force-reinstall",
-                              "virtualenv==20.31.2")
-                subprocess.check_call([
-                    sys.executable, "-m", "virtualenv", "--clear", "--no-download",
-                    "--python", sys.executable, str(VENV_DIR),
-                ], env=BOOTSTRAP_ENV)
-                OCR_PYTHON = str(VENV_DIR / "bin" / "python")
-                if not Path(OCR_PYTHON).is_file():
-                    raise RuntimeError("virtualenv did not create the isolated Subtitle OCR Python interpreter")
-                OCR_ENV = os.environ.copy()
-                OCR_ENV.pop("PYTHONPATH", None)
-                OCR_ENV["PYTHONNOUSERSITE"] = "1"
-
                 def ocr_pip(*arguments):
-                    subprocess.check_call([OCR_PYTHON, "-m", "pip", *arguments], env=OCR_ENV)
+                    bootstrap_pip("install", "--target", str(OCR_SITE_PACKAGES), *arguments)
 
-                ocr_pip("install", "--upgrade", "pip")
+                OCR_PYTHON = sys.executable
+                OCR_ENV = os.environ.copy()
+                OCR_ENV["PYTHONPATH"] = str(OCR_SITE_PACKAGES)
+                OCR_ENV["PYTHONNOUSERSITE"] = "1"
                 # PaddleOCR 3.1.1 only declares a lower bound for PaddleX. A
                 # later PaddleX release imports ModelScope/Torch, so retain the
-                # known 3.1.0 trio inside the same clean interpreter.
+                # known 3.1.0 trio inside the dedicated package directory.
                 ocr_pip("install", "--no-cache-dir", "--upgrade", "--force-reinstall",
                         "paddlepaddle-gpu==3.1.0",
                         "-i", "https://www.paddlepaddle.org.cn/packages/stable/cu118/")
@@ -319,13 +312,15 @@ def build_notebook() -> dict:
             """)},
             {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [], "source": lines("""
                 # Fail in this explicit dependency probe rather than after the
-                # service has started. This uses the exact venv interpreter
-                # that will launch Uvicorn, not the Colab kernel interpreter.
+                # service has started. This uses the same interpreter plus
+                # package-directory environment that will launch Uvicorn.
                 from textwrap import dedent
 
                 probe = dedent(r'''
                 from importlib.metadata import version
+                import os
                 import sys
+                from pathlib import Path
                 from PIL import ImageText
                 from PIL._typing import _Ink
                 import paddle
@@ -335,12 +330,13 @@ def build_notebook() -> dict:
                 assert version("paddlex") == "3.1.0", version("paddlex")
                 assert version("paddleocr") == "3.1.1", version("paddleocr")
                 assert version("pillow") == "12.0.0", version("pillow")
-                assert sys.prefix != sys.base_prefix, "Subtitle OCR must run in its dedicated virtual environment."
+                assert str(Path(paddle.__file__).resolve()).startswith(str(Path(os.environ["LA_STUDIO_OCR_SITE"]).resolve())), "Paddle must be imported from the dedicated OCR package directory."
                 assert paddle.device.is_compiled_with_cuda(), "Choose a Colab GPU runtime; CPU fallback is disabled."
                 paddle.device.set_device("gpu:0")
                 print("Verified isolated OCR stack:", paddle.__version__, version("paddlex"), version("paddleocr"), version("pillow"))
                 '''
                 )
+                OCR_ENV["LA_STUDIO_OCR_SITE"] = str(OCR_SITE_PACKAGES)
                 subprocess.run([OCR_PYTHON, "-c", probe], check=True, env=OCR_ENV)
             """)},
             {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [], "source": lines(writer)},

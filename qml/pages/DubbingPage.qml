@@ -49,8 +49,9 @@ Item {
     // StudioShell's generic resizers. Keep these widths local to this real
     // layout so users can resize History, Preview and the step workspace.
     property int dubbingHistoryPanelWidth: 280
-    property int dubbingPreviewPanelWidth: 720
-    property int dubbingTimelinePanelHeight: 260
+    property int dubbingTaskShelfWidth: 280
+    property int dubbingPreviewPanelWidth: 860
+    property int dubbingTimelinePanelHeight: 300
     property int dubbingStepPanelWidth: 380
     function clampedDubbingPanelWidth(value, minimum, maximum) {
         return Math.max(minimum, Math.min(maximum, Math.round(value)))
@@ -307,6 +308,29 @@ Item {
             }
             if (dubbingWorkspaceRow.width > dubbingWorkspaceScroller.width + 1) {
                 qmlSmokeTranscriptSourceFailure = "task panels overflow the fixed Dubbing workspace instead of resizing it"
+                return -1
+            }
+            // The workbench is a three-pane editor: task controls, central
+            // preview, and task review. These regions must consume real
+            // layout space in that order, never paint over one another.
+            if (dubbingTaskShelf.visible
+                    && dubbingTaskShelf.x + dubbingTaskShelf.width > dubbingTaskShelfResizeHandle.x + 1) {
+                qmlSmokeTranscriptSourceFailure = "task controls overlap their resize handle"
+                return -1
+            }
+            if (dubbingTaskShelfResizeHandle.visible
+                    && dubbingTaskShelfResizeHandle.x + dubbingTaskShelfResizeHandle.width > dubbingPreviewWorkspace.x + 1) {
+                qmlSmokeTranscriptSourceFailure = "task controls overlay the video workspace"
+                return -1
+            }
+            if (dubbingWorkspaceResizeHandle.visible
+                    && dubbingPreviewWorkspace.x + dubbingPreviewWorkspace.width > dubbingWorkspaceResizeHandle.x + 1) {
+                qmlSmokeTranscriptSourceFailure = "video workspace overlays its resize handle"
+                return -1
+            }
+            if (dubbingStepReviewPanel.visible
+                    && dubbingWorkspaceResizeHandle.x + dubbingWorkspaceResizeHandle.width > dubbingStepReviewPanel.x + 1) {
+                qmlSmokeTranscriptSourceFailure = "video workspace overlays the task review panel"
                 return -1
             }
             subtitleEditorDialog.open()
@@ -981,9 +1005,9 @@ Item {
                 id: dubbingTaskShelf
                 objectName: "dubbingTaskShelf"
                 visible: root.isNodeInspectorOpen && !root.previewFocusMode
-                Layout.preferredWidth: 280
-                Layout.minimumWidth: 250
-                Layout.maximumWidth: 360
+                Layout.preferredWidth: root.dubbingTaskShelfWidth
+                Layout.minimumWidth: 220
+                Layout.maximumWidth: 420
                 Layout.fillHeight: true
                 ColumnLayout {
                     anchors.fill: parent
@@ -1120,13 +1144,44 @@ Item {
                 }
             }
 
+            Rectangle {
+                id: dubbingTaskShelfResizeHandle
+                objectName: "dubbingTaskShelfResizeHandle"
+                Layout.preferredWidth: 8
+                Layout.fillHeight: true
+                radius: 4
+                color: taskShelfResizeHover.hovered || taskShelfResizeDrag.active
+                       ? Theme.accent : Qt.rgba(Theme.textSecondary.r, Theme.textSecondary.g, Theme.textSecondary.b, 0.28)
+                visible: dubbingTaskShelf.visible
+                ToolTip.visible: visible && taskShelfResizeHover.hovered
+                ToolTip.text: qsTr("Drag to resize task controls")
+                HoverHandler { id: taskShelfResizeHover; cursorShape: Qt.SizeHorCursor }
+                DragHandler {
+                    id: taskShelfResizeDrag
+                    property int pressWidth: 0
+                    target: null
+                    xAxis.enabled: true
+                    yAxis.enabled: false
+                    onActiveChanged: {
+                        if (active)
+                            pressWidth = root.dubbingTaskShelfWidth
+                    }
+                    onTranslationChanged: {
+                        if (active)
+                            root.dubbingTaskShelfWidth = root.clampedDubbingPanelWidth(
+                                        pressWidth + translation.x, 220, 420)
+                    }
+                }
+            }
+
             ColumnLayout {
                 id: dubbingPreviewWorkspace
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                Layout.minimumWidth: 460
+                Layout.minimumWidth: 540
                 Layout.preferredWidth: root.dubbingPreviewPanelWidth
                 spacing: Theme.paddingMedium
+                clip: true
 
                 DubbingSourceMediaPanel {
                     id: sourceMediaPanel
@@ -1171,12 +1226,14 @@ Item {
                     onTranslationChanged: {
                         if (active)
                             root.dubbingPreviewPanelWidth = root.clampedDubbingPanelWidth(
-                                        pressWidth + translation.x, 460, 1280)
+                                        pressWidth + translation.x, 540, 1280)
                     }
                 }
             }
 
             Panel {
+                id: dubbingStepReviewPanel
+                objectName: "dubbingStepReviewPanel"
                 // This is the task result/review region. Parameter editing is
                 // explicitly switched into DubbingNodeInspector below so two
                 // right-side panels never overlap each other.

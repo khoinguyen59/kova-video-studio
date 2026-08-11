@@ -189,18 +189,16 @@ def main() -> int:
                         '"paddleocr==3.1.1"',
                         '"paddlex[ie,multimodal,ocr,trans]==3.1.0"',
                         '"Pillow==12.0.0"',
-                        '"virtualenv==20.31.2"',
-                        'sys.executable, "-m", "virtualenv", "--clear", "--no-download"',
-                        '"--python", sys.executable, str(VENV_DIR)',
-                        'OCR_PYTHON = str(VENV_DIR / "bin" / "python")',
-                        'virtualenv did not create the isolated Subtitle OCR Python interpreter',
-                        'OCR_ENV.pop("PYTHONPATH", None)',
+                        'OCR_SITE_PACKAGES = Path("/content/la_studio_subtitle_ocr_site")',
+                        'shutil.rmtree(OCR_SITE_PACKAGES, ignore_errors=True)',
+                        'bootstrap_pip("install", "--target", str(OCR_SITE_PACKAGES), *arguments)',
+                        'OCR_PYTHON = sys.executable',
+                        'OCR_ENV["PYTHONPATH"] = str(OCR_SITE_PACKAGES)',
                         'OCR_ENV["PYTHONNOUSERSITE"] = "1"',
-                        'WORKER_PYTHON = \'/content/la_studio_subtitle_ocr_venv/bin/python\'',
-                        'WORKER_PYTHON_ISOLATED = True',
+                        'WORKER_ENVIRONMENT = {"PYTHONNOUSERSITE": "1", "PYTHONPATH": "/content/la_studio_subtitle_ocr_site"}',
                         "probe = dedent(r'''",
                         'subprocess.run([OCR_PYTHON, "-c", probe], check=True, env=OCR_ENV)',
-                        'assert sys.prefix != sys.base_prefix',
+                        'Paddle must be imported from the dedicated OCR package directory.',
                         'assert version("paddlex") == "3.1.0"',
                         'assert version("pillow") == "12.0.0"',
                         'from PIL import ImageText',
@@ -214,6 +212,10 @@ def main() -> int:
                     if 'venv.EnvBuilder(with_pip=True, clear=True).create(VENV_DIR)' in worker_source:
                         mismatches.append(
                             f"Subtitle OCR notebook still uses the broken Colab ensurepip bootstrap: {generated.name}"
+                        )
+                    if '"-m", "virtualenv"' in worker_source or 'virtualenv==20.31.2' in worker_source:
+                        mismatches.append(
+                            f"Subtitle OCR notebook still depends on a virtualenv bootstrap: {generated.name}"
                         )
                     if "paddle.device.set_device(\"gpu:0\")" not in worker_source \
                             or "paddle.device.cuda.get_device_name(0)" not in worker_source:

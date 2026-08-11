@@ -9,6 +9,7 @@ tunnel behaviour.
 
 from __future__ import annotations
 
+import json
 from textwrap import dedent
 
 
@@ -27,6 +28,7 @@ def build_worker_launch(
     log_path: str,
     worker_python: str | None = None,
     isolate_python: bool = False,
+    worker_environment: dict[str, str] | None = None,
 ) -> str:
     """Return a Colab code cell that launches one exact CUDA worker safely."""
     if not all((capability_label, module, model_id, token_env, url_env, model_env, log_path)):
@@ -63,6 +65,7 @@ WORKER_LOG = Path(__LOG_PATH__)
 WORKER_MODULE = __WORKER_MODULE__
 WORKER_PYTHON = __WORKER_PYTHON__
 WORKER_PYTHON_ISOLATED = __WORKER_PYTHON_ISOLATED__
+WORKER_ENVIRONMENT = __WORKER_ENVIRONMENT__
 STARTUP_TIMEOUT_SECONDS = 20 * 60
 TUNNEL_TIMEOUT_SECONDS = 90
 TOKEN = secrets.token_urlsafe(32)
@@ -214,6 +217,7 @@ reclaim_previous_la_studio_worker()
 env = os.environ.copy()
 env[TOKEN_ENV] = TOKEN
 env["PYTHONUNBUFFERED"] = "1"
+env.update(WORKER_ENVIRONMENT)
 if WORKER_PYTHON_ISOLATED:
     # Do not let Colab's global site-packages or a notebook-level PYTHONPATH
     # bleed into a dedicated worker virtual environment.
@@ -378,6 +382,7 @@ print("Click Check Colab in the matching LA Studio feature before running it.")
         "__WORKER_MODULE__": repr(module.split(":", 1)[0]),
         "__WORKER_PYTHON__": repr(worker_python) if worker_python else "sys.executable",
         "__WORKER_PYTHON_ISOLATED__": repr(bool(isolate_python)),
+        "__WORKER_ENVIRONMENT__": json.dumps(worker_environment or {}, sort_keys=True),
     }
     for placeholder, value in replacements.items():
         template = template.replace(placeholder, value)
