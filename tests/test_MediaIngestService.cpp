@@ -950,9 +950,11 @@ void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
     QVERIFY(dubbingPage.contains(QStringLiteral("dubbingStepReviewPanel")));
     QVERIFY(dubbingPage.contains(QStringLiteral("dubbingTimelineResizeHandle")));
     QVERIFY(dubbingPage.contains(QStringLiteral("dubbingTaskShelf")));
+    QVERIFY(dubbingPage.contains(QStringLiteral("compactDubbingControls")));
+    QVERIFY(dubbingPage.contains(QStringLiteral("visible: root.compactDubbingControls && node !== null")));
     QVERIFY(dubbingPage.contains(QStringLiteral("isAdvancedNodeInspectorOpen")));
     QVERIFY(dubbingPage.contains(QStringLiteral("Dubbing workbench shelf or full-width timeline is unavailable")));
-    QVERIFY(dubbingPage.contains(QStringLiteral("Layout.minimumWidth: 280")));
+    QVERIFY(dubbingPage.contains(QStringLiteral("Layout.minimumWidth: root.compactDubbingControls ? 240 : 280")));
     QVERIFY(dubbingPage.contains(QStringLiteral("Drag to resize Dubbing History")));
     QVERIFY(dubbingPage.contains(QStringLiteral("Drag to resize Dubbing Preview")));
     QVERIFY(dubbingPage.contains(QStringLiteral("Drag to resize task controls")));
@@ -960,6 +962,7 @@ void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
     QVERIFY(dubbingPage.contains(QStringLiteral("DragHandler")));
     QVERIFY(dubbingPage.contains(QStringLiteral("not a horizontally flicked canvas")));
     QVERIFY(dubbingPage.contains(QStringLiteral("video workspace overlays the task review panel")));
+    QVERIFY(dubbingPage.contains(QStringLiteral("task review panel extends outside the Dubbing workspace")));
     QVERIFY(dubbingPage.contains(QStringLiteral("property bool previewFocusMode")));
     QVERIFY(dubbingSource.contains(QStringLiteral("dubbingPreviewFocusToggle")));
     QVERIFY(dubbingSource.contains(QStringLiteral("Focus video")));

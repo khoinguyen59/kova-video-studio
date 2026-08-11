@@ -292,7 +292,12 @@ def build_notebook() -> dict:
                     subprocess.check_call([sys.executable, "-m", "pip", *arguments], env=BOOTSTRAP_ENV)
 
                 def ocr_pip(*arguments):
-                    bootstrap_pip("install", "--target", str(OCR_SITE_PACKAGES), *arguments)
+                    # --target alone can still treat a globally installed
+                    # requirement as satisfied on some Colab images. Force
+                    # every package into this directory so the worker cannot
+                    # combine a new ImageText.py with an old PIL._typing.py.
+                    bootstrap_pip("install", "--target", str(OCR_SITE_PACKAGES),
+                                  "--ignore-installed", *arguments)
 
                 OCR_PYTHON = sys.executable
                 OCR_ENV = os.environ.copy()
@@ -321,16 +326,21 @@ def build_notebook() -> dict:
                 import os
                 import sys
                 from pathlib import Path
+                import PIL
                 from PIL import ImageText
                 from PIL._typing import _Ink
                 import paddle
+                import paddleocr
+                import paddlex
                 from paddleocr import PaddleOCR
 
                 assert version("paddlepaddle-gpu") == "3.1.0", version("paddlepaddle-gpu")
                 assert version("paddlex") == "3.1.0", version("paddlex")
                 assert version("paddleocr") == "3.1.1", version("paddleocr")
                 assert version("pillow") == "12.0.0", version("pillow")
-                assert str(Path(paddle.__file__).resolve()).startswith(str(Path(os.environ["LA_STUDIO_OCR_SITE"]).resolve())), "Paddle must be imported from the dedicated OCR package directory."
+                dedicated_site = str(Path(os.environ["LA_STUDIO_OCR_SITE"]).resolve())
+                for package in (PIL, paddle, paddleocr, paddlex):
+                    assert str(Path(package.__file__).resolve()).startswith(dedicated_site), (package.__name__, package.__file__)
                 assert paddle.device.is_compiled_with_cuda(), "Choose a Colab GPU runtime; CPU fallback is disabled."
                 paddle.device.set_device("gpu:0")
                 print("Verified isolated OCR stack:", paddle.__version__, version("paddlex"), version("paddleocr"), version("pillow"))

@@ -53,6 +53,11 @@ Item {
     property int dubbingPreviewPanelWidth: 860
     property int dubbingTimelinePanelHeight: 300
     property int dubbingStepPanelWidth: 380
+    // A three-pane desktop editor cannot keep three full-width panes on a
+    // narrow window. In that state, use the review pane for task controls
+    // instead of clipping a shelf offscreen or painting it over the canvas.
+    // The wide layout remains unchanged and can still be resized by hand.
+    readonly property bool compactDubbingControls: dubbingWorkspaceScroller.width < 1000
     function clampedDubbingPanelWidth(value, minimum, maximum) {
         return Math.max(minimum, Math.min(maximum, Math.round(value)))
     }
@@ -301,7 +306,9 @@ Item {
                 qmlSmokeTranscriptSourceFailure = "transcript source layout has non-positive width"
                 return -1
             }
-            if (!dubbingTaskShelf.visible || dubbingTimelinePanel.width <= 0
+            if ((!root.compactDubbingControls && !dubbingTaskShelf.visible)
+                    || !dubbingStepReviewPanel.visible
+                    || dubbingTimelinePanel.width <= 0
                     || dubbingTimelineResizeHandle.height < 16) {
                 qmlSmokeTranscriptSourceFailure = "Dubbing workbench shelf or full-width timeline is unavailable"
                 return -1
@@ -331,6 +338,11 @@ Item {
             if (dubbingStepReviewPanel.visible
                     && dubbingWorkspaceResizeHandle.x + dubbingWorkspaceResizeHandle.width > dubbingStepReviewPanel.x + 1) {
                 qmlSmokeTranscriptSourceFailure = "video workspace overlays the task review panel"
+                return -1
+            }
+            if (dubbingStepReviewPanel.visible
+                    && dubbingStepReviewPanel.x + dubbingStepReviewPanel.width > dubbingWorkspaceScroller.width + 1) {
+                qmlSmokeTranscriptSourceFailure = "task review panel extends outside the Dubbing workspace"
                 return -1
             }
             subtitleEditorDialog.open()
@@ -1005,6 +1017,7 @@ Item {
                 id: dubbingTaskShelf
                 objectName: "dubbingTaskShelf"
                 visible: root.isNodeInspectorOpen && !root.previewFocusMode
+                         && !root.compactDubbingControls
                 Layout.preferredWidth: root.dubbingTaskShelfWidth
                 Layout.minimumWidth: 220
                 Layout.maximumWidth: 420
@@ -1178,7 +1191,8 @@ Item {
                 id: dubbingPreviewWorkspace
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                Layout.minimumWidth: 540
+                Layout.minimumWidth: root.compactDubbingControls
+                                     ? (root.isHistoryOpen ? 340 : 400) : 540
                 Layout.preferredWidth: root.dubbingPreviewPanelWidth
                 spacing: Theme.paddingMedium
                 clip: true
@@ -1226,7 +1240,10 @@ Item {
                     onTranslationChanged: {
                         if (active)
                             root.dubbingPreviewPanelWidth = root.clampedDubbingPanelWidth(
-                                        pressWidth + translation.x, 540, 1280)
+                                        pressWidth + translation.x,
+                                        root.compactDubbingControls
+                                        ? (root.isHistoryOpen ? 340 : 400) : 540,
+                                        1280)
                     }
                 }
             }
@@ -1240,7 +1257,7 @@ Item {
                 visible: !root.previewFocusMode && root.isNodeInspectorOpen
                          && !root.isAdvancedNodeInspectorOpen
                 Layout.fillWidth: true; Layout.fillHeight: true
-                Layout.minimumWidth: 280
+                Layout.minimumWidth: root.compactDubbingControls ? 240 : 280
                 Layout.preferredWidth: root.dubbingStepPanelWidth
                 ColumnLayout {
                     anchors.fill: parent; anchors.margins: Theme.paddingMedium; spacing: Theme.paddingSmall
@@ -1255,7 +1272,11 @@ Item {
                         runReady: root.stepRunReady(nodeId)
                         nextNodeId: root.nextNodeId(nodeId)
                         nextReady: root.nextNodeReady(nodeId)
-                        visible: false
+                        // On a compact workbench this is the only in-layout
+                        // location for Run/Configure. The left shelf is
+                        // deliberately absent so no control is offscreen.
+                        visible: root.compactDubbingControls && node !== null
+                        compact: true
                         onConfigureRequested: nodeModelDialog.openFor(nodeId)
                         onLoadRequested: dubbing.loadWorkflowNodeModel(nodeId)
                         onUnloadRequested: dubbing.unloadWorkflowNodeModel(nodeId)
@@ -1706,7 +1727,10 @@ Item {
                         runReady: root.stepRunReady(nodeId)
                         nextNodeId: root.nextNodeId(nodeId)
                         nextReady: root.nextNodeReady(nodeId)
-                        visible: false
+                        // See the matching compact control owner in the
+                        // Transcribe/Translate review column above.
+                        visible: root.compactDubbingControls && node !== null
+                        compact: true
                         onConfigureRequested: nodeModelDialog.openFor(nodeId)
                         onLoadRequested: dubbing.loadWorkflowNodeModel(nodeId)
                         onUnloadRequested: dubbing.unloadWorkflowNodeModel(nodeId)
