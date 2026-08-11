@@ -986,6 +986,9 @@ void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
     QVERIFY(dubbingHeader.contains(QStringLiteral("action cluster never scrolls")));
     QVERIFY(!dubbingHeader.contains(QStringLiteral("headerUtilitiesFlickable")));
     QVERIFY(dubbingHeader.contains(QStringLiteral("text: qsTr(\"Workflow\")")));
+    QVERIFY(dubbingPage.contains(QStringLiteral("dubbingWorkspaceScroller.width < 1450")));
+    QVERIFY(dubbingPage.contains(QStringLiteral("dubbingWorkspaceScroller.width < 1080")));
+    QVERIFY(dubbingPage.contains(QStringLiteral("actual non-overlapping minima")));
     QVERIFY(dubbingPage.contains(QStringLiteral("readonly property bool compactDubbingHistory")));
     QVERIFY(dubbingPage.contains(QStringLiteral("A real 28 px hit target")));
     QVERIFY(main.contains(QStringLiteral("visible: stack.currentIndex === 13")));

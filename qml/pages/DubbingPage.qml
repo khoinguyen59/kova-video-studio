@@ -55,16 +55,18 @@ Item {
     property int dubbingPreviewPanelWidth: 940
     property int dubbingTimelinePanelHeight: 300
     property int dubbingStepPanelWidth: 340
-    // A three-pane desktop editor cannot keep three full-width panes on a
-    // narrow window. In that state, use the review pane for task controls
-    // instead of clipping a shelf offscreen or painting it over the canvas.
-    // The wide layout remains unchanged and can still be resized by hand.
-    readonly property bool compactDubbingControls: dubbingWorkspaceScroller.width < 1180
-    // At the practical minimum editor width the history drawer is the first
-    // optional pane to yield.  This prevents a hidden horizontal canvas or a
-    // panel sitting on top of the video; the history toggle remains available
-    // again as soon as there is room for its real resizable column.
-    readonly property bool compactDubbingHistory: dubbingWorkspaceScroller.width < 920
+    // These breakpoints are derived from the actual non-overlapping minima:
+    // History 240 + handle 8 + task shelf 220 + handle 8 + preview 540 +
+    // handle 8 + review 280 + four layout gaps.  Hiding the task shelf before
+    // that sum is exceeded is what keeps a 1200--1440px editor from silently
+    // clipping the central canvas.  Its actual Run/Configure controls remain
+    // available in the right review pane while compact.
+    readonly property bool compactDubbingControls: dubbingWorkspaceScroller.width < 1450
+    // History is optional chrome.  It yields before its 240px minimum would
+    // force the compact Preview/Review pair below their usable width.  This is
+    // an explicit layout change, not an overlay; the header button remains
+    // available when the operator has enough width to reopen it.
+    readonly property bool compactDubbingHistory: dubbingWorkspaceScroller.width < 1080
     function clampedDubbingPanelWidth(value, minimum, maximum) {
         return Math.max(minimum, Math.min(maximum, Math.round(value)))
     }
