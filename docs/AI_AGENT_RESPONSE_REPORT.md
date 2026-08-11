@@ -4,7 +4,8 @@ Date: 2026-08-11
 
 ## Delivered source change
 
-Commit `d955dd9 fix: stabilize dubbing workspace and OCR bootstrap` is pushed
+Commits `d955dd9 fix: stabilize dubbing workspace and OCR bootstrap` and
+`32ee731 fix: guard dubbing pane breakpoints` are pushed
 directly to `origin/main`.
 
 - Dubbing keeps the existing LA Studio capabilities, routes and workflow
@@ -20,6 +21,11 @@ directly to `origin/main`.
   History and the task shelf yield from layout rather than painting over the
   video.  The lower Timeline remains full width and has a 28 px drag target
   that tracks the pointer relative to the press position.
+- The compact breakpoints are now calculated from the actual layout minima.
+  Below 1450 px the left task shelf yields before History + task shelf +
+  preview + review can exceed the workspace; below 1080 px History yields
+  before it would make the compact Preview/Review pair unusable.  This prevents
+  clipping at medium desktop sizes, not merely at a tiny-window threshold.
 - Source/target language and quality remain in `DubbingProjectSetupDialog`,
   which follows the user's Automatic or Step-by-step choice.  The permanent
   `DubbingProjectStatusPanel` is not instantiated in `DubbingPage.qml`.

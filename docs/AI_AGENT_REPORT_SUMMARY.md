@@ -31,6 +31,16 @@ Cap nhat: 2026-08-11
   setup, but the machine has no Qt 6.9 development SDK / `Qt6Config.cmake`.
   No GUI, live Colab, CTest, EXE or package claim is made for this batch.
 
+## 2026-08-11 - Dubbing layout-minimum correction
+
+- Source commit `32ee731` corrects the remaining medium-width geometry hole:
+  the task shelf yields below 1450 px and History below 1080 px.  The previous
+  breakpoints could still leave the sum of real History/task/preview/review
+  minima wider than the workspace, which lets Qt compress or clip the video.
+- The non-overlap breakpoint contract and QML parser passed; the source is on
+  `main`.  The Qt development SDK constraint remains unchanged, so CTest and
+  a new package are still not claimed.
+
 ## 2026-08-11 - Compact Dubbing controls and complete OCR package isolation
 
 - Source commit `771dcf3` adds a narrow-workbench contract: under 1000 px the
