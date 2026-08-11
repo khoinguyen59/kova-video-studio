@@ -48,6 +48,36 @@ Rectangle {
         return true
     }
 
+    // The header has one flexible task rail and one fixed action cluster.
+    // Exercise that contract at runtime so a regression cannot silently turn
+    // a complete action label into a clipped fragment such as "Wor".
+    function qmlSmokeLayoutCheck() {
+        if (workflowStepsFlickable.width <= 0
+                || headerActionCluster.width <= 0
+                || workflowStepsFlickable.x + workflowStepsFlickable.width
+                   > headerActionCluster.x + 1)
+            return false
+
+        var actions = [generateAction, colabAction, workflowAction]
+        for (var index = 0; index < actions.length; ++index) {
+            var action = actions[index]
+            if (action.width <= 0 || action.x + action.width > root.width + 1)
+                return false
+            if (root.compactActionCluster) {
+                // Generate intentionally keeps its semantic text for
+                // accessibility while PrimaryButton hides it visually in
+                // icon-only mode. Check the rendered mode and footprint, not
+                // the internal accessible label.
+                if (!action.iconOnly || action.width < 38 || action.toolTip === "")
+                    return false
+            } else if (action.iconOnly || action.width + 1 < action.requiredContentWidth) {
+                return false
+            }
+        }
+
+        return root.compactActionCluster || workflowAction.text === qsTr("Workflow")
+    }
+
     Layout.fillWidth: true
     Layout.preferredHeight: 60
     Layout.minimumHeight: 60
@@ -165,6 +195,7 @@ Rectangle {
 
             PrimaryButton {
                 text: root.dubbing.processing ? qsTr("Running…") : qsTr("Generate")
+                id: generateAction
                 iconName: root.dubbing.processing ? "activity" : "play"
                 iconOnly: root.compactActionCluster
                 Layout.minimumWidth: root.compactActionCluster ? 38 : requiredContentWidth
@@ -176,6 +207,7 @@ Rectangle {
             }
             PrimaryButton {
                 text: root.compactActionCluster ? "" : qsTr("Colab")
+                id: colabAction
                 iconName: "cloud"
                 iconOnly: root.compactActionCluster
                 quiet: true
@@ -188,6 +220,7 @@ Rectangle {
             }
             PrimaryButton {
                 text: root.compactActionCluster ? "" : qsTr("Workflow")
+                id: workflowAction
                 iconName: "workflow"
                 iconOnly: root.compactActionCluster
                 quiet: true

@@ -190,7 +190,7 @@ def main() -> int:
                         '"paddlex[ie,multimodal,ocr,trans]==3.1.0"',
                         '"Pillow==12.0.0"',
                         'OCR_SITE_PACKAGES = Path("/content/la_studio_subtitle_ocr_site")',
-                        'BOOTSTRAP_REVISION = "subtitle-ocr-bootstrap-2026-08-11.8"',
+                        'BOOTSTRAP_REVISION = "subtitle-ocr-bootstrap-2026-08-11.9"',
                         'shutil.rmtree(Path("/content/la_studio_subtitle_ocr_venv"), ignore_errors=True)',
                         'shutil.rmtree(OCR_SITE_PACKAGES, ignore_errors=True)',
                         'bootstrap_pip("install", "--target", str(OCR_SITE_PACKAGES),',

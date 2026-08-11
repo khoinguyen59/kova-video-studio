@@ -6,7 +6,7 @@ include(cmake/RuntimeAbi.cmake)
 # automation may override it with -DLASTUDIO_VERSION=<major.minor.release.build>.
 # Internal builds use four single-digit fields. Carry at 9 rather than extending
 # one field: 0.0.0.1 ... 0.0.0.9, then 0.0.1.0.
-set(LASTUDIO_VERSION "0.0.6.2" CACHE STRING "LA Studio application version")
+set(LASTUDIO_VERSION "0.0.6.4" CACHE STRING "LA Studio application version")
 if(NOT LASTUDIO_VERSION MATCHES "^[0-9]\\.[0-9]\\.[0-9]\\.[0-9]$")
     message(FATAL_ERROR "LASTUDIO_VERSION must use four single digits (0-9), for example 0.0.1.0; got '${LASTUDIO_VERSION}'")
 endif()

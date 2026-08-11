@@ -964,6 +964,7 @@ void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
     QVERIFY(dubbingPage.contains(QStringLiteral("not a horizontally flicked canvas")));
     QVERIFY(dubbingPage.contains(QStringLiteral("video workspace overlays the task review panel")));
     QVERIFY(dubbingPage.contains(QStringLiteral("task review panel extends outside the Dubbing workspace")));
+    QVERIFY(dubbingPage.contains(QStringLiteral("Dubbing header clips an action or overlays its workflow rail")));
     QVERIFY(dubbingPage.contains(QStringLiteral("property bool previewFocusMode")));
     QVERIFY(dubbingSource.contains(QStringLiteral("dubbingPreviewFocusToggle")));
     QVERIFY(dubbingSource.contains(QStringLiteral("Focus video")));
@@ -983,6 +984,8 @@ void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
     QVERIFY(dubbingSource.contains(QStringLiteral("Layout.minimumHeight: root.isVideoSource ? 440 : 300")));
     QVERIFY(dubbingHeader.contains(QStringLiteral("id: workflowStepsFlickable")));
     QVERIFY(dubbingHeader.contains(QStringLiteral("id: headerActionCluster")));
+    QVERIFY(dubbingHeader.contains(QStringLiteral("function qmlSmokeLayoutCheck()")));
+    QVERIFY(dubbingHeader.contains(QStringLiteral("id: workflowAction")));
     QVERIFY(dubbingHeader.contains(QStringLiteral("action cluster never scrolls")));
     QVERIFY(!dubbingHeader.contains(QStringLiteral("headerUtilitiesFlickable")));
     // At narrower widths the label is intentionally replaced by an icon and

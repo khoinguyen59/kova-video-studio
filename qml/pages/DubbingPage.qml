@@ -389,6 +389,10 @@ Item {
                 qmlSmokeTranscriptSourceFailure = "task review panel extends outside the Dubbing workspace"
                 return -1
             }
+            if (!dubbingWorkflowHeader.qmlSmokeLayoutCheck()) {
+                qmlSmokeTranscriptSourceFailure = "Dubbing header clips an action or overlays its workflow rail"
+                return -1
+            }
             subtitleEditorDialog.open()
             exportOptionsDialog.beginQmlSmokeExportRoutesCheck()
             exportOptionsDialog.open()

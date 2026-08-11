@@ -7,6 +7,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QPointer>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -647,7 +648,9 @@ void TestRemoteExecution::workflowActivityOnlyDisplaysMeasuredProgress()
     QFile cmake(sourceRoot.filePath(QStringLiteral("CMakeLists.txt")));
     QVERIFY(cmake.open(QIODevice::ReadOnly));
     const QString cmakeSource = QString::fromUtf8(cmake.readAll());
-    QVERIFY(cmakeSource.contains(QStringLiteral("set(LASTUDIO_VERSION \"0.0.6.2\"")));
+    const QRegularExpression sourceVersionPattern(
+        QStringLiteral("set\\(LASTUDIO_VERSION\\s+\"[0-9]\\.[0-9]\\.[0-9]\\.[0-9]\""));
+    QVERIFY(sourceVersionPattern.match(cmakeSource).hasMatch());
     QVERIFY(cmakeSource.contains(QStringLiteral("four single digits (0-9)")));
 
     for (const QString &relativePath : {QStringLiteral("scripts/build.ps1"),
