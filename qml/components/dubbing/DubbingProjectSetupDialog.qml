@@ -58,6 +58,16 @@ Dialog {
         configurationAccepted(mode, startAfterApply)
     }
 
+    // Offscreen route smoke must exercise the same visible primary action as
+    // an operator: choosing a Dubbing mode first opens this project-level
+    // setup dialog, then Continue enters the task-specific preflight.
+    function qmlSmokeClickContinue() {
+        if (!continueButton.visible || !continueButton.enabled)
+            return false
+        continueButton.click()
+        return true
+    }
+
     onRejected: configurationCancelled(continueWorkflow)
 
     background: Rectangle {
@@ -198,6 +208,7 @@ Dialog {
             }
             Item { Layout.fillWidth: true }
             PrimaryButton {
+                id: continueButton
                 text: root.selectedMode === "automatic" ? qsTr("Continue to preflight") : qsTr("Open first step")
                 iconName: "chevron-right"
                 onClicked: root.applyConfiguration()

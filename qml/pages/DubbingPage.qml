@@ -294,24 +294,35 @@ Item {
             return 0
         }
         if (qmlSmokeTranscriptSourcePhase === 1) {
-            if (!dubbingTranscriptSourcePanel.visible) {
+            // The wide editor keeps the source selector next to the left task
+            // controls.  At the documented compact breakpoint those controls
+            // move into the right review pane so the preview is never covered.
+            // Test the active, in-layout control in either legitimate layout
+            // rather than treating the deliberately hidden wide-only shelf as
+            // a failed route.
+            var activeTranscriptSourcePanel = root.compactDubbingControls
+                    ? dubbingTranscriptSourceDetailsPanel : dubbingTranscriptSourcePanel
+            var activeTranscriptSourceMode = root.compactDubbingControls
+                    ? dubbingTranscriptSourceModeDetails : dubbingTranscriptSourceMode
+            if (!activeTranscriptSourcePanel.visible) {
                 qmlSmokeTranscriptSourceFailure = "transcript source panel is not visible (displayed="
                         + displayedStepId + ", review=" + reviewStepId
+                        + ", compact=" + root.compactDubbingControls
                         + ", processing=" + dubbing.processing
                         + ", error=" + (dubbing.lastError || "none") + ")"
                 return -1
             }
-            if (!dubbingTranscriptSourceMode.visible) {
+            if (!activeTranscriptSourceMode.visible) {
                 qmlSmokeTranscriptSourceFailure = "transcript source selector is not visible"
                 return -1
             }
-            if (dubbingTranscriptSourceMode.count !== 3) {
+            if (activeTranscriptSourceMode.count !== 3) {
                 qmlSmokeTranscriptSourceFailure = "transcript source selector count is "
-                        + dubbingTranscriptSourceMode.count + ", expected 3"
+                        + activeTranscriptSourceMode.count + ", expected 3"
                 return -1
             }
-            if (dubbingTranscriptSourcePanel.width <= 0
-                    || dubbingTranscriptSourceMode.width <= 0) {
+            if (activeTranscriptSourcePanel.width <= 0
+                    || activeTranscriptSourceMode.width <= 0) {
                 qmlSmokeTranscriptSourceFailure = "transcript source layout has non-positive width"
                 return -1
             }
@@ -361,9 +372,11 @@ Item {
             qmlSmokeTranscriptSourcePhase = 2
             return 0
         }
-        if (dubbingTranscriptSourceMode.model[0].id !== "stt"
-                || dubbingTranscriptSourceMode.model[1].id !== "ocr"
-                || dubbingTranscriptSourceMode.model[2].id !== "stt+ocr") {
+        var completedTranscriptSourceMode = root.compactDubbingControls
+                ? dubbingTranscriptSourceModeDetails : dubbingTranscriptSourceMode
+        if (completedTranscriptSourceMode.model[0].id !== "stt"
+                || completedTranscriptSourceMode.model[1].id !== "ocr"
+                || completedTranscriptSourceMode.model[2].id !== "stt+ocr") {
             qmlSmokeTranscriptSourceFailure = "transcript source model order changed"
             return -1
         }
@@ -439,6 +452,21 @@ Item {
             return 0
         }
         if (qmlSmokeAutomaticPhase === 1) {
+            if (!projectSetupDialog.visible || projectSetupDialog.selectedMode !== "automatic"
+                    || automaticPreflightDialog.visible) {
+                qmlSmokeTranscriptSourceFailure = "Automatic did not open project setup before task-specific preflight"
+                return -1
+            }
+            if (!projectSetupDialog.qmlSmokeClickContinue()) {
+                qmlSmokeTranscriptSourceFailure = "Automatic project setup did not expose Continue to preflight"
+                return -1
+            }
+            ApplicationWindow.window.recordQmlSmokeDubbing("dubbingProjectSetupContinue", "click",
+                                                            "automatic-project-setup", "source-language-preflight")
+            qmlSmokeAutomaticPhase = 12
+            return 0
+        }
+        if (qmlSmokeAutomaticPhase === 12) {
             if (!automaticPreflightDialog.visible || automaticPreflightDialog.currentPage !== 0) {
                 qmlSmokeTranscriptSourceFailure = "Automatic did not open Source & language preflight"
                 return -1

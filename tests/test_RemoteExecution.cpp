@@ -753,10 +753,10 @@ void TestRemoteExecution::workflowActivityOnlyDisplaysMeasuredProgress()
     QVERIFY(workflowHeaderSource.contains(QStringLiteral("projectStatusToggled")));
     QVERIFY(workflowHeaderSource.contains(QStringLiteral("dubbingProjectStatusToggle")));
     QVERIFY(workflowHeaderSource.contains(QStringLiteral("qmlSmokeClickProjectStatusToggle")));
-    QVERIFY(workflowHeaderSource.contains(QStringLiteral("Project settings")));
-    QVERIFY(workflowHeaderSource.contains(QStringLiteral("Layout.preferredHeight: 84")));
+    QVERIFY(workflowHeaderSource.contains(QStringLiteral("Project setup")));
+    QVERIFY(workflowHeaderSource.contains(QStringLiteral("Layout.preferredHeight: 60")));
     QVERIFY(workflowHeaderSource.contains(QStringLiteral("workflowStepsFlickable")));
-    QVERIFY(workflowHeaderSource.contains(QStringLiteral("dubbingHeaderUtilitiesFlickable")));
+    QVERIFY(workflowHeaderSource.contains(QStringLiteral("headerActionCluster")));
 
     QVERIFY(pageSource.contains(QStringLiteral("isProjectStatusPanelOpen")));
     QVERIFY(!pageSource.contains(QStringLiteral("DubbingProjectStatusPanel {")));
