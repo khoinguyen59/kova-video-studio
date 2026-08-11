@@ -2,53 +2,36 @@
 
 Date: 2026-08-11
 
-## Delivered source change
+## Completed in this validation batch
 
-Commits `d955dd9 fix: stabilize dubbing workspace and OCR bootstrap` and
-`32ee731 fix: guard dubbing pane breakpoints` are pushed
-directly to `origin/main`.
-
-- Dubbing keeps the existing LA Studio capabilities, routes and workflow
-  stages, but the header now reserves fixed space for **Generate**, **Colab**
-  and the full **Workflow** action.  Only the stage rail scrolls; secondary
-  actions are in an overflow menu instead of being clipped into labels such as
-  `Wor` or reducing the video area.
-- The Dubbing page keeps fixed layout participants: task controls on the left
-  when explicitly opened, preview in the centre and task result/inspection on
-  the right.  The central video preference is 940 px with a 440 px minimum for
-  video.  The preview's editing buttons moved to their own horizontal toolbar,
-  so they no longer overlap the video-state controls.  On constrained widths,
-  History and the task shelf yield from layout rather than painting over the
-  video.  The lower Timeline remains full width and has a 28 px drag target
-  that tracks the pointer relative to the press position.
-- The compact breakpoints are now calculated from the actual layout minima.
-  Below 1450 px the left task shelf yields before History + task shelf +
-  preview + review can exceed the workspace; below 1080 px History yields
-  before it would make the compact Preview/Review pair unusable.  This prevents
-  clipping at medium desktop sizes, not merely at a tiny-window threshold.
-- Source/target language and quality remain in `DubbingProjectSetupDialog`,
-  which follows the user's Automatic or Step-by-step choice.  The permanent
-  `DubbingProjectStatusPanel` is not instantiated in `DubbingPage.qml`.
-- `LA_STUDIO_SUBTITLE_OCR_PP_OCRV5_GPU.ipynb` now identifies bootstrap
-  revision `subtitle-ocr-bootstrap-2026-08-11.7`.  It removes only the legacy
-  app-owned OCR bootstrap folder and uses one dedicated-target pip resolver
-  transaction for the fixed Paddle GPU, PaddleOCR, PaddleX and Pillow stack.
-  It does not call `venv.EnvBuilder`, `virtualenv` or `ensurepip`.
+- Corrected the real QML regression introduced by moving language pair and
+  execution quality into the project-setup popup. The offscreen production
+  flow now proves: **Automatic** -> visible project setup -> visible
+  **Continue to preflight** action -> Source & language preflight.
+- Kept the fixed-pane Dubbing contract intact. At compact widths the test
+  verifies the active transcript-source control in the right detail pane;
+  at wide widths it verifies the left task shelf. It still rejects pane overlap
+  or a panel extending outside the workspace.
+- Retained the Dubbing preview-first layout and all existing features/routes;
+  no feature was removed and no user GUI was opened.
+- The current Subtitle OCR notebook remains
+  `notebooks/LA_STUDIO_SUBTITLE_OCR_PP_OCRV5_GPU.ipynb`, bootstrap revision
+  `subtitle-ocr-bootstrap-2026-08-11.7`. It has no venv/ensurepip bootstrap.
+  If Colab prints `venv.EnvBuilder`, that is evidence of an old notebook copy,
+  not this generated notebook.
 
 ## Evidence
 
-- Changed QML files parsed successfully with `qmllint`.
-- Python generator and verifier compiled successfully.
-- Generated exact-model notebooks verified: **32/32**.
-- Independent source contract passed for the fixed Dubbing layout, popup-based
-  project setup and single-transaction OCR bootstrap.
-- `git diff --check` and `graphify update .` passed.
+- `qmllint` completed with the project's existing import-resolution warnings
+  only; no new syntax error.
+- `git diff --check` passed.
+- `graphify update .` completed after the source edits.
+- Full build-target CTest against the project-local Qt 6.9.3 SDK:
+  **39/39 passed**, 57.83 seconds.
 
-## Validation boundary
+## Boundary
 
-I did not open the desktop GUI, connect to a live Colab worker, or make a new
-EXE.  `cmake --preset windows-msvc-release` can now see the MSVC Build Tools
-when their developer environment is loaded, but stops at the missing Qt 6.9
-development package (`Qt6Config.cmake`).  Therefore the changed C++ test has
-not been rebuilt, CTest has not run against this commit, and no package claim
-is made.  The existing `0.0.6.3` package remains unchanged.
+No visible desktop GUI, live Colab session, or new EXE/package was opened or
+created. The next manual step for the notebook is to open the current tracked
+notebook from `notebooks/` and confirm its bootstrap revision before running
+it in a fresh Colab runtime.

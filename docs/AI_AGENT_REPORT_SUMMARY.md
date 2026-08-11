@@ -2,6 +2,29 @@
 
 Cap nhat: 2026-08-11
 
+## 2026-08-11 - Dubbing entry setup and compact-pane regression closure
+
+- The Automatic entry flow is now covered end-to-end by the production QML
+  smoke journey: **Automatic** opens the project setup dialog first, then its
+  visible **Continue to preflight** action opens the task-specific Source &
+  language preflight. This matches the intended UX: language pair and
+  execution-quality policy are chosen once after selecting Automatic or
+  step-by-step, not left permanently below the editor.
+- The compact Dubbing smoke checks the selector where it is actually rendered:
+  in the left task shelf on a wide workspace, or in the fixed right detail pane
+  at the compact breakpoint. It continues to reject task controls, the video
+  workspace and the right detail pane if they overlap or extend outside the
+  workspace.
+- The old statement that this checkout lacked a Qt development SDK is no
+  longer true. The project-local Qt 6.9.3 SDK was used to build the test target
+  and run full CTest: **39/39 passed** in 57.83 seconds. `qmllint`,
+  `git diff --check`, and `graphify update .` also passed.
+- No visible desktop GUI, live Colab worker, or new EXE was launched or
+  packaged in this validation batch. The fresh Subtitle OCR notebook remains
+  `notebooks/LA_STUDIO_SUBTITLE_OCR_PP_OCRV5_GPU.ipynb`, bootstrap revision
+  `subtitle-ocr-bootstrap-2026-08-11.7`; a notebook that shows
+  `venv.EnvBuilder` is an older copy and must be reopened from current source.
+
 ## 2026-08-11 - Dubbing fixed-pane toolbar and OCR single-transaction bootstrap
 
 - Source commit `d955dd9` is pushed directly to `main`.  The Dubbing header
