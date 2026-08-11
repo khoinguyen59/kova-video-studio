@@ -884,6 +884,7 @@ void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
     const QString dubbingSource = readSource(QStringLiteral("qml/components/dubbing/DubbingSourceMediaPanel.qml"));
     const QString dubbingQueueDialog = readSource(QStringLiteral("qml/components/dubbing/DubbingMediaQueueDialog.qml"));
     const QString dubbingPage = readSource(QStringLiteral("qml/pages/DubbingPage.qml"));
+    const QString dubbingHeader = readSource(QStringLiteral("qml/components/dubbing/DubbingWorkflowHeader.qml"));
     const QString popup = readSource(QStringLiteral("qml/components/DownloadsPopup.qml"));
     const QString sidebar = readSource(QStringLiteral("qml/components/Sidebar.qml"));
     const QString studioShell = readSource(QStringLiteral("qml/components/shared/StudioShell.qml"));
@@ -976,7 +977,17 @@ void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
     QVERIFY(dubbingSource.contains(QStringLiteral("collapseSourceSetupAfterSelection")));
     QVERIFY(dubbingSource.contains(QStringLiteral("sourceSetupMaximumHeight")));
     QVERIFY(dubbingSource.contains(QStringLiteral("dubbingSourceSetupScrollView")));
-    QVERIFY(dubbingSource.contains(QStringLiteral("Layout.minimumHeight: root.isVideoSource ? 400 : 300")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("id: previewToolbar")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("objectName: \"dubbingPreviewToolbar\"")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("longer editing actions in a scrollable toolbar below it")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("Layout.minimumHeight: root.isVideoSource ? 440 : 300")));
+    QVERIFY(dubbingHeader.contains(QStringLiteral("id: workflowStepsFlickable")));
+    QVERIFY(dubbingHeader.contains(QStringLiteral("id: headerActionCluster")));
+    QVERIFY(dubbingHeader.contains(QStringLiteral("action cluster never scrolls")));
+    QVERIFY(!dubbingHeader.contains(QStringLiteral("headerUtilitiesFlickable")));
+    QVERIFY(dubbingHeader.contains(QStringLiteral("text: qsTr(\"Workflow\")")));
+    QVERIFY(dubbingPage.contains(QStringLiteral("readonly property bool compactDubbingHistory")));
+    QVERIFY(dubbingPage.contains(QStringLiteral("A real 28 px hit target")));
     QVERIFY(main.contains(QStringLiteral("visible: stack.currentIndex === 13")));
     QVERIFY(popup.contains(QStringLiteral("AppController.downloads.allDownloads")));
     QVERIFY(sidebar.contains(QStringLiteral("Expand navigation")));

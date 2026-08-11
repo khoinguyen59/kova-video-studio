@@ -49,15 +49,22 @@ Item {
     // StudioShell's generic resizers. Keep these widths local to this real
     // layout so users can resize History, Preview and the step workspace.
     property int dubbingHistoryPanelWidth: 280
-    property int dubbingTaskShelfWidth: 280
-    property int dubbingPreviewPanelWidth: 860
+    property int dubbingTaskShelfWidth: 260
+    // Prefer a large central canvas. Side panes keep bounded widths and the
+    // preview yields only when the operator explicitly drags a separator.
+    property int dubbingPreviewPanelWidth: 940
     property int dubbingTimelinePanelHeight: 300
-    property int dubbingStepPanelWidth: 380
+    property int dubbingStepPanelWidth: 340
     // A three-pane desktop editor cannot keep three full-width panes on a
     // narrow window. In that state, use the review pane for task controls
     // instead of clipping a shelf offscreen or painting it over the canvas.
     // The wide layout remains unchanged and can still be resized by hand.
-    readonly property bool compactDubbingControls: dubbingWorkspaceScroller.width < 1000
+    readonly property bool compactDubbingControls: dubbingWorkspaceScroller.width < 1180
+    // At the practical minimum editor width the history drawer is the first
+    // optional pane to yield.  This prevents a hidden horizontal canvas or a
+    // panel sitting on top of the video; the history toggle remains available
+    // again as soon as there is room for its real resizable column.
+    readonly property bool compactDubbingHistory: dubbingWorkspaceScroller.width < 920
     function clampedDubbingPanelWidth(value, minimum, maximum) {
         return Math.max(minimum, Math.min(maximum, Math.round(value)))
     }
@@ -970,7 +977,11 @@ Item {
                 dubbing: root.dubbing
                 enabled: !root.dubbing.processing
                 panelWidth: root.dubbingHistoryPanelWidth
+                // History is an inline editor pane, never an overlay.  On a
+                // narrow workspace it closes rather than forcing the video or
+                // review column offscreen.
                 expanded: root.isHistoryOpen && !root.previewFocusMode
+                          && !root.compactDubbingHistory
                 onClearRequested: clearHistoryDialog.open()
                 onDeleteRequested: function(historyId) {
                     root.pendingHistoryDeleteId = historyId
@@ -988,7 +999,7 @@ Item {
                 radius: 4
                 color: historyResizeHover.hovered || historyResizeDrag.active
                        ? Theme.accent : Qt.rgba(Theme.textSecondary.r, Theme.textSecondary.g, Theme.textSecondary.b, 0.28)
-                visible: root.isHistoryOpen && !root.previewFocusMode
+                visible: historyPanel.visible
                 ToolTip.visible: historyResizeHover.hovered
                 ToolTip.text: qsTr("Drag to resize Dubbing History")
                 HoverHandler { id: historyResizeHover; cursorShape: Qt.SizeHorCursor }
@@ -1192,7 +1203,7 @@ Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.minimumWidth: root.compactDubbingControls
-                                     ? (root.isHistoryOpen ? 340 : 400) : 540
+                                     ? (historyPanel.visible ? 340 : 400) : 540
                 Layout.preferredWidth: root.dubbingPreviewPanelWidth
                 spacing: Theme.paddingMedium
                 clip: true
@@ -1242,7 +1253,7 @@ Item {
                             root.dubbingPreviewPanelWidth = root.clampedDubbingPanelWidth(
                                         pressWidth + translation.x,
                                         root.compactDubbingControls
-                                        ? (root.isHistoryOpen ? 340 : 400) : 540,
+                                        ? (historyPanel.visible ? 340 : 400) : 540,
                                         1280)
                     }
                 }
@@ -1922,16 +1933,19 @@ Item {
             Layout.fillWidth: true
             Layout.leftMargin: Theme.paddingMedium
             Layout.rightMargin: Theme.paddingMedium
-            Layout.preferredHeight: visible ? 18 : 0
+            // A real 28 px hit target, not a decorative 4 px line.  The
+            // previous DragHandler was technically present but too easy to
+            // miss below the video transport controls.
+            Layout.preferredHeight: visible ? 28 : 0
             visible: !root.previewFocusMode
             z: 10
 
             Rectangle {
-                width: 84
-                height: 4
-                radius: 2
+                width: 112
+                height: 5
+                radius: 3
                 anchors.centerIn: parent
-                color: timelineResizeHover.hovered || timelineResizeDrag.active
+                color: timelineResizeHover.hovered || timelineResizeDrag.pressed
                        ? Theme.accent : Qt.rgba(Theme.textSecondary.r, Theme.textSecondary.g, Theme.textSecondary.b, 0.55)
             }
 
@@ -1939,21 +1953,20 @@ Item {
             ToolTip.text: qsTr("Drag to resize Dubbing timeline")
 
             HoverHandler { id: timelineResizeHover; cursorShape: Qt.SizeVerCursor }
-            DragHandler {
+            MouseArea {
                 id: timelineResizeDrag
+                anchors.fill: parent
+                cursorShape: Qt.SizeVerCursor
+                property real pressY: 0
                 property int pressHeight: 0
-                target: null
-                xAxis.enabled: false
-                yAxis.enabled: true
-                onActiveChanged: {
-                    if (active)
-                        pressHeight = root.dubbingTimelinePanelHeight
+                onPressed: function(mouse) {
+                    pressY = mouse.y
+                    pressHeight = root.dubbingTimelinePanelHeight
                 }
-                onTranslationChanged: {
-                    if (active) {
+                onPositionChanged: function(mouse) {
+                    if (pressed)
                         root.dubbingTimelinePanelHeight = root.clampedDubbingTimelineHeight(
-                                    pressHeight - translation.y)
-                    }
+                                    pressHeight - (mouse.y - pressY))
                 }
             }
         }

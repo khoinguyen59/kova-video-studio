@@ -67,7 +67,7 @@ Rectangle {
     // source/download controls below are scrollable after a media file exists.
     // Keep enough height for a useful OCR canvas at 1280×800, but let the
     // full-width timeline retain its own guaranteed editor space below.
-    Layout.minimumHeight: root.isVideoSource ? 400 : 300
+    Layout.minimumHeight: root.isVideoSource ? 440 : 300
     color: Theme.surface
     radius: Theme.radiusMedium
     border.color: Qt.rgba(1, 1, 1, 0.08)
@@ -186,6 +186,8 @@ Rectangle {
         return controlsAutoHide.qmlSmokeStateCheck()
                 && controlsAutoHide.delayMs === 2000
                 && subtitleEditorButton.width > 0
+                && previewToolbar.width > 0
+                && previewToolbar.height === 38
                 && subtitlePreviewOverlay.width > 0
                 && previewFrame.width > 0
                 && previewFrame.height > 0
@@ -336,8 +338,15 @@ Rectangle {
         anchors.fill: parent
         anchors.margins: Theme.paddingMedium
         spacing: Theme.paddingSmall
+        // Keep preview-state controls in their own fixed row and put the
+        // longer editing actions in a scrollable toolbar below it.  The former
+        // one-line row had more required controls than a narrow central canvas
+        // could ever hold, so buttons either painted over the video or were
+        // truncated.  This mirrors an editor toolbar without reducing the
+        // playable canvas.
         RowLayout {
             Layout.fillWidth: true
+            spacing: Theme.paddingSmall
             Text {
                 text: qsTr("VIDEO PREVIEW")
                 color: Theme.textSecondary
@@ -345,75 +354,10 @@ Rectangle {
                 font.bold: true
                 font.letterSpacing: 1.1
             }
-            Button {
-                id: subtitleEditorButton
-                objectName: "dubbingSubtitleEditorButton"
-                text: qsTr("Subtitles")
-                enabled: root.dubbing.hasProject && !root.dubbing.processing
-                onClicked: root.subtitleEditorRequested()
-            }
-            Button {
-                id: sourceSetupToggle
-                objectName: "dubbingSourceSetupToggle"
-                text: root.sourceSetupExpanded ? qsTr("Hide source setup") : qsTr("Change / download source")
-                enabled: !root.dubbing.mediaQueueProcessing
-                onClicked: {
-                    if (root.previewFocusMode)
-                        root.previewFocusRequested(false)
-                    root.sourceSetupExpanded = !root.sourceSetupExpanded
-                }
-            }
-            PrimaryButton {
-                id: openVideoButton
-                objectName: "dubbingOpenVideoButton"
-                text: root.hasLoadedSource ? qsTr("Replace video") : qsTr("Open video")
-                iconName: "folder"
-                quiet: true
-                enabled: !root.dubbing.processing && !root.dubbing.linkImporting
-                toolTip: qsTr("Choose a local video or audio file. Choosing a source closes download setup and restores the canvas.")
-                onClicked: root.browseRequested()
-            }
-            Button {
-                id: previewFocusToggle
-                objectName: "dubbingPreviewFocusToggle"
-                text: root.previewFocusMode ? qsTr("Exit video focus") : qsTr("Focus video")
-                enabled: root.isVideoSource
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("Give the video canvas the central workspace; source setup stays available from Change / download source.")
-                onClicked: {
-                    if (!root.previewFocusMode)
-                        root.sourceSetupExpanded = false
-                    root.previewFocusRequested(!root.previewFocusMode)
-                }
-            }
-            AppComboBox {
-                id: previewFrameModeSelector
-                objectName: "dubbingPreviewFrameModeSelector"
-                Layout.preferredWidth: 112
-                implicitHeight: 32
-                model: [
-                    { text: qsTr("Fit source"), value: "source" },
-                    { text: qsTr("16:9"), value: "16:9" },
-                    { text: qsTr("9:16"), value: "9:16" },
-                    { text: qsTr("1:1"), value: "1:1" }
-                ]
-                textRole: "text"
-                currentIndex: {
-                    for (var index = 0; index < model.length; ++index)
-                        if (model[index].value === root.previewFrameMode)
-                            return index
-                    return 0
-                }
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("Preview frame ratio. The source video remains uncropped and unstretched.")
-                onActivated: function(index) {
-                    if (index >= 0 && index < model.length)
-                        root.previewFrameMode = model[index].value
-                }
-            }
             Item { Layout.fillWidth: true }
             Rectangle {
-                Layout.preferredWidth: 230
+                Layout.preferredWidth: 214
+                Layout.minimumWidth: 214
                 Layout.preferredHeight: 32
                 radius: Theme.radiusSmall
                 color: Qt.rgba(0, 0, 0, 0.18)
@@ -441,11 +385,107 @@ Rectangle {
                 }
             }
             Text {
+                Layout.maximumWidth: 104
                 text: root.showingDubbedMedia
                       ? qsTr("Dubbed mix")
                       : (root.dubbing.sourceMediaPath.length > 0 ? qsTr("Original audio") : qsTr("No media"))
                 color: root.dubbing.sourceMediaPath.length > 0 ? Theme.success : Theme.textSecondary
                 font.pixelSize: Theme.fontSmall
+                elide: Text.ElideRight
+            }
+        }
+
+        Flickable {
+            id: previewToolbar
+            objectName: "dubbingPreviewToolbar"
+            Layout.fillWidth: true
+            Layout.preferredHeight: 38
+            Layout.minimumHeight: 38
+            contentWidth: previewToolbarRow.implicitWidth
+            contentHeight: height
+            clip: true
+            flickableDirection: Flickable.HorizontalFlick
+            boundsBehavior: Flickable.StopAtBounds
+
+            Row {
+                id: previewToolbarRow
+                height: previewToolbar.height
+                spacing: Theme.paddingSmall
+                Button {
+                    id: subtitleEditorButton
+                    objectName: "dubbingSubtitleEditorButton"
+                    height: previewToolbar.height
+                    text: qsTr("Subtitles")
+                    enabled: root.dubbing.hasProject && !root.dubbing.processing
+                    onClicked: root.subtitleEditorRequested()
+                }
+                Button {
+                    id: sourceSetupToggle
+                    objectName: "dubbingSourceSetupToggle"
+                    height: previewToolbar.height
+                    text: root.sourceSetupExpanded ? qsTr("Hide source setup") : qsTr("Change / download source")
+                    enabled: !root.dubbing.mediaQueueProcessing
+                    onClicked: {
+                        if (root.previewFocusMode)
+                            root.previewFocusRequested(false)
+                        root.sourceSetupExpanded = !root.sourceSetupExpanded
+                    }
+                }
+                PrimaryButton {
+                    id: openVideoButton
+                    objectName: "dubbingOpenVideoButton"
+                    height: previewToolbar.height
+                    text: root.hasLoadedSource ? qsTr("Replace video") : qsTr("Open video")
+                    iconName: "folder"
+                    quiet: true
+                    enabled: !root.dubbing.processing && !root.dubbing.linkImporting
+                    toolTip: qsTr("Choose a local video or audio file. Choosing a source closes download setup and restores the canvas.")
+                    onClicked: root.browseRequested()
+                }
+                Button {
+                    id: previewFocusToggle
+                    objectName: "dubbingPreviewFocusToggle"
+                    height: previewToolbar.height
+                    text: root.previewFocusMode ? qsTr("Exit video focus") : qsTr("Focus video")
+                    enabled: root.isVideoSource
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Give the video canvas the central workspace; source setup stays available from Change / download source.")
+                    onClicked: {
+                        if (!root.previewFocusMode)
+                            root.sourceSetupExpanded = false
+                        root.previewFocusRequested(!root.previewFocusMode)
+                    }
+                }
+                AppComboBox {
+                    id: previewFrameModeSelector
+                    objectName: "dubbingPreviewFrameModeSelector"
+                    width: 112
+                    height: previewToolbar.height
+                    model: [
+                        { text: qsTr("Fit source"), value: "source" },
+                        { text: qsTr("16:9"), value: "16:9" },
+                        { text: qsTr("9:16"), value: "9:16" },
+                        { text: qsTr("1:1"), value: "1:1" }
+                    ]
+                    textRole: "text"
+                    currentIndex: {
+                        for (var index = 0; index < model.length; ++index)
+                            if (model[index].value === root.previewFrameMode)
+                                return index
+                        return 0
+                    }
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Preview frame ratio. The source video remains uncropped and unstretched.")
+                    onActivated: function(index) {
+                        if (index >= 0 && index < model.length)
+                            root.previewFrameMode = model[index].value
+                    }
+                }
+            }
+
+            ScrollBar.horizontal: ScrollBar {
+                policy: previewToolbar.contentWidth > previewToolbar.width
+                        ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
             }
         }
         Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1, 1, 1, 0.07) }

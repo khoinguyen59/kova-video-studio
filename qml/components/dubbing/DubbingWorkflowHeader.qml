@@ -7,6 +7,10 @@ import "../base"
 import "../shared"
 import LAStudio
 
+// A compact editor header.  Workflow stages own the flexible portion of the
+// bar; project actions retain their complete labels and never compete with the
+// stages for the same horizontal space.  This mirrors an NLE toolbar: the
+// stage rail can scroll, while actions are fixed controls on the right.
 Rectangle {
     id: root
 
@@ -16,8 +20,8 @@ Rectangle {
     required property string defaultExportPath
     property bool historyOpen: false
     property bool settingsOpen: false
-    // Kept as a compatibility property for the route smoke.  Project setup is
-    // now a dialog, not a permanent panel below the timeline.
+    // Kept for the production route smoke: project settings are a dialog, not
+    // a permanent strip below the editor.
     property bool projectStatusOpen: false
 
     signal stepSelected(string stepId)
@@ -40,176 +44,186 @@ Rectangle {
     }
 
     Layout.fillWidth: true
-    // Two fixed rows prevent task labels and the Workflow action from being
-    // squeezed into clipped fragments on a narrow editor window.
-    Layout.preferredHeight: 84
+    Layout.preferredHeight: 60
+    Layout.minimumHeight: 60
     color: Qt.rgba(0, 0, 0, 0.10)
     border.color: Qt.rgba(1, 1, 1, 0.06)
     border.width: 1
 
-    ColumnLayout {
+    RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: Theme.paddingLarge
-        anchors.rightMargin: Theme.paddingLarge
-        spacing: 2
+        anchors.leftMargin: Theme.paddingMedium
+        anchors.rightMargin: Theme.paddingMedium
+        spacing: Theme.paddingSmall
+
+        SidebarToggleButton {
+            iconName: "history"
+            toolTip: root.historyOpen ? qsTr("Hide dubbing history") : qsTr("Show dubbing history")
+            active: root.historyOpen
+            onClicked: root.historyToggled()
+        }
+
+        PrimaryButton {
+            id: projectStatusToggle
+            objectName: "dubbingProjectStatusToggle"
+            text: qsTr("Project setup")
+            iconName: "sliders"
+            quiet: true
+            Layout.minimumWidth: requiredContentWidth
+            Layout.preferredWidth: Math.max(112, requiredContentWidth)
+            onClicked: root.projectStatusToggled()
+        }
 
         RowLayout {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 39
+            Layout.preferredWidth: 154
+            Layout.minimumWidth: 132
+            Layout.maximumWidth: 154
             spacing: Theme.paddingSmall
-
-            SidebarToggleButton {
-                iconName: "history"
-                toolTip: root.historyOpen ? qsTr("Hide dubbing history") : qsTr("Show dubbing history")
-                active: root.historyOpen
-                onClicked: root.historyToggled()
+            LineIcon {
+                name: "dubbing"
+                color: Theme.accentLight
+                Layout.preferredWidth: 20
+                Layout.preferredHeight: 20
             }
-            PrimaryButton {
-                id: projectStatusToggle
-                objectName: "dubbingProjectStatusToggle"
-                text: qsTr("Project settings")
-                iconName: "sliders"
-                quiet: true
-                implicitWidth: Math.max(136, requiredContentWidth)
-                onClicked: root.projectStatusToggled()
-            }
-            RowLayout {
-                Layout.preferredWidth: 188
-                spacing: Theme.paddingSmall
-                LineIcon { name: "dubbing"; color: Theme.accentLight; Layout.preferredWidth: 21; Layout.preferredHeight: 21 }
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 0
-                    Text { text: qsTr("Dubbing Studio"); color: Theme.textPrimary; font.pixelSize: Theme.fontLarge; font.bold: true; elide: Text.ElideRight }
-                    Text { text: root.dubbing.hasProject ? qsTr("Project workspace") : qsTr("New project"); color: Theme.textSecondary; font.pixelSize: 10; elide: Text.ElideRight }
-                }
-            }
-            Item { Layout.preferredWidth: 0 }
-            // Keep complete action labels available on narrow windows. The
-            // utility strip scrolls rather than clipping the last button.
-            Flickable {
-                id: headerUtilitiesFlickable
-                objectName: "dubbingHeaderUtilitiesFlickable"
+            ColumnLayout {
                 Layout.fillWidth: true
-                Layout.minimumWidth: 0
-                Layout.fillHeight: true
-                clip: true
-                contentWidth: headerUtilitiesRow.implicitWidth
-                contentHeight: height
-                flickableDirection: Flickable.HorizontalFlick
-                boundsBehavior: Flickable.StopAtBounds
-
-                Row {
-                    id: headerUtilitiesRow
-                    height: headerUtilitiesFlickable.height
-                    spacing: Theme.paddingSmall
-                    PrimaryButton {
-                        text: root.dubbing.processing ? qsTr("Running…") : qsTr("Generate Final Dubbing")
-                        iconName: root.dubbing.processing ? "activity" : "play"
-                        enabled: !root.dubbing.settingsLocked && root.dubbing.sourceMediaPath.length > 0
-                        onClicked: root.generateRequested()
-                    }
-                    PrimaryButton {
-                        text: qsTr("Colab setup")
-                        iconName: "cloud"
-                        quiet: true
-                        enabled: !root.dubbing.settingsLocked
-                        onClicked: root.colabSetupRequested()
-                    }
-                    PrimaryButton {
-                        text: qsTr("Workflow")
-                        iconName: "workflow"
-                        quiet: true
-                        enabled: !root.dubbing.settingsLocked
-                        onClicked: root.workflowRequested()
-                    }
+                spacing: 0
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("Dubbing Studio")
+                    color: Theme.textPrimary
+                    font.pixelSize: Theme.fontMedium
+                    font.bold: true
+                    elide: Text.ElideRight
                 }
-                ScrollBar.horizontal: ScrollBar {
-                    policy: headerUtilitiesFlickable.contentWidth > headerUtilitiesFlickable.width
-                            ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+                Text {
+                    Layout.fillWidth: true
+                    text: root.dubbing.hasProject ? qsTr("Project workspace") : qsTr("New project")
+                    color: Theme.textSecondary
+                    font.pixelSize: 10
+                    elide: Text.ElideRight
                 }
             }
         }
 
-        RowLayout {
+        // This is the only flexible area in the header.  It scrolls the full
+        // task labels instead of squeezing another fixed button into fragments
+        // such as "Wor".
+        Flickable {
+            id: workflowStepsFlickable
+            objectName: "workflowStepsFlickable"
             Layout.fillWidth: true
+            Layout.minimumWidth: 150
             Layout.fillHeight: true
+            contentWidth: workflowStepsRow.implicitWidth
+            contentHeight: height
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.HorizontalFlick
+
+            Row {
+                id: workflowStepsRow
+                height: workflowStepsFlickable.height
+                spacing: Theme.paddingSmall
+                Repeater {
+                    model: root.steps
+                    delegate: DubbingWorkflowStep {
+                        required property var modelData
+                        width: implicitWidth
+                        height: workflowStepsRow.height
+                        stepId: modelData.stepId
+                        title: modelData.title
+                        iconName: modelData.iconName
+                        complete: modelData.complete
+                        active: modelData.active
+                        enabled: true
+                        onSelected: root.stepSelected(stepId)
+                    }
+                }
+            }
+
+            ScrollBar.horizontal: ScrollBar {
+                policy: workflowStepsFlickable.contentWidth > workflowStepsFlickable.width
+                        ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+            }
+        }
+
+        // The action cluster never scrolls or shares width with the task rail.
+        // Labels therefore remain whole at the supported editor minimum size.
+        RowLayout {
+            id: headerActionCluster
             spacing: Theme.paddingSmall
 
-            Flickable {
-                id: workflowStepsFlickable
-                objectName: "workflowStepsFlickable"
-                Layout.fillWidth: true
-                Layout.minimumWidth: 260
-                Layout.fillHeight: true
-                contentWidth: workflowStepsRow.implicitWidth
-                contentHeight: height
-                clip: true
-                boundsBehavior: Flickable.StopAtBounds
-                flickableDirection: Flickable.HorizontalFlick
+            PrimaryButton {
+                text: root.dubbing.processing ? qsTr("Running…") : qsTr("Generate")
+                iconName: root.dubbing.processing ? "activity" : "play"
+                Layout.minimumWidth: requiredContentWidth
+                Layout.preferredWidth: Math.max(126, requiredContentWidth)
+                enabled: !root.dubbing.settingsLocked && root.dubbing.sourceMediaPath.length > 0
+                onClicked: root.generateRequested()
+            }
+            PrimaryButton {
+                text: qsTr("Colab")
+                iconName: "cloud"
+                quiet: true
+                Layout.minimumWidth: requiredContentWidth
+                Layout.preferredWidth: Math.max(82, requiredContentWidth)
+                enabled: !root.dubbing.settingsLocked
+                toolTip: qsTr("Open Colab setup")
+                onClicked: root.colabSetupRequested()
+            }
+            PrimaryButton {
+                text: qsTr("Workflow")
+                iconName: "workflow"
+                quiet: true
+                Layout.minimumWidth: requiredContentWidth
+                Layout.preferredWidth: Math.max(112, requiredContentWidth)
+                enabled: !root.dubbing.settingsLocked
+                onClicked: root.workflowRequested()
+            }
+            PrimaryButton {
+                id: moreActionsButton
+                iconName: "more-horizontal"
+                iconOnly: true
+                quiet: true
+                toolTip: qsTr("More Dubbing actions")
+                accessibleName: toolTip
+                onClicked: actionMenu.open()
+            }
+        }
+    }
 
-                Row {
-                    id: workflowStepsRow
-                    height: workflowStepsFlickable.height
-                    spacing: Theme.paddingSmall
-                    Repeater {
-                        model: root.steps
-                        delegate: DubbingWorkflowStep {
-                            required property var modelData
-                            width: implicitWidth
-                            height: workflowStepsRow.height
-                            stepId: modelData.stepId
-                            title: modelData.title
-                            iconName: modelData.iconName
-                            complete: modelData.complete
-                            active: modelData.active
-                            enabled: true
-                            onSelected: root.stepSelected(stepId)
-                        }
-                    }
-                }
-                ScrollBar.horizontal: ScrollBar {
-                    policy: workflowStepsFlickable.contentWidth > workflowStepsFlickable.width
-                            ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
-                }
-            }
+    Menu {
+        id: actionMenu
+        x: Math.max(0, moreActionsButton.x + moreActionsButton.width - width)
+        y: moreActionsButton.y + moreActionsButton.height
+        width: 220
 
-            Rectangle {
-                Layout.preferredWidth: Math.min(190, statusRow.implicitWidth + 16)
-                Layout.minimumWidth: 74
-                Layout.preferredHeight: 28
-                radius: 14
-                color: Qt.rgba(root.dubbing.processing ? Theme.warning.r : Theme.success.r,
-                               root.dubbing.processing ? Theme.warning.g : Theme.success.g,
-                               root.dubbing.processing ? Theme.warning.b : Theme.success.b, 0.12)
-                RowLayout {
-                    id: statusRow
-                    anchors.fill: parent
-                    anchors.leftMargin: 8
-                    anchors.rightMargin: 8
-                    spacing: 5
-                    Rectangle { Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: root.dubbing.processing ? Theme.warning : Theme.success }
-                    Text {
-                        Layout.fillWidth: true
-                        text: root.statusText
-                        color: root.dubbing.processing ? Theme.warning : Theme.success
-                        font.pixelSize: Theme.fontSmall
-                        font.bold: true
-                        elide: Text.ElideRight
-                    }
-                }
-            }
-            PrimaryButton { text: qsTr("Save"); iconName: "save"; quiet: true; enabled: root.dubbing.hasProject && !root.dubbing.settingsLocked; onClicked: root.saveRequested() }
-            PrimaryButton { text: qsTr("Export"); iconName: "download"; enabled: root.dubbing.hasProject && !root.dubbing.processing && !root.dubbing.settingsLocked; onClicked: root.exportRequested() }
-            PrimaryButton { visible: root.dubbing.settingsLocked; text: qsTr("Pause"); iconName: "pause"; quiet: true; onClicked: root.pauseRequested() }
-            PrimaryButton { visible: root.dubbing.settingsLocked; text: qsTr("Stop"); iconName: "stop"; buttonColor: Theme.danger; onClicked: root.stopRequested() }
-            SidebarToggleButton {
-                iconName: "sliders"
-                toolTip: root.settingsOpen ? qsTr("Hide task controls") : qsTr("Show task controls")
-                active: root.settingsOpen
-                enabled: true
-                onClicked: root.settingsToggled()
-            }
+        MenuItem {
+            text: qsTr("Save project")
+            enabled: root.dubbing.hasProject && !root.dubbing.settingsLocked
+            onTriggered: root.saveRequested()
+        }
+        MenuItem {
+            text: qsTr("Export / Output")
+            enabled: root.dubbing.hasProject && !root.dubbing.processing && !root.dubbing.settingsLocked
+            onTriggered: root.exportRequested()
+        }
+        MenuSeparator { visible: root.dubbing.settingsLocked }
+        MenuItem {
+            visible: root.dubbing.settingsLocked
+            text: qsTr("Pause automatic workflow")
+            onTriggered: root.pauseRequested()
+        }
+        MenuItem {
+            visible: root.dubbing.settingsLocked
+            text: qsTr("Stop processing")
+            onTriggered: root.stopRequested()
+        }
+        MenuSeparator {}
+        MenuItem {
+            text: root.settingsOpen ? qsTr("Hide task controls") : qsTr("Show task controls")
+            onTriggered: root.settingsToggled()
         }
     }
 

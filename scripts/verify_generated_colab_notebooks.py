@@ -190,6 +190,8 @@ def main() -> int:
                         '"paddlex[ie,multimodal,ocr,trans]==3.1.0"',
                         '"Pillow==12.0.0"',
                         'OCR_SITE_PACKAGES = Path("/content/la_studio_subtitle_ocr_site")',
+                        'BOOTSTRAP_REVISION = "subtitle-ocr-bootstrap-2026-08-11.7"',
+                        'shutil.rmtree(Path("/content/la_studio_subtitle_ocr_venv"), ignore_errors=True)',
                         'shutil.rmtree(OCR_SITE_PACKAGES, ignore_errors=True)',
                         'bootstrap_pip("install", "--target", str(OCR_SITE_PACKAGES),',
                         '"--ignore-installed", *arguments)',
@@ -206,6 +208,7 @@ def main() -> int:
                         'from PIL import ImageText',
                         'from PIL._typing import _Ink',
                         'from paddleocr import PaddleOCR',
+                        '"--extra-index-url", "https://www.paddlepaddle.org.cn/packages/stable/cu118/"',
                     )
                     if any(marker not in worker_source for marker in required_stack_markers):
                         mismatches.append(
@@ -218,6 +221,10 @@ def main() -> int:
                     if '"-m", "virtualenv"' in worker_source or 'virtualenv==20.31.2' in worker_source:
                         mismatches.append(
                             f"Subtitle OCR notebook still depends on a virtualenv bootstrap: {generated.name}"
+                        )
+                    if worker_source.count('ocr_pip("install"') != 1:
+                        mismatches.append(
+                            f"Subtitle OCR notebook must resolve its fixed stack in one isolated pip transaction: {generated.name}"
                         )
                     if "paddle.device.set_device(\"gpu:0\")" not in worker_source \
                             or "paddle.device.cuda.get_device_name(0)" not in worker_source:

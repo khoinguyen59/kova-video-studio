@@ -44,7 +44,7 @@ MODEL_NAME = "PP-OCRv5 Multilingual 3.1"
 UPSTREAM_MODEL = "PaddlePaddle/PaddleOCR PP-OCRv5"
 UPSTREAM_VERSION = "PaddleOCR 3.1.1"
 LICENSE = "Apache-2.0"
-WORKER_REVISION = "subtitle-ocr-2026-08-11.6"
+WORKER_REVISION = "subtitle-ocr-2026-08-11.7"
 RESPONSE_CONTRACT = "subtitle-ocr-crops-v1"
 TOKEN = os.environ["LA_STUDIO_COLAB_SUBTITLE_OCR_TOKEN"]
 MAX_UPLOAD_BYTES = 16 * 1024 * 1024
@@ -281,7 +281,16 @@ def build_notebook() -> dict:
                 import sys
                 from pathlib import Path
 
+                BOOTSTRAP_REVISION = "subtitle-ocr-bootstrap-2026-08-11.7"
+                print("LA Studio Subtitle OCR bootstrap:", BOOTSTRAP_REVISION)
+                print("This revision uses a dedicated package directory; it never creates a venv or calls ensurepip.")
+
                 OCR_SITE_PACKAGES = Path("/content/la_studio_subtitle_ocr_site")
+                # Remove only the old app-owned bootstrap directories. This
+                # makes Run all safe after a notebook revision that used a
+                # broken ensurepip virtual environment, without touching any
+                # user files in /content.
+                shutil.rmtree(Path("/content/la_studio_subtitle_ocr_venv"), ignore_errors=True)
                 shutil.rmtree(OCR_SITE_PACKAGES, ignore_errors=True)
                 OCR_SITE_PACKAGES.mkdir(parents=True, exist_ok=True)
                 BOOTSTRAP_ENV = os.environ.copy()
@@ -303,17 +312,19 @@ def build_notebook() -> dict:
                 OCR_ENV = os.environ.copy()
                 OCR_ENV["PYTHONPATH"] = str(OCR_SITE_PACKAGES)
                 OCR_ENV["PYTHONNOUSERSITE"] = "1"
-                # PaddleOCR 3.1.1 only declares a lower bound for PaddleX. A
-                # later PaddleX release imports ModelScope/Torch, so retain the
-                # known 3.1.0 trio inside the dedicated package directory.
+                # Resolve the complete pinned stack in one pip transaction.
+                # Installing Paddle first and then OCR extras in separate
+                # --ignore-installed transactions allowed a later resolver to
+                # overwrite a GPU/Pillow dependency in the target directory.
+                # Paddle's CUDA index is retained as an extra source while
+                # PyPI remains available for the rest of the fixed stack.
                 ocr_pip("install", "--no-cache-dir", "--upgrade", "--force-reinstall",
+                        "--only-binary=:all:",
                         "paddlepaddle-gpu==3.1.0",
-                        "-i", "https://www.paddlepaddle.org.cn/packages/stable/cu118/")
-                ocr_pip("install", "--no-cache-dir", "--upgrade", "--force-reinstall",
                         "paddleocr==3.1.1", "paddlex[ie,multimodal,ocr,trans]==3.1.0",
-                        "fastapi==0.115.12", "uvicorn==0.34.3", "python-multipart==0.0.20")
-                ocr_pip("install", "--no-cache-dir", "--upgrade", "--force-reinstall",
-                        "--only-binary=:all:", "Pillow==12.0.0")
+                        "Pillow==12.0.0", "fastapi==0.115.12", "uvicorn==0.34.3",
+                        "python-multipart==0.0.20",
+                        "--extra-index-url", "https://www.paddlepaddle.org.cn/packages/stable/cu118/")
             """)},
             {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [], "source": lines("""
                 # Fail in this explicit dependency probe rather than after the
