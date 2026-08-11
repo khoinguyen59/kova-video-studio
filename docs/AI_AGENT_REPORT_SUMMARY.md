@@ -37,6 +37,9 @@ Cap nhat: 2026-08-11
   --check` passed. Full CTest/build is **blocked**, not passed: the current
   machine has no Qt development kit (`Qt6Config.cmake` / `LA_QT` unavailable),
   so no desktop/package or live Colab claim is made for this source batch.
+  `graphify update .` started AST extraction but could not finish semantic
+  extraction because the local Graphify environment lacks optional
+  `anthropic`; graph output is not claimed current.
 - The source commit is pushed directly to `origin/main`. No new EXE was built.
 
 ## Candidate 0.0.6.3 - Dubbing workbench restructure

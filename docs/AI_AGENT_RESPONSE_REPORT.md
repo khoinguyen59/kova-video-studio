@@ -36,4 +36,9 @@ current machine has no Qt development kit (`Qt6Config.cmake` / `LA_QT` is
 unavailable). This is recorded as **blocked**, not a passing test result. No
 GUI, browser, or live Colab worker was opened.
 
+`graphify update .` was also attempted after the source change. Its AST phase
+started, but the local Graphify environment lacks its optional `anthropic`
+package for semantic extraction; the graph output is therefore not claimed as
+updated.
+
 No new EXE was created; the latest packaged candidate remains `0.0.6.3`.
