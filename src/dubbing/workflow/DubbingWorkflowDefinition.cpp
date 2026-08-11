@@ -71,7 +71,7 @@ WorkflowGraph DubbingWorkflowDefinition::create()
         node(QStringLiteral("review-transcript"), QStringLiteral("core.review-gate"), QStringLiteral("Review Transcript"),
              {{QStringLiteral("mode"), QStringLiteral("always")}, {QStringLiteral("editor"), QStringLiteral("dubbing.transcript")}}),
         node(QStringLiteral("translate"), QStringLiteral("text.translate-transcript"), QStringLiteral("Translate Transcript"),
-             {{QStringLiteral("sourceLanguage"), QStringLiteral("auto")}, {QStringLiteral("targetLanguage"), QStringLiteral("vi")},
+             {{QStringLiteral("sourceLanguage"), QStringLiteral("zh")}, {QStringLiteral("targetLanguage"), QStringLiteral("vi")},
               {QStringLiteral("executionProvider"), QStringLiteral("api-gateway")},
               {QStringLiteral("qualityPreset"), QStringLiteral("balanced")},
               {QStringLiteral("durationAware"), true}, {QStringLiteral("unit"), QStringLiteral("phoneme-v1")},

@@ -672,3 +672,25 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   `2367C0A735D20F6692C2EF6BCCF3EF22F097188C7C3C92175C6A728F3F0EC5EF`.
 - No interactive desktop or live Colab session was opened. Package stays
   internal-only pending signed eSpeak remediation.
+
+### 2026-08-12 - 0.0.6.5 compact Dubbing chrome / OCR duplicate-install fix
+
+- Dubbing's header and status chrome are now compact (52 px / 46 px), with a
+  single-line Original/Dubbed selector in the preview toolbar. Compact header
+  actions intentionally use tooltip-equipped icons before labels can clip.
+- The timeline has an explicit safe height range and a QML regression that
+  rejects intersection with the workspace video. Settings panels clip and
+  vertically stack compact actions to keep every control inside its pane.
+- Chinese is the default input language for new Dubbing projects (`zh`) across
+  project serialization, workflow defaults, setup UI, and STT request fallback.
+- OCR Colab bootstrap revision is `subtitle-ocr-bootstrap-2026-08-12.10`.
+  The prior `.9` generated `pip install --target ... install ...` because the
+  `install` verb was passed twice. The generator now passes only package
+  arguments to `ocr_pip`; the verifier explicitly rejects the old call shape.
+- Validation: generated notebooks 32/32, CTest 39/39 (61.53 s), graph update,
+  diff check, and production staging with 19 required runtime artifacts all
+  passed. Internal package:
+  `out/LA-Studio-0.0.6.5/LA-Studio-0.0.6.5.exe` (File/Product Version 0.0.6.5;
+  SHA-256 `40015BFB9C9E44321785BDD20AD61E1673A631514C9EFD3641BAE74941780A84`).
+- No interactive GUI or live Colab run was performed. Package remains
+  internal-only due to unsigned eSpeak payload.

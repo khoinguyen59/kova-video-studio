@@ -281,7 +281,7 @@ def build_notebook() -> dict:
                 import sys
                 from pathlib import Path
 
-                BOOTSTRAP_REVISION = "subtitle-ocr-bootstrap-2026-08-11.9"
+                BOOTSTRAP_REVISION = "subtitle-ocr-bootstrap-2026-08-12.10"
                 print("LA Studio Subtitle OCR bootstrap:", BOOTSTRAP_REVISION)
                 print("This revision uses a dedicated package directory; it never creates a venv or calls ensurepip.")
 
@@ -318,7 +318,7 @@ def build_notebook() -> dict:
                 # overwrite a GPU/Pillow dependency in the target directory.
                 # Paddle's CUDA index is retained as an extra source while
                 # PyPI remains available for the rest of the fixed stack.
-                ocr_pip("install", "--no-cache-dir", "--upgrade", "--force-reinstall",
+                ocr_pip("--no-cache-dir", "--upgrade", "--force-reinstall",
                         "--only-binary=:all:",
                         "paddlepaddle-gpu==3.1.0",
                         "paddleocr==3.1.1", "paddlex[ie,multimodal,ocr,trans]==3.1.0",

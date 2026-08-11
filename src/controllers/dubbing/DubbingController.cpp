@@ -3589,7 +3589,7 @@ bool DubbingController::runWorkflow(const QString &outputPath)
                 node.parameters.insert(it.key(), it.value());
             node.parameters.insert(QStringLiteral("language"),
                                    m_project.sourceLanguage.trimmed().isEmpty()
-                                       ? QStringLiteral("auto") : m_project.sourceLanguage);
+                                       ? QStringLiteral("zh") : m_project.sourceLanguage);
             node.parameters.insert(QStringLiteral("ocrSourceMedia"), m_project.sourceMediaPath);
             node.properties = node.parameters;
         } else if (node.id == QStringLiteral("translate")) {

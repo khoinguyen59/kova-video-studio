@@ -53,7 +53,7 @@ Item {
     // Prefer a large central canvas. Side panes keep bounded widths and the
     // preview yields only when the operator explicitly drags a separator.
     property int dubbingPreviewPanelWidth: 1040
-    property int dubbingTimelinePanelHeight: 340
+    property int dubbingTimelinePanelHeight: 300
     property int dubbingStepPanelWidth: 340
     // These breakpoints are derived from the actual non-overlapping minima:
     // History 240 + handle 8 + task shelf 220 + handle 8 + preview 540 +
@@ -67,12 +67,20 @@ Item {
     // an explicit layout change, not an overlay; the header button remains
     // available when the operator has enough width to reopen it.
     readonly property bool compactDubbingHistory: dubbingWorkspaceScroller.width < 1080
+    // The timeline may be resized only inside the vertical editor budget.  A
+    // fixed 520px ceiling ignored small desktop heights, which let the lower
+    // pane consume the preview instead of making the workspace shrink first.
+    readonly property int maximumDubbingTimelinePanelHeight: Math.max(160,
+                                                                       Math.min(360,
+                                                                                Math.round(height - 520)))
     function clampedDubbingPanelWidth(value, minimum, maximum) {
         return Math.max(minimum, Math.min(maximum, Math.round(value)))
     }
     function clampedDubbingTimelineHeight(value) {
-        return Math.max(160, Math.min(520, Math.round(value)))
+        return Math.max(160, Math.min(maximumDubbingTimelinePanelHeight,
+                                      Math.round(value)))
     }
+    onHeightChanged: dubbingTimelinePanelHeight = clampedDubbingTimelineHeight(dubbingTimelinePanelHeight)
     // The QML smoke route exercises the transcript selector, then two dialogs
     // whose geometry is only valid on the following event-loop turn.  Keep the
     // phases explicit so the test observes the real rendered state instead of
@@ -361,6 +369,12 @@ Item {
                 qmlSmokeTranscriptSourceFailure = "task panels overflow the fixed Dubbing workspace instead of resizing it"
                 return -1
             }
+            if (dubbingTimelinePanel.y + 1 < dubbingWorkspaceScroller.y
+                    + dubbingWorkspaceScroller.height
+                    || dubbingTimelinePanel.height > root.maximumDubbingTimelinePanelHeight + 1) {
+                qmlSmokeTranscriptSourceFailure = "timeline overlaps the video workspace or exceeds its bounded editor height"
+                return -1
+            }
             // The workbench is a three-pane editor: task controls, central
             // preview, and task review. These regions must consume real
             // layout space in that order, never paint over one another.
@@ -391,6 +405,13 @@ Item {
             }
             if (!dubbingWorkflowHeader.qmlSmokeLayoutCheck()) {
                 qmlSmokeTranscriptSourceFailure = "Dubbing header clips an action or overlays its workflow rail"
+                return -1
+            }
+            var activeNodeSettings = root.compactDubbingControls
+                    ? reviewNodeSettings : taskShelfNodeSettings
+            if (activeNodeSettings.visible
+                    && !activeNodeSettings.qmlSmokeCompactLayoutCheck()) {
+                qmlSmokeTranscriptSourceFailure = "task controls extend outside their owning Dubbing pane"
                 return -1
             }
             subtitleEditorDialog.open()
@@ -930,28 +951,31 @@ Item {
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: visible ? 72 : 0
+            // Status is a compact transport/status strip, not a second header
+            // that competes with the preview canvas.
+            Layout.preferredHeight: visible ? 46 : 0
             visible: dubbing.automaticEvents.length > 0
             color: Theme.surface
             border.color: Qt.rgba(1, 1, 1, 0.08)
             RowLayout {
                 anchors.fill: parent
-                anchors.leftMargin: Theme.paddingLarge
-                anchors.rightMargin: Theme.paddingLarge
-                spacing: Theme.paddingMedium
+                anchors.leftMargin: Theme.paddingMedium
+                anchors.rightMargin: Theme.paddingMedium
+                spacing: Theme.paddingSmall
                 LineIcon {
                     name: dubbing.settingsLocked ? "activity" : (dubbing.workflowMode === "paused" ? "pause" : "workflow")
                     color: dubbing.settingsLocked ? Theme.warning : Theme.accentLight
-                    Layout.preferredWidth: 20
-                    Layout.preferredHeight: 20
+                    Layout.preferredWidth: 16
+                    Layout.preferredHeight: 16
                 }
                 ColumnLayout {
-                    Layout.preferredWidth: 310
-                    spacing: 2
+                    Layout.preferredWidth: 260
+                    Layout.maximumWidth: 320
+                    spacing: 0
                     Text {
                         text: dubbing.settingsLocked ? qsTr("AUTOMATIC DUBBING") : qsTr("DUBBING STATUS")
                         color: Theme.textSecondary
-                        font.pixelSize: 10
+                        font.pixelSize: 9
                         font.bold: true
                         font.letterSpacing: 1.0
                     }
@@ -959,7 +983,7 @@ Item {
                         Layout.fillWidth: true
                         text: dubbing.automaticStatusText
                         color: dubbing.settingsLocked ? Theme.warning : Theme.textPrimary
-                        font.pixelSize: Theme.fontSmall
+                        font.pixelSize: 11
                         font.bold: true
                         elide: Text.ElideRight
                     }
@@ -976,7 +1000,7 @@ Item {
                     delegate: Rectangle {
                         required property var modelData
                         width: Math.min(260, eventText.implicitWidth + Theme.paddingMedium * 2)
-                        height: 42
+                        height: 30
                         anchors.verticalCenter: parent ? parent.verticalCenter : undefined
                         radius: Theme.radiusSmall
                         color: Qt.rgba(1, 1, 1, 0.035)
@@ -1209,7 +1233,7 @@ Item {
                               ? qsTr("The right panel shows detailed parameters for this task.")
                               : qsTr("The right panel shows this task's output, review, and next action.")
                         color: Theme.textSecondary
-                        font.pixelSize: 10
+                        font.pixelSize: 9
                         wrapMode: Text.WordWrap
                     }
                     Item { Layout.fillHeight: true }
@@ -1316,12 +1340,16 @@ Item {
                 visible: !root.previewFocusMode && root.isNodeInspectorOpen
                          && !root.isAdvancedNodeInspectorOpen
                 Layout.fillWidth: true; Layout.fillHeight: true
-                Layout.minimumWidth: root.compactDubbingControls ? 240 : 280
+                // A result/review pane below 320px cannot keep segment headers
+                // and task controls inside its own bounds.  At smaller editor
+                // widths the existing compact layout takes over instead.
+                Layout.minimumWidth: root.compactDubbingControls ? 240 : 320
                 Layout.preferredWidth: root.dubbingStepPanelWidth
                 ColumnLayout {
                     anchors.fill: parent; anchors.margins: Theme.paddingMedium; spacing: Theme.paddingSmall
                     visible: root.displayedStepId === "transcribe" || root.displayedStepId === "translate"
                     DubbingNodeSettingsPanel {
+                        id: reviewNodeSettings
                         dubbing: root.dubbing
                         nodeId: root.displayedStepId
                         node: root.workflowNode(nodeId)
@@ -2027,8 +2055,9 @@ Item {
             Layout.leftMargin: Theme.paddingMedium
             Layout.rightMargin: Theme.paddingMedium
             Layout.minimumHeight: visible ? 160 : 0
-            Layout.maximumHeight: visible ? 520 : 0
-            Layout.preferredHeight: visible ? root.dubbingTimelinePanelHeight : 0
+            Layout.maximumHeight: visible ? root.maximumDubbingTimelinePanelHeight : 0
+            Layout.preferredHeight: visible
+                                    ? root.clampedDubbingTimelineHeight(root.dubbingTimelinePanelHeight) : 0
 
             ColumnLayout {
                 anchors.fill: parent
@@ -2040,7 +2069,7 @@ Item {
                     Text {
                         text: qsTr("TIMELINE")
                         color: Theme.textSecondary
-                        font.pixelSize: Theme.fontSmall
+                        font.pixelSize: 11
                         font.bold: true
                         font.letterSpacing: 1.1
                         Layout.fillWidth: true

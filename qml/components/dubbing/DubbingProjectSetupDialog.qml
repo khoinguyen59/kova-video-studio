@@ -40,7 +40,7 @@ Dialog {
     function openFor(mode, startAfterApply) {
         selectedMode = mode === "automatic" ? "automatic" : "step"
         continueWorkflow = startAfterApply === true
-        selectedSourceLanguage = dubbing.sourceLanguage || "en"
+        selectedSourceLanguage = dubbing.sourceLanguage || "zh"
         selectedTargetLanguage = dubbing.targetLanguage || "vi"
         selectedQuality = dubbing.dubbingQuality || "adaptive"
         sourceLanguageBox.currentIndex = languageIndex(selectedSourceLanguage)

@@ -178,7 +178,7 @@ bool registerDubbingWorkflowNodes(NodeRegistry &registry, DubbingJobRunner *runn
         definition(QStringLiteral("text.translate-transcript"), QStringLiteral("Translate"),
                   {input(QStringLiteral("transcript"), WorkflowDataType::TimedTranscript)},
                   {output(QStringLiteral("transcript"), WorkflowDataType::TimedTranscript)},
-                  {WorkflowPropertyDefinition{QStringLiteral("sourceLanguage"), QStringLiteral("Source language"), QStringLiteral("auto")},
+                  {WorkflowPropertyDefinition{QStringLiteral("sourceLanguage"), QStringLiteral("Source language"), QStringLiteral("zh")},
                    WorkflowPropertyDefinition{QStringLiteral("targetLanguage"), QStringLiteral("Target language"), QString(), true, true}}),
         definition(QStringLiteral("dubbing.assign-voices"), QStringLiteral("TTS"),
                   {input(QStringLiteral("transcript"), WorkflowDataType::TimedTranscript)},

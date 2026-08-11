@@ -29,10 +29,38 @@ Rectangle {
     signal nextRequested()
     signal fixRequested()
 
+    // Runtime geometry regression for the narrow task shelf.  QML Layout will
+    // otherwise happily let a labelled control paint outside a parent whose
+    // own rectangle still reports a valid width.
+    function qmlSmokeCompactLayoutCheck() {
+        if (!root.compact)
+            return true
+        var controls = [compactModelAction, compactColabAction,
+                        compactReloadAction, compactUnloadAction,
+                        compactRunAction, compactRerunAction,
+                        compactFixAction, compactNextAction,
+                        compactRouteAction]
+        for (var index = 0; index < controls.length; ++index) {
+            var control = controls[index]
+            if (!control.visible)
+                continue
+            var position = control.mapToItem(root, 0, 0)
+            if (position.x < -1 || position.y < -1
+                    || position.x + control.width > root.width + 1
+                    || position.y + control.height > root.height + 1)
+                return false
+        }
+        return true
+    }
+
     Layout.fillWidth: true
     Layout.preferredHeight: root.compact
-                            ? (root.remoteRouteConfigurable() ? 258 : 174)
+                            ? (root.remoteRouteConfigurable() ? 388 : 252)
                             : (root.remoteRouteConfigurable() ? 146 : 86)
+    // Never permit a task-control child to render outside its owning pane.
+    // Compact controls stack their primary actions below instead of relying on
+    // RowLayout to squeeze two labelled buttons into a narrow shelf.
+    clip: true
     radius: Theme.radiusSmall
     color: Theme.surfaceAlt
     border.color: Qt.rgba(1, 1, 1, 0.08)
@@ -146,10 +174,11 @@ Rectangle {
             maximumLineCount: 2
             elide: Text.ElideRight
         }
-        RowLayout {
+        ColumnLayout {
             Layout.fillWidth: true
             spacing: Theme.paddingSmall
             PrimaryButton {
+                id: compactModelAction
                 visible: root.node && root.node.configurable === true
                 text: root.modelActionText()
                 iconName: root.modelActionIcon()
@@ -159,40 +188,65 @@ Rectangle {
                 onClicked: root.runModelAction()
             }
             PrimaryButton {
+                id: compactColabAction
                 visible: root.remoteRouteConfigurable()
                 text: qsTr("Colab")
                 iconName: "cloud"
                 quiet: true
+                Layout.fillWidth: true
                 enabled: root.setupEditable()
                 toolTip: qsTr("Configure this task to use its Direct Colab GPU worker")
                 onClicked: root.startColabSetup()
             }
         }
-        RowLayout {
+        ColumnLayout {
             Layout.fillWidth: true
             spacing: Theme.paddingSmall
-            PrimaryButton { iconName: "reload"; iconOnly: true; toolTip: qsTr("Reload model"); quiet: true; visible: root.canReload(); enabled: !root.lifecycleBusy(); onClicked: root.reloadRequested() }
-            PrimaryButton { iconName: "power"; iconOnly: true; toolTip: qsTr("Unload model"); quiet: true; visible: root.canUnload(); enabled: !root.lifecycleBusy(); onClicked: root.unloadRequested() }
-            PrimaryButton { visible: root.canRun; text: qsTr("Run task"); iconName: "play"; Layout.fillWidth: true; enabled: !root.dubbing.processing && root.runReady; onClicked: root.runRequested() }
-            PrimaryButton { visible: root.canRerun; text: qsTr("Run again"); iconName: "run-again"; Layout.fillWidth: true; quiet: true; enabled: !root.dubbing.processing && root.runReady; onClicked: root.runRequested() }
+            PrimaryButton { id: compactReloadAction; iconName: "reload"; text: qsTr("Reload model"); Layout.fillWidth: true; quiet: true; visible: root.canReload(); enabled: !root.lifecycleBusy(); onClicked: root.reloadRequested() }
+            PrimaryButton { id: compactUnloadAction; iconName: "power"; text: qsTr("Unload model"); Layout.fillWidth: true; quiet: true; visible: root.canUnload(); enabled: !root.lifecycleBusy(); onClicked: root.unloadRequested() }
+            PrimaryButton { id: compactRunAction; visible: root.canRun; text: qsTr("Run task"); iconName: "play"; Layout.fillWidth: true; enabled: !root.dubbing.processing && root.runReady; onClicked: root.runRequested() }
+            PrimaryButton { id: compactRerunAction; visible: root.canRerun; text: qsTr("Run again"); iconName: "run-again"; Layout.fillWidth: true; quiet: true; enabled: !root.dubbing.processing && root.runReady; onClicked: root.runRequested() }
             PrimaryButton {
+                id: compactFixAction
                 visible: root.nodeId === "translate"
                          && root.dubbing.dubbingQuality !== "fast"
                          && root.dubbing.adaptiveProvider !== "local"
                          && root.dubbing.translationFixCandidateCount > 0
                 text: qsTr("Fix %1").arg(root.dubbing.translationFixCandidateCount)
                 iconName: "spark"
+                Layout.fillWidth: true
                 quiet: true
                 loading: root.dubbing.translationFixing
                 enabled: root.setupEditable()
                 onClicked: root.fixRequested()
             }
-            PrimaryButton { visible: root.nextNodeId !== "" && root.nextReady; text: qsTr("Next"); iconName: "chevron-right"; enabled: !root.dubbing.processing; onClicked: root.nextRequested() }
+            PrimaryButton { id: compactNextAction; visible: root.nextNodeId !== "" && root.nextReady; text: qsTr("Next"); iconName: "chevron-right"; Layout.fillWidth: true; enabled: !root.dubbing.processing; onClicked: root.nextRequested() }
+        }
+        PrimaryButton {
+            id: compactRouteAction
+            visible: root.remoteRouteConfigurable()
+            Layout.fillWidth: true
+            text: root.currentExecutionProvider() === "colab-direct"
+                  ? qsTr("Manage Colab route") : qsTr("Configure route / model")
+            iconName: "settings"
+            quiet: true
+            enabled: root.setupEditable()
+            toolTip: qsTr("Open the exact route and model setup without allowing controls to overflow this task pane")
+            onClicked: {
+                if (root.currentExecutionProvider() === "colab-direct")
+                    root.startColabSetup()
+                else
+                    root.configureRequested()
+            }
         }
     }
 
     RowLayout {
-        visible: root.remoteRouteConfigurable()
+        // The wide route/model row has explicit widths and therefore belongs
+        // only to the wide form. Compact shelves use the full-width action
+        // above; this prevents Route, model and Configure from escaping into
+        // the preview canvas.
+        visible: root.remoteRouteConfigurable() && !root.compact
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom

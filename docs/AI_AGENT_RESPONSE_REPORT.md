@@ -73,3 +73,47 @@ opened for this run. The package is internal-only because its hash-verified
 eSpeak payload is unsigned; it must not be promoted as a public distributable
 release without signing remediation. All assertions above are source, offscreen
 QML, generated-notebook, and staged-payload evidence.
+
+## 2026-08-12 - completed: Dubbing compactness, timeline containment, OCR bootstrap
+
+### Delivered
+
+- Reduced the fixed Dubbing header to 52 px and the status strip to 46 px.
+  At constrained widths, header actions are deliberately icon-only with
+  accessible labels/tooltips, rather than partially rendered text.
+- Merged source-mode controls into the 40 px preview toolbar: **Original** and
+  **Dubbed** now share a row with the preview title and source actions. The
+  preview title uses compact letter spacing.
+- Bound Dubbing timeline resizing to the lower workspace, defaulting to 300 px
+  and never exceeding the available editor height. Runtime QML regression now
+  rejects any timeline/video overlap. Compact task action panes clip and stack
+  controls so model/Colab/lifecycle buttons cannot overflow their panel.
+- Made Chinese (`zh`) the default source language for a new Dubbing project and
+  every relevant persisted/workflow/controller fallback.
+- Regenerated `LA_STUDIO_SUBTITLE_OCR_PP_OCRV5_GPU.ipynb` as bootstrap
+  `subtitle-ocr-bootstrap-2026-08-12.10`. This corrects the actual fresh-Colab
+  failure: generated code used `ocr_pip("install", ...)` even though `ocr_pip`
+  already inserts `install`, resulting in `pip install ... install ...`. The
+  generator now calls `ocr_pip("--no-cache-dir", ...)`; verification rejects
+  the old form.
+
+### Verification and package
+
+- Generator and generated-notebook verifier: **32/32 PASS**.
+- Full CTest: **39/39 PASS** in 61.53 seconds, including offscreen QML route
+  smoke, Dubbing timeline/layout contracts, media queue, remote execution, and
+  OCR controller/runtime tests.
+- `graphify update .` and `git diff --check`: PASS.
+- Portable internal payload staged at
+  `out/LA-Studio-0.0.6.5/LA-Studio-0.0.6.5.exe`. Product Version and File
+  Version are `0.0.6.5`; SHA-256 is
+  `40015BFB9C9E44321785BDD20AD61E1673A631514C9EFD3641BAE74941780A84`.
+  Package staging verified 19 required runtime artifacts. The packaged OCR
+  notebook exists and carries revision `.10`.
+
+### Boundary
+
+No desktop GUI, user session, or live Colab GPU worker was opened. This is an
+internal package only: its eSpeak payload hash is verified but unsigned, so it
+must not be promoted to a public distributable release without signing
+remediation.

@@ -584,7 +584,11 @@ void TestMediaIngestService::controllerRetainsDouyinLinkForCookieRetry()
     QCOMPARE(downloaded.value(QStringLiteral("downloadState")).toString(), QStringLiteral("downloaded"));
     QVERIFY(QFileInfo(downloaded.value(QStringLiteral("localPath")).toString()).isFile());
     QVERIFY(!downloaded.contains(QStringLiteral("sourceUrl")));
-    QVERIFY(!controller.douyinCookieConfigured());
+    // Queue advancement is deliberately posted after the resolver's finished
+    // signal so the next queued URL cannot re-enter that signal handler.  The
+    // selected cookie is nevertheless memory-only and must be cleared before
+    // the retry is observable as complete to the caller.
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.douyinCookieConfigured(), 1000);
 }
 
 void TestMediaIngestService::controllerCommitsDirectLinkOnlyAfterRealProbeAndNormalization()
@@ -955,7 +959,7 @@ void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
     QVERIFY(dubbingPage.contains(QStringLiteral("visible: root.compactDubbingControls && node !== null")));
     QVERIFY(dubbingPage.contains(QStringLiteral("isAdvancedNodeInspectorOpen")));
     QVERIFY(dubbingPage.contains(QStringLiteral("Dubbing workbench shelf or full-width timeline is unavailable")));
-    QVERIFY(dubbingPage.contains(QStringLiteral("Layout.minimumWidth: root.compactDubbingControls ? 240 : 280")));
+    QVERIFY(dubbingPage.contains(QStringLiteral("Layout.minimumWidth: root.compactDubbingControls ? 240 : 320")));
     QVERIFY(dubbingPage.contains(QStringLiteral("Drag to resize Dubbing History")));
     QVERIFY(dubbingPage.contains(QStringLiteral("Drag to resize Dubbing Preview")));
     QVERIFY(dubbingPage.contains(QStringLiteral("Drag to resize task controls")));
@@ -980,7 +984,8 @@ void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
     QVERIFY(dubbingSource.contains(QStringLiteral("dubbingSourceSetupScrollView")));
     QVERIFY(dubbingSource.contains(QStringLiteral("id: previewToolbar")));
     QVERIFY(dubbingSource.contains(QStringLiteral("objectName: \"dubbingPreviewToolbar\"")));
-    QVERIFY(dubbingSource.contains(QStringLiteral("longer editing actions in a scrollable toolbar below it")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("All preview controls share one horizontal editor toolbar")));
+    QVERIFY(dubbingSource.contains(QStringLiteral("dubbingPreviewModeSelector")));
     QVERIFY(dubbingSource.contains(QStringLiteral("Layout.minimumHeight: root.isVideoSource ? 440 : 300")));
     QVERIFY(dubbingHeader.contains(QStringLiteral("id: workflowStepsFlickable")));
     QVERIFY(dubbingHeader.contains(QStringLiteral("id: headerActionCluster")));

@@ -963,3 +963,34 @@ Cap nhat: 2026-08-11
 - The package has not been visibly launched and no live Colab worker was
   claimed. It remains internal-only because the verified eSpeak payload is
   unsigned.
+
+### 2026-08-12 - 0.0.6.5 Dubbing layout and OCR bootstrap correction
+
+- The Dubbing header is 52 px and intentionally compacts action controls to
+  icon-only buttons with tooltips before text can be clipped. The status strip
+  is 46 px rather than a large permanent banner.
+- The preview toolbar is a single 40 px row: `VIDEO PREVIEW`, source actions,
+  and the **Original / Dubbed** selector share that row. The selector is no
+  longer a second row. The title's letter spacing was reduced for a denser
+  editor treatment.
+- Timeline resizing is bounded to its lower workspace. A QML smoke check now
+  fails if the timeline overlaps the video workspace; the initial height is
+  300 px and its maximum is calculated from the available editor height.
+- Compact task settings panels clip their contents and stack model, Colab, and
+  action controls within the pane instead of overflowing into the preview.
+  The default Dubbing source language is Chinese (`zh`) in the project model,
+  workflow fallback paths, controller, and setup dialog.
+- Subtitle OCR notebook revision `.10` fixes the reported bootstrap crash: the
+  generated call is now `ocr_pip("--no-cache-dir", ...)`, so the actual command
+  contains exactly one `pip install`, rather than the invalid duplicated
+  `pip install ... install ...` invocation.
+- Evidence: generated exact-model notebooks **32/32 PASS**; full CTest
+  **39/39 PASS** in 61.53 s, including the offscreen QML route smoke;
+  `graphify update .` and `git diff --check` passed. Production portable
+  package staged with 19 required runtime artifacts at
+  `out/LA-Studio-0.0.6.5/LA-Studio-0.0.6.5.exe`; Product/File Version are
+  `0.0.6.5`, SHA-256
+  `40015BFB9C9E44321785BDD20AD61E1673A631514C9EFD3641BAE74941780A84`.
+- The packaged OCR notebook is revision `.10`. No visible desktop app or live
+  Colab worker was opened for this run. The package remains internal-only
+  because its hash-verified eSpeak payload is unsigned.

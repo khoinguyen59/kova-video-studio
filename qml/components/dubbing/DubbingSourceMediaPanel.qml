@@ -187,7 +187,10 @@ Rectangle {
                 && controlsAutoHide.delayMs === 2000
                 && subtitleEditorButton.width > 0
                 && previewToolbar.width > 0
-                && previewToolbar.height === 38
+                && previewToolbar.height === 40
+                && previewModeSelector.y >= -1
+                && previewModeSelector.y + previewModeSelector.height
+                   <= previewToolbar.height + 1
                 && subtitlePreviewOverlay.width > 0
                 && previewFrame.width > 0
                 && previewFrame.height > 0
@@ -338,69 +341,17 @@ Rectangle {
         anchors.fill: parent
         anchors.margins: Theme.paddingMedium
         spacing: Theme.paddingSmall
-        // Keep preview-state controls in their own fixed row and put the
-        // longer editing actions in a scrollable toolbar below it.  The former
-        // one-line row had more required controls than a narrow central canvas
-        // could ever hold, so buttons either painted over the video or were
-        // truncated.  This mirrors an editor toolbar without reducing the
-        // playable canvas.
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Theme.paddingSmall
-            Text {
-                text: qsTr("VIDEO PREVIEW")
-                color: Theme.textSecondary
-                font.pixelSize: Theme.fontSmall
-                font.bold: true
-                font.letterSpacing: 1.1
-            }
-            Item { Layout.fillWidth: true }
-            Rectangle {
-                Layout.preferredWidth: 214
-                Layout.minimumWidth: 214
-                Layout.preferredHeight: 32
-                radius: Theme.radiusSmall
-                color: Qt.rgba(0, 0, 0, 0.18)
-                border.color: Qt.rgba(1, 1, 1, 0.08)
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.margins: 3
-                    spacing: 3
-                    PreviewModeButton {
-                        Layout.fillWidth: true
-                        text: qsTr("Original")
-                        iconName: "file"
-                        selected: !root.showingDubbedMedia
-                        enabled: root.dubbing.sourceMediaPath.length > 0
-                        onClicked: root.switchPreviewMode("source")
-                    }
-                    PreviewModeButton {
-                        Layout.fillWidth: true
-                        text: qsTr("Dubbed")
-                        iconName: "mic"
-                        selected: root.showingDubbedMedia
-                        enabled: root.hasDubbedPreview
-                        onClicked: root.switchPreviewMode("dubbed")
-                    }
-                }
-            }
-            Text {
-                Layout.maximumWidth: 104
-                text: root.showingDubbedMedia
-                      ? qsTr("Dubbed mix")
-                      : (root.dubbing.sourceMediaPath.length > 0 ? qsTr("Original audio") : qsTr("No media"))
-                color: root.dubbing.sourceMediaPath.length > 0 ? Theme.success : Theme.textSecondary
-                font.pixelSize: Theme.fontSmall
-                elide: Text.ElideRight
-            }
-        }
-
+        // All preview controls share one horizontal editor toolbar.  Keeping
+        // Original/Dubbed on a second row made the preview feel detached and
+        // permanently consumed vertical space.  The one toolbar scrolls as a
+        // unit on narrow canvases rather than wrapping or painting controls
+        // over the video frame.
         Flickable {
             id: previewToolbar
             objectName: "dubbingPreviewToolbar"
             Layout.fillWidth: true
-            Layout.preferredHeight: 38
-            Layout.minimumHeight: 38
+            Layout.preferredHeight: 40
+            Layout.minimumHeight: 40
             contentWidth: previewToolbarRow.implicitWidth
             contentHeight: height
             clip: true
@@ -411,6 +362,17 @@ Rectangle {
                 id: previewToolbarRow
                 height: previewToolbar.height
                 spacing: Theme.paddingSmall
+                Text {
+                    width: implicitWidth
+                    height: previewToolbar.height
+                    text: qsTr("VIDEO PREVIEW")
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSmall
+                    font.bold: true
+                    // A compact title leaves room for actual editing controls.
+                    font.letterSpacing: 0.25
+                    verticalAlignment: Text.AlignVCenter
+                }
                 Button {
                     id: subtitleEditorButton
                     objectName: "dubbingSubtitleEditorButton"
@@ -480,6 +442,48 @@ Rectangle {
                         if (index >= 0 && index < model.length)
                             root.previewFrameMode = model[index].value
                     }
+                }
+                Rectangle {
+                    id: previewModeSelector
+                    objectName: "dubbingPreviewModeSelector"
+                    width: 206
+                    height: 32
+                    anchors.verticalCenter: parent.verticalCenter
+                    radius: Theme.radiusSmall
+                    color: Qt.rgba(0, 0, 0, 0.18)
+                    border.color: Qt.rgba(1, 1, 1, 0.08)
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.margins: 3
+                        spacing: 3
+                        PreviewModeButton {
+                            Layout.fillWidth: true
+                            text: qsTr("Original")
+                            iconName: "file"
+                            selected: !root.showingDubbedMedia
+                            enabled: root.dubbing.sourceMediaPath.length > 0
+                            onClicked: root.switchPreviewMode("source")
+                        }
+                        PreviewModeButton {
+                            Layout.fillWidth: true
+                            text: qsTr("Dubbed")
+                            iconName: "mic"
+                            selected: root.showingDubbedMedia
+                            enabled: root.hasDubbedPreview
+                            onClicked: root.switchPreviewMode("dubbed")
+                        }
+                    }
+                }
+                Text {
+                    width: 104
+                    height: previewToolbar.height
+                    text: root.showingDubbedMedia
+                          ? qsTr("Dubbed mix")
+                          : (root.dubbing.sourceMediaPath.length > 0 ? qsTr("Original audio") : qsTr("No media"))
+                    color: root.dubbing.sourceMediaPath.length > 0 ? Theme.success : Theme.textSecondary
+                    font.pixelSize: Theme.fontSmall
+                    verticalAlignment: Text.AlignVCenter
+                    elide: Text.ElideRight
                 }
             }
 

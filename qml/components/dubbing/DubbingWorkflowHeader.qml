@@ -26,8 +26,11 @@ Rectangle {
     // At compact editor widths, keep actions available as icon buttons with
     // tooltips.  A partially visible word such as "Wor" is not a usable
     // control; the workflow rail is the only header region permitted to scroll.
-    readonly property bool compactHeaderChrome: width < 1380
-    readonly property bool compactActionCluster: width < 1580
+    readonly property bool compactHeaderChrome: width < 1460
+    // At desktop widths a clipped action label is worse than a deliberate
+    // icon control with its tooltip.  Reserve enough rail width for stage
+    // labels before showing the full action captions.
+    readonly property bool compactActionCluster: width < 1980
 
     signal stepSelected(string stepId)
     signal historyToggled()
@@ -79,8 +82,8 @@ Rectangle {
     }
 
     Layout.fillWidth: true
-    Layout.preferredHeight: 60
-    Layout.minimumHeight: 60
+    Layout.preferredHeight: 52
+    Layout.minimumHeight: 52
     color: Qt.rgba(0, 0, 0, 0.10)
     border.color: Qt.rgba(1, 1, 1, 0.06)
     border.width: 1

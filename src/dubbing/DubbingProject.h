@@ -25,7 +25,7 @@ public:
     int sourceSampleRate = 0;
     int sourceChannels = 0;
     bool sourceIsVideo = false;
-    QString sourceLanguage = QStringLiteral("en");
+    QString sourceLanguage = QStringLiteral("zh");
     QString targetLanguage = QStringLiteral("vi");
     QString dubbingQuality = QStringLiteral("adaptive");
     // This is a durable operator choice, separate from the transient workflow

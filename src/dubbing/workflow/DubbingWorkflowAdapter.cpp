@@ -53,7 +53,7 @@ void DubbingWorkflowAdapter::start(const QString &nodeType, const QVariantMap &i
                             .arg(unresolvedConflicts));
             return;
         }
-        m_runner->startTranslation(parameters.value(QStringLiteral("sourceLanguage"), QStringLiteral("auto")).toString(),
+        m_runner->startTranslation(parameters.value(QStringLiteral("sourceLanguage"), QStringLiteral("zh")).toString(),
                                    parameters.value(QStringLiteral("targetLanguage")).toString(),
                                    inputs.value(QStringLiteral("transcript")).toList(), parameters);
     } else if (nodeType == QStringLiteral("dubbing.synthesize-segments")) {

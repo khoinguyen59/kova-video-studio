@@ -84,7 +84,7 @@ bool DubbingProject::fromJson(const QJsonObject &json, DubbingProject &project, 
     project.sourceSampleRate = json.value(QStringLiteral("sourceSampleRate")).toInt();
     project.sourceChannels = json.value(QStringLiteral("sourceChannels")).toInt();
     project.sourceIsVideo = json.value(QStringLiteral("sourceIsVideo")).toBool();
-    project.sourceLanguage = json.value(QStringLiteral("sourceLanguage")).toString(QStringLiteral("en"));
+    project.sourceLanguage = json.value(QStringLiteral("sourceLanguage")).toString(QStringLiteral("zh"));
     project.targetLanguage = json.value(QStringLiteral("targetLanguage")).toString(QStringLiteral("vi"));
     project.dubbingQuality = json.value(QStringLiteral("dubbingQuality")).toString(QStringLiteral("adaptive"));
     if (project.dubbingQuality != QStringLiteral("adaptive")
