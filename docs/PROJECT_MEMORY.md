@@ -42,6 +42,23 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   sau khi in summary, nen khong co exit-code capture rieng. Khong co live
   Colab/GPU test va khong co package moi trong batch nay.
 
+### 2026-08-11 - Subtitle OCR isolated Colab environment (unpackaged)
+
+- Log tiep theo xac nhan pin/force-reinstall Pillow trong interpreter global
+  cua Colab van khong du: `ImageText.py` van doc duoc nhung `_typing.py` active
+  van cu. Khong duoc coi wheel audit tren may dev la bang chung cho global
+  Colab site-packages.
+- Commit `23e7d0d` tao lai virtual environment rieng
+  `/content/la_studio_subtitle_ocr_venv` moi lan Run all. Pip, dependency
+  probe va Uvicorn deu chay bang `.../bin/python`; `PYTHONPATH` va user-site
+  bi loai bo. Probe assert `sys.prefix != sys.base_prefix`, import ca
+  `ImageText`/`_Ink`, sau do moi import PaddleOCR/CUDA.
+- Shared launcher duoc mo rong co worker Python explicit va isolation flag;
+  tat ca notebook phu thuoc launcher duoc regenerate de verifier khong cho
+  phep stale output. Verifier 32/32 PASS; generated probe syntax/environment
+  PASS; clean local venv Pillow import PASS; full CTest da in 39/39 PASS trong
+  batch. Van chua co live Colab GPU acceptance va khong co package moi.
+
 ### 2026-08-11 - Subtitle OCR Pillow package coherence repair (unpackaged)
 
 - Log Colab sau pin Paddle stack cho thay mot loi doc lap: `PIL/ImageText.py`

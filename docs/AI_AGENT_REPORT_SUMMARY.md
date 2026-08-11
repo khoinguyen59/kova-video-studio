@@ -9,7 +9,7 @@ Cap nhat: 2026-08-11
 | Latest packaged candidate | `0.0.6.3` |
 | Artifact | `out/LA-Studio-0.0.6.3/LA-Studio-0.0.6.3.exe` |
 | SHA-256 | `B3322735B67EEE453FA5549AB35CB5DC95D2E578B68A9BEC7BCDE25F1FDB3137` |
-| Current source | `main` at `c4689c1`; the 0.0.6.3 package is unchanged and later, un-packaged Subtitle OCR notebook fixes are present in source. |
+| Current source | `main` at `23e7d0d`; the 0.0.6.3 package is unchanged and later, un-packaged Subtitle OCR notebook fixes are present in source. |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
 
 ## Candidate 0.0.6.3 - Dubbing workbench restructure
@@ -56,6 +56,17 @@ Cap nhat: 2026-08-11
   import probes. It passed **32/32**; a direct wheel-content check confirmed
   that Pillow 12's `ImageText.py` and `PIL._typing._Ink` match. Full CTest
   completed with **39/39 passed, 0 failed** in 56.51 seconds.
+- The next live log proved that force-reinstalling Pillow into Colab's global
+  interpreter did not guarantee that its active `PIL` directory was coherent.
+  `23e7d0d` therefore creates a cleared, dedicated
+  `/content/la_studio_subtitle_ocr_venv`; installation, Paddle/Pillow probe,
+  and Uvicorn all use only that interpreter. `PYTHONPATH` and Python user-site
+  are removed for each of those processes, and the probe asserts that it is
+  inside the venv.
+- The shared launcher was regenerated across its affected notebooks so they
+  stay in sync. Generated notebook verification remains **32/32 passed**;
+  the generated isolated probe compiles, the shared-launch isolation contract
+  passes, and a clean local venv imported Pillow 12's `ImageText` and `_Ink`.
 - The correction is on `main`, but is not retroactively inside the staged
   `0.0.6.3` portable artifact. It still requires a fresh Colab runtime for
   live acceptance.

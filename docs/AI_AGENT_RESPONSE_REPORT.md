@@ -1,43 +1,46 @@
-# AI agent response — Subtitle OCR Pillow repair
+# AI agent response — Subtitle OCR isolated Colab repair
 
 Date: 2026-08-11
 
-## Root cause
+## What the new log proved
 
-This is a second, independent Colab environment failure. `PIL/ImageText.py`
-from Pillow 12 imports `_Ink`, but the runtime had an older
-`PIL/_typing.py` without that symbol. Therefore Pillow had been partially
-overwritten. The `ccache` warning is informational and is not the cause.
+The previous Pillow force-reinstall ran in Colab's mutable global Python. The
+same `_Ink` error proves that this global environment could still resolve a
+mixed `PIL` directory. The `ccache` warning remains unrelated.
 
 ## Correction delivered
 
-`c4689c1 fix: repair subtitle ocr pillow stack` is on `main`.
+Commit `23e7d0d fix: isolate subtitle ocr colab environment` is on `main`.
 
-- The generated exact Subtitle OCR notebook force-reinstalls the coherent
-  `Pillow==12.0.0` wheel after the fixed Paddle stack.
-- Before importing PaddleOCR or starting Uvicorn, it imports both
-  `PIL.ImageText` and `PIL._typing._Ink`, and asserts every pinned version.
-- Notebook revision: `subtitle-ocr-2026-08-11.4`.
+- Every **Run all** now creates a cleared dedicated venv at
+  `/content/la_studio_subtitle_ocr_venv`.
+- Paddle, PaddleOCR, PaddleX, Pillow, FastAPI and Uvicorn are installed inside
+  it; the old Colab global `PIL` is never reused.
+- The preflight and Uvicorn worker both use the venv Python. `PYTHONPATH` and
+  user-site packages are removed, and preflight asserts it is in the venv.
+- The probe imports `ImageText` and `_Ink`, then PaddleOCR and CUDA, before it
+  allows the worker to start.
 
 ## Evidence
 
-- Generated-notebook contract verification: **32/32 passed**.
-- Pillow 12 wheel coherence check: **passed**.
-- Full CTest: **39/39 passed, 0 failed** in 56.51 seconds.
-- `graphify update .`: completed.
+- Notebook contract verification: **32/32 passed**.
+- Generated venv probe syntax/environment contract: **passed**.
+- Clean local virtual environment: Pillow 12 imported `ImageText` and `_Ink`:
+  **passed**.
+- Full CTest printed **39/39 passed, 0 failed** in 58.38 seconds.
+- No live Colab GPU worker or desktop GUI was opened.
 
-No GUI, live Colab GPU, or external worker was opened. No new EXE was built:
-this is a notebook-only hotfix and portable `0.0.6.3` is unchanged.
+No EXE was created: this is a Colab-notebook-only repair.
 
 ## Required retry
 
-Pull `main`, open
+Pull `main`, open the current
 `notebooks/LA_STUDIO_SUBTITLE_OCR_PP_OCRV5_GPU.ipynb`, choose a GPU runtime,
-then use **Runtime → Disconnect and delete runtime** and **Run all**. The
-dependency cell itself now repairs Pillow. Before the worker starts, it must
-print a line beginning:
+then **Runtime → Disconnect and delete runtime → Run all**. This notebook no
+longer relies on global Pillow. It must print:
 
-`Verified Paddle-only OCR stack: ... 3.1.0 3.1.1 12.0.0`
+`Verified isolated OCR stack: ... 3.1.0 3.1.1 12.0.0`
 
-If that line passes but the worker fails later, provide the new worker-log tail;
-the reported `_Ink` import error cannot proceed past this new preflight.
+Only after that line should it start the worker. If it fails, attach the full
+output of the venv installation/probe cell; it will identify the isolated
+package stage rather than a global Colab import.
