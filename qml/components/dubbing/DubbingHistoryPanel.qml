@@ -17,7 +17,12 @@ Rectangle {
     signal deleteRequested(string historyId)
     signal projectOpened()
 
+    // The workbench owns a finite horizontal canvas. Keep History resizable
+    // inside that canvas instead of contributing an unconstrained implicit
+    // width that can cover the preview or inspector.
     Layout.preferredWidth: root.panelWidth
+    Layout.minimumWidth: 240
+    Layout.maximumWidth: 560
     Layout.fillHeight: true
     visible: root.expanded
     color: Theme.surface

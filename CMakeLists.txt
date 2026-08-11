@@ -555,6 +555,7 @@ qt_add_qml_module(LAStudio
         qml/components/dubbing/DubbingSubtitleEditor.qml
         qml/components/dubbing/DubbingColabSetupDialog.qml
         qml/components/dubbing/DubbingEntryGateDialog.qml
+        qml/components/dubbing/DubbingProjectSetupDialog.qml
         qml/components/dubbing/DubbingAutomaticPreflightDialog.qml
         qml/components/dubbing/DubbingTranslationFixDialog.qml
         qml/components/dubbing/DubbingQualityDialog.qml

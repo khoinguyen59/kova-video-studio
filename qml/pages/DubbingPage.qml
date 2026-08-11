@@ -40,12 +40,10 @@ Item {
     // result/review surface or its advanced parameter inspector.  This avoids
     // the old two-inspector layout competing for the same narrow space.
     property bool isAdvancedNodeInspectorOpen: false
-    // The lower project controls are useful setup information, but they must
-    // not permanently steal height from a loaded video or OCR canvas.
-    // Show project-wide language/voice setup while a project is being
-    // configured.  It is deliberately collapsible from the header, so it
-    // never has to remain beneath the timeline after setup is complete.
-    property bool isProjectStatusPanelOpen: true
+    // Project-wide language and execution-policy choices live in a setup
+    // dialog after choosing Automatic or step-by-step. They are no longer a
+    // permanent panel that steals space from the editor and timeline.
+    property bool isProjectStatusPanelOpen: false
     property bool previewFocusMode: false
     // Dubbing has its own three-pane workspace and therefore cannot inherit
     // StudioShell's generic resizers. Keep these widths local to this real
@@ -307,13 +305,8 @@ Item {
                 qmlSmokeTranscriptSourceFailure = "Dubbing workbench shelf or full-width timeline is unavailable"
                 return -1
             }
-            if (dubbingWorkspaceScroller.contentWidth < dubbingWorkspaceRow.width) {
-                qmlSmokeTranscriptSourceFailure = "workspace content width is smaller than its row"
-                return -1
-            }
-            if (dubbingWorkspaceRow.width > dubbingWorkspaceScroller.width
-                    && !dubbingWorkspaceHorizontalScrollBar.visible) {
-                qmlSmokeTranscriptSourceFailure = "horizontal workspace overflow has no visible scrollbar"
+            if (dubbingWorkspaceRow.width > dubbingWorkspaceScroller.width + 1) {
+                qmlSmokeTranscriptSourceFailure = "task panels overflow the fixed Dubbing workspace instead of resizing it"
                 return -1
             }
             subtitleEditorDialog.open()
@@ -462,17 +455,12 @@ Item {
                 return -1
             }
             if (!dubbingWorkflowHeader.qmlSmokeClickProjectStatusToggle()
-                    || root.isProjectStatusPanelOpen
-                    || dubbingProjectStatusPanel.visible) {
-                qmlSmokeTranscriptSourceFailure = "Project controls toggle did not collapse the lower workspace panel"
+                    || !projectSetupDialog.visible
+                    || root.isProjectStatusPanelOpen) {
+                qmlSmokeTranscriptSourceFailure = "Project settings did not open as a dialog or left a permanent lower workspace panel"
                 return -1
             }
-            if (!dubbingWorkflowHeader.qmlSmokeClickProjectStatusToggle()
-                    || !root.isProjectStatusPanelOpen
-                    || !dubbingProjectStatusPanel.visible) {
-                qmlSmokeTranscriptSourceFailure = "Project controls toggle did not restore the lower workspace panel"
-                return -1
-            }
+            projectSetupDialog.close()
             if (!automaticPreflightDialog.qmlSmokeClickNext()) {
                 qmlSmokeTranscriptSourceFailure = "Source preflight Next remained disabled after media and languages were persisted"
                 return -1
@@ -833,7 +821,8 @@ Item {
                 if (!root.isNodeInspectorOpen)
                     root.isAdvancedNodeInspectorOpen = false
             }
-            onProjectStatusToggled: root.isProjectStatusPanelOpen = !root.isProjectStatusPanelOpen
+            onProjectStatusToggled: projectSetupDialog.openFor(
+                                        root.dubbing.workflowMode === "automatic" ? "automatic" : "step", false)
             onGenerateRequested: {
                 automaticPreflightDialog.openPreflight()
             }
@@ -919,32 +908,22 @@ Item {
             }
         }
 
-        Flickable {
+        Item {
             id: dubbingWorkspaceScroller
             objectName: "dubbingWorkspaceScroller"
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.margins: Theme.paddingMedium
             clip: true
-            boundsBehavior: Flickable.StopAtBounds
-            flickableDirection: Flickable.HorizontalFlick
-            contentWidth: Math.max(width, dubbingWorkspaceRow.implicitWidth + Theme.paddingMedium * 2)
-            contentHeight: height
-
-            ScrollBar.horizontal: ScrollBar {
-                id: dubbingWorkspaceHorizontalScrollBar
-                objectName: "dubbingWorkspaceHorizontalScrollBar"
-                policy: dubbingWorkspaceScroller.contentWidth > dubbingWorkspaceScroller.width
-                        ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
-            }
+            // This deliberately is not a horizontally flicked canvas.  Task
+            // shelves and inspectors take real layout width, so opening one
+            // pushes the preview instead of covering it or creating an
+            // invisible offscreen editor.
+            readonly property real contentWidth: width
 
             RowLayout {
                 id: dubbingWorkspaceRow
-                x: Theme.paddingMedium
-                y: 0
-                width: Math.max(dubbingWorkspaceScroller.width - Theme.paddingMedium * 2,
-                                implicitWidth)
-                height: dubbingWorkspaceScroller.height
+                anchors.fill: parent
                 // Inspection stays available while a worker runs. Individual
                 // actions guard the active stage and automatic workflow.
                 enabled: true
@@ -971,22 +950,26 @@ Item {
                 Layout.preferredWidth: 8
                 Layout.fillHeight: true
                 radius: 4
-                color: historyResizeMouseArea.containsMouse || historyResizeMouseArea.pressed
+                color: historyResizeHover.hovered || historyResizeDrag.active
                        ? Theme.accent : Qt.rgba(Theme.textSecondary.r, Theme.textSecondary.g, Theme.textSecondary.b, 0.28)
                 visible: root.isHistoryOpen && !root.previewFocusMode
-                ToolTip.visible: historyResizeMouseArea.containsMouse
+                ToolTip.visible: historyResizeHover.hovered
                 ToolTip.text: qsTr("Drag to resize Dubbing History")
-                MouseArea {
-                    id: historyResizeMouseArea
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.SizeHorCursor
-                    property real pressX: 0
+                HoverHandler { id: historyResizeHover; cursorShape: Qt.SizeHorCursor }
+                DragHandler {
+                    id: historyResizeDrag
                     property int pressWidth: 0
-                    onPressed: function(mouse) { pressX = mouse.x; pressWidth = root.dubbingHistoryPanelWidth }
-                    onPositionChanged: function(mouse) {
-                        if (pressed)
-                            root.dubbingHistoryPanelWidth = root.clampedDubbingPanelWidth(pressWidth + mouse.x - pressX, 240, 560)
+                    target: null
+                    xAxis.enabled: true
+                    yAxis.enabled: false
+                    onActiveChanged: {
+                        if (active)
+                            pressWidth = root.dubbingHistoryPanelWidth
+                    }
+                    onTranslationChanged: {
+                        if (active)
+                            root.dubbingHistoryPanelWidth = root.clampedDubbingPanelWidth(
+                                        pressWidth + translation.x, 240, 560)
                     }
                 }
             }
@@ -1141,7 +1124,7 @@ Item {
                 id: dubbingPreviewWorkspace
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                Layout.minimumWidth: 540
+                Layout.minimumWidth: 460
                 Layout.preferredWidth: root.dubbingPreviewPanelWidth
                 spacing: Theme.paddingMedium
 
@@ -1159,8 +1142,6 @@ Item {
                     onSelectedSegmentChanged: root.selectedSegment = selectedSegment
                     onPreviewFocusRequested: function(focused) {
                         root.previewFocusMode = focused
-                        if (focused)
-                            root.isProjectStatusPanelOpen = false
                     }
                 }
             }
@@ -1171,22 +1152,26 @@ Item {
                 Layout.preferredWidth: 8
                 Layout.fillHeight: true
                 radius: 4
-                color: workspaceResizeMouseArea.containsMouse || workspaceResizeMouseArea.pressed
+                color: workspaceResizeHover.hovered || workspaceResizeDrag.active
                        ? Theme.accent : Qt.rgba(Theme.textSecondary.r, Theme.textSecondary.g, Theme.textSecondary.b, 0.28)
                 visible: !root.previewFocusMode
-                ToolTip.visible: visible && workspaceResizeMouseArea.containsMouse
+                ToolTip.visible: visible && workspaceResizeHover.hovered
                 ToolTip.text: qsTr("Drag to resize Dubbing Preview")
-                MouseArea {
-                    id: workspaceResizeMouseArea
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.SizeHorCursor
-                    property real pressX: 0
+                HoverHandler { id: workspaceResizeHover; cursorShape: Qt.SizeHorCursor }
+                DragHandler {
+                    id: workspaceResizeDrag
                     property int pressWidth: 0
-                    onPressed: function(mouse) { pressX = mouse.x; pressWidth = root.dubbingPreviewPanelWidth }
-                    onPositionChanged: function(mouse) {
-                        if (pressed)
-                            root.dubbingPreviewPanelWidth = root.clampedDubbingPanelWidth(pressWidth + mouse.x - pressX, 540, 1280)
+                    target: null
+                    xAxis.enabled: true
+                    yAxis.enabled: false
+                    onActiveChanged: {
+                        if (active)
+                            pressWidth = root.dubbingPreviewPanelWidth
+                    }
+                    onTranslationChanged: {
+                        if (active)
+                            root.dubbingPreviewPanelWidth = root.clampedDubbingPanelWidth(
+                                        pressWidth + translation.x, 460, 1280)
                     }
                 }
             }
@@ -1198,7 +1183,7 @@ Item {
                 visible: !root.previewFocusMode && root.isNodeInspectorOpen
                          && !root.isAdvancedNodeInspectorOpen
                 Layout.fillWidth: true; Layout.fillHeight: true
-                Layout.minimumWidth: 340
+                Layout.minimumWidth: 280
                 Layout.preferredWidth: root.dubbingStepPanelWidth
                 ColumnLayout {
                     anchors.fill: parent; anchors.margins: Theme.paddingMedium; spacing: Theme.paddingSmall
@@ -1865,29 +1850,28 @@ Item {
                 height: 4
                 radius: 2
                 anchors.centerIn: parent
-                color: timelineResizeMouseArea.containsMouse || timelineResizeMouseArea.pressed
+                color: timelineResizeHover.hovered || timelineResizeDrag.active
                        ? Theme.accent : Qt.rgba(Theme.textSecondary.r, Theme.textSecondary.g, Theme.textSecondary.b, 0.55)
             }
 
-            ToolTip.visible: timelineResizeMouseArea.containsMouse
+            ToolTip.visible: timelineResizeHover.hovered
             ToolTip.text: qsTr("Drag to resize Dubbing timeline")
 
-            MouseArea {
-                id: timelineResizeMouseArea
-                anchors.fill: parent
-                hoverEnabled: true
-                preventStealing: true
-                cursorShape: Qt.SizeVerCursor
-                property real pressY: 0
+            HoverHandler { id: timelineResizeHover; cursorShape: Qt.SizeVerCursor }
+            DragHandler {
+                id: timelineResizeDrag
                 property int pressHeight: 0
-                onPressed: function(mouse) {
-                    pressY = mouse.y
-                    pressHeight = root.dubbingTimelinePanelHeight
+                target: null
+                xAxis.enabled: false
+                yAxis.enabled: true
+                onActiveChanged: {
+                    if (active)
+                        pressHeight = root.dubbingTimelinePanelHeight
                 }
-                onPositionChanged: function(mouse) {
-                    if (pressed) {
+                onTranslationChanged: {
+                    if (active) {
                         root.dubbingTimelinePanelHeight = root.clampedDubbingTimelineHeight(
-                                    pressHeight - (mouse.y - pressY))
+                                    pressHeight - translation.y)
                     }
                 }
             }
@@ -1951,19 +1935,6 @@ Item {
             }
         }
 
-        DubbingProjectStatusPanel {
-            id: dubbingProjectStatusPanel
-            dubbing: root.dubbing
-            enabled: true
-            languageCatalog: root.languageCatalog
-            currentStepTitle: root.stepTitle(root.dubbing.currentStepId)
-            visible: root.isProjectStatusPanelOpen
-            Layout.minimumHeight: 0
-            Layout.preferredHeight: visible ? 168 : 0
-            Layout.bottomMargin: visible ? Theme.paddingMedium : 0
-            onAdaptiveSetupRequested: qualityDialog.openForMode("adaptive")
-            onCustomSetupRequested: qualityDialog.openForMode("custom")
-        }
     }
 
     FileDialog {
@@ -2021,16 +1992,34 @@ Item {
         onAutomaticRequested: {
             if (!root.dubbing.chooseDubbingEntryMode("automatic")) return
             close()
-            automaticPreflightDialog.openPreflight()
+            projectSetupDialog.openFor("automatic", true)
         }
         onStepByStepRequested: {
             if (!root.dubbing.chooseDubbingEntryMode("step")) return
             close()
-            root.dubbing.startStepByStep()
+            projectSetupDialog.openFor("step", true)
         }
         onLeaveDubbingRequested: {
             close()
             AppController.workflows.openStudioRoute("welcome")
+        }
+    }
+
+    DubbingProjectSetupDialog {
+        id: projectSetupDialog
+        dubbing: root.dubbing
+        languageCatalog: root.languageCatalog
+        onConfigurationAccepted: function(mode, startAfterApply) {
+            if (!startAfterApply)
+                return
+            if (mode === "automatic")
+                automaticPreflightDialog.openPreflight()
+            else
+                root.dubbing.startStepByStep()
+        }
+        onConfigurationCancelled: function(startAfterApply) {
+            if (startAfterApply)
+                dubbingEntryGate.openGate()
         }
     }
 

@@ -44,7 +44,7 @@ MODEL_NAME = "PP-OCRv5 Multilingual 3.1"
 UPSTREAM_MODEL = "PaddlePaddle/PaddleOCR PP-OCRv5"
 UPSTREAM_VERSION = "PaddleOCR 3.1.1"
 LICENSE = "Apache-2.0"
-WORKER_REVISION = "subtitle-ocr-2026-08-11.4"
+WORKER_REVISION = "subtitle-ocr-2026-08-11.5"
 RESPONSE_CONTRACT = "subtitle-ocr-crops-v1"
 TOKEN = os.environ["LA_STUDIO_COLAB_SUBTITLE_OCR_TOKEN"]
 MAX_UPLOAD_BYTES = 16 * 1024 * 1024
@@ -272,12 +272,31 @@ def build_notebook() -> dict:
                 import os
                 import subprocess
                 import sys
-                import venv
                 from pathlib import Path
 
                 VENV_DIR = Path("/content/la_studio_subtitle_ocr_venv")
-                venv.EnvBuilder(with_pip=True, clear=True).create(VENV_DIR)
+                # Colab's Python 3.12 image can ship a broken or disabled
+                # ensurepip module. The standard virtual-environment bootstrap
+                # can then fail before OCR dependencies are installed.
+                # virtualenv seeds pip from its own wheel bundle instead of
+                # invoking ensurepip, while still creating a
+                # no-system-site-packages interpreter for the worker.
+                BOOTSTRAP_ENV = os.environ.copy()
+                BOOTSTRAP_ENV.pop("PYTHONPATH", None)
+                BOOTSTRAP_ENV["PYTHONNOUSERSITE"] = "1"
+
+                def bootstrap_pip(*arguments):
+                    subprocess.check_call([sys.executable, "-m", "pip", *arguments], env=BOOTSTRAP_ENV)
+
+                bootstrap_pip("install", "--no-cache-dir", "--upgrade", "--force-reinstall",
+                              "virtualenv==20.31.2")
+                subprocess.check_call([
+                    sys.executable, "-m", "virtualenv", "--clear", "--no-download",
+                    "--python", sys.executable, str(VENV_DIR),
+                ], env=BOOTSTRAP_ENV)
                 OCR_PYTHON = str(VENV_DIR / "bin" / "python")
+                if not Path(OCR_PYTHON).is_file():
+                    raise RuntimeError("virtualenv did not create the isolated Subtitle OCR Python interpreter")
                 OCR_ENV = os.environ.copy()
                 OCR_ENV.pop("PYTHONPATH", None)
                 OCR_ENV["PYTHONNOUSERSITE"] = "1"

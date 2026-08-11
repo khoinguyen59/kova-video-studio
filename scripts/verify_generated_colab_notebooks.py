@@ -189,8 +189,11 @@ def main() -> int:
                         '"paddleocr==3.1.1"',
                         '"paddlex[ie,multimodal,ocr,trans]==3.1.0"',
                         '"Pillow==12.0.0"',
-                        'venv.EnvBuilder(with_pip=True, clear=True).create(VENV_DIR)',
+                        '"virtualenv==20.31.2"',
+                        'sys.executable, "-m", "virtualenv", "--clear", "--no-download"',
+                        '"--python", sys.executable, str(VENV_DIR)',
                         'OCR_PYTHON = str(VENV_DIR / "bin" / "python")',
+                        'virtualenv did not create the isolated Subtitle OCR Python interpreter',
                         'OCR_ENV.pop("PYTHONPATH", None)',
                         'OCR_ENV["PYTHONNOUSERSITE"] = "1"',
                         'WORKER_PYTHON = \'/content/la_studio_subtitle_ocr_venv/bin/python\'',
@@ -207,6 +210,10 @@ def main() -> int:
                     if any(marker not in worker_source for marker in required_stack_markers):
                         mismatches.append(
                             f"Subtitle OCR notebook does not pin and probe the Paddle-only 3.1.0 stack: {generated.name}"
+                        )
+                    if 'venv.EnvBuilder(with_pip=True, clear=True).create(VENV_DIR)' in worker_source:
+                        mismatches.append(
+                            f"Subtitle OCR notebook still uses the broken Colab ensurepip bootstrap: {generated.name}"
                         )
                     if "paddle.device.set_device(\"gpu:0\")" not in worker_source \
                             or "paddle.device.cuda.get_device_name(0)" not in worker_source:

@@ -736,13 +736,14 @@ void TestRemoteExecution::workflowActivityOnlyDisplaysMeasuredProgress()
     QVERIFY(sourcePanelSource.contains(QStringLiteral("OCR scan area locked while running")));
     QVERIFY(sourcePanelSource.contains(QStringLiteral("preventStealing: true")));
 
-    QFile projectStatus(sourceRoot.filePath(
-        QStringLiteral("qml/components/dubbing/DubbingProjectStatusPanel.qml")));
-    QVERIFY(projectStatus.open(QIODevice::ReadOnly));
-    const QString projectStatusSource = QString::fromUtf8(projectStatus.readAll());
-    QVERIFY(projectStatusSource.contains(QStringLiteral("Add speaker label")));
-    QVERIFY(projectStatusSource.contains(QStringLiteral("Set before starting a job")));
-    QVERIFY(projectStatusSource.contains(QStringLiteral("Execution and rewrite policy only")));
+    QFile projectSetup(sourceRoot.filePath(
+        QStringLiteral("qml/components/dubbing/DubbingProjectSetupDialog.qml")));
+    QVERIFY(projectSetup.open(QIODevice::ReadOnly));
+    const QString projectSetupSource = QString::fromUtf8(projectSetup.readAll());
+    QVERIFY(projectSetupSource.contains(QStringLiteral("Automatic Dubbing setup")));
+    QVERIFY(projectSetupSource.contains(QStringLiteral("Step-by-step Dubbing setup")));
+    QVERIFY(projectSetupSource.contains(QStringLiteral("Execution quality")));
+    QVERIFY(projectSetupSource.contains(QStringLiteral("Continue to preflight")));
 
     QFile workflowHeader(sourceRoot.filePath(
         QStringLiteral("qml/components/dubbing/DubbingWorkflowHeader.qml")));
@@ -752,10 +753,16 @@ void TestRemoteExecution::workflowActivityOnlyDisplaysMeasuredProgress()
     QVERIFY(workflowHeaderSource.contains(QStringLiteral("projectStatusToggled")));
     QVERIFY(workflowHeaderSource.contains(QStringLiteral("dubbingProjectStatusToggle")));
     QVERIFY(workflowHeaderSource.contains(QStringLiteral("qmlSmokeClickProjectStatusToggle")));
+    QVERIFY(workflowHeaderSource.contains(QStringLiteral("Project settings")));
+    QVERIFY(workflowHeaderSource.contains(QStringLiteral("Layout.preferredHeight: 84")));
+    QVERIFY(workflowHeaderSource.contains(QStringLiteral("workflowStepsFlickable")));
 
     QVERIFY(pageSource.contains(QStringLiteral("isProjectStatusPanelOpen")));
-    QVERIFY(pageSource.contains(QStringLiteral("dubbingProjectStatusPanel")));
-    QVERIFY(pageSource.contains(QStringLiteral("root.isProjectStatusPanelOpen = false")));
+    QVERIFY(!pageSource.contains(QStringLiteral("DubbingProjectStatusPanel {")));
+    QVERIFY(pageSource.contains(QStringLiteral("DubbingProjectSetupDialog")));
+    QVERIFY(pageSource.contains(QStringLiteral("projectSetupDialog.openFor(\"automatic\", true)")));
+    QVERIFY(pageSource.contains(QStringLiteral("not a horizontally flicked canvas")));
+    QVERIFY(pageSource.contains(QStringLiteral("DragHandler")));
     QVERIFY(pageSource.contains(QStringLiteral("qmlSmokeLoadedSourceLayoutCheck")));
 }
 
