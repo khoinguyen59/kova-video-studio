@@ -1,44 +1,45 @@
-# AI agent response - Dubbing panes and Subtitle OCR bootstrap
+# AI agent response - Dubbing pane contract and Subtitle OCR bootstrap
 
 Date: 2026-08-11
 
 ## Delivered source change
 
-Commit `8d256ce fix: stabilize dubbing layout and ocr colab bootstrap` is
-pushed directly to `origin/main`.
+Commit `5dddf99 fix: stabilize dubbing panes and OCR Colab runtime` is pushed
+directly to `origin/main`.
 
-- Dubbing now uses fixed layout panes instead of a horizontal offscreen canvas:
-  optional history and task controls are left of the central preview, task
-  output/review is on the right, and the Timeline spans the lower workspace.
-  Selecting a task consumes layout space rather than covering the preview.
-- The header has two rows. Utility actions remain visible while the task rail
-  scrolls independently, so labels such as **Workflow** are not truncated.
-  The history, preview and timeline resize handles use continuous drag handlers.
-- Languages and execution quality are requested in a popup immediately after
-  selecting Automatic or step-by-step mode, or through **Project settings**.
-  They no longer occupy a permanent lower panel.
-- The Subtitle OCR notebook replaces the failing stdlib `ensurepip` venv path
-  with `virtualenv==20.31.2`, then preserves the isolated exact Paddle OCR
-  dependency stack. The generated verifier rejects the old bootstrap path.
+- Dubbing keeps its CapCut-style editor order in one real layout: optional task
+  controls on the left, a central preview, a task review/inspector on the
+  right, and a full-width Timeline below. The shelf and preview have separate
+  drag handles; the preview is larger by default.
+- The QML smoke route now rejects four concrete geometry failures: shelf over
+  its handle, shelf over preview, preview over its handle, and preview over
+  the review pane. This prevents feature panels from being painted over the
+  video instead of consuming layout space.
+- Header utility actions live in a dedicated horizontally scrollable strip, so
+  **Generate Final Dubbing**, **Colab setup**, and **Workflow** retain their
+  complete labels rather than becoming clipped fragments. The obsolete hidden
+  duplicate buttons were removed.
+- The existing Project Setup dialog remains the only project-language and
+  quality chooser after the user picks **Automatic** or **Step-by-step**;
+  those choices no longer need a permanent lower panel.
+- Subtitle OCR no longer creates a `venv` or invokes `ensurepip`. It installs
+  the exact pinned OCR stack into `/content/la_studio_subtitle_ocr_site` and
+  launches the worker with that directory first on `PYTHONPATH`. The preflight
+  probe verifies Paddle loads from that dedicated directory, avoiding both the
+  reported `ensurepip` failure and the mixed-Pillow `_Ink` import failure.
 
 ## Evidence
 
-- Generated exact-model notebook verification: **32/32 passed**.
-- Fresh virtualenv bootstrap smoke: **passed** (isolated interpreter and pip).
-- Changed Dubbing QML parser check: **passed**.
-- Source contract checks and `git diff --check`: **passed**.
+- Exact generated Colab notebooks: **32/32 verified** after regeneration.
+- Subtitle OCR notebook source contract: **passed**; it contains no
+  `venv.EnvBuilder`, `virtualenv`, or legacy virtual-environment worker path.
+- Python generator compilation, changed QML parser checks, and `git diff
+  --check`: **passed**.
+- `graphify update .`: **completed** (AST update; no topology changes).
 
 ## Validation boundary
 
-Full CTest, a desktop build, package creation, and live Colab acceptance were
-not run for this batch. The test script stops before configuring because the
-current machine has no Qt development kit (`Qt6Config.cmake` / `LA_QT` is
-unavailable). This is recorded as **blocked**, not a passing test result. No
-GUI, browser, or live Colab worker was opened.
-
-`graphify update .` was also attempted after the source change. Its AST phase
-started, but the local Graphify environment lacks its optional `anthropic`
-package for semantic extraction; the graph output is therefore not claimed as
-updated.
-
-No new EXE was created; the latest packaged candidate remains `0.0.6.3`.
+`run_tests.ps1 -Preset windows-msvc-release -NoBuild` remains blocked before
+CTest because this machine has no Qt development kit (`LA_QT` / `Qt6Config.cmake`).
+Consequently, no desktop build, package, GUI interaction, or live Colab worker
+was claimed for this batch. The latest packaged candidate is still `0.0.6.3`.

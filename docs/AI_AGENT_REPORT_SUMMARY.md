@@ -2,6 +2,22 @@
 
 Cap nhat: 2026-08-11
 
+## 2026-08-11 - Dubbing pane contract and Subtitle OCR no-venv bootstrap
+
+- Source commit `5dddf99` keeps the Dubbing workbench as fixed, resizable
+  task/preview/review panes with the Timeline below; new smoke guards reject
+  pane overlap rather than treating painted-over content as valid.
+- Header utility actions now have a dedicated horizontal strip so full labels
+  remain reachable at narrow widths. Project languages and quality remain in
+  the post-mode Project Setup dialog instead of a permanent bottom panel.
+- `LA_STUDIO_SUBTITLE_OCR_PP_OCRV5_GPU.ipynb` no longer relies on either
+  `venv.EnvBuilder` or `virtualenv`. The exact pinned PaddleOCR stack is
+  installed into a dedicated package directory and the worker receives that
+  directory through an explicit environment contract.
+- Validation: generated notebooks 32/32, OCR source contract, Python compile,
+  changed QML lint, diff check and Graphify AST update passed. Full CTest/build
+  is blocked locally by the missing Qt development kit; no package was made.
+
 ## Baseline hien tai
 
 | Muc | Trang thai |
@@ -9,7 +25,7 @@ Cap nhat: 2026-08-11
 | Latest packaged candidate | `0.0.6.3` |
 | Artifact | `out/LA-Studio-0.0.6.3/LA-Studio-0.0.6.3.exe` |
 | SHA-256 | `B3322735B67EEE453FA5549AB35CB5DC95D2E578B68A9BEC7BCDE25F1FDB3137` |
-| Current source | `main` at `8d256ce`; the 0.0.6.3 package is unchanged and the latest Dubbing/Subtitle OCR fixes are source-only. |
+| Current source | `main` at `5dddf99`; the 0.0.6.3 package is unchanged and the latest Dubbing/Subtitle OCR fixes are source-only. |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
 
 ## Source batch after 0.0.6.3 - fixed Dubbing panes and OCR bootstrap
@@ -26,20 +42,17 @@ Cap nhat: 2026-08-11
   labels such as **Workflow** cannot be squeezed into fragments. History,
   Preview, and Timeline use `DragHandler`, so a resize continues after the
   pointer leaves the old tiny handle.
-- The Subtitle OCR notebook no longer invokes the Colab stdlib venv bootstrap
-  that failed in `ensurepip`. It installs `virtualenv==20.31.2` from the host
-  pip, creates the isolated interpreter with its bundled pip wheel, then
-  retains the exact Paddle/PaddleOCR/PaddleX/Pillow pins and preflight.
-  Revision: `subtitle-ocr-2026-08-11.5`.
-- Evidence: the generated notebook verifier passed **32/32**; a fresh
-  virtualenv bootstrap smoke created an isolated Python with pip; `qmllint`
-  parsed the changed Dubbing files; source contract checks and `git diff
-  --check` passed. Full CTest/build is **blocked**, not passed: the current
-  machine has no Qt development kit (`Qt6Config.cmake` / `LA_QT` unavailable),
-  so no desktop/package or live Colab claim is made for this source batch.
-  `graphify update .` started AST extraction but could not finish semantic
-  extraction because the local Graphify environment lacks optional
-  `anthropic`; graph output is not claimed current.
+- The Subtitle OCR notebook no longer invokes a Colab venv bootstrap. It
+  installs the exact Paddle/PaddleOCR/PaddleX/Pillow pins into a dedicated
+  package directory and passes it to the worker in an explicit environment.
+  Revision: `subtitle-ocr-2026-08-11.6`; both `venv.EnvBuilder` and
+  `virtualenv` are rejected by the generator verifier.
+- Evidence: the generated notebook verifier passed **32/32**; the dedicated
+  package source contract, Python compile, changed `qmllint`, source contract
+  checks and `git diff --check` passed. Full CTest/build is **blocked**, not
+  passed: the current machine has no Qt development kit (`Qt6Config.cmake` /
+  `LA_QT` unavailable), so no desktop/package or live Colab claim is made for
+  this source batch. `graphify update .` completed its AST update.
 - The source commit is pushed directly to `origin/main`. No new EXE was built.
 
 ## Candidate 0.0.6.3 - Dubbing workbench restructure
