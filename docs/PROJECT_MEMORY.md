@@ -7,7 +7,7 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 - Desktop local-first: STT, TTS, Voice Cloning, Voice Design, Alignment, Translation, Dubbing, LLM Chat, Download va Subtitle OCR.
 - API Gateway va Direct Colab la hai route doc lap. Token/URL Colab chi o memory session, khong persist vao project/report.
 - Package noi bo moi nhat: `0.0.6.3` tai `out/LA-Studio-0.0.6.3/LA-Studio-0.0.6.3.exe`, SHA-256 `B3322735B67EEE453FA5549AB35CB5DC95D2E578B68A9BEC7BCDE25F1FDB3137`. QML lint, full CTest 39/39, portable artifact audit va hidden offscreen startup smoke PASS. Source hien co hotfix Subtitle OCR Colab chua nam trong EXE nay; manual GUI/live Colab luon la gate rieng.
-- Source moi nhat `771dcf3` (chua dong goi) dua Dubbing ve layout pane co dinh: History/Task controls ben trai tuy chon, Preview o giua, task output ben phai va Timeline full-width ben duoi. Khi workspace hep hon 1000 px, task shelf phai bien mat khoi layout va controls chuyen vao review pane; khong duoc clip/offscreen hay overlay Preview. Smoke geometry phai bat shelf/preview/review overlap va review vuot workspace; khong duoc bo tinh nang/route LA Studio khi sua UX. Language va execution quality phai hoi trong popup sau khi chon Automatic/step-by-step hoac tu **Project settings**, khong duoc nam thuong truc duoi Timeline. Subtitle OCR Colab phai dung dedicated package directory, khong dung `venv.EnvBuilder` hay `virtualenv`; tat ca Pillow/Paddle/PaddleOCR/PaddleX phai import tu package directory nay sau `pip --target --ignore-installed`. Full CTest cua batch nay chua chay duoc vi may hien tai thieu Qt development kit (`Qt6Config.cmake` / `LA_QT`); khong duoc ghi PASS thay cho loi nay.
+- Source moi nhat `d955dd9` (chua dong goi) giu tat ca Dubbing task/route nhung sua workbench pane co dinh: History/Task controls ben trai tuy chon, Preview o giua, task output ben phai va Timeline full-width ben duoi. Header chi cho task rail scroll; action cluster giu du nhan **Workflow**, action phu nam trong overflow menu. Preview default `940 px`, minimum video `440 px`; toolbar chinh sua tach khoi row trang thai video. History/task shelf yield o width hep, khong clip/offscreen hay overlay Preview; Timeline co target resize thuc `28 px`. Language va execution quality phai hoi trong popup sau khi chon Automatic/step-by-step hoac tu **Project settings**, khong duoc nam thuong truc duoi Timeline. Subtitle OCR Colab revision `subtitle-ocr-2026-08-11.7` dung dedicated package directory, xoa chi folder bootstrap cu cua app va resolve Paddle/PaddleOCR/PaddleX/Pillow trong mot `pip --target` transaction; khong dung `venv.EnvBuilder`, `virtualenv` hay `ensurepip`. QML parser, source contract, Python compile, notebook verifier 32/32, diff check va Graphify update PASS. CTest/package van BLOCKED vi machine khong co Qt 6.9 development SDK (`Qt6Config.cmake` / `LA_QT`); khong duoc ghi PASS thay cho loi nay.
 - `0.0.2.23` duoc giu nguyen nhung khong duoc chap nhan: audit bat thieu evidence trace route/model/worker truoc-sau. `0.0.2.24` bo sung trace va package moi, khong ghi de candidate cu.
 - `0.0.2.21` khong duoc chap nhan cho Dubbing Automatic: gate/preflight co
   dead-end media va no-op Configure. `0.0.2.22` sua duong ingest truoc gate,
@@ -16,6 +16,23 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   offscreen khong co native active window.
 
 ## Lich su cap san pham
+
+### 2026-08-11 - Dubbing fixed header/video workspace and OCR bootstrap transaction (unpackaged)
+
+- `d955dd9` tach task rail scroll va action cluster co dinh o Dubbing header,
+  bao dam nhan **Workflow** khong bi cat. Save/Export/Pause/Stop va toggle task
+  controls nam trong overflow menu, khong tranh width voi Preview.
+- Source panel co row trang thai video rieng va preview toolbar scroll ngang;
+  canvas video default `940 px`, minimum `440 px`. History/task control yield
+  theo layout o workspace hep, Timeline co `MouseArea` hit target `28 px` de
+  resize thuc, khong con thanh decor kho keo.
+- Notebook OCR `.7` in bootstrap revision, xoa legacy app-owned venv folder,
+  va cai dat stack fixed trong mot transaction voi CUDA package index. Verifier
+  bat buoc revision, cleanup legacy, CUDA index va dung mot install call.
+- Changed QML parser, source contract, Python compile, notebook verifier 32/32,
+  diff check va graphify update PASS. CMake reconfigure da nhan MSVC sau khi
+  nap Build Tools, nhung dung o `Qt6Config.cmake` vi thieu Qt 6.9 development
+  SDK. Khong co CTest, EXE/package, GUI hay live Colab PASS.
 
 ### 2026-08-11 - compact Dubbing controls and OCR package isolation (unpackaged)
 

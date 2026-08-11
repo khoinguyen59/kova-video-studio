@@ -2,6 +2,35 @@
 
 Cap nhat: 2026-08-11
 
+## 2026-08-11 - Dubbing fixed-pane toolbar and OCR single-transaction bootstrap
+
+- Source commit `d955dd9` is pushed directly to `main`.  The Dubbing header
+  has one scrolling task rail only; the fixed action cluster keeps the complete
+  **Workflow** label available instead of letting it collapse to a fragment.
+  Save, Export, Pause/Stop and task-control visibility are available from its
+  overflow menu, rather than stealing video width.
+- The central video pane defaults to `940 px`, has a `440 px` video minimum,
+  and moves editing actions into a separate horizontal preview toolbar.  The
+  source controls no longer fight the video-mode selector in one row.  At
+  narrow widths History and task controls yield as real layout participants;
+  they do not paint over the canvas.  The timeline drag target is now 28 px
+  and uses press-relative pointer handling instead of an almost invisible
+  decorative line.
+- Language/target and quality selection continue to belong to the existing
+  entry-mode Project Setup dialog after Automatic or Step-by-step is chosen;
+  `DubbingProjectStatusPanel` is not instantiated by the page.
+- Subtitle OCR bootstrap revision `subtitle-ocr-2026-08-11.7` removes only
+  legacy app-owned bootstrap folders, then resolves the fixed Paddle/PaddleOCR/
+  PaddleX/Pillow stack in one dedicated `pip --target` transaction.  It never
+  creates a venv or invokes `ensurepip`, avoiding the reported failed venv
+  bootstrap and later mixed dependency transactions.
+- Evidence: changed QML parser PASS, Python compilation PASS, generated
+  notebook verifier **32/32 PASS**, independent Dubbing/OCR source contract
+  PASS, `git diff --check` PASS and Graphify AST update PASS.  CTest and a new
+  package are blocked: MSVC is available only after developer-environment
+  setup, but the machine has no Qt 6.9 development SDK / `Qt6Config.cmake`.
+  No GUI, live Colab, CTest, EXE or package claim is made for this batch.
+
 ## 2026-08-11 - Compact Dubbing controls and complete OCR package isolation
 
 - Source commit `771dcf3` adds a narrow-workbench contract: under 1000 px the
