@@ -246,6 +246,8 @@ def build_notebook() -> dict:
         url_env="LA_STUDIO_COLAB_SUBTITLE_OCR_URL",
         model_env="LA_STUDIO_COLAB_SUBTITLE_OCR_MODEL",
         log_path="/content/la_studio_subtitle_ocr_worker.log",
+        worker_python="/content/la_studio_subtitle_ocr_venv/bin/python",
+        isolate_python=True,
     )
     return {
         "cells": [
@@ -263,25 +265,48 @@ def build_notebook() -> dict:
             """)},
             {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [], "source": lines("""
                 !nvidia-smi
-                # PaddleOCR 3.1.1 only declares a lower bound for PaddleX.  A
-                # later PaddleX release imports ModelScope, which imports the
-                # preinstalled Colab Torch stack and can fail to link its NCCL
-                # symbols after Paddle is installed.  Keep the upstream-tested
-                # 3.1.0 trio together and reinstall it deterministically.
-                %pip install -q --upgrade --force-reinstall --no-cache-dir "paddlepaddle-gpu==3.1.0" -i https://www.paddlepaddle.org.cn/packages/stable/cu118/
-                %pip install -q --upgrade --force-reinstall --no-cache-dir "paddleocr==3.1.1" "paddlex[ie,multimodal,ocr,trans]==3.1.0" "fastapi==0.115.12" "uvicorn==0.34.3" "python-multipart==0.0.20"
-                # A partially overwritten Colab Pillow package can combine
-                # Pillow 12's ImageText.py with an older PIL._typing.py,
-                # producing "cannot import name _Ink".  Reinstall the exact
-                # wheel after the OCR extras so PIL is one coherent package.
-                %pip install -q --upgrade --force-reinstall --no-cache-dir --only-binary=:all: "Pillow==12.0.0"
+                # Keep OCR out of Colab's mutable global site-packages. A
+                # global install can leave Pillow 12's ImageText.py beside an
+                # older PIL._typing.py, which causes the `_Ink` error reported
+                # in this notebook. The worker below uses only this clean venv.
+                import os
+                import subprocess
+                import sys
+                import venv
+                from pathlib import Path
+
+                VENV_DIR = Path("/content/la_studio_subtitle_ocr_venv")
+                venv.EnvBuilder(with_pip=True, clear=True).create(VENV_DIR)
+                OCR_PYTHON = str(VENV_DIR / "bin" / "python")
+                OCR_ENV = os.environ.copy()
+                OCR_ENV.pop("PYTHONPATH", None)
+                OCR_ENV["PYTHONNOUSERSITE"] = "1"
+
+                def ocr_pip(*arguments):
+                    subprocess.check_call([OCR_PYTHON, "-m", "pip", *arguments], env=OCR_ENV)
+
+                ocr_pip("install", "--upgrade", "pip")
+                # PaddleOCR 3.1.1 only declares a lower bound for PaddleX. A
+                # later PaddleX release imports ModelScope/Torch, so retain the
+                # known 3.1.0 trio inside the same clean interpreter.
+                ocr_pip("install", "--no-cache-dir", "--upgrade", "--force-reinstall",
+                        "paddlepaddle-gpu==3.1.0",
+                        "-i", "https://www.paddlepaddle.org.cn/packages/stable/cu118/")
+                ocr_pip("install", "--no-cache-dir", "--upgrade", "--force-reinstall",
+                        "paddleocr==3.1.1", "paddlex[ie,multimodal,ocr,trans]==3.1.0",
+                        "fastapi==0.115.12", "uvicorn==0.34.3", "python-multipart==0.0.20")
+                ocr_pip("install", "--no-cache-dir", "--upgrade", "--force-reinstall",
+                        "--only-binary=:all:", "Pillow==12.0.0")
             """)},
             {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [], "source": lines("""
                 # Fail in this explicit dependency probe rather than after the
-                # service has started.  This exercises the real PaddleOCR
-                # import path that the worker will use; Torch is deliberately
-                # neither imported nor required by this OCR worker.
+                # service has started. This uses the exact venv interpreter
+                # that will launch Uvicorn, not the Colab kernel interpreter.
+                from textwrap import dedent
+
+                probe = dedent(r'''
                 from importlib.metadata import version
+                import sys
                 from PIL import ImageText
                 from PIL._typing import _Ink
                 import paddle
@@ -291,9 +316,13 @@ def build_notebook() -> dict:
                 assert version("paddlex") == "3.1.0", version("paddlex")
                 assert version("paddleocr") == "3.1.1", version("paddleocr")
                 assert version("pillow") == "12.0.0", version("pillow")
+                assert sys.prefix != sys.base_prefix, "Subtitle OCR must run in its dedicated virtual environment."
                 assert paddle.device.is_compiled_with_cuda(), "Choose a Colab GPU runtime; CPU fallback is disabled."
                 paddle.device.set_device("gpu:0")
-                print("Verified Paddle-only OCR stack:", paddle.__version__, version("paddlex"), version("paddleocr"), version("pillow"))
+                print("Verified isolated OCR stack:", paddle.__version__, version("paddlex"), version("paddleocr"), version("pillow"))
+                '''
+                )
+                subprocess.run([OCR_PYTHON, "-c", probe], check=True, env=OCR_ENV)
             """)},
             {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [], "source": lines(writer)},
             {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [],

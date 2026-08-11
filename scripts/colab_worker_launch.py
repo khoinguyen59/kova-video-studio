@@ -25,12 +25,16 @@ def build_worker_launch(
     url_env: str,
     model_env: str,
     log_path: str,
+    worker_python: str | None = None,
+    isolate_python: bool = False,
 ) -> str:
     """Return a Colab code cell that launches one exact CUDA worker safely."""
     if not all((capability_label, module, model_id, token_env, url_env, model_env, log_path)):
         raise ValueError("Colab launch metadata must be complete")
     if not 1 <= port <= 65535:
         raise ValueError(f"Invalid Colab worker port: {port}")
+    if isolate_python and not worker_python:
+        raise ValueError("An isolated Colab worker must provide its Python executable")
 
     template = r'''
 # LA Studio worker launch contract: __REVISION__
@@ -57,6 +61,8 @@ URL_ENV = __URL_ENV__
 MODEL_ENV = __MODEL_ENV__
 WORKER_LOG = Path(__LOG_PATH__)
 WORKER_MODULE = __WORKER_MODULE__
+WORKER_PYTHON = __WORKER_PYTHON__
+WORKER_PYTHON_ISOLATED = __WORKER_PYTHON_ISOLATED__
 STARTUP_TIMEOUT_SECONDS = 20 * 60
 TUNNEL_TIMEOUT_SECONDS = 90
 TOKEN = secrets.token_urlsafe(32)
@@ -208,12 +214,17 @@ reclaim_previous_la_studio_worker()
 env = os.environ.copy()
 env[TOKEN_ENV] = TOKEN
 env["PYTHONUNBUFFERED"] = "1"
+if WORKER_PYTHON_ISOLATED:
+    # Do not let Colab's global site-packages or a notebook-level PYTHONPATH
+    # bleed into a dedicated worker virtual environment.
+    env.pop("PYTHONPATH", None)
+    env["PYTHONNOUSERSITE"] = "1"
 worker = None
 tunnel = None
 
 with WORKER_LOG.open("w", encoding="utf-8", buffering=1) as worker_output:
     worker = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", __MODULE__, "--host", "127.0.0.1", "--port", str(PORT)],
+        [WORKER_PYTHON, "-m", "uvicorn", __MODULE__, "--host", "127.0.0.1", "--port", str(PORT)],
         cwd="/content",
         env=env,
         stdout=worker_output,
@@ -365,6 +376,8 @@ print("Click Check Colab in the matching LA Studio feature before running it.")
         "__LOG_PATH__": repr(log_path),
         "__MODULE__": repr(module),
         "__WORKER_MODULE__": repr(module.split(":", 1)[0]),
+        "__WORKER_PYTHON__": repr(worker_python) if worker_python else "sys.executable",
+        "__WORKER_PYTHON_ISOLATED__": repr(bool(isolate_python)),
     }
     for placeholder, value in replacements.items():
         template = template.replace(placeholder, value)
