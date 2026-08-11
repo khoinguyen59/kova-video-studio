@@ -55,6 +55,12 @@ Item {
     property int dubbingPreviewPanelWidth: 1040
     property int dubbingTimelinePanelHeight: 300
     property int dubbingStepPanelWidth: 340
+    // The three rows of the editor share one vertical layout budget.  Keeping
+    // these values explicit prevents the timeline splitter from ever painting
+    // on top of the preview when a smaller desktop window is used.
+    readonly property int minimumDubbingWorkspaceHeight: 240
+    readonly property int minimumDubbingTimelinePanelHeight: 160
+    readonly property int dubbingTimelineResizeHandleHeight: 28
     // These breakpoints are derived from the actual non-overlapping minima:
     // History 240 + handle 8 + task shelf 220 + handle 8 + preview 540 +
     // handle 8 + review 280 + four layout gaps.  Hiding the task shelf before
@@ -67,20 +73,26 @@ Item {
     // an explicit layout change, not an overlay; the header button remains
     // available when the operator has enough width to reopen it.
     readonly property bool compactDubbingHistory: dubbingWorkspaceScroller.width < 1080
-    // The timeline may be resized only inside the vertical editor budget.  A
-    // fixed 520px ceiling ignored small desktop heights, which let the lower
-    // pane consume the preview instead of making the workspace shrink first.
-    readonly property int maximumDubbingTimelinePanelHeight: Math.max(160,
-                                                                       Math.min(360,
-                                                                                Math.round(height - 520)))
+    // The timeline may be resized only inside the vertical editor budget.  Its
+    // maximum is calculated from the same nested ColumnLayout that owns the
+    // workspace, splitter and timeline, so a taller timeline always consumes
+    // real workspace height rather than overlapping the preview.
+    readonly property int maximumDubbingTimelinePanelHeight: Math.max(
+                minimumDubbingTimelinePanelHeight,
+                Math.min(360, Math.round(dubbingEditorLayout.height
+                                         - minimumDubbingWorkspaceHeight
+                                         - dubbingTimelineResizeHandleHeight
+                                         - Theme.paddingMedium * 4)))
     function clampedDubbingPanelWidth(value, minimum, maximum) {
         return Math.max(minimum, Math.min(maximum, Math.round(value)))
     }
     function clampedDubbingTimelineHeight(value) {
-        return Math.max(160, Math.min(maximumDubbingTimelinePanelHeight,
+        return Math.max(minimumDubbingTimelinePanelHeight,
+                        Math.min(maximumDubbingTimelinePanelHeight,
                                       Math.round(value)))
     }
-    onHeightChanged: dubbingTimelinePanelHeight = clampedDubbingTimelineHeight(dubbingTimelinePanelHeight)
+    onMaximumDubbingTimelinePanelHeightChanged:
+        dubbingTimelinePanelHeight = clampedDubbingTimelineHeight(dubbingTimelinePanelHeight)
     // The QML smoke route exercises the transcript selector, then two dialogs
     // whose geometry is only valid on the following event-loop turn.  Keep the
     // phases explicit so the test observes the real rendered state instead of
@@ -369,10 +381,14 @@ Item {
                 qmlSmokeTranscriptSourceFailure = "task panels overflow the fixed Dubbing workspace instead of resizing it"
                 return -1
             }
-            if (dubbingTimelinePanel.y + 1 < dubbingWorkspaceScroller.y
-                    + dubbingWorkspaceScroller.height
+            var workspaceBottom = dubbingWorkspaceScroller.y + dubbingWorkspaceScroller.height
+            var splitterBottom = dubbingTimelineResizeHandle.y + dubbingTimelineResizeHandle.height
+            var editorBottom = dubbingEditorLayout.y + dubbingEditorLayout.height
+            if (dubbingTimelineResizeHandle.y + 1 < workspaceBottom
+                    || splitterBottom > dubbingTimelinePanel.y + 1
+                    || dubbingTimelinePanel.y + dubbingTimelinePanel.height > editorBottom + 1
                     || dubbingTimelinePanel.height > root.maximumDubbingTimelinePanelHeight + 1) {
-                qmlSmokeTranscriptSourceFailure = "timeline overlaps the video workspace or exceeds its bounded editor height"
+                qmlSmokeTranscriptSourceFailure = "timeline splitter must occupy its own layout row and push the workspace instead of overlaying it"
                 return -1
             }
             // The workbench is a three-pane editor: task controls, central
@@ -1023,11 +1039,23 @@ Item {
             }
         }
 
+        // This owns every vertically stacked editor region.  The splitter is
+        // deliberately a normal child row: it is never an absolute/z-order
+        // overlay on the video preview.
+        ColumnLayout {
+            id: dubbingEditorLayout
+            objectName: "dubbingEditorLayout"
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            spacing: 0
+            clip: true
+
         Item {
             id: dubbingWorkspaceScroller
             objectName: "dubbingWorkspaceScroller"
             Layout.fillWidth: true
             Layout.fillHeight: true
+            Layout.minimumHeight: root.minimumDubbingWorkspaceHeight
             Layout.margins: Theme.paddingMedium
             clip: true
             // This deliberately is not a horizontally flicked canvas.  Task
@@ -2001,20 +2029,23 @@ Item {
         }
 
         // The timeline is a top-level workbench region rather than a child of
-        // the video column.  It therefore remains centered and spans the
-        // complete Dubbing workspace, like an editor timeline.
+        // the video column. It therefore remains centered and spans the
+        // complete Dubbing workspace, like an editor timeline. It remains
+        // inside dubbingEditorLayout so its dedicated splitter pushes its
+        // siblings instead of drawing over them.
         Item {
             id: dubbingTimelineResizeHandle
             objectName: "dubbingTimelineResizeHandle"
             Layout.fillWidth: true
             Layout.leftMargin: Theme.paddingMedium
             Layout.rightMargin: Theme.paddingMedium
-            // A real 28 px hit target, not a decorative 4 px line.  The
-            // previous DragHandler was technically present but too easy to
-            // miss below the video transport controls.
-            Layout.preferredHeight: visible ? 28 : 0
+            // A real 28 px hit target and fixed-height layout row. It is both
+            // a visible drag target and a real vertical spacer between preview
+            // and timeline.
+            Layout.minimumHeight: visible ? root.dubbingTimelineResizeHandleHeight : 0
+            Layout.preferredHeight: visible ? root.dubbingTimelineResizeHandleHeight : 0
+            Layout.maximumHeight: visible ? root.dubbingTimelineResizeHandleHeight : 0
             visible: !root.previewFocusMode
-            z: 10
 
             Rectangle {
                 width: 112
@@ -2054,7 +2085,7 @@ Item {
             Layout.fillWidth: true
             Layout.leftMargin: Theme.paddingMedium
             Layout.rightMargin: Theme.paddingMedium
-            Layout.minimumHeight: visible ? 160 : 0
+            Layout.minimumHeight: visible ? root.minimumDubbingTimelinePanelHeight : 0
             Layout.maximumHeight: visible ? root.maximumDubbingTimelinePanelHeight : 0
             Layout.preferredHeight: visible
                                     ? root.clampedDubbingTimelineHeight(root.dubbingTimelinePanelHeight) : 0
@@ -2104,6 +2135,8 @@ Item {
                     }
                 }
             }
+        }
+
         }
 
     }

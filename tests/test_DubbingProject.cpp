@@ -2455,8 +2455,12 @@ void TestDubbingProject::dubbingEntryAndAutomaticSetupCannotBypassConfiguration(
     QVERIFY(!pageSource.contains(QStringLiteral("DubbingProjectStatusPanel {")));
     QVERIFY(pageSource.contains(QStringLiteral("property int dubbingPreviewPanelWidth: 1040")));
     QVERIFY(pageSource.contains(QStringLiteral("property int dubbingTimelinePanelHeight: 300")));
+    QVERIFY(pageSource.contains(QStringLiteral("id: dubbingEditorLayout")));
+    QVERIFY(pageSource.contains(QStringLiteral("minimumDubbingWorkspaceHeight")));
+    QVERIFY(pageSource.contains(QStringLiteral("dubbingTimelineResizeHandleHeight")));
     QVERIFY(pageSource.contains(QStringLiteral("maximumDubbingTimelinePanelHeight")));
     QVERIFY(pageSource.contains(QStringLiteral("clampedDubbingTimelineHeight")));
+    QVERIFY(pageSource.contains(QStringLiteral("timeline splitter must occupy its own layout row")));
     QVERIFY(!pageSource.contains(QStringLiteral("Component.onCompleted: dubbing.resetStandardWorkflowNodeModels()")));
 
     QFile projectSetup(QStringLiteral(LASTUDIO_SOURCE_DIR)

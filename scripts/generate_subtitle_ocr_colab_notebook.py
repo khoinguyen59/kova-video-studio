@@ -281,7 +281,7 @@ def build_notebook() -> dict:
                 import sys
                 from pathlib import Path
 
-                BOOTSTRAP_REVISION = "subtitle-ocr-bootstrap-2026-08-12.10"
+                BOOTSTRAP_REVISION = "subtitle-ocr-bootstrap-2026-08-12.11"
                 print("LA Studio Subtitle OCR bootstrap:", BOOTSTRAP_REVISION)
                 print("This revision uses a dedicated package directory; it never creates a venv or calls ensurepip.")
 
@@ -298,7 +298,19 @@ def build_notebook() -> dict:
                 BOOTSTRAP_ENV["PYTHONNOUSERSITE"] = "1"
 
                 def bootstrap_pip(*arguments):
-                    subprocess.check_call([sys.executable, "-m", "pip", *arguments], env=BOOTSTRAP_ENV)
+                    command = [sys.executable, "-m", "pip", *arguments]
+                    result = subprocess.run(command, env=BOOTSTRAP_ENV,
+                                            text=True, stdout=subprocess.PIPE,
+                                            stderr=subprocess.STDOUT)
+                    output = result.stdout or ""
+                    if output:
+                        print(output)
+                    if result.returncode:
+                        raise RuntimeError(
+                            "LA Studio Subtitle OCR dependency bootstrap failed with exit code "
+                            + str(result.returncode) + ".\\nCommand: " + " ".join(command)
+                            + "\\n\\n---- pip output (last 12,000 characters) ----\\n"
+                            + output[-12000:])
 
                 def ocr_pip(*arguments):
                     # --target alone can still treat a globally installed
@@ -320,6 +332,12 @@ def build_notebook() -> dict:
                 # PyPI remains available for the rest of the fixed stack.
                 ocr_pip("--no-cache-dir", "--upgrade", "--force-reinstall",
                         "--only-binary=:all:",
+                        # PaddleX's OCR extras depend on the source-only
+                        # GPUtil distribution. Keep every other dependency
+                        # wheel-only, but permit this one small pure-Python
+                        # package to build rather than making pip fail before
+                        # the worker starts.
+                        "--no-binary=GPUtil",
                         "paddlepaddle-gpu==3.1.0",
                         "paddleocr==3.1.1", "paddlex[ie,multimodal,ocr,trans]==3.1.0",
                         "Pillow==12.0.0", "fastapi==0.115.12", "uvicorn==0.34.3",
