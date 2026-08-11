@@ -2,6 +2,26 @@
 
 Cap nhat: 2026-08-11
 
+## 2026-08-11 - Compact Dubbing controls and complete OCR package isolation
+
+- Source commit `771dcf3` adds a narrow-workbench contract: under 1000 px the
+  left task shelf is not allowed to become an offscreen or overlapping pane.
+  Its actual Run/Configure controls render in the right review pane, while the
+  wide resizable History/task/Preview/review/Timeline editor remains intact.
+  A smoke boundary rejects a review pane extending past the Dubbing workspace.
+- The only language and execution-quality chooser remains Project Setup after
+  Automatic or Step-by-step mode, or its explicit Project settings reopen;
+  the bottom of the editor is still reserved for the full-width Timeline.
+- Subtitle OCR now uses `pip --target --ignore-installed` for every pinned
+  dependency.  The preflight rejects any launch unless Pillow, Paddle,
+  PaddleOCR and PaddleX all import from
+  `/content/la_studio_subtitle_ocr_site`, eliminating a remaining mixed global
+  package path behind the reported Pillow `_Ink` failure.
+- Evidence: QML parser, compact-layout and OCR source contracts, Python
+  compilation, notebook verification **32/32**, diff check and Graphify AST
+  update passed.  Full CTest/build remains blocked by the missing Qt
+  development kit.  No EXE was produced.
+
 ## 2026-08-11 - Dubbing pane contract and Subtitle OCR no-venv bootstrap
 
 - Source commit `5dddf99` keeps the Dubbing workbench as fixed, resizable
@@ -25,7 +45,7 @@ Cap nhat: 2026-08-11
 | Latest packaged candidate | `0.0.6.3` |
 | Artifact | `out/LA-Studio-0.0.6.3/LA-Studio-0.0.6.3.exe` |
 | SHA-256 | `B3322735B67EEE453FA5549AB35CB5DC95D2E578B68A9BEC7BCDE25F1FDB3137` |
-| Current source | `main` at `5dddf99`; the 0.0.6.3 package is unchanged and the latest Dubbing/Subtitle OCR fixes are source-only. |
+| Current source | `main` at `771dcf3`; the 0.0.6.3 package is unchanged and the latest Dubbing/Subtitle OCR fixes are source-only. |
 | Distribution | Internal only; eSpeak MSI SHA-verified but unsigned |
 
 ## Source batch after 0.0.6.3 - fixed Dubbing panes and OCR bootstrap

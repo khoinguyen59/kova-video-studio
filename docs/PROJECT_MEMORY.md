@@ -7,7 +7,7 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 - Desktop local-first: STT, TTS, Voice Cloning, Voice Design, Alignment, Translation, Dubbing, LLM Chat, Download va Subtitle OCR.
 - API Gateway va Direct Colab la hai route doc lap. Token/URL Colab chi o memory session, khong persist vao project/report.
 - Package noi bo moi nhat: `0.0.6.3` tai `out/LA-Studio-0.0.6.3/LA-Studio-0.0.6.3.exe`, SHA-256 `B3322735B67EEE453FA5549AB35CB5DC95D2E578B68A9BEC7BCDE25F1FDB3137`. QML lint, full CTest 39/39, portable artifact audit va hidden offscreen startup smoke PASS. Source hien co hotfix Subtitle OCR Colab chua nam trong EXE nay; manual GUI/live Colab luon la gate rieng.
-- Source moi nhat `5dddf99` (chua dong goi) dua Dubbing ve layout pane co dinh: History/Task controls ben trai tuy chon, Preview o giua, task output ben phai va Timeline full-width ben duoi. Smoke geometry phai bat shelf/preview/review overlap; khong duoc bo tinh nang/route LA Studio khi sua UX. Language va execution quality phai hoi trong popup sau khi chon Automatic/step-by-step hoac tu **Project settings**, khong duoc nam thuong truc duoi Timeline. Subtitle OCR Colab phai dung dedicated package directory, khong dung `venv.EnvBuilder` hay `virtualenv`. Full CTest cua batch nay chua chay duoc vi may hien tai thieu Qt development kit (`Qt6Config.cmake` / `LA_QT`); khong duoc ghi PASS thay cho loi nay.
+- Source moi nhat `771dcf3` (chua dong goi) dua Dubbing ve layout pane co dinh: History/Task controls ben trai tuy chon, Preview o giua, task output ben phai va Timeline full-width ben duoi. Khi workspace hep hon 1000 px, task shelf phai bien mat khoi layout va controls chuyen vao review pane; khong duoc clip/offscreen hay overlay Preview. Smoke geometry phai bat shelf/preview/review overlap va review vuot workspace; khong duoc bo tinh nang/route LA Studio khi sua UX. Language va execution quality phai hoi trong popup sau khi chon Automatic/step-by-step hoac tu **Project settings**, khong duoc nam thuong truc duoi Timeline. Subtitle OCR Colab phai dung dedicated package directory, khong dung `venv.EnvBuilder` hay `virtualenv`; tat ca Pillow/Paddle/PaddleOCR/PaddleX phai import tu package directory nay sau `pip --target --ignore-installed`. Full CTest cua batch nay chua chay duoc vi may hien tai thieu Qt development kit (`Qt6Config.cmake` / `LA_QT`); khong duoc ghi PASS thay cho loi nay.
 - `0.0.2.23` duoc giu nguyen nhung khong duoc chap nhan: audit bat thieu evidence trace route/model/worker truoc-sau. `0.0.2.24` bo sung trace va package moi, khong ghi de candidate cu.
 - `0.0.2.21` khong duoc chap nhan cho Dubbing Automatic: gate/preflight co
   dead-end media va no-op Configure. `0.0.2.22` sua duong ingest truoc gate,
@@ -16,6 +16,20 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   offscreen khong co native active window.
 
 ## Lich su cap san pham
+
+### 2026-08-11 - compact Dubbing controls and OCR package isolation (unpackaged)
+
+- `771dcf3` giu pane wide resizable nhung them responsive contract thuc: khi
+  workspace < 1000 px, left task shelf khong duoc ton tai offscreen; Run va
+  Configure cua node hien trong right review pane compact. QML smoke kiem tra
+  review pane khong the vuot khoi workspace.
+- Notebook OCR ep moi package vao
+  `/content/la_studio_subtitle_ocr_site` bang `--ignore-installed`; probe
+  khang dinh `PIL`, Paddle, PaddleOCR va PaddleX deu den tu mot directory
+  truoc CUDA worker. Muc tieu la chan lai state Pillow/Paddle tron global.
+- QML parser, source contracts, Python compile, notebook verifier 32/32,
+  diff check va graphify update PASS. Full CTest/build BLOCKED vi thieu Qt;
+  khong co EXE, GUI hay live Colab PASS.
 
 ### 2026-08-11 - fixed Dubbing panes and Subtitle OCR bootstrap (unpackaged)
 
