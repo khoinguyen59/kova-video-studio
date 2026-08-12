@@ -1227,6 +1227,9 @@ void TestDubbingProject::automaticPreflightReadinessMatrixRejectsFalseReadyState
     QCOMPARE(stageFor(controller.automaticPreflight(), QStringLiteral("isolator"))
                  .value(QStringLiteral("preflightState")).toString(),
              QStringLiteral("needs-worker"));
+    QCOMPARE(stageFor(controller.automaticPreflight(), QStringLiteral("isolator"))
+                 .value(QStringLiteral("variant")).toString(),
+             QStringLiteral("fixed"));
 
     ExactRouteWorkerMock worker(QStringLiteral("voice-isolation"), colabModel);
     QVERIFY(worker.start());
@@ -2320,6 +2323,7 @@ void TestDubbingProject::dubbingUiUsesExactModelWorkers()
     QVERIFY(automaticPreflightSource.contains(QStringLiteral("Start Automatic Dubbing")));
     QVERIFY(automaticPreflightSource.contains(QStringLiteral("approveAutomaticPreflight")));
     QVERIFY(automaticPreflightSource.contains(QStringLiteral("fixed notebook config")));
+    QVERIFY(automaticPreflightSource.contains(QStringLiteral("Variant: %1")));
     QVERIFY(automaticPreflightSource.contains(QStringLiteral("preflight.stages")));
     QVERIFY(!automaticPreflightSource.contains(QStringLiteral("workflow default")));
     QVERIFY(automaticPreflightSource.contains(QStringLiteral("required property int index")));

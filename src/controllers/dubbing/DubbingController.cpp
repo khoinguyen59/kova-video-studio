@@ -2804,6 +2804,16 @@ QVariantMap DubbingController::automaticPreflight() const
                 .arg(adaptiveReady() ? adaptiveStatusText() : QStringLiteral("not ready"));
         }
 
+        // Direct Colab notebooks currently expose one immutable GPU
+        // configuration. Keep that exact variant on the presentation stage
+        // as well as on the worker card: otherwise the stage list can say
+        // only "model" while verification is bound to model + variant.
+        QString variant = parameters.value(QStringLiteral("variant")).toString().trimmed();
+        if (providerId == QStringLiteral("colab-direct")) {
+            variant = directWorkers.value(nodeId).value(QStringLiteral("variant")).toString().trimmed();
+            if (variant.isEmpty()) variant = QStringLiteral("fixed");
+        }
+
         aggregateStages.append(QVariantMap{
             {QStringLiteral("id"), stageId},
             {QStringLiteral("title"), stage.value(QStringLiteral("title"), stageId)},
@@ -2812,7 +2822,7 @@ QVariantMap DubbingController::automaticPreflight() const
             {QStringLiteral("executionProvider"), providerId},
             {QStringLiteral("route"), route},
             {QStringLiteral("modelId"), modelId},
-            {QStringLiteral("variant"), parameters.value(QStringLiteral("variant"))},
+            {QStringLiteral("variant"), variant},
             {QStringLiteral("requiresLanguage"), requiresSourceLanguage || requiresTargetLanguage},
             {QStringLiteral("languageSummary"), languageSummary},
             {QStringLiteral("state"), stage.value(QStringLiteral("state"))},

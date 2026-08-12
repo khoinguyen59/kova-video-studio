@@ -371,6 +371,17 @@ Dialog {
                                     }
                                     Text {
                                         Layout.fillWidth: true
+                                        text: modelData.modelRequired === false
+                                              ? qsTr("Variant: Not applicable")
+                                              : qsTr("Variant: %1").arg(modelData.variant
+                                                  || (modelData.executionProvider === "colab-direct"
+                                                      ? qsTr("fixed") : qsTr("runtime-defined")))
+                                        color: Theme.textSecondary
+                                        font.pixelSize: Theme.fontSmall
+                                        elide: Text.ElideRight
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
                                         text: modelData.languageSummary || qsTr("No language required")
                                         color: Theme.textSecondary
                                         font.pixelSize: Theme.fontSmall
