@@ -2,6 +2,21 @@
 
 Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de agent khong lam lai viec cu. Khong chep patch hay log dai.
 
+## 2026-08-12 - Subtitle OCR Colab bootstrap `.12` constraints
+
+- Keep the OCR Colab environment minimal: use
+  `paddlepaddle-gpu==3.1.0`, `paddlex[ocr]==3.1.0`, then
+  `paddleocr==3.1.1 --no-deps`. Do not restore
+  `paddlex[ie,multimodal,ocr,trans]`; those unrelated extras make the Colab
+  resolver and CUDA environment less reliable.
+- Retain the dedicated package directory, `PYTHONNOUSERSITE=1`, captured probe
+  output, and a real PP-OCRv5 CUDA startup inference before readiness. An
+  import-only health check is not adequate GPU acceptance evidence.
+- Never claim live-Colab validation from desktop/unit tests. The tracked and
+  external `.12` copies share SHA-256
+  `5FD4AB205C85486A0ACD21B74A7174AC9E2380C7B7FCC83DFCD3361E8CD13C55`;
+  request a fresh Colab GPU-runtime result for end-to-end acceptance.
+
 ## Hien trang
 
 - Desktop local-first: STT, TTS, Voice Cloning, Voice Design, Alignment, Translation, Dubbing, LLM Chat, Download va Subtitle OCR.

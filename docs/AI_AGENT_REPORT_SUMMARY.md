@@ -1,6 +1,30 @@
 # Bao cao tong hop LA Studio
 
-Cap nhat: 2026-08-11
+Cap nhat: 2026-08-12
+
+## 2026-08-12 - Subtitle OCR bootstrap `.12`: narrow, observable GPU stack
+
+- **Root cause:** the earlier notebook let `paddleocr==3.1.1` resolve the
+  broad `paddlex[ie,multimodal,ocr,trans]` group. Those document/LLM extras
+  are not required for cropped subtitle OCR and destabilized Colab's resolver.
+  Its isolated-stack probe also hid the useful error behind a bare subprocess
+  exit code.
+- **Repair:** the generated notebook now installs the fixed GPU OCR runtime as
+  `paddlepaddle-gpu==3.1.0` plus `paddlex[ocr]==3.1.0`, then installs
+  `paddleocr==3.1.1` with `--no-deps`. It still uses only the app-owned
+  `/content/la_studio_subtitle_ocr_site` directory; it creates no venv and
+  never calls `ensurepip`.
+- **Runtime boundary check:** `/health` cannot report ready until PP-OCRv5 has
+  loaded and completed a real blank-image CUDA inference. Installation and
+  isolated-stack failures now print the last 12,000 characters of real output.
+- **Evidence:** generated exact-notebook verifier **32/32 PASS**; rebuilt full
+  CTest **39/39 PASS** in 21.76 s; `git diff --check` and `graphify update .`
+  completed. The requested external notebook copy is byte-identical to the
+  tracked source (SHA-256
+  `5FD4AB205C85486A0ACD21B74A7174AC9E2380C7B7FCC83DFCD3361E8CD13C55`).
+- **Boundary:** no live Colab runtime was available here. Run the `.12`
+  notebook in a fresh Colab GPU runtime; any failure now includes the actual
+  pip or import tail required to diagnose the image.
 
 ## 2026-08-11 - Dubbing eight-stage contract and OCR bootstrap `.8`
 

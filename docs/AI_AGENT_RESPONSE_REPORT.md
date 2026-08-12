@@ -2,6 +2,35 @@
 
 Date: 2026-08-11
 
+## 2026-08-12 — latest response: Subtitle OCR Colab bootstrap `.12`
+
+The notebook has been repaired at the requested external location and is
+byte-identical to the tracked source:
+`C:\\Users\\Nguyen Trong Khoi\\Downloads\\LA_STUDIO_SUBTITLE_OCR_PP_OCRV5_GPU.ipynb`
+(SHA-256 `5FD4AB205C85486A0ACD21B74A7174AC9E2380C7B7FCC83DFCD3361E8CD13C55`).
+
+### What changed
+
+- Removed the broad `paddlex[ie,multimodal,ocr,trans]` installation path that
+  was pulling unrelated dependencies into the OCR runtime.
+- The notebook now pins the narrow PP-OCRv5 GPU stack:
+  `paddlepaddle-gpu==3.1.0`, `paddlex[ocr]==3.1.0`, then a
+  dependency-isolated `paddleocr==3.1.1` installation.
+- The worker performs a real blank-image PP-OCRv5 CUDA inference during
+  startup. It cannot advertise `/health: ready` solely because imports pass.
+- Pip and stack probes print their log tail on failure instead of only
+  `CalledProcessError`.
+
+### Verification and boundary
+
+- Generated exact-model notebook verifier: **32/32 PASS**.
+- Rebuilt full CTest: **39/39 PASS** in 21.76 seconds.
+- `git diff --check` and `graphify update .`: completed.
+- No live Colab worker was available from this desktop environment, so live
+  GPU success is not claimed. Open this `.12` file in a **fresh Colab GPU
+  runtime**; if it fails, the new diagnostic output now reveals the actual
+  pip or import failure.
+
 ## Completed
 
 - Reduced Automatic Dubbing to the eight user-facing stages: **Import/Download**, **Normalize**, **Isolator**, **Transcribe/STT**, **Alignment/Subtitle**, **Translate**, **TTS**, and **Export/Output**. Internal timing, translation-review, and mix nodes remain in their owning visible stage; they are not extra header stages.
