@@ -2,6 +2,24 @@
 
 Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de agent khong lam lai viec cu. Khong chep patch hay log dai.
 
+## 2026-08-12 - Subtitle OCR Colab bootstrap `.13` constraints
+
+- Install `paddlepaddle-gpu==3.1.0` through the exact CPython 3.12 Linux CUDA
+  11.8 wheel URL, with its declared runtime dependencies. Do not restore
+  Paddle's extra package index: it has produced Colab resolver timeouts.
+- Keep only `paddlex[ocr]==3.1.0`, then `paddleocr==3.1.1 --no-deps`. Never
+  allow PaddleOCR's declared `paddlex[ie,multimodal,ocr,trans]` dependency to
+  resolve: its multimodal path pulls source-only GPUtil and breaks a
+  wheel-only installation.
+- Retain the dedicated package directory, `PYTHONNOUSERSITE=1`,
+  `PADDLE_PDX_MODEL_SOURCE=BOS`, captured probe output, and a real PP-OCRv5
+  CUDA startup inference before readiness. An import-only health check is not
+  GPU acceptance evidence.
+- Never claim live-Colab validation from desktop/unit tests. The tracked and
+  external `.13` copies share SHA-256
+  `D2092912774A0E33421D77ACDACF9EDF13BC3B00BADAD41AD6B51802F5B7FFBB`;
+  request a fresh Colab GPU-runtime result for end-to-end acceptance.
+
 ## 2026-08-12 - Subtitle OCR Colab bootstrap `.12` constraints
 
 - Keep the OCR Colab environment minimal: use

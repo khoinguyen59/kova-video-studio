@@ -2,34 +2,39 @@
 
 Date: 2026-08-11
 
-## 2026-08-12 — latest response: Subtitle OCR Colab bootstrap `.12`
+## 2026-08-12 — latest response: Subtitle OCR Colab bootstrap `.13`
 
-The notebook has been repaired at the requested external location and is
-byte-identical to the tracked source:
+The requested notebook has been overwritten with the generated `.13` version:
 `C:\\Users\\Nguyen Trong Khoi\\Downloads\\LA_STUDIO_SUBTITLE_OCR_PP_OCRV5_GPU.ipynb`
-(SHA-256 `5FD4AB205C85486A0ACD21B74A7174AC9E2380C7B7FCC83DFCD3361E8CD13C55`).
+(SHA-256 `D2092912774A0E33421D77ACDACF9EDF13BC3B00BADAD41AD6B51802F5B7FFBB`).
 
-### What changed
+### Actual failure and repair
 
-- Removed the broad `paddlex[ie,multimodal,ocr,trans]` installation path that
-  was pulling unrelated dependencies into the OCR runtime.
-- The notebook now pins the narrow PP-OCRv5 GPU stack:
-  `paddlepaddle-gpu==3.1.0`, `paddlex[ocr]==3.1.0`, then a
-  dependency-isolated `paddleocr==3.1.1` installation.
-- The worker performs a real blank-image PP-OCRv5 CUDA inference during
-  startup. It cannot advertise `/health: ready` solely because imports pass.
-- Pip and stack probes print their log tail on failure instead of only
+- The previous installation still allowed PaddleOCR metadata to resolve
+  `paddlex[ie,multimodal,ocr,trans]`. That unrelated chain requires source-only
+  `GPUtil`, which is why wheel-only installation ended as a bare
   `CalledProcessError`.
+- Bootstrap `.13` fetches the exact CPython 3.12 Linux CUDA 11.8
+  `paddlepaddle-gpu==3.1.0` wheel directly, including its declared CUDA/NCCL
+  dependencies. It no longer contacts the flaky Paddle package index.
+- It installs only `paddlex[ocr]==3.1.0`, then
+  `paddleocr==3.1.1 --no-deps`, keeping the working OCR dependency boundary.
+- A real blank-image PP-OCRv5 CUDA inference must finish before `/health` can
+  be ready. The worker is isolated from global packages and explicitly uses
+  the BOS PaddleX model source.
 
-### Verification and boundary
+### Evidence and next run
 
+- Exact Linux/CPython 3.12 install transaction: the three install stages
+  completed. Its only runtime stop was missing `libcuda.so.1` on a host without
+  a GPU driver, which is expected outside Colab.
 - Generated exact-model notebook verifier: **32/32 PASS**.
-- Rebuilt full CTest: **39/39 PASS** in 21.76 seconds.
+- Full CTest: **39/39 PASS** in 93.78 seconds.
 - `git diff --check` and `graphify update .`: completed.
-- No live Colab worker was available from this desktop environment, so live
-  GPU success is not claimed. Open this `.12` file in a **fresh Colab GPU
-  runtime**; if it fails, the new diagnostic output now reveals the actual
-  pip or import failure.
+- Live Colab GPU execution is not claimed here. Start a fresh GPU runtime and
+  run the replacement file. The first cell must print
+  `subtitle-ocr-bootstrap-2026-08-12.13`; otherwise Colab is using an older
+  downloaded copy.
 
 ## Completed
 

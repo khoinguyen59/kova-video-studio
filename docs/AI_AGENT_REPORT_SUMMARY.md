@@ -2,6 +2,34 @@
 
 Cap nhat: 2026-08-12
 
+## 2026-08-12 - Subtitle OCR bootstrap `.13`: direct CUDA wheel, deterministic resolver
+
+- **Root cause:** `paddleocr==3.1.1` declares
+  `paddlex[ie,multimodal,ocr,trans]`. Letting pip resolve that metadata pulls
+  the unrelated `multimodal` dependency chain, including source-only
+  `GPUtil`; that is incompatible with the notebook's wheel-only install. The
+  previous bootstrap also depended on a Paddle package index that can time out
+  from Colab.
+- **Repair:** the generated notebook installs Paddle GPU 3.1.0 from its exact
+  CPython 3.12 Linux CUDA 11.8 wheel URL, including its declared CUDA/NCCL
+  dependencies. It then installs only `paddlex[ocr]==3.1.0` and installs
+  `paddleocr==3.1.1 --no-deps`. There is no venv, no `ensurepip`, no broad
+  PaddleX extras, and no Paddle index resolver path.
+- **Runtime check:** `/health` cannot report ready until PP-OCRv5 completes a
+  real blank-image CUDA inference. The isolated package directory uses
+  `PYTHONNOUSERSITE=1` and `PADDLE_PDX_MODEL_SOURCE=BOS`.
+- **Evidence:** an actual Linux/CPython 3.12 transaction installed the direct
+  Paddle wheel, narrow PaddleX OCR stack, and no-dependency PaddleOCR without
+  a resolver error. It stopped only at `libcuda.so.1` because that validation
+  host has no GPU driver; an L4 Colab runtime supplies that driver. Generated
+  notebook verifier **32/32 PASS**; full CTest **39/39 PASS** in 93.78 s;
+  `git diff --check` and `graphify update .` completed. The requested external
+  notebook matches the tracked source (SHA-256
+  `D2092912774A0E33421D77ACDACF9EDF13BC3B00BADAD41AD6B51802F5B7FFBB`).
+- **Boundary:** desktop validation cannot claim live Colab GPU inference. The
+  replacement notebook prints `subtitle-ocr-bootstrap-2026-08-12.13` in its
+  first cell; any other revision means an older notebook copy is being run.
+
 ## 2026-08-12 - Subtitle OCR bootstrap `.12`: narrow, observable GPU stack
 
 - **Root cause:** the earlier notebook let `paddleocr==3.1.1` resolve the
