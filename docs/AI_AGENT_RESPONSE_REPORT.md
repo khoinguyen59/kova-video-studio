@@ -1,5 +1,22 @@
 # AI agent response — Dubbing workspace and Subtitle OCR bootstrap
 
+## 2026-08-13 - Automatic Dubbing audit outcome
+
+I audited only the current Automatic Dubbing A-B contract. The eight visible
+stages, aggregate readiness source, Direct Colab/local separation, and wizard
+route/model flow were already covered by controller and offscreen-QML
+regressions. One real presentation defect remained: a stage card did not show
+the exact model variant although Direct Colab verification is bound to that
+variant. It is now shown as `fixed` for the immutable Colab notebook or as the
+worker-provided value.
+
+- Targeted Dubbing/controller/offscreen QML: **3/3 PASS**.
+- Full CTest: **39/39 PASS** in 86.27 seconds.
+- QML compiled in the normal target; standalone `qmllint` exited successfully
+  with existing import/unqualified-access warnings.
+- No GUI and no package/EXE were created. Source commit `45626f1` is pushed to
+  `main`.
+
 Date: 2026-08-11
 
 ## 2026-08-12 — latest response: Subtitle OCR Colab bootstrap `.13`

@@ -1067,3 +1067,19 @@ Cap nhat: 2026-08-12
 - No visible GUI or live Colab GPU session was opened. Run the new notebook in
   a fresh Colab runtime; the package is internal-only because eSpeak is
   hash-verified but unsigned.
+
+### 2026-08-13 - Automatic Dubbing exact-variant audit
+
+- **Confirmed and fixed:** the eight-stage controller contract already
+  aggregated production nodes correctly, but the preflight stage card exposed
+  only route and model. A Direct Colab worker is verified against its exact
+  route, model **and variant**, so the omitted variant made the review card
+  incomplete. Direct Colab stages now expose the worker variant (or the
+  immutable `fixed` configuration before a worker is attached) and the QML
+  card displays it. Non-model stages explicitly display `Not applicable`.
+- **Evidence:** targeted Dubbing/controller/offscreen-QML CTest **3/3 PASS**;
+  full CTest **39/39 PASS** in 86.27 s; QML build passed; `git diff --check`
+  and `graphify update .` completed. `qmllint` returned success but still
+  reports existing standalone-import/unqualified-access warnings for this QML
+  component; the built offscreen route smoke is the runtime validation.
+- No GUI was opened and no release candidate or EXE package was created.

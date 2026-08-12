@@ -740,3 +740,15 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 - 0.0.6.6 evidence: generated notebook verifier 32/32; CTest 39/39 (57.97 s);
   19-artifact portable package. SHA-256:
   `EDEB7877AB397648ED643A5DC06FF30DADB19382EAF2640473C008CF602F78C1`.
+
+### 2026-08-13 - Automatic preflight presentation invariant
+
+- Every model-backed Automatic Dubbing preflight card must state the same
+  exact configuration used by its readiness decision: route, model, and
+  variant. For `colab-direct`, `DubbingController::automaticPreflight()` uses
+  the current direct-worker variant and falls back to `fixed` for the
+  immutable notebook configuration; it must never infer readiness from a
+  generic default label.
+- Regression coverage lives in `TestDubbingProject` readiness-matrix and QML
+  source-contract checks. Validation after the change: targeted 3/3 and full
+  CTest 39/39. Do not package from this audit alone.
