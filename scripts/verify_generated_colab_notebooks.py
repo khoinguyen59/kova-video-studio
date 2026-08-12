@@ -185,24 +185,25 @@ def main() -> int:
                             f"Subtitle OCR worker imports Torch and can conflict with Paddle NCCL: {generated.name}"
                         )
                     required_stack_markers = (
-                        '"paddlepaddle-gpu==3.1.0"',
+                        'paddlepaddle_gpu-3.1.0-{python_tag}-{python_tag}-linux_x86_64.whl',
                         '"paddleocr==3.1.1"',
                         '"paddlex[ocr]==3.1.0"',
                         '"PyYAML==6.0.2"',
                         '"typing-extensions==4.15.0"',
                         '"Pillow==12.0.0"',
                         'OCR_SITE_PACKAGES = Path("/content/la_studio_subtitle_ocr_site")',
-                        'BOOTSTRAP_REVISION = "subtitle-ocr-bootstrap-2026-08-12.12"',
+                        'BOOTSTRAP_REVISION = "subtitle-ocr-bootstrap-2026-08-12.13"',
                         'shutil.rmtree(Path("/content/la_studio_subtitle_ocr_venv"), ignore_errors=True)',
                         'shutil.rmtree(OCR_SITE_PACKAGES, ignore_errors=True)',
                         'bootstrap_pip("install", "--target", str(OCR_SITE_PACKAGES),',
-                        '"--ignore-installed", *arguments)',
+                        '"--ignore-installed", "--disable-pip-version-check",',
+                        '"--retries", "4", "--timeout", "120", *arguments)',
                         'LA Studio Subtitle OCR dependency bootstrap failed with exit code',
                         '---- pip output (last 12,000 characters) ----',
                         'OCR_PYTHON = sys.executable',
                         'OCR_ENV["PYTHONPATH"] = str(OCR_SITE_PACKAGES)',
                         'OCR_ENV["PYTHONNOUSERSITE"] = "1"',
-                        'WORKER_ENVIRONMENT = {"PYTHONNOUSERSITE": "1", "PYTHONPATH": "/content/la_studio_subtitle_ocr_site"}',
+                        '"PADDLE_PDX_MODEL_SOURCE": "BOS"',
                         'probe = dedent(r"""',
                         'probe_result = subprocess.run(',
                         '---- OCR probe output (last 12,000 characters) ----',
@@ -210,10 +211,12 @@ def main() -> int:
                         'assert str(Path(package.__file__).resolve()).startswith(dedicated_site)',
                         'assert version("paddlex") == "3.1.0"',
                         'assert version("pillow") == "12.0.0"',
-                        'from PIL import ImageText',
+                        'from PIL import Image, ImageText',
                         'from PIL._typing import _Ink',
                         'from paddleocr import PaddleOCR',
-                        '"--extra-index-url", "https://www.paddlepaddle.org.cn/packages/stable/cu118/"',
+                        'PADDLE_GPU_WHEEL = (',
+                        'PADDLE_GPU_WHEEL)',
+                        'Verified isolated PP-OCRv5 CUDA inference:',
                     )
                     if any(marker not in worker_source for marker in required_stack_markers):
                         mismatches.append(
@@ -222,6 +225,10 @@ def main() -> int:
                     if 'paddlex[ie,multimodal,ocr,trans]' in worker_source:
                         mismatches.append(
                             f"Subtitle OCR notebook still installs unrelated PaddleX LLM/document extras: {generated.name}"
+                        )
+                    if '"--extra-index-url", "https://www.paddlepaddle.org.cn/packages/stable/cu118/"' in worker_source:
+                        mismatches.append(
+                            f"Subtitle OCR notebook still resolves Paddle through the timeout-prone package index: {generated.name}"
                         )
                     if ('venv.EnvBuilder' in worker_source
                             or "'ensurepip'" in worker_source
@@ -233,9 +240,10 @@ def main() -> int:
                         mismatches.append(
                             f"Subtitle OCR notebook still depends on a virtualenv bootstrap: {generated.name}"
                         )
-                    if worker_source.count('ocr_pip("--no-cache-dir"') != 2 \
+                    if worker_source.count('ocr_pip("--no-cache-dir"') != 3 \
                             or 'ocr_pip("install"' in worker_source \
-                            or '"--no-deps", "paddleocr==3.1.1"' not in worker_source:
+                            or '"--no-deps", "paddleocr==3.1.1"' not in worker_source \
+                            or '"--no-deps", PADDLE_GPU_WHEEL' in worker_source:
                         mismatches.append(
                             f"Subtitle OCR notebook must isolate the base runtime from PaddleOCR's broad dependency extras: {generated.name}"
                         )
