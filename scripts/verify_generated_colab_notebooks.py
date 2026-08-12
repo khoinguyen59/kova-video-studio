@@ -187,23 +187,25 @@ def main() -> int:
                     required_stack_markers = (
                         '"paddlepaddle-gpu==3.1.0"',
                         '"paddleocr==3.1.1"',
-                        '"paddlex[ie,multimodal,ocr,trans]==3.1.0"',
+                        '"paddlex[ocr]==3.1.0"',
+                        '"PyYAML==6.0.2"',
+                        '"typing-extensions==4.15.0"',
                         '"Pillow==12.0.0"',
                         'OCR_SITE_PACKAGES = Path("/content/la_studio_subtitle_ocr_site")',
-                        'BOOTSTRAP_REVISION = "subtitle-ocr-bootstrap-2026-08-12.11"',
+                        'BOOTSTRAP_REVISION = "subtitle-ocr-bootstrap-2026-08-12.12"',
                         'shutil.rmtree(Path("/content/la_studio_subtitle_ocr_venv"), ignore_errors=True)',
                         'shutil.rmtree(OCR_SITE_PACKAGES, ignore_errors=True)',
                         'bootstrap_pip("install", "--target", str(OCR_SITE_PACKAGES),',
                         '"--ignore-installed", *arguments)',
-                        '"--no-binary=GPUtil"',
                         'LA Studio Subtitle OCR dependency bootstrap failed with exit code',
                         '---- pip output (last 12,000 characters) ----',
                         'OCR_PYTHON = sys.executable',
                         'OCR_ENV["PYTHONPATH"] = str(OCR_SITE_PACKAGES)',
                         'OCR_ENV["PYTHONNOUSERSITE"] = "1"',
                         'WORKER_ENVIRONMENT = {"PYTHONNOUSERSITE": "1", "PYTHONPATH": "/content/la_studio_subtitle_ocr_site"}',
-                        "probe = dedent(r'''",
-                        'subprocess.run([OCR_PYTHON, "-c", probe], check=True, env=OCR_ENV)',
+                        'probe = dedent(r"""',
+                        'probe_result = subprocess.run(',
+                        '---- OCR probe output (last 12,000 characters) ----',
                         'for package in (PIL, paddle, paddleocr, paddlex):',
                         'assert str(Path(package.__file__).resolve()).startswith(dedicated_site)',
                         'assert version("paddlex") == "3.1.0"',
@@ -217,6 +219,10 @@ def main() -> int:
                         mismatches.append(
                             f"Subtitle OCR notebook does not pin and probe the Paddle-only 3.1.0 stack: {generated.name}"
                         )
+                    if 'paddlex[ie,multimodal,ocr,trans]' in worker_source:
+                        mismatches.append(
+                            f"Subtitle OCR notebook still installs unrelated PaddleX LLM/document extras: {generated.name}"
+                        )
                     if ('venv.EnvBuilder' in worker_source
                             or "'ensurepip'" in worker_source
                             or '"ensurepip"' in worker_source):
@@ -227,10 +233,17 @@ def main() -> int:
                         mismatches.append(
                             f"Subtitle OCR notebook still depends on a virtualenv bootstrap: {generated.name}"
                         )
-                    if worker_source.count('ocr_pip("--no-cache-dir"') != 1 \
-                            or 'ocr_pip("install"' in worker_source:
+                    if worker_source.count('ocr_pip("--no-cache-dir"') != 2 \
+                            or 'ocr_pip("install"' in worker_source \
+                            or '"--no-deps", "paddleocr==3.1.1"' not in worker_source:
                         mismatches.append(
-                            f"Subtitle OCR notebook must issue exactly one valid isolated pip install transaction: {generated.name}"
+                            f"Subtitle OCR notebook must isolate the base runtime from PaddleOCR's broad dependency extras: {generated.name}"
+                        )
+                    if ('@app.on_event("startup")' not in worker_source
+                            or 'PP-OCRv5 CUDA startup inference passed for profile en' not in worker_source
+                            or 'Image.new("RGB", (640, 160), "white")' not in worker_source):
+                        mismatches.append(
+                            f"Subtitle OCR worker must complete real CUDA startup inference before reporting ready: {generated.name}"
                         )
                     if "paddle.device.set_device(\"gpu:0\")" not in worker_source \
                             or "paddle.device.cuda.get_device_name(0)" not in worker_source:

@@ -32,6 +32,7 @@ from pathlib import Path
 import paddle
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
+from PIL import Image
 from paddleocr import PaddleOCR
 
 if not paddle.device.is_compiled_with_cuda():
@@ -44,7 +45,7 @@ MODEL_NAME = "PP-OCRv5 Multilingual 3.1"
 UPSTREAM_MODEL = "PaddlePaddle/PaddleOCR PP-OCRv5"
 UPSTREAM_VERSION = "PaddleOCR 3.1.1"
 LICENSE = "Apache-2.0"
-WORKER_REVISION = "subtitle-ocr-2026-08-11.9"
+WORKER_REVISION = "subtitle-ocr-2026-08-12.10"
 RESPONSE_CONTRACT = "subtitle-ocr-crops-v1"
 TOKEN = os.environ["LA_STUDIO_COLAB_SUBTITLE_OCR_TOKEN"]
 MAX_UPLOAD_BYTES = 16 * 1024 * 1024
@@ -133,6 +134,29 @@ def result_fields(result: object) -> tuple[list[str], list[float]]:
 
 
 app = FastAPI(title=f"LA Studio Subtitle OCR - {MODEL_NAME}", docs_url=None, redoc_url=None, openapi_url=None)
+
+
+@app.on_event("startup")
+def verify_cuda_inference_before_ready() -> None:
+    """Load and execute the exact PP-OCRv5 stack before /health says ready.
+
+    A successful Python import is not enough: a mismatched Paddle/PaddleX
+    installation can still fail only when a CUDA inference pipeline is built.
+    The blank image deliberately has no subtitle text; successful completion
+    proves model construction plus a real GPU inference without inventing OCR
+    output. Other language profiles remain lazy-loaded when requested.
+    """
+    probe_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(prefix="la-studio-subtitle-probe-", suffix=".png", delete=False) as handle:
+            probe_path = Path(handle.name)
+        Image.new("RGB", (640, 160), "white").save(probe_path, format="PNG")
+        for _ in engine_for("en").predict(str(probe_path)):
+            pass
+        print("PP-OCRv5 CUDA startup inference passed for profile en", flush=True)
+    finally:
+        if probe_path is not None:
+            probe_path.unlink(missing_ok=True)
 
 
 @app.exception_handler(Exception)
@@ -231,10 +255,16 @@ def lines(source: str) -> list[str]:
 
 def build_notebook() -> dict:
     worker_path = "/content/la_studio_subtitle_ocr_worker.py"
+    worker_source = dedent(WORKER).strip() + "\n"
+    # The worker lives in a notebook string, so compiling the generator alone
+    # does not prove that Uvicorn's module is syntactically valid. Fail while
+    # generating the tracked notebook instead of letting a user discover this
+    # only after Colab has downloaded the OCR stack.
+    compile(worker_source, "la_studio_subtitle_ocr_worker.py", "exec")
     writer = (
         "from pathlib import Path\n\n"
         f"WORKER = Path({worker_path!r})\n"
-        f"WORKER.write_text({dedent(WORKER).strip()!r} + '\\n', encoding='utf-8')\n"
+        f"WORKER.write_text({worker_source!r}, encoding='utf-8')\n"
         "print('Worker source:', WORKER)\n"
     )
     launch = build_worker_launch(
@@ -281,7 +311,7 @@ def build_notebook() -> dict:
                 import sys
                 from pathlib import Path
 
-                BOOTSTRAP_REVISION = "subtitle-ocr-bootstrap-2026-08-12.11"
+                BOOTSTRAP_REVISION = "subtitle-ocr-bootstrap-2026-08-12.12"
                 print("LA Studio Subtitle OCR bootstrap:", BOOTSTRAP_REVISION)
                 print("This revision uses a dedicated package directory; it never creates a venv or calls ensurepip.")
 
@@ -324,36 +354,38 @@ def build_notebook() -> dict:
                 OCR_ENV = os.environ.copy()
                 OCR_ENV["PYTHONPATH"] = str(OCR_SITE_PACKAGES)
                 OCR_ENV["PYTHONNOUSERSITE"] = "1"
-                # Resolve the complete pinned stack in one pip transaction.
-                # Installing Paddle first and then OCR extras in separate
-                # --ignore-installed transactions allowed a later resolver to
-                # overwrite a GPU/Pillow dependency in the target directory.
-                # Paddle's CUDA index is retained as an extra source while
-                # PyPI remains available for the rest of the fixed stack.
+                # Install only the runtime stack used by this worker. In
+                # particular, do *not* let PaddleOCR's package metadata pull
+                # PaddleX's ie/multimodal/trans extras: those download LLM and
+                # document-processing packages unrelated to cropped subtitle
+                # OCR and have repeatedly destabilized Colab's resolver.
+                # PaddleOCR 3.1.1 and PaddleX 3.1.0 are the upstream
+                # compatibility pair for the Paddle 3.1.0 CUDA 11.8 image.
+                # The `ocr` extra provides only the image OCR pipeline's
+                # direct libraries (OpenCV, tokenizer, layout helpers, etc.).
+                # Install PaddleOCR without dependencies only after the pinned
+                # base runtime is in the dedicated directory, so its broad
+                # extras cannot alter that resolution.
                 ocr_pip("--no-cache-dir", "--upgrade", "--force-reinstall",
                         "--only-binary=:all:",
-                        # PaddleX's OCR extras depend on the source-only
-                        # GPUtil distribution. Keep every other dependency
-                        # wheel-only, but permit this one small pure-Python
-                        # package to build rather than making pip fail before
-                        # the worker starts.
-                        "--no-binary=GPUtil",
                         "paddlepaddle-gpu==3.1.0",
-                        "paddleocr==3.1.1", "paddlex[ie,multimodal,ocr,trans]==3.1.0",
+                        "paddlex[ocr]==3.1.0", "PyYAML==6.0.2", "typing-extensions==4.15.0",
                         "Pillow==12.0.0", "fastapi==0.115.12", "uvicorn==0.34.3",
                         "python-multipart==0.0.20",
                         "--extra-index-url", "https://www.paddlepaddle.org.cn/packages/stable/cu118/")
+                ocr_pip("--no-cache-dir", "--upgrade", "--force-reinstall",
+                        "--only-binary=:all:", "--no-deps", "paddleocr==3.1.1")
             """)},
-            {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [], "source": lines("""
+            {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [], "source": lines(
+                """
                 # Fail in this explicit dependency probe rather than after the
                 # service has started. This uses the same interpreter plus
                 # package-directory environment that will launch Uvicorn.
                 from textwrap import dedent
 
-                probe = dedent(r'''
+                probe = dedent(r\"\"\"
                 from importlib.metadata import version
                 import os
-                import sys
                 from pathlib import Path
                 import PIL
                 from PIL import ImageText
@@ -363,21 +395,34 @@ def build_notebook() -> dict:
                 import paddlex
                 from paddleocr import PaddleOCR
 
-                assert version("paddlepaddle-gpu") == "3.1.0", version("paddlepaddle-gpu")
-                assert version("paddlex") == "3.1.0", version("paddlex")
-                assert version("paddleocr") == "3.1.1", version("paddleocr")
-                assert version("pillow") == "12.0.0", version("pillow")
-                dedicated_site = str(Path(os.environ["LA_STUDIO_OCR_SITE"]).resolve())
+                assert version(\"paddlepaddle-gpu\") == \"3.1.0\", version(\"paddlepaddle-gpu\")
+                assert version(\"paddlex\") == \"3.1.0\", version(\"paddlex\")
+                assert version(\"paddleocr\") == \"3.1.1\", version(\"paddleocr\")
+                assert version(\"pillow\") == \"12.0.0\", version(\"pillow\")
+                dedicated_site = str(Path(os.environ[\"LA_STUDIO_OCR_SITE\"]).resolve())
                 for package in (PIL, paddle, paddleocr, paddlex):
                     assert str(Path(package.__file__).resolve()).startswith(dedicated_site), (package.__name__, package.__file__)
-                assert paddle.device.is_compiled_with_cuda(), "Choose a Colab GPU runtime; CPU fallback is disabled."
-                paddle.device.set_device("gpu:0")
-                print("Verified isolated OCR stack:", paddle.__version__, version("paddlex"), version("paddleocr"), version("pillow"))
-                '''
+                assert paddle.device.is_compiled_with_cuda(), \"Choose a Colab GPU runtime; CPU fallback is disabled.\"
+                paddle.device.set_device(\"gpu:0\")
+                print(\"Verified isolated OCR stack:\", paddle.__version__, version(\"paddlex\"), version(\"paddleocr\"), version(\"pillow\"))
+                \"\"\"
                 )
-                OCR_ENV["LA_STUDIO_OCR_SITE"] = str(OCR_SITE_PACKAGES)
-                subprocess.run([OCR_PYTHON, "-c", probe], check=True, env=OCR_ENV)
-            """)},
+                OCR_ENV[\"LA_STUDIO_OCR_SITE\"] = str(OCR_SITE_PACKAGES)
+                probe_result = subprocess.run(
+                    [OCR_PYTHON, \"-c\", probe], env=OCR_ENV, text=True,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                probe_output = probe_result.stdout or \"\"
+                if probe_output:
+                    print(probe_output)
+                if probe_result.returncode:
+                    raise RuntimeError(
+                        \"LA Studio Subtitle OCR isolated-stack probe failed with exit code \"
+                        + str(probe_result.returncode)
+                        + \". The worker was not launched.\\n\\n\"
+                        + \"---- OCR probe output (last 12,000 characters) ----\\n\"
+                        + probe_output[-12000:])
+                """
+            )},
             {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [], "source": lines(writer)},
             {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [],
              "source": lines(f"MODEL_ID = {MODEL_ID!r}\n" + launch)},
