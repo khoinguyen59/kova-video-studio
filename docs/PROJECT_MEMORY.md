@@ -2,6 +2,26 @@
 
 Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de agent khong lam lai viec cu. Khong chep patch hay log dai.
 
+## 2026-08-14 - Media acquisition: Colab hoac file local
+
+- Public-video/media download la capability rieng `media-download`, khong phai
+  API Gateway va khong duoc phep tu dong fallback sang desktop. Worker Colab
+  dung `media-download-jobs-v1`, bearer token rieng, CPU-only co chu dinh;
+  cac model GPU khac van bat buoc CUDA.
+- UI phai giu hai lua chon ro rang: **Colab download** (run notebook, pair
+  URL/token, queue public link, chon artifact local khi xong) hoac **Choose
+  local files** (nguoi dung tu tai/up file). Khong ship `yt-dlp`, Chromium,
+  Playwright, browser-cookie read, hay browser-session helper trong Windows
+  package nua.
+- Desktop phai tu choi public remote URL o Subtitle OCR va huong dan user tai
+  qua worker Colab roi chon file local. Khong duoc co hidden remote fetch.
+- Package current internal candidate: `0.0.6.8` at
+  `out/LA-Studio-0.0.6.8/LA-Studio-0.0.6.8.exe`, SHA-256
+  `1A7293DCA5AAB8AD41C85AB3C9FD70991E61C21805E2BCA786ACF3A37D6C63BB`.
+  It passed 39/39 CTest, notebook 33/33, runner contract 10-path validation,
+  stage runtime gates, and portable headless QML trace 19. None are live
+  Colab proof; the user still performs fresh notebook pairing/acceptance.
+
 ## 2026-08-13 - Dubbing picker and Direct-Colab TTS contract
 
 - Dubbing model cards are not a commit action. `WorkflowNodeModelDialog` must

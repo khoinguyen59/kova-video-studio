@@ -1,6 +1,34 @@
 # Bao cao tong hop LA Studio
 
-Cap nhat: 2026-08-12
+Cap nhat: 2026-08-14
+
+## 2026-08-14 - Hai lua chon media: Colab tai xuong hoac tu tai va chon file; internal package 0.0.6.8
+
+- **Hai luong doc lap:** trang Download media cung cap (1) worker Colab
+  `LA_STUDIO_MEDIA_DOWNLOAD_YTDLP_COLAB.ipynb` de tai public link trong runtime
+  Colab tam thoi, va (2) chon mot hay nhieu file da tai ve tren may. Desktop
+  khong tu chay `yt-dlp`, Chromium, Playwright hay doc cookie trinh duyet.
+  Sau khi Colab hoan tat, nguoi dung van phai chon file local muon dua vao
+  project; khong co tu dong dua moi file vao Dubbing.
+- **Hop dong an toan:** worker moi co token rieng, kiem tra URL HTTPS public
+  truoc khi tao job va chi dung protocol `media-download-jobs-v1`. API Gateway
+  van doc lap. Public link da bi tu choi o Subtitle OCR desktop; can tai qua
+  Colab roi chon file local, tranh tai nguon nang trong app.
+- **Regression thuc:** unit tests bo sung mock runner cho submit/poll/download,
+  tu choi URL khong an toan/unverified worker va multi-local-media. Full CTest
+  **39/39 PASS** trong 39.41 s. Generated notebook verifier **33/33 PASS** va
+  live-acceptance contract verifier **10 capability paths PASS**. Day la
+  contract/offline evidence, khong phai live Colab acceptance.
+- **Package 0.0.6.8:**
+  `out/LA-Studio-0.0.6.8/LA-Studio-0.0.6.8.exe`; SHA-256
+  `1A7293DCA5AAB8AD41C85AB3C9FD70991E61C21805E2BCA786ACF3A37D6C63BB`.
+  Package gates da kiem tra Qt/QML, MSVC runtime, FFmpeg, FFprobe, bsdtar,
+  Tesseract, Paddle OCR, eSpeak va license manifest. Headless QML smoke cua
+  chinh EXE thoat 0 va ghi **19** thao tac Dubbing. Gói khong chua
+  `yt-dlp.exe` hay `douyin-browser`.
+- **Boundary:** khong mo GUI va khong goi Colab that. Cai dat eSpeak noi bo
+  van unsigned, nen artifact chi la internal package; worker Colab phai duoc
+  chay moi va pair URL/token boi nguoi dung truoc acceptance end-to-end.
 
 ## 2026-08-13 - Dubbing model commit, Direct Colab TTS language gate, internal package 0.0.6.7
 

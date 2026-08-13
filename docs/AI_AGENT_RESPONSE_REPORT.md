@@ -1,5 +1,44 @@
 # AI agent response — Dubbing workspace and Subtitle OCR bootstrap
 
+## 2026-08-14 - Completed: Colab media download + manual local import, package 0.0.6.8
+
+### Delivered
+
+- Added a dedicated **Download media** flow with two explicit choices:
+  - run the new `LA_STUDIO_MEDIA_DOWNLOAD_YTDLP_COLAB.ipynb`, pair its
+    temporary URL/token, download public media with the worker, then choose
+    the completed local file(s);
+  - download media yourself and choose one or more local files directly.
+- Added the bearer-protected `media-download-jobs-v1` runner, UI acquisition
+  panel, public-URL validation, job polling and artifact retrieval. This route
+  is independent of API Gateway and does not turn on local GPU inference.
+- Removed the Windows-package local `yt-dlp` binary and Douyin/Chromium helper.
+  The desktop never reads browser cookies. Public remote URLs are rejected by
+  Subtitle OCR until the user supplies a local file.
+
+### Evidence
+
+- Full CTest: **39/39 passed** (39.41 s), including the Colab runner and
+  Dubbing/QML contracts.
+- Generated exact-model notebooks: **33/33 passed**.
+- Live-acceptance request/response contract: **10 capability paths passed**.
+- Portable staging gates passed for Qt/QML, MSVC, FFmpeg/FFprobe, bsdtar,
+  Tesseract, Paddle OCR, eSpeak and licensing. The stage was additionally
+  rejected if it contained desktop `yt-dlp.exe` or a browser helper.
+- Packaged executable:
+  `C:\Users\Nguyen Trong Khoi\Downloads\LA-STUDIO\out\LA-Studio-0.0.6.8\LA-Studio-0.0.6.8.exe`
+  (SHA-256 `1A7293DCA5AAB8AD41C85AB3C9FD70991E61C21805E2BCA786ACF3A37D6C63BB`).
+  Its offscreen production QML smoke exited 0 and wrote a **19-action**
+  Dubbing trace.
+
+### Boundary
+
+No visible GUI or live Colab worker was opened. The tests prove local
+controller/UI/protocol/staged-runtime behavior only. A fresh Colab runtime and
+the temporary URL/token printed by that notebook remain necessary for a real
+public-media download. The executable remains an internal package because the
+verified eSpeak payload is unsigned.
+
 ## 2026-08-13 - Dubbing picker/TTS repair and internal package 0.0.6.7
 
 ### Delivered
