@@ -365,15 +365,35 @@ Rectangle {
                 || root.localSetupInProgress(familyItem)
     }
 
-    function useSelectedFamily() {
+    // Keep the modal picker and its hosts on one exact configuration contract.
+    // Choosing a card only changes selectedFamilyId.  The host must explicitly
+    // commit this object after a runtime and the required files are ready.
+    function selectedConfiguration() {
         var familyItem = detailPanel.f
-        if (!root.hasFamilyValue(familyItem) || !root.localFamilyReady(familyItem)) return
+        if (!root.hasFamilyValue(familyItem)) return ({})
+        return {
+            familyId: familyItem.familyId,
+            runtimeId: root.pendingRuntimeId !== "" ? root.pendingRuntimeId
+                                                     : familyItem.preferredRuntimeId,
+            runtimeVersion: root.pendingRuntimeVersion !== "" ? root.pendingRuntimeVersion
+                                                               : familyItem.preferredRuntimeVersion,
+            selectedFiles: root.selectedFilesForFamily(familyItem)
+        }
+    }
+
+    function canUseSelectedFamily() {
+        return root.hasFamilyValue(detailPanel.f)
+                && root.localFamilyReady(detailPanel.f)
+    }
+
+    function useSelectedFamily() {
+        if (!root.canUseSelectedFamily()) return
+        var selected = root.selectedConfiguration()
         if (root.modalMode) {
-            var runtimeId = root.pendingRuntimeId !== "" ? root.pendingRuntimeId : familyItem.preferredRuntimeId
-            var runtimeVersion = root.pendingRuntimeVersion !== "" ? root.pendingRuntimeVersion : familyItem.preferredRuntimeVersion
-            root.configurationAccepted(familyItem.familyId, runtimeId, runtimeVersion, root.selectedFilesForFamily(familyItem))
+            root.configurationAccepted(selected.familyId, selected.runtimeId,
+                                       selected.runtimeVersion, selected.selectedFiles)
         } else {
-            root.openStudio(familyItem.familyCapability, familyItem.familyId)
+            root.openStudio(detailPanel.f.familyCapability, selected.familyId)
         }
     }
 

@@ -263,6 +263,18 @@ bool DubbingSynthesisJob::start(const QVariantList &segments, const QString &pro
             }
             if (voice.isEmpty())
                 voice = DubbingColabModelRoutes::defaultVoiceForTtsModel(model);
+            QString language = settings.value(QStringLiteral("lang")).toString().trimmed();
+            if (language.isEmpty())
+                language = DubbingColabModelRoutes::defaultLanguageForTtsModel(model);
+            // A saved clone runs on its own exact voice-cloning worker.  The
+            // ordinary TTS model is not sent to that worker, so validating its
+            // voice/language contract here would reject an otherwise valid
+            // OmniVoice (or VoxCPM) clone before the clone route is checked.
+            if (!m_useVoiceCloning
+                && !DubbingColabModelRoutes::supportsTtsLanguage(model, language)) {
+                fail(DubbingColabModelRoutes::ttsLanguageCompatibilityError(model, language));
+                return false;
+            }
             if (m_useVoiceCloning) {
                 const QString cloneModel = (m_legacyCloneSettings
                     ? settings.value(QStringLiteral("voiceCloneModelId"))
@@ -526,6 +538,10 @@ void DubbingSynthesisJob::startRemoteSynthesis(const QString &text,
         QString language = requestSettings.value(QStringLiteral("lang")).toString().trimmed();
         if (language.isEmpty())
             language = DubbingColabModelRoutes::defaultLanguageForTtsModel(model);
+        if (!DubbingColabModelRoutes::supportsTtsLanguage(model, language)) {
+            fail(DubbingColabModelRoutes::ttsLanguageCompatibilityError(model, language));
+            return;
+        }
         if (voice.isEmpty()) { fail(QStringLiteral("Colab TTS voice is required.")); return; }
         m_remoteProgressConnection = connect(m_colabRunner, &ColabTtsRunner::progress, this,
                                              [this, requestId](int progress) { onRemoteProgress(progress, requestId); });

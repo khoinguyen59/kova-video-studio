@@ -995,6 +995,38 @@ void TestDubbingProject::automaticWorkflowDoesNotStartWithUnresolvedPreflight()
     QVERIFY(controller.lastError().contains(QStringLiteral("Automatic preflight")));
 }
 
+void TestDubbingProject::directColabTtsRejectsKnownUnsupportedLanguageBeforeWorker()
+{
+    const QVariantList segments = {
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("segment-1")},
+                    {QStringLiteral("targetText"), QString::fromUtf8("Xin chào")},
+                    {QStringLiteral("startMs"), 0},
+                    {QStringLiteral("endMs"), 1000}}
+    };
+    DubbingSynthesisJob job(nullptr);
+    QSignalSpy failures(&job, &DubbingSynthesisJob::failed);
+
+    // This must fail before a worker/session is contacted.  Sending vi to the
+    // English Kokoro worker used to reach Colab and return HTTP 422 at 0%.
+    QVERIFY(!job.start(segments, QStringLiteral("C:/temp/project.ladub.json"),
+                        QVariantMap{{QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+                                    {QStringLiteral("modelId"), QStringLiteral("kokoro")},
+                                    {QStringLiteral("voice"), QStringLiteral("af_heart")},
+                                    {QStringLiteral("lang"), QStringLiteral("vi")}},
+                        QStringLiteral("reject-kokoro-vi")));
+    QCOMPARE(failures.count(), 1);
+    const QString error = failures.takeFirst().at(0).toString();
+    QVERIFY(error.contains(QStringLiteral("Kokoro does not support target language 'vi'")));
+    QVERIFY(error.contains(QStringLiteral("Kokoro Vietnamese")));
+
+    QVERIFY(DubbingColabModelRoutes::supportsTtsLanguage(QStringLiteral("kokoro"),
+                                                          QStringLiteral("en-us")));
+    QVERIFY(!DubbingColabModelRoutes::supportsTtsLanguage(QStringLiteral("kokoro"),
+                                                           QStringLiteral("vi")));
+    QVERIFY(DubbingColabModelRoutes::supportsTtsLanguage(QStringLiteral("kokoro-vietnamese"),
+                                                          QStringLiteral("vi-vn")));
+}
+
 void TestDubbingProject::dubbingEntryGatePersistsChoiceWithoutMutatingProject()
 {
     QTemporaryDir dir;
@@ -1076,6 +1108,49 @@ void TestDubbingProject::automaticPreflightUsesPersistedLanguageSingleSourceOfTr
     controller.setSourceLanguage(QStringLiteral("ja"));
     QVERIFY(!controller.startAutomaticWorkflow(dir.filePath(QStringLiteral("dubbed.mp4"))));
     QVERIFY(controller.lastError().contains(QStringLiteral("Review Automatic preflight")));
+}
+
+void TestDubbingProject::automaticPreflightBlocksKnownUnsupportedTtsLanguage()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString mediaPath = dir.filePath(QStringLiteral("source.mp4"));
+    QVERIFY(writeFixtureFile(mediaPath, QByteArrayLiteral("video-placeholder")));
+
+    DubbingController controller(nullptr, nullptr);
+    QVERIFY(controller.newProject(dir.filePath(QStringLiteral("project.ladub.json"))));
+    QVERIFY(controller.importMedia(mediaPath));
+    controller.setTargetLanguage(QStringLiteral("vi"));
+    QVERIFY(controller.setWorkflowNodeParameters(QStringLiteral("synthesize"), {
+        {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+        {QStringLiteral("modelId"), QStringLiteral("kokoro")},
+        {QStringLiteral("voice"), QStringLiteral("af_heart")}
+    }));
+
+    const QVariantMap preflight = controller.automaticPreflight();
+    bool sawLanguageIssue = false;
+    for (const QVariant &issueValue : preflight.value(QStringLiteral("issues")).toList()) {
+        const QVariantMap issue = issueValue.toMap();
+        if (issue.value(QStringLiteral("id")).toString() == QStringLiteral("tts-language")) {
+            sawLanguageIssue = true;
+            QVERIFY(issue.value(QStringLiteral("message")).toString().contains(
+                QStringLiteral("Kokoro does not support target language 'vi'")));
+        }
+    }
+    QVERIFY(sawLanguageIssue);
+
+    bool sawSynthesisStage = false;
+    for (const QVariant &stageValue : preflight.value(QStringLiteral("stages")).toList()) {
+        const QVariantMap stage = stageValue.toMap();
+        if (stage.value(QStringLiteral("actionNodeId")).toString() == QStringLiteral("synthesize")) {
+            sawSynthesisStage = true;
+            QCOMPARE(stage.value(QStringLiteral("preflightState")).toString(),
+                     QStringLiteral("needs-setup"));
+            QCOMPARE(stage.value(QStringLiteral("preflightStateLabel")).toString(),
+                     QStringLiteral("TTS language incompatible"));
+        }
+    }
+    QVERIFY(sawSynthesisStage);
 }
 
 void TestDubbingProject::automaticPreflightExposesActionableSourceAndStageStates()
@@ -1269,7 +1344,7 @@ void TestDubbingProject::automaticSetupKeepsVerifiedDirectColabRouteAndReportsCu
     const QString separationModel = QStringLiteral("sherpa-onnx-spleeter-2stems-fp16");
     const QString sttModel = QStringLiteral("whisper.cpp");
     const QString translationModel = QStringLiteral("m2m100-418m");
-    const QString ttsModel = QStringLiteral("kokoro");
+    const QString ttsModel = QStringLiteral("kokoro-vietnamese");
     ExactRouteWorkerMock separationWorker(QStringLiteral("voice-isolation"), separationModel);
     ExactRouteWorkerMock sttWorker(QStringLiteral("stt"), sttModel);
     ExactRouteWorkerMock translationWorker(QStringLiteral("translation"), translationModel);
@@ -1383,7 +1458,7 @@ void TestDubbingProject::independentAuditDirectColabPurgesLocalStateAcrossDubbin
         {QStringLiteral("translate"), QStringLiteral("translation"),
          QStringLiteral("m2m100-418m"), app->colabTranslationSession()},
         {QStringLiteral("synthesize"), QStringLiteral("tts"),
-         QStringLiteral("kokoro"), app->colabTtsSession()},
+         QStringLiteral("kokoro-vietnamese"), app->colabTtsSession()},
     };
     for (const Stage &stage : stages) QVERIFY(stage.session != nullptr);
     ExactRouteWorkerMock separationWorker(stages[0].capability, stages[0].model);
@@ -1552,7 +1627,7 @@ void TestDubbingProject::directColabAdaptiveLlmClearsLocalStateAndNeverFallsBack
     const QString separationModel = QStringLiteral("sherpa-onnx-spleeter-2stems-fp16");
     const QString sttModel = QStringLiteral("whisper.cpp");
     const QString translationModel = QStringLiteral("m2m100-418m");
-    const QString ttsModel = QStringLiteral("kokoro");
+    const QString ttsModel = QStringLiteral("kokoro-vietnamese");
     const QString llmModel = QStringLiteral("qwen3.5-2b");
     ExactRouteWorkerMock separationWorker(QStringLiteral("voice-isolation"), separationModel);
     ExactRouteWorkerMock sttWorker(QStringLiteral("stt"), sttModel);
@@ -1746,6 +1821,8 @@ void TestDubbingProject::customWorkflowOpensFirstMissingNodeSetup()
     DubbingController controller(nullptr, nullptr);
     QVERIFY(controller.newProject(dir.filePath(QStringLiteral("project.ladub.json"))));
     QVERIFY(controller.importMedia(mediaPath));
+    controller.setSourceLanguage(QStringLiteral("en"));
+    controller.setTargetLanguage(QStringLiteral("vi"));
     controller.setDubbingQuality(QStringLiteral("custom"));
 
     const QVariantMap preflight = controller.automaticPreflight();
@@ -2244,6 +2321,41 @@ void TestDubbingProject::dubbingColabModelsMapToExactNotebooks()
 
 void TestDubbingProject::dubbingUiUsesExactModelWorkers()
 {
+    const QDir sourceRoot(QStringLiteral(LASTUDIO_SOURCE_DIR));
+    QFile workflowModelDialog(sourceRoot.filePath(
+        QStringLiteral("qml/components/shared/WorkflowNodeModelDialog.qml")));
+    QFile capabilityGallery(sourceRoot.filePath(
+        QStringLiteral("qml/components/shared/CapabilityGallery.qml")));
+    QVERIFY(workflowModelDialog.open(QIODevice::ReadOnly));
+    QVERIFY(capabilityGallery.open(QIODevice::ReadOnly));
+    const QString workflowModelDialogSource = QString::fromUtf8(workflowModelDialog.readAll());
+    const QString capabilityGallerySource = QString::fromUtf8(capabilityGallery.readAll());
+    // Selecting a gallery card is intentionally temporary.  The Dubbing
+    // picker must expose a visible Apply action and must remain open when the
+    // real controller rejects the selected runtime/files.
+    QVERIFY(workflowModelDialogSource.contains(
+        QStringLiteral("workflowNodeModelApplyButton")));
+    QVERIFY(workflowModelDialogSource.contains(
+        QStringLiteral("Apply selected model")));
+    QVERIFY(workflowModelDialogSource.contains(
+        QStringLiteral("workflowNodeModelCancelButton")));
+    QVERIFY(workflowModelDialogSource.contains(
+        QStringLiteral("Selected: %1")));
+    QVERIFY(workflowModelDialogSource.contains(
+        QStringLiteral("property var configurationApplier")));
+    QVERIFY(workflowModelDialogSource.contains(
+        QStringLiteral("root.configurationApplier")));
+    QVERIFY(workflowModelDialogSource.contains(
+        QStringLiteral("if (!result.accepted)")));
+    QVERIFY(workflowModelDialogSource.contains(
+        QStringLiteral("Install the selected model files and a compatible runtime")));
+    QVERIFY(capabilityGallerySource.contains(
+        QStringLiteral("function selectedConfiguration()")));
+    QVERIFY(capabilityGallerySource.contains(
+        QStringLiteral("function canUseSelectedFamily()")));
+    QVERIFY(workflowModelDialogSource.contains(
+        QStringLiteral("onConfigurationAccepted: root.applySelectedConfiguration()")));
+
     QFile settingsPanel(
         QStringLiteral(LASTUDIO_SOURCE_DIR)
         + QStringLiteral("/qml/components/dubbing/DubbingNodeSettingsPanel.qml"));
@@ -2327,6 +2439,10 @@ void TestDubbingProject::dubbingUiUsesExactModelWorkers()
     QVERIFY(automaticPreflightSource.contains(QStringLiteral("preflight.stages")));
     QVERIFY(!automaticPreflightSource.contains(QStringLiteral("workflow default")));
     QVERIFY(automaticPreflightSource.contains(QStringLiteral("required property int index")));
+    QVERIFY(automaticPreflightSource.contains(
+        QStringLiteral("configurationApplier: function(nodeId, familyId, runtimeId, runtimeVersion, selectedFiles)")));
+    QVERIFY(automaticPreflightSource.contains(
+        QStringLiteral("var accepted = root.dubbing.setWorkflowNodeModel(")));
 
     QFile dubbingController(
         QStringLiteral(LASTUDIO_SOURCE_DIR)
@@ -2341,6 +2457,8 @@ void TestDubbingProject::dubbingUiUsesExactModelWorkers()
         QStringLiteral("m_automaticPreflightFingerprint")));
     QVERIFY(controllerSource.contains(
         QStringLiteral("automaticPreflightFingerprint")));
+    QVERIFY(controllerSource.contains(
+        QStringLiteral("TTS language incompatible")));
 
     QFile voiceLibrary(
         QStringLiteral(LASTUDIO_SOURCE_DIR)
@@ -2365,6 +2483,10 @@ void TestDubbingProject::dubbingUiUsesExactModelWorkers()
         QStringLiteral("%1|%2|%3|%4|%5|%6")));
     QVERIFY(synthesisSource.contains(
         QStringLiteral("m_colabVoiceProfileId.clear")));
+    QVERIFY(synthesisSource.contains(
+        QStringLiteral("supportsTtsLanguage(model, language)")));
+    QVERIFY(synthesisSource.contains(
+        QStringLiteral("ttsLanguageCompatibilityError(model, language)")));
     QVERIFY(!synthesisSource.contains(
         QStringLiteral("cloneVoiceProfileId")));
 
@@ -2390,6 +2512,12 @@ void TestDubbingProject::dubbingUiUsesExactModelWorkers()
         + QStringLiteral("/qml/pages/DubbingPage.qml"));
     QVERIFY(dubbingPage.open(QIODevice::ReadOnly));
     const QString dubbingPageSource = QString::fromUtf8(dubbingPage.readAll());
+    QVERIFY(dubbingPageSource.contains(
+        QStringLiteral("nodeConfigurationApplier: function(nodeId, familyId, runtimeId, runtimeVersion, selectedFiles)")));
+    QVERIFY(dubbingPageSource.contains(
+        QStringLiteral("configurationApplier: function(nodeId, familyId, runtimeId, runtimeVersion, selectedFiles)")));
+    QVERIFY(dubbingPageSource.contains(
+        QStringLiteral("var accepted = dubbing.setWorkflowNodeModel(")));
     QVERIFY(dubbingPageSource.contains(
         QStringLiteral("objectName: \"dubbingTranscriptSourceMode\"")));
     QVERIFY(dubbingPageSource.contains(QStringLiteral("{ id: \"stt\"")));

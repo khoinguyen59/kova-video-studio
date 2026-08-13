@@ -29,7 +29,7 @@ Dialog {
     signal approveRequested()
     signal rejectRequested()
     signal nodeConfigureRequested(string nodeId)
-    signal nodeConfigurationChanged(string nodeId, string familyId, string runtimeId, string runtimeVersion, var selectedFiles)
+    property var nodeConfigurationApplier: null
 
     function configureNode(nodeId) { Qt.callLater(function() { modelDialog.openFor(nodeId) }) }
 
@@ -343,8 +343,12 @@ Dialog {
         id: modelDialog
         nodes: root.nodes
         nodeConfigurations: root.nodeConfigurations
-        onConfigurationAccepted: function(nodeId, familyId, runtimeId, runtimeVersion, selectedFiles) {
-            root.nodeConfigurationChanged(nodeId, familyId, runtimeId, runtimeVersion, selectedFiles)
+        configurationApplier: function(nodeId, familyId, runtimeId, runtimeVersion, selectedFiles) {
+            return root.nodeConfigurationApplier
+                    ? root.nodeConfigurationApplier(nodeId, familyId, runtimeId, runtimeVersion,
+                                                     selectedFiles)
+                    : ({ accepted: false,
+                         error: qsTr("No Dubbing configuration handler is available.") })
         }
     }
 

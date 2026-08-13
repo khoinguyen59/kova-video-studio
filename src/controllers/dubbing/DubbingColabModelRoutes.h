@@ -173,4 +173,46 @@ inline QString defaultLanguageForTtsModel(const QString &modelId)
     return QStringLiteral("auto");
 }
 
+inline QString normalizedTtsLanguage(const QString &language)
+{
+    return language.trimmed().toLower().replace(QLatin1Char('_'), QLatin1Char('-'));
+}
+
+// These two Kokoro workers advertise deliberately fixed language contracts.
+// Other exact TTS workers validate their own richer model-specific language
+// lists, so this guard prevents the known impossible pair without pretending
+// to know a broader model's capability surface.
+inline bool supportsTtsLanguage(const QString &modelId, const QString &language)
+{
+    const QString model = modelId.trimmed().toLower();
+    const QString normalized = normalizedTtsLanguage(language);
+    if (normalized.isEmpty() || normalized == QStringLiteral("auto")) return true;
+    if (model == QStringLiteral("kokoro")) {
+        return normalized == QStringLiteral("en") || normalized == QStringLiteral("en-us")
+            || normalized == QStringLiteral("en-gb") || normalized == QStringLiteral("ja")
+            || normalized == QStringLiteral("zh") || normalized == QStringLiteral("es")
+            || normalized == QStringLiteral("fr") || normalized == QStringLiteral("hi")
+            || normalized == QStringLiteral("it") || normalized == QStringLiteral("pt-br");
+    }
+    if (model == QStringLiteral("kokoro-vietnamese"))
+        return normalized == QStringLiteral("vi") || normalized == QStringLiteral("vi-vn");
+    return true;
+}
+
+inline QString ttsLanguageCompatibilityError(const QString &modelId, const QString &language)
+{
+    const QString model = modelId.trimmed().toLower();
+    const QString normalized = normalizedTtsLanguage(language);
+    if (model == QStringLiteral("kokoro")) {
+        return QStringLiteral("The selected Direct Colab TTS model Kokoro does not support target language '%1'. Choose Kokoro Vietnamese for Vietnamese, or select another compatible TTS model. LA Studio will not substitute a voice or model.")
+            .arg(normalized);
+    }
+    if (model == QStringLiteral("kokoro-vietnamese")) {
+        return QStringLiteral("The selected Direct Colab TTS model Kokoro Vietnamese supports Vietnamese only, not target language '%1'. Choose a compatible TTS model. LA Studio will not substitute a voice or model.")
+            .arg(normalized);
+    }
+    return QStringLiteral("The selected Direct Colab TTS model does not support target language '%1'. Choose a compatible TTS model.")
+        .arg(normalized);
+}
+
 } // namespace LAStudio::DubbingColabModelRoutes

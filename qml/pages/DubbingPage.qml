@@ -2403,22 +2403,30 @@ Item {
         onApproveRequested: dubbing.approveWorkflowReview()
         onRejectRequested: dubbing.rejectWorkflowReview(qsTr("Rejected from workflow review"))
         nodeConfigurations: dubbing.workflowNodeConfigurations
-        onNodeConfigurationChanged: dubbing.setWorkflowNodeModel(nodeId, familyId, runtimeId, runtimeVersion, selectedFiles)
+        nodeConfigurationApplier: function(nodeId, familyId, runtimeId, runtimeVersion, selectedFiles) {
+            var accepted = dubbing.setWorkflowNodeModel(
+                        nodeId, familyId, runtimeId, runtimeVersion, selectedFiles)
+            return { accepted: accepted,
+                     error: accepted ? "" : dubbing.lastError }
+        }
     }
 
     WorkflowNodeModelDialog {
         id: nodeModelDialog
         nodes: dubbing.workflowNodes
         nodeConfigurations: dubbing.workflowNodeConfigurations
-        onConfigurationAccepted: function(nodeId, familyId, runtimeId, runtimeVersion, selectedFiles) {
+        configurationApplier: function(nodeId, familyId, runtimeId, runtimeVersion, selectedFiles) {
             if (nodeId === "adaptive-llm") {
                 adaptiveLlmController.saveConfigurationSelection(
                     familyId, runtimeId, runtimeVersion, selectedFiles)
                 qualityDialog.localModelConfigured(
                     familyId, runtimeId, runtimeVersion, selectedFiles)
+                return { accepted: true, error: "" }
             } else {
-                dubbing.setWorkflowNodeModel(
+                var accepted = dubbing.setWorkflowNodeModel(
                     nodeId, familyId, runtimeId, runtimeVersion, selectedFiles)
+                return { accepted: accepted,
+                         error: accepted ? "" : dubbing.lastError }
             }
         }
     }

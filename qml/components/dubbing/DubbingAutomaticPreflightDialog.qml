@@ -687,9 +687,14 @@ Dialog {
         id: preflightModelDialog
         nodes: root.dubbing.workflowNodes
         nodeConfigurations: root.dubbing.workflowNodeConfigurations
-        onConfigurationAccepted: function(nodeId, familyId, runtimeId, runtimeVersion, selectedFiles) {
-            if (root.dubbing.setWorkflowNodeModel(nodeId, familyId, runtimeId, runtimeVersion, selectedFiles))
-                root.dubbing.setWorkflowNodeParameters(nodeId, { executionProvider: "local-dev" })
+        configurationApplier: function(nodeId, familyId, runtimeId, runtimeVersion, selectedFiles) {
+            var accepted = root.dubbing.setWorkflowNodeModel(
+                        nodeId, familyId, runtimeId, runtimeVersion, selectedFiles)
+            if (accepted)
+                accepted = root.dubbing.setWorkflowNodeParameters(
+                            nodeId, { executionProvider: "local-dev" })
+            return { accepted: accepted,
+                     error: accepted ? "" : root.dubbing.lastError }
         }
     }
 

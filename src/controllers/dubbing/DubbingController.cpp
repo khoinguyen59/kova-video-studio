@@ -2737,6 +2737,22 @@ QVariantMap DubbingController::automaticPreflight() const
                          QStringLiteral("Connect and check the exact Direct Colab worker for %1 (%2).")
                              .arg(stage.value(QStringLiteral("title")).toString(), modelId), 2);
             }
+            // Saved clone voices use their own exact Direct Colab worker.  Do
+            // not validate the ordinary TTS model language contract against a
+            // request that will be synthesized by the clone model instead.
+            const bool usesSavedCloneVoice = nodeId == QStringLiteral("synthesize")
+                && !selectedCloneVoicePreset().isEmpty();
+            if (nodeId == QStringLiteral("synthesize") && !usesSavedCloneVoice) {
+                const QString ttsLanguage = parameters.value(QStringLiteral("lang"),
+                    m_project.targetLanguage).toString().trimmed();
+                if (!DubbingColabModelRoutes::supportsTtsLanguage(modelId, ttsLanguage)) {
+                    preflightState = QStringLiteral("needs-setup");
+                    preflightStateLabel = QStringLiteral("TTS language incompatible");
+                    addIssue(QStringLiteral("tts-language"),
+                             DubbingColabModelRoutes::ttsLanguageCompatibilityError(
+                                 modelId, ttsLanguage), 1, QStringLiteral("synthesize"));
+                }
+            }
             if (!worker.isEmpty()) {
                 QVariantMap workerCard = worker;
                 workerCard.insert(QStringLiteral("parentStageId"), stageId);

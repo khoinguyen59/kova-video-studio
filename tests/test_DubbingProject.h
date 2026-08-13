@@ -16,6 +16,7 @@ private slots:
     void importingMediaDoesNotStartProcessing();
     void dubbingEntryGatePersistsChoiceWithoutMutatingProject();
     void automaticPreflightUsesPersistedLanguageSingleSourceOfTruth();
+    void automaticPreflightBlocksKnownUnsupportedTtsLanguage();
     void automaticPreflightExposesActionableSourceAndStageStates();
     void automaticPreflightFixTargetsAndNoOpConfigurationsAreExplicit();
     void automaticPreflightReadinessMatrixRejectsFalseReadyStates();
@@ -79,6 +80,7 @@ private slots:
     void ranksPartialTranslationFixesByBudgetDistance();
     void remoteTranslationRoutesDoNotFallbackBetweenGatewayAndColab();
     void remoteTtsRoutesDoNotFallbackBetweenGatewayAndColab();
+    void directColabTtsRejectsKnownUnsupportedLanguageBeforeWorker();
     void colabDubbingVoiceCloningIsDirectAndRequiresConsent();
     void dubbingDirectColabVoiceCloneReusesProfileAcrossSegments();
     void colabSourceSeparationDoesNotFallbackToLocal();
