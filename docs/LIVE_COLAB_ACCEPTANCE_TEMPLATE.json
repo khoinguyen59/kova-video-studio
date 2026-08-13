@@ -55,6 +55,16 @@
       "max_tokens": 16
     },
     {
+      "capability": "media-download",
+      "model": "yt-dlp-media-download",
+      "notebook": "LA_STUDIO_MEDIA_DOWNLOAD_YTDLP_COLAB.ipynb",
+      "url_env": "LASTUDIO_LIVE_MEDIA_DOWNLOAD_YT_DLP_MEDIA_DOWNLOAD_URL",
+      "token_env": "LASTUDIO_LIVE_MEDIA_DOWNLOAD_YT_DLP_MEDIA_DOWNLOAD_TOKEN",
+      "request_timeout_seconds": 180,
+      "public_url": "REPLACE_WITH_A_PUBLIC_MEDIA_URL",
+      "job_timeout_seconds": 2700
+    },
+    {
       "capability": "voice-isolation",
       "model": "sherpa-onnx-spleeter-2stems-fp16",
       "notebook": "LA_STUDIO_SEPARATION_SPLEETER_2STEMS_GPU.ipynb",
@@ -117,6 +127,16 @@
       "audio_path": "REPLACE_WITH_SHORT_SPEECH_AUDIO.wav",
       "language": "en",
       "job_timeout_seconds": 900
+    },
+    {
+      "capability": "subtitle-ocr",
+      "model": "pp-ocrv5-multilingual-3.1",
+      "notebook": "LA_STUDIO_SUBTITLE_OCR_PP_OCRV5_GPU.ipynb",
+      "url_env": "LASTUDIO_LIVE_SUBTITLE_OCR_PP_OCRV5_MULTILINGUAL_3_1_URL",
+      "token_env": "LASTUDIO_LIVE_SUBTITLE_OCR_PP_OCRV5_MULTILINGUAL_3_1_TOKEN",
+      "request_timeout_seconds": 180,
+      "image_path": "REPLACE_WITH_SHORT_SUBTITLE_CROP.png",
+      "language": "en"
     },
     {
       "capability": "translation",
@@ -349,16 +369,6 @@
       "text": "LA Studio live model validation.",
       "voice_description": "A calm studio narrator.",
       "language": "en"
-    },
-    {
-      "capability": "subtitle-ocr",
-      "model": "pp-ocrv5-multilingual-3.1",
-      "notebook": "LA_STUDIO_SUBTITLE_OCR_PP_OCRV5_GPU.ipynb",
-      "url_env": "LASTUDIO_LIVE_SUBTITLE_OCR_PP_OCRV5_URL",
-      "token_env": "LASTUDIO_LIVE_SUBTITLE_OCR_PP_OCRV5_TOKEN",
-      "request_timeout_seconds": 180,
-      "png_path": "REPLACE_WITH_CROPPED_SUBTITLE_FRAME.png",
-      "language": "vi"
     }
   ]
 }

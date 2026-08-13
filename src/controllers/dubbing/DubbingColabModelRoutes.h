@@ -24,6 +24,15 @@ inline QVariantList optionsForNode(const QString &nodeId)
         };
     };
 
+    // This is deliberately not a GPU inference model. It is an exact,
+    // separate Colab worker which owns yt-dlp and returns a completed media
+    // file to the desktop. It cannot be selected as an STT/TTS route.
+    if (id == QStringLiteral("media-download")) {
+        return { option(QStringLiteral("yt-dlp-media-download"),
+                        QStringLiteral("Public media download (Colab)"),
+                        QStringLiteral("LA_STUDIO_MEDIA_DOWNLOAD_YTDLP_COLAB.ipynb")) };
+    }
+
     if (id == QStringLiteral("source-separate")) {
         return {
             option(QStringLiteral("sherpa-onnx-spleeter-2stems-fp16"),
@@ -137,6 +146,8 @@ inline QString defaultModelForNode(const QString &nodeId)
         return QStringLiteral("kokoro");
     if (id == QStringLiteral("alignment"))
         return QStringLiteral("mms-forced-aligner-onnx");
+    if (id == QStringLiteral("media-download"))
+        return QStringLiteral("yt-dlp-media-download");
     return {};
 }
 

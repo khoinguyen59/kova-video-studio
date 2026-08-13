@@ -38,8 +38,10 @@ CAPABILITIES = {
     "voice-design",
     "forced-alignment",
     "voice-isolation",
+    "subtitle-ocr",
     "translation",
     "llm-chat",
+    "media-download",
 }
 
 
@@ -212,18 +214,20 @@ class WorkerClient:
 
 def exact_model_preflight(client: WorkerClient) -> list[Check]:
     checks: list[Check] = []
+    expected_device = "colab-cpu" if client.capability == "media-download" else "cuda"
+    worker_label = "Colab CPU downloader" if client.capability == "media-download" else "CUDA worker"
     started = time.monotonic()
     status, health = client.request_json("GET", "/health")
     elapsed = time.monotonic() - started
     try:
         client.require_success(status, health, "health")
-        if health.get("ready") is not True or str(health.get("device", "")).lower() != "cuda":
-            raise AcceptanceError("health did not prove ready CUDA execution")
+        if health.get("ready") is not True or str(health.get("device", "")).lower() != expected_device:
+            raise AcceptanceError(f"health did not prove ready {worker_label} execution")
         if health.get("cpu_fallback") is not False or health.get("model") != client.model:
-            raise AcceptanceError("health did not prove the exact selected model without CPU fallback")
-        checks.append(Check("live CUDA health", True, "ready CUDA exact model", elapsed))
+            raise AcceptanceError("health did not prove the exact selected model without a route fallback")
+        checks.append(Check("live worker health", True, f"ready {worker_label} exact model", elapsed))
     except AcceptanceError as error:
-        checks.append(Check("live CUDA health", False, redact_detail(error), elapsed))
+        checks.append(Check("live worker health", False, redact_detail(error), elapsed))
         return checks
 
     started = time.monotonic()
@@ -241,8 +245,12 @@ def exact_model_preflight(client: WorkerClient) -> list[Check]:
             raise AcceptanceError("worker did not advertise the requested capability")
         models = selected.get("models")
         selected_model = next((item for item in models if item.get("id") == client.model), None) if isinstance(models, list) else None
-        if not isinstance(selected_model, dict) or selected_model.get("loaded") is not True or str(selected_model.get("device", "")).lower() != "cuda":
-            raise AcceptanceError("worker did not advertise the selected loaded CUDA model")
+        if not isinstance(selected_model, dict) or selected_model.get("loaded") is not True \
+                or str(selected_model.get("device", "")).lower() != expected_device:
+            raise AcceptanceError(f"worker did not advertise the selected loaded {expected_device} model")
+        if client.capability == "media-download" \
+                and selected_model.get("response_contract") != "media-download-jobs-v1":
+            raise AcceptanceError("media downloader did not advertise the media-download-jobs-v1 contract")
         checks.append(Check("live exact-model capability", True, "capability and model match", elapsed))
     except AcceptanceError as error:
         checks.append(Check("live exact-model capability", False, redact_detail(error), elapsed))
@@ -252,6 +260,13 @@ def exact_model_preflight(client: WorkerClient) -> list[Check]:
 def exact_model_rejection_probe(client: WorkerClient) -> Check:
     """Prove the live endpoint refuses a request for any other model ID."""
     started = time.monotonic()
+    if client.capability == "media-download":
+        # This protocol intentionally has no caller-selectable model field: the
+        # dedicated URL downloader exposes one immutable model identity from
+        # /health and /v1/capabilities, so there is no alternate model request
+        # to send or silently ignore.
+        return Check("immutable downloader model", True,
+                     "media-download accepts no caller model override", time.monotonic() - started)
     wrong_model = "lastudio-live-acceptance-wrong-model"
     try:
         if client.capability == "stt":
@@ -282,6 +297,18 @@ def exact_model_rejection_probe(client: WorkerClient) -> Check:
                 "language": str(client.config.get("language", "en")), "temperature": 0.7,
                 "seed": 42, "response_format": "wav",
             })
+        elif client.capability == "subtitle-ocr":
+            image = require_subtitle_image_config(client)
+            fields, file_field, path = {
+                "model": wrong_model,
+                "language": str(client.config.get("language", "en")),
+            }, "file", "/v1/ocr/subtitles"
+            body, content_type = encode_multipart(fields, file_field, image)
+            status, raw, _ = client.request("POST", path, body, content_type, "application/json")
+            try:
+                response = json.loads(raw.decode("utf-8")) if raw else {}
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                response = {}
         else:
             audio = require_audio_config(client)
             if client.capability == "forced-alignment":
@@ -330,6 +357,17 @@ def require_audio_config(client: WorkerClient) -> Path:
     return assert_audio_file(Path(require_string(client.config, "audio_path", client.capability)), client.capability)
 
 
+def require_subtitle_image_config(client: WorkerClient) -> Path:
+    path = Path(require_string(client.config, "image_path", "subtitle-ocr")).expanduser().resolve()
+    if not path.is_file() or path.stat().st_size <= 0:
+        raise AcceptanceError("subtitle-ocr requires a readable non-empty image_path")
+    if path.stat().st_size > 16 * 1024 * 1024:
+        raise AcceptanceError("subtitle-ocr image_path exceeds the 16 MiB worker limit")
+    if path.suffix.lower() != ".png" or not path.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
+        raise AcceptanceError("subtitle-ocr image_path must be a PNG crop frame")
+    return path
+
+
 def poll_job(client: WorkerClient, path: str, job_id: str, result_statuses: set[str],
              progress_key: str = "progress") -> tuple[dict[str, Any], list[int]]:
     maximum = int(client.config.get("job_timeout_seconds", 900))
@@ -352,6 +390,79 @@ def poll_job(client: WorkerClient, path: str, job_id: str, result_statuses: set[
             raise AcceptanceError(f"job ended as {state}: {redact_detail(payload.get('detail', payload.get('error', '')))}")
         time.sleep(2.0)
     raise AcceptanceError("job did not finish before job_timeout_seconds")
+
+
+def run_media_download(client: WorkerClient) -> Check:
+    """Download one public URL through the real dedicated Colab CPU worker."""
+    started = time.monotonic()
+    try:
+        public_url = require_string(client.config, "public_url", "media-download")
+        if urlparse(public_url).scheme.lower() != "https":
+            raise AcceptanceError("media-download public_url must use HTTPS")
+        status, response = client.request_json("POST", "/v1/media/downloads", {"url": public_url})
+        response = client.require_success(status, response, "media download create")
+        job_id = require_string(response, "job_id", "media download create response")
+        maximum = int(client.config.get("job_timeout_seconds", 2700))
+        if maximum < 10 or maximum > 3600:
+            raise AcceptanceError("media-download job_timeout_seconds must be between 10 and 3600")
+        deadline = time.monotonic() + maximum
+        received_bytes = -1
+        observed_progress = False
+        while time.monotonic() < deadline:
+            status, current = client.request_json("GET", f"/v1/media/downloads/{job_id}")
+            current = client.require_success(status, current, "media download status")
+            state = str(current.get("state", "")).lower()
+            current_bytes = current.get("received_bytes")
+            if not isinstance(current_bytes, (int, float)) or current_bytes < 0:
+                raise AcceptanceError("media download status did not report received_bytes")
+            current_bytes = int(current_bytes)
+            if current_bytes < received_bytes:
+                raise AcceptanceError("media download received_bytes regressed")
+            observed_progress = observed_progress or current_bytes > received_bytes
+            received_bytes = current_bytes
+            if state == "ready":
+                if received_bytes <= 0 or not observed_progress:
+                    raise AcceptanceError("media download reached ready without real byte progress")
+                status, media, _ = client.request("GET", f"/v1/media/downloads/{job_id}/file", None,
+                                                  None, "application/octet-stream")
+                if not 200 <= status < 300 or not media:
+                    raise AcceptanceError(f"media download result fetch failed with HTTP {status}")
+                return Check("real public-media download", True,
+                             f"download job completed and returned {len(media)} bytes", time.monotonic() - started)
+            if state in {"failed", "cancelled", "canceled"}:
+                raise AcceptanceError("media download worker reported failure")
+            if state not in {"queued", "downloading"}:
+                raise AcceptanceError(f"media download returned an invalid state '{state}'")
+            time.sleep(2.0)
+        raise AcceptanceError("media download did not finish before job_timeout_seconds")
+    except (AcceptanceError, json.JSONDecodeError) as error:
+        return Check("real public-media download", False, redact_detail(error), time.monotonic() - started)
+
+
+def run_subtitle_ocr(client: WorkerClient) -> Check:
+    """Run a real visible subtitle crop through the exact OCR worker."""
+    started = time.monotonic()
+    try:
+        image = require_subtitle_image_config(client)
+        body, content_type = encode_multipart({
+            "model": client.model,
+            "language": str(client.config.get("language", "en")),
+        }, "file", image)
+        status, raw, _ = client.request("POST", "/v1/ocr/subtitles", body, content_type, "application/json")
+        try:
+            response = json.loads(raw.decode("utf-8")) if raw else {}
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise AcceptanceError("Subtitle OCR returned a non-JSON response") from error
+        response = client.require_success(status, response, "Subtitle OCR")
+        if not isinstance(response.get("text"), str) or not response["text"].strip():
+            raise AcceptanceError("Subtitle OCR did not return non-empty text; use a crop containing a readable subtitle")
+        confidence = response.get("confidence")
+        if not isinstance(confidence, (int, float)) or not 0.0 <= float(confidence) <= 1.0:
+            raise AcceptanceError("Subtitle OCR returned an invalid confidence")
+        return Check("real Subtitle OCR inference", True,
+                     "received non-empty exact-model text and confidence", time.monotonic() - started)
+    except (AcceptanceError, json.JSONDecodeError) as error:
+        return Check("real Subtitle OCR inference", False, redact_detail(error), time.monotonic() - started)
 
 
 def run_stt(client: WorkerClient) -> Check:
@@ -565,6 +676,8 @@ def run_voice_clone(client: WorkerClient) -> Check:
 
 
 INFERENCE_RUNNERS: dict[str, Callable[[WorkerClient], Check]] = {
+    "media-download": run_media_download,
+    "subtitle-ocr": run_subtitle_ocr,
     "stt": run_stt,
     "tts": run_tts,
     "translation": run_translation,
@@ -583,7 +696,7 @@ def render_report(reports: Iterable[WorkerReport], sensitive_values: Iterable[st
         "# Live Colab acceptance report", "",
         f"Generated: {now}", "",
         "This report is real-worker evidence. It does not expose worker URLs or tokens. "
-        "A worker passes only when CUDA health, exact-model capability, and one model-specific inference all pass.", "",
+        "A worker passes only when the required worker health, exact-model capability, and one model-specific operation all pass.", "",
         "| Capability | Model | Result |",
         "| --- | --- | --- |",
     ]

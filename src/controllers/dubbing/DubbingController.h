@@ -29,8 +29,7 @@ class CapabilityFamilyModel;
 class Settings;
 class ColabSession;
 class VoiceClonePresetService;
-class RemoteMediaImportService;
-class DouyinBrowserSessionService;
+class ColabMediaDownloadRunner;
 class SubtitleOcrController;
 
 class DubbingController : public QObject
@@ -61,29 +60,14 @@ class DubbingController : public QObject
     Q_PROPERTY(QString exportPath READ exportPath NOTIFY exportChanged)
     Q_PROPERTY(QString capCutDraftPath READ capCutDraftPath NOTIFY exportChanged)
     Q_PROPERTY(QString capCutDraftWarning READ capCutDraftWarning NOTIFY exportChanged)
-    Q_PROPERTY(bool linkImporting READ linkImporting NOTIFY linkImportChanged)
-    Q_PROPERTY(QString linkImportStatus READ linkImportStatus NOTIFY linkImportChanged)
-    Q_PROPERTY(qint64 linkImportReceivedBytes READ linkImportReceivedBytes NOTIFY linkImportChanged)
-    Q_PROPERTY(qint64 linkImportTotalBytes READ linkImportTotalBytes NOTIFY linkImportChanged)
-    Q_PROPERTY(bool downloadedMediaReady READ downloadedMediaReady NOTIFY linkImportChanged)
-    Q_PROPERTY(QString downloadedMediaPath READ downloadedMediaPath NOTIFY linkImportChanged)
-    Q_PROPERTY(QString downloadedMediaFileName READ downloadedMediaFileName NOTIFY linkImportChanged)
-    // Batch media stays deliberately separate from the one-off link-import
-    // affordance above.  A batch item represents a locally staged media file
-    // and its durable per-item outputs; source URLs are never retained after
-    // the download has completed.
+    // A batch item represents a locally staged media file and its durable
+    // per-item outputs. Public source URLs are transient Colab-job input only
+    // and are removed before a library item becomes ready.
     Q_PROPERTY(QVariantList mediaQueueItems READ mediaQueueItems NOTIFY mediaQueueChanged)
     Q_PROPERTY(bool mediaQueueDownloading READ mediaQueueDownloading NOTIFY mediaQueueChanged)
     Q_PROPERTY(bool mediaQueueProcessing READ mediaQueueProcessing NOTIFY mediaQueueChanged)
     Q_PROPERTY(QString mediaQueueStatus READ mediaQueueStatus NOTIFY mediaQueueChanged)
     Q_PROPERTY(int mediaQueueProgress READ mediaQueueProgress NOTIFY mediaQueueChanged)
-    Q_PROPERTY(bool douyinCookieConfigured READ douyinCookieConfigured NOTIFY douyinCookieChanged)
-    Q_PROPERTY(QString douyinCookieFileName READ douyinCookieFileName NOTIFY douyinCookieChanged)
-    Q_PROPERTY(bool douyinBrowserAvailable READ douyinBrowserAvailable NOTIFY douyinBrowserChanged)
-    Q_PROPERTY(bool douyinBrowserConfigured READ douyinBrowserConfigured NOTIFY douyinBrowserChanged)
-    Q_PROPERTY(bool douyinBrowserBusy READ douyinBrowserBusy NOTIFY douyinBrowserChanged)
-    Q_PROPERTY(bool douyinBrowserVerified READ douyinBrowserVerified NOTIFY douyinBrowserChanged)
-    Q_PROPERTY(QString douyinBrowserStatus READ douyinBrowserStatus NOTIFY douyinBrowserChanged)
     Q_PROPERTY(QVariantList workflowNodes READ workflowNodes NOTIFY workflowChanged)
     // Presentation-only aggregation of the durable workflow node ids.  The
     // serialized graph deliberately keeps its existing ids so projects made
@@ -140,6 +124,7 @@ class DubbingController : public QObject
     Q_PROPERTY(bool ttsVoiceSelectionValid READ ttsVoiceSelectionValid NOTIFY cloneVoiceSelectionChanged)
     Q_PROPERTY(QString ttsVoiceSelectionError READ ttsVoiceSelectionError NOTIFY cloneVoiceSelectionChanged)
     Q_PROPERTY(QVariantList colabSetupStages READ colabSetupStages NOTIFY colabSetupChanged)
+    Q_PROPERTY(QVariantMap mediaDownloadColabSetup READ mediaDownloadColabSetup NOTIFY colabSetupChanged)
     Q_PROPERTY(bool colabSetupChecking READ colabSetupChecking NOTIFY colabSetupChanged)
     Q_PROPERTY(QString colabSetupSummary READ colabSetupSummary NOTIFY colabSetupChanged)
 
@@ -153,9 +138,13 @@ public:
                       QObject *parent = nullptr);
     ~DubbingController() override;
     void setRemoteServices(Settings *settings, ColabSession *translationSession,
-                           ColabSession *ttsSession, ColabSession *voiceCloneSession,
-                           ColabSession *separationSession,
-                           ColabSession *alignmentSession);
+                            ColabSession *ttsSession, ColabSession *voiceCloneSession,
+                            ColabSession *separationSession,
+                            ColabSession *alignmentSession,
+                            // Keep existing controller-only integrations valid;
+                            // production AppController always supplies the dedicated
+                            // media-download session.
+                            ColabSession *mediaDownloadSession = nullptr);
     void setVoiceClonePresetService(VoiceClonePresetService *service);
     void setSubtitleOcrController(SubtitleOcrController *controller);
 
@@ -189,25 +178,11 @@ public:
     QString exportPath() const;
     QString capCutDraftPath() const { return m_capCutDraftPath; }
     QString capCutDraftWarning() const { return m_capCutDraftWarning; }
-    bool linkImporting() const;
-    QString linkImportStatus() const { return m_linkImportStatus; }
-    qint64 linkImportReceivedBytes() const { return m_linkImportReceivedBytes; }
-    qint64 linkImportTotalBytes() const { return m_linkImportTotalBytes; }
-    bool downloadedMediaReady() const;
-    QString downloadedMediaPath() const { return m_downloadedMediaPath; }
-    QString downloadedMediaFileName() const;
     QVariantList mediaQueueItems() const { return m_mediaQueueItems; }
     bool mediaQueueDownloading() const;
     bool mediaQueueProcessing() const { return m_mediaQueueProcessing; }
     QString mediaQueueStatus() const { return m_mediaQueueStatus; }
     int mediaQueueProgress() const;
-    bool douyinCookieConfigured() const { return !m_douyinCookieFilePath.isEmpty(); }
-    QString douyinCookieFileName() const { return QFileInfo(m_douyinCookieFilePath).fileName(); }
-    bool douyinBrowserAvailable() const;
-    bool douyinBrowserConfigured() const;
-    bool douyinBrowserBusy() const;
-    bool douyinBrowserVerified() const { return m_douyinBrowserVerified; }
-    QString douyinBrowserStatus() const { return m_douyinBrowserStatus; }
     QVariantList workflowNodes() const;
     QVariantList workflowStages() const;
     QVariantMap workflowNodeConfigurations() const { return m_workflowNodeConfigurations; }
@@ -265,6 +240,7 @@ public:
     bool ttsVoiceSelectionValid() const { return cloneVoiceSelectionValid(); }
     QString ttsVoiceSelectionError() const { return cloneVoiceSelectionError(); }
     QVariantList colabSetupStages() const;
+    QVariantMap mediaDownloadColabSetup() const;
     bool colabSetupChecking() const { return !m_colabSetupPendingChecks.isEmpty(); }
     QString colabSetupSummary() const { return m_colabSetupSummary; }
 
@@ -280,19 +256,10 @@ public:
     Q_INVOKABLE void clearHistory();
     Q_INVOKABLE void closeProject();
     Q_INVOKABLE bool importMedia(const QString &pathOrUrl);
-    Q_INVOKABLE bool importMediaFromLink(const QString &url);
-    Q_INVOKABLE bool downloadMediaFromLink(const QString &url);
-    Q_INVOKABLE bool handoffDownloadedMediaToDubbing();
-    Q_INVOKABLE void cancelMediaLinkImport();
-    // Each non-empty line is an independent public media URL. Downloading is
-    // serial. URLs and explicitly selected cookie files are memory-only and
-    // never written to project, settings, history, or output metadata.
+    // Each non-empty line is an independent public URL. It is sent only to the
+    // dedicated verified Colab media-downloader and never to a local resolver,
+    // browser profile, cookie store, project, settings, or output metadata.
     Q_INVOKABLE int enqueueMediaLinks(const QString &urls);
-    Q_INVOKABLE bool setDouyinCookieFile(const QString &path);
-    Q_INVOKABLE void clearDouyinCookieFile();
-    Q_INVOKABLE bool openDouyinBrowserSession();
-    Q_INVOKABLE bool checkDouyinBrowserSession(const QString &url = QString());
-    Q_INVOKABLE void disconnectDouyinBrowserSession();
     Q_INVOKABLE int enqueueMediaFiles(const QVariantList &paths);
     Q_INVOKABLE bool setMediaQueueItemSelected(const QString &itemId, bool selected);
     Q_INVOKABLE bool retryMediaQueueItem(const QString &itemId);
@@ -414,21 +381,17 @@ signals:
     void exportChanged();
     void workflowChanged();
     void historyChanged();
-    void linkImportChanged();
     void translationFixChanged();
     void translationFixConnectionTested(bool success, const QString &message);
     void cloneVoiceSelectionChanged();
     void colabSetupChanged();
     void timingResolutionChanged();
     void mediaQueueChanged();
-    void douyinCookieChanged();
-    void douyinBrowserChanged();
     void workflowSetupRequired(const QString &nodeId, const QString &setupKind,
                                const QString &message);
 
 private slots:
     void onIngestFinished(bool success, const QVariantMap &manifest);
-    void onRemoteMediaDownloadFinished(bool success, const QString &localPath, const QString &error);
     void onBatchMediaDownloadFinished(bool success, const QString &localPath, const QString &error);
 
 private:
@@ -522,19 +485,11 @@ private:
     QString m_capCutDraftWarning;
     QVariantMap m_timingResolutionPreview;
     QVariantList m_timingUndoSegments;
-    RemoteMediaImportService *m_remoteMediaImport = nullptr;
-    RemoteMediaImportService *m_batchMediaImport = nullptr;
-    DouyinBrowserSessionService *m_douyinBrowserSession = nullptr;
-    QString m_pendingLinkedMediaPath;
-    QString m_downloadedMediaPath;
-    bool m_downloadOnly = false;
-    QString m_linkImportStatus;
-    qint64 m_linkImportReceivedBytes = 0;
-    qint64 m_linkImportTotalBytes = -1;
+    // Public links use the isolated temporary Colab session; manual files
+    // bypass every downloader entirely.
+    ColabMediaDownloadRunner *m_colabMediaDownload = nullptr;
+    ColabSession *m_mediaDownloadSession = nullptr;
     QVariantList m_mediaQueueItems;
-    QString m_douyinCookieFilePath;
-    bool m_douyinBrowserVerified = false;
-    QString m_douyinBrowserStatus;
     QString m_activeMediaQueueDownloadId;
     QString m_activeMediaQueueItemId;
     QVariantMap m_mediaQueueTasks;

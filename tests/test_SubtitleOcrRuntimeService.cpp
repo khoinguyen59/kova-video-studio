@@ -518,13 +518,14 @@ void TestSubtitleOcrRuntimeService::responsiveLayoutSharedMediaAndHomeCardsAreWi
     QVERIFY(dubbingSourceText.contains(QStringLiteral("qmlSmokeMediaControlsCheck")));
     QVERIFY(!dubbingSourceText.contains(QStringLiteral("interval: 2500")));
 
-    QVERIFY(controllerSource.contains(QStringLiteral("m_dubbing->downloadMediaFromLink")));
-    QVERIFY(controllerSource.contains(QStringLiteral("m_dubbing->downloadedMediaPath")));
-    QVERIFY(controllerSource.contains(QStringLiteral("m_dubbing->cancelMediaLinkImport")));
-    QVERIFY(controllerSource.contains(QStringLiteral("m_lastSourceImportUrl")));
+    QVERIFY(controllerSource.contains(QStringLiteral("Colab media downloader")));
+    QVERIFY(!controllerSource.contains(QStringLiteral("m_dubbing->downloadMediaFromLink")));
+    QVERIFY(!controllerSource.contains(QStringLiteral("m_dubbing->cancelMediaLinkImport")));
+    QVERIFY(!controllerSource.contains(QStringLiteral("m_lastSourceImportUrl")));
     QVERIFY(!controllerSource.contains(QStringLiteral("new RemoteMediaImportService")));
 
-    QVERIFY(mediaDownloadSource.contains(QStringLiteral("Open Dubbing actions")));
+    QVERIFY(mediaDownloadSource.contains(QStringLiteral("Choose Dubbing actions")));
+    QVERIFY(mediaDownloadSource.contains(QStringLiteral("ColabMediaAcquisitionPanel")));
     QVERIFY(!mediaDownloadSource.contains(QStringLiteral("Use in Subtitle OCR")));
     QVERIFY(!mediaDownloadSource.contains(QStringLiteral("subtitleOcr.useDownloadedMedia")));
     QVERIFY(mediaDownloadSource.contains(QStringLiteral("openSubtitleOcrRequested")));

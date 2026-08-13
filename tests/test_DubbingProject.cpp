@@ -4834,8 +4834,9 @@ void TestDubbingProject::mediaBatchQueueWiresSerialRealOutputs()
     const QString queuePageText = QString::fromUtf8(queuePage.readAll());
     const QString sourcePanelText = QString::fromUtf8(sourcePanel.readAll());
 
-    QVERIFY(controllerText.contains(QStringLiteral("m_batchMediaImport")));
     QVERIFY(controllerText.contains(QStringLiteral("startNextQueuedMediaDownload")));
+    QVERIFY(controllerText.contains(QStringLiteral("m_colabMediaDownload")));
+    QVERIFY(controllerText.contains(QStringLiteral("dedicated Colab downloader")));
     QVERIFY(controllerText.contains(QStringLiteral("m_runner->startIngest")));
     QVERIFY(controllerText.contains(QStringLiteral("m_runner->startSourceSeparation")));
     QVERIFY(controllerText.contains(QStringLiteral("transcribeSource();")));
@@ -4849,18 +4850,20 @@ void TestDubbingProject::mediaBatchQueueWiresSerialRealOutputs()
     QVERIFY(controllerText.contains(QStringLiteral("background.wav")));
     QVERIFY(controllerText.contains(QStringLiteral("item.remove(QStringLiteral(\"sourceUrl\"))")));
 
-    QVERIFY(queuePageText.contains(QStringLiteral("TextArea")));
-    QVERIFY(queuePageText.contains(QStringLiteral("enqueueMediaLinks(sourceUrl.text)")));
-    QVERIFY(queuePageText.contains(QStringLiteral("objectName: \"mediaDownloadButton\"")));
-    QVERIFY(queuePageText.contains(QStringLiteral("text: qsTr(\"Set up Chromium\")")));
-    QVERIFY(queuePageText.contains(QStringLiteral("openDouyinBrowserSession()")));
+    QVERIFY(queuePageText.contains(QStringLiteral("ColabMediaAcquisitionPanel")));
+    QVERIFY(queuePageText.contains(QStringLiteral("Choose Dubbing actions")));
+    QVERIFY(!queuePageText.contains(QStringLiteral("Set up Chromium")));
+    QVERIFY(!queuePageText.contains(QStringLiteral("openDouyinBrowserSession")));
+    QVERIFY(!queuePageText.contains(QStringLiteral("Choose Douyin cookies")));
     QVERIFY(!queuePageText.contains(QStringLiteral("startMediaQueue({")));
     QVERIFY(!queuePageText.contains(QStringLiteral("source.srt")));
     QVERIFY(!queuePageText.contains(QStringLiteral("translated.srt")));
     QVERIFY(!queuePageText.contains(QStringLiteral("voice.wav")));
-    QVERIFY(sourcePanelText.contains(QStringLiteral("mediaQueueRequested")));
-    QVERIFY(sourcePanelText.contains(QStringLiteral("Add link(s) to download queue")));
-    QVERIFY(sourcePanelText.contains(QStringLiteral("Downloaded media & actions")));
+    QVERIFY(sourcePanelText.contains(QStringLiteral("ColabMediaAcquisitionPanel")));
+    QVERIFY(sourcePanelText.contains(QStringLiteral("manualMediaFilesRequested")));
+    QVERIFY(!sourcePanelText.contains(QStringLiteral("Set up Chromium")));
+    QVERIFY(!sourcePanelText.contains(QStringLiteral("openDouyinBrowserSession")));
+    QVERIFY(!sourcePanelText.contains(QStringLiteral("Choose Douyin cookies")));
 }
 
 

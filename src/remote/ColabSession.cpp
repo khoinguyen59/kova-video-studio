@@ -24,6 +24,8 @@ QString normalizedVariant(const QString &value)
 
 QString requiredResponseContract(const QString &capability)
 {
+    if (capability == QStringLiteral("media-download"))
+        return QStringLiteral("media-download-jobs-v1");
     // v3 retries blank exact-model output, then returns a non-empty source
     // preserving needs-review patch so later dubbing segments can continue.
     // Older notebooks turn that same condition into an HTTP 503.
@@ -36,6 +38,8 @@ QString requiredResponseContract(const QString &capability)
 
 QString requiredWorkerRevision(const QString &capability)
 {
+    if (capability == QStringLiteral("media-download"))
+        return QStringLiteral("media-download-2026-08-14.1");
     // v3 continues after a remaining blank result instead of failing the
     // whole translation request. Prior workers reproduce the old HTTP 503.
     if (capability == QStringLiteral("translation"))
@@ -53,6 +57,8 @@ QString requiredWorkerRevision(const QString &capability)
 
 QString capabilityDisplayName(const QString &capability)
 {
+    if (capability == QStringLiteral("media-download"))
+        return QStringLiteral("Media download");
     if (capability == QStringLiteral("translation"))
         return QStringLiteral("Translation");
     if (capability == QStringLiteral("stt"))
@@ -60,6 +66,20 @@ QString capabilityDisplayName(const QString &capability)
     if (capability == QStringLiteral("subtitle-ocr"))
         return QStringLiteral("Subtitle OCR");
     return capability.isEmpty() ? QStringLiteral("selected") : capability;
+}
+
+bool capabilityRequiresCuda(const QString &capability)
+{
+    // A public-media downloader deliberately runs in the isolated Colab
+    // runtime but is not an inference worker.  Every model/inference route
+    // remains CUDA-only and cannot use this exception.
+    return capability != QStringLiteral("media-download");
+}
+
+QString expectedDeviceForCapability(const QString &capability)
+{
+    return capabilityRequiresCuda(capability)
+        ? QStringLiteral("cuda") : QStringLiteral("colab-cpu");
 }
 
 QString outdatedNotebookMessage(const QString &capability)
@@ -108,7 +128,7 @@ bool ColabSession::hasVerifiedRoute(const QString &capability, const QString &mo
     }
     if (!isActive()) {
         if (errorMessage) {
-            *errorMessage = QStringLiteral("Connect a verified Colab GPU worker before running this feature.");
+            *errorMessage = QStringLiteral("Connect a verified Colab worker before running this feature.");
         }
         return false;
     }
@@ -241,10 +261,12 @@ bool ColabSession::beginVerifiedSession(const QString &workerUrl,
     m_verified = false;
     m_checking = true;
     m_verificationState = QStringLiteral("checking");
+    const bool requiresCuda = capabilityRequiresCuda(capability);
     m_verificationMessage = capability.isEmpty()
-        ? QStringLiteral("Checking Colab CUDA worker health...")
-        : QStringLiteral("Checking CUDA worker for %1 / %2...")
-              .arg(capability, model);
+        ? QStringLiteral("Checking Colab worker health...")
+        : QStringLiteral("Checking %1 worker for %2 / %3...")
+              .arg(requiresCuda ? QStringLiteral("CUDA") : QStringLiteral("media download"),
+                   capability, model);
     setLastError({});
     if (endpointChanged || tokenChanged || routeChanged) emit sessionChanged();
     emit verificationChanged();
@@ -403,14 +425,18 @@ void ColabSession::handleVerificationReply(QNetworkReply *reply,
     if (stage == VerificationStage::Health) {
         const QString device = root.value(QStringLiteral("device")).toString()
                                    .trimmed().toLower();
+        const bool requiresCuda = capabilityRequiresCuda(m_expectedCapability);
         if (!root.value(QStringLiteral("ready")).toBool(false)) {
             failVerification(QStringLiteral("Colab worker is not ready"), generation);
             return;
         }
-        if (!device.startsWith(QStringLiteral("cuda"))
-            || root.value(QStringLiteral("cpu_fallback")).toBool(false)) {
-            failVerification(QStringLiteral(
-                "Colab worker did not confirm CUDA GPU execution; CPU workers are rejected"),
+        const bool hasExpectedDevice = requiresCuda
+            ? device.startsWith(QStringLiteral("cuda"))
+            : device == expectedDeviceForCapability(m_expectedCapability);
+        if (!hasExpectedDevice || root.value(QStringLiteral("cpu_fallback")).toBool(false)) {
+            failVerification(requiresCuda
+                ? QStringLiteral("Colab worker did not confirm CUDA GPU execution; CPU workers are rejected")
+                : QStringLiteral("Colab media downloader did not confirm its isolated Colab execution mode"),
                              generation);
             return;
         }
@@ -443,7 +469,9 @@ void ColabSession::handleVerificationReply(QNetworkReply *reply,
             return;
         }
         m_reportedGpu = root.value(QStringLiteral("gpu")).toString().trimmed();
-        m_verificationMessage = QStringLiteral("CUDA health passed; checking exact capability...");
+        m_verificationMessage = requiresCuda
+            ? QStringLiteral("CUDA health passed; checking exact capability...")
+            : QStringLiteral("Colab media-download health passed; checking exact capability...");
         emit verificationChanged();
         requestVerificationDocument(VerificationStage::Capabilities, generation);
         return;
@@ -457,9 +485,14 @@ void ColabSession::handleVerificationReply(QNetworkReply *reply,
     }
     const QString rootDevice = root.value(QStringLiteral("device")).toString()
                                    .trimmed().toLower();
-    if (!rootDevice.startsWith(QStringLiteral("cuda"))) {
-        failVerification(QStringLiteral(
-            "Colab capability catalog did not confirm a CUDA device"),
+    const bool requiresCuda = capabilityRequiresCuda(m_expectedCapability);
+    const bool catalogHasExpectedDevice = requiresCuda
+        ? rootDevice.startsWith(QStringLiteral("cuda"))
+        : rootDevice == expectedDeviceForCapability(m_expectedCapability);
+    if (!catalogHasExpectedDevice) {
+        failVerification(requiresCuda
+            ? QStringLiteral("Colab capability catalog did not confirm a CUDA device")
+            : QStringLiteral("Colab media-download catalog did not confirm its isolated Colab execution mode"),
                          generation);
         return;
     }
@@ -474,7 +507,7 @@ void ColabSession::handleVerificationReply(QNetworkReply *reply,
     const QJsonArray capabilities = root.value(QStringLiteral("capabilities")).toArray();
     bool capabilityFound = m_expectedCapability.isEmpty();
     bool modelFound = m_expectedModel.isEmpty();
-    bool exactRouteUsesCuda = false;
+    bool exactRouteUsesExpectedDevice = false;
     bool exactModelLoaded = false;
     for (const QJsonValue &capabilityValue : capabilities) {
         const QJsonObject capability = capabilityValue.toObject();
@@ -507,7 +540,9 @@ void ColabSession::handleVerificationReply(QNetworkReply *reply,
             // capability.  Do not infer its readiness from a worker-wide or
             // capability-wide CUDA claim: the model entry itself must prove
             // that it is loaded on CUDA.
-            exactRouteUsesCuda = device.startsWith(QStringLiteral("cuda"));
+            exactRouteUsesExpectedDevice = requiresCuda
+                ? device.startsWith(QStringLiteral("cuda"))
+                : device == expectedDeviceForCapability(m_expectedCapability);
             exactModelLoaded = model.contains(QStringLiteral("loaded"))
                 && model.value(QStringLiteral("loaded")).toBool(false);
             const QString expectedResponseContract = requiredResponseContract(m_expectedCapability);
@@ -524,7 +559,7 @@ void ColabSession::handleVerificationReply(QNetworkReply *reply,
             }
             break;
         }
-        if (modelFound && exactRouteUsesCuda && exactModelLoaded) break;
+        if (modelFound && exactRouteUsesExpectedDevice && exactModelLoaded) break;
     }
     if (!capabilityFound) {
         failVerification(QStringLiteral("Wrong Colab worker: capability '%1' is missing")
@@ -539,9 +574,10 @@ void ColabSession::handleVerificationReply(QNetworkReply *reply,
                          generation);
         return;
     }
-    if (!exactRouteUsesCuda) {
-        failVerification(QStringLiteral(
-            "The selected Colab capability/model is not advertised on CUDA"),
+    if (!exactRouteUsesExpectedDevice) {
+        failVerification(requiresCuda
+            ? QStringLiteral("The selected Colab capability/model is not advertised on CUDA")
+            : QStringLiteral("The selected Colab media downloader is not advertised in its isolated Colab execution mode"),
                          generation);
         return;
     }
@@ -576,13 +612,17 @@ void ColabSession::finishVerification(quint64 generation)
     m_verified = true;
     m_verifiedAt = QDateTime::currentDateTimeUtc();
     m_verificationState = QStringLiteral("ready");
+    const bool requiresCuda = capabilityRequiresCuda(m_expectedCapability);
     m_verificationMessage = m_expectedCapability.isEmpty()
-        ? QStringLiteral("Verified direct Colab CUDA worker")
-        : QStringLiteral("Verified CUDA worker for %1 / %2 / %3%4")
-              .arg(m_expectedCapability, m_expectedModel, m_expectedVariant,
-                   m_reportedGpu.isEmpty()
-                       ? QString()
-                       : QStringLiteral(" on %1").arg(m_reportedGpu));
+        ? QStringLiteral("Verified direct Colab worker")
+        : (requiresCuda
+           ? QStringLiteral("Verified CUDA worker for %1 / %2 / %3%4")
+                 .arg(m_expectedCapability, m_expectedModel, m_expectedVariant,
+                      m_reportedGpu.isEmpty()
+                          ? QString()
+                          : QStringLiteral(" on %1").arg(m_reportedGpu))
+           : QStringLiteral("Verified Colab media downloader for %1 / %2 / %3")
+                 .arg(m_expectedCapability, m_expectedModel, m_expectedVariant));
     setLastError({});
     emit verificationChanged();
     emit sessionChanged();

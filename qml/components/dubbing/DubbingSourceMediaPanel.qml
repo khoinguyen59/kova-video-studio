@@ -36,7 +36,7 @@ Rectangle {
     property bool sourceSetupExpanded: true
     // A loaded source gets a compact, scrollable change/download drawer.  This
     // leaves the canvas usable even when an operator deliberately re-opens it.
-    readonly property int sourceSetupMaximumHeight: root.hasLoadedSource ? 96 : 420
+    readonly property int sourceSetupMaximumHeight: root.hasLoadedSource ? 110 : 540
     // This is a display frame only. It never crops or stretches the source:
     // VideoOutput continues to preserve the source pixels inside the frame.
     property string previewFrameMode: "source"
@@ -54,9 +54,7 @@ Rectangle {
     }
 
     signal browseRequested()
-    signal linkImportRequested(string url)
-    signal mediaQueueRequested(string urls)
-    signal cancelLinkImportRequested()
+    signal manualMediaFilesRequested()
     signal segmentSelected(int index)
     signal subtitleEditorRequested()
     signal previewFocusRequested(bool focused)
@@ -400,7 +398,7 @@ Rectangle {
                     text: root.hasLoadedSource ? qsTr("Replace video") : qsTr("Open video")
                     iconName: "folder"
                     quiet: true
-                    enabled: !root.dubbing.processing && !root.dubbing.linkImporting
+                    enabled: !root.dubbing.processing
                     toolTip: qsTr("Choose a local video or audio file. Choosing a source closes download setup and restores the canvas.")
                     onClicked: root.browseRequested()
                 }
@@ -519,171 +517,16 @@ Rectangle {
                 id: sourceSetupContent
                 width: sourceSetupPanel.availableWidth
                 spacing: Theme.paddingSmall
-                TextArea {
-                    id: directMediaLink
+                ColabMediaAcquisitionPanel {
                     Layout.fillWidth: true
-                    Layout.minimumHeight: 82
-                enabled: !root.dubbing.mediaQueueProcessing
-                placeholderText: qsTr("Queue direct media, YouTube, TikTok, or Douyin links — one public link per line")
-                color: Theme.textPrimary
-                placeholderTextColor: Theme.textSecondary
-                font.pixelSize: Theme.fontSmall
-                selectByMouse: true
-                wrapMode: TextEdit.WrapAnywhere
-                leftPadding: Theme.paddingMedium; rightPadding: Theme.paddingMedium
-                topPadding: Theme.paddingSmall; bottomPadding: Theme.paddingSmall
-                background: Rectangle { radius: Theme.radiusSmall; color: Qt.rgba(1, 1, 1, 0.035); border.color: directMediaLink.activeFocus ? Theme.accent : Qt.rgba(1, 1, 1, 0.09); border.width: directMediaLink.activeFocus ? 2 : 1 }
-            }
-                RowLayout {
-                    Layout.fillWidth: true
-                    PrimaryButton {
-                    id: addQueueLinksButton
-                    text: qsTr("Add link(s) to download queue")
-                    iconName: "download"
-                    quiet: true
-                    enabled: directMediaLink.text.trim().length > 0 && !root.dubbing.mediaQueueProcessing
-                    onClicked: {
-                        root.mediaQueueRequested(directMediaLink.text)
-                        directMediaLink.clear()
-                    }
+                    dubbing: root.dubbing
+                    compact: root.hasLoadedSource
+                    onLocalFilesRequested: root.manualMediaFilesRequested()
+                    onLibraryRequested: mediaQueueDialog.open()
                 }
-                    PrimaryButton {
-                    id: openMediaQueueButton
-                    objectName: "dubbingOpenMediaQueueButton"
-                    text: qsTr("Downloaded media & actions")
-                    iconName: "workflow"
-                    quiet: true
-                    enabled: !root.dubbing.mediaQueueProcessing
-                    toolTip: qsTr("Choose any downloaded videos and run one action when you decide")
-                    onClicked: mediaQueueDialog.open()
-                }
-                    PrimaryButton {
-                    visible: root.dubbing.mediaQueueDownloading || root.dubbing.mediaQueueProcessing
-                    text: qsTr("Cancel queue")
-                    iconName: "close"
-                    quiet: true
-                    onClicked: root.dubbing.cancelMediaQueue()
-                }
-                    Item { Layout.fillWidth: true }
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.paddingSmall
-                    Text {
-                    Layout.fillWidth: true
-                    text: root.dubbing.douyinCookieConfigured
-                          ? qsTr("Douyin cookies: %1 (used for this download run only)").arg(root.dubbing.douyinCookieFileName)
-                          : qsTr("Douyin cookies are optional; use a fresh Netscape cookie file only when Douyin requires it.")
-                    color: Theme.textSecondary
-                    font.pixelSize: Theme.fontSmall
-                    elide: Text.ElideMiddle
-                }
-                    PrimaryButton {
-                    text: qsTr("Choose Douyin cookies")
-                    iconName: "folder"
-                    quiet: true
-                    enabled: !root.dubbing.mediaQueueDownloading && !root.dubbing.mediaQueueProcessing
-                    onClicked: douyinCookieFileDialog.open()
-                }
-                    PrimaryButton {
-                    visible: root.dubbing.douyinCookieConfigured
-                    text: qsTr("Clear")
-                    iconName: "close"
-                    quiet: true
-                    enabled: !root.dubbing.mediaQueueDownloading && !root.dubbing.mediaQueueProcessing
-                    onClicked: root.dubbing.clearDouyinCookieFile()
-                }
-                }
-                Rectangle {
-                    Layout.fillWidth: true
-                    implicitHeight: browserSessionLayout.implicitHeight + Theme.paddingMedium * 2
-                radius: Theme.radiusSmall
-                color: Qt.rgba(0.45, 0.20, 1.0, 0.08)
-                border.color: Qt.rgba(0.55, 0.35, 1.0, 0.35)
-                border.width: 1
-                    ColumnLayout {
-                        id: browserSessionLayout
-                        anchors.fill: parent
-                        anchors.margins: Theme.paddingMedium
-                        spacing: Theme.paddingSmall
-                        Text {
-                        text: qsTr("Managed Chromium session for Douyin")
-                        color: Theme.textPrimary
-                        font.bold: true
-                    }
-                        Text {
-                        Layout.fillWidth: true
-                        text: root.dubbing.douyinBrowserVerified
-                              ? qsTr("Verified. Douyin downloads use this app-owned profile and page JavaScript.")
-                              : qsTr("Optional separate profile for Douyin pages that reject yt-dlp cookies. Chrome/Edge cookies are never read.")
-                        color: Theme.textSecondary
-                        font.pixelSize: Theme.fontSmall
-                        wrapMode: Text.WordWrap
-                    }
-                        Flow {
-                        Layout.fillWidth: true
-                        spacing: Theme.paddingSmall
-                        PrimaryButton {
-                            objectName: "dubbingDouyinChromiumSetupButton"
-                            text: qsTr("Set up Chromium")
-                            iconName: "folder"
-                            quiet: true
-                            enabled: root.dubbing.douyinBrowserAvailable && !root.dubbing.douyinBrowserBusy
-                                     && !root.dubbing.mediaQueueDownloading && !root.dubbing.mediaQueueProcessing
-                            onClicked: root.dubbing.openDouyinBrowserSession()
-                        }
-                        PrimaryButton {
-                            text: qsTr("Check connection")
-                            iconName: "play"
-                            quiet: true
-                            enabled: root.dubbing.douyinBrowserAvailable && root.dubbing.douyinBrowserConfigured
-                                     && !root.dubbing.douyinBrowserBusy && !root.dubbing.mediaQueueDownloading
-                                     && !root.dubbing.mediaQueueProcessing
-                            onClicked: root.dubbing.checkDouyinBrowserSession()
-                        }
-                        PrimaryButton {
-                            visible: root.dubbing.douyinBrowserVerified
-                            text: qsTr("Disable")
-                            iconName: "close"
-                            quiet: true
-                            onClicked: root.dubbing.disconnectDouyinBrowserSession()
-                        }
-                    }
-                        Text {
-                        Layout.fillWidth: true
-                        visible: root.dubbing.douyinBrowserStatus !== ""
-                        text: root.dubbing.douyinBrowserStatus
-                        color: root.dubbing.douyinBrowserVerified ? Theme.success : Theme.textSecondary
-                        font.pixelSize: Theme.fontSmall
-                        wrapMode: Text.WordWrap
-                    }
-                    }
-                }
-                Text {
-                    Layout.fillWidth: true
-                    visible: root.dubbing.mediaQueueItems.length > 0
-                    text: qsTr("%1 item(s) in the download library. Download first; later open Downloaded media & actions to choose a separate subset for Import, STT, Translate, TTS, or Export.")
-                          .arg(root.dubbing.mediaQueueItems.length)
-                    color: Theme.textSecondary
-                    font.pixelSize: Theme.fontSmall
-                    wrapMode: Text.WordWrap
-                }
-            }
-        }
-        Text {
-            Layout.fillWidth: true
-            visible: false
-            color: Theme.textSecondary
-            font.pixelSize: Theme.fontSmall
-            text: {
-                var status = root.dubbing.linkImportStatus || qsTr("Downloading media")
-                var received = root.dubbing.linkImportReceivedBytes
-                var total = root.dubbing.linkImportTotalBytes
-                return total > 0 ? status + " — " + root.formatBytes(received) + " / " + root.formatBytes(total)
-                                 : status + (received > 0 ? " — " + root.formatBytes(received) : "")
-            }
-        }
 
+            }
+        }
         Text {
             Layout.fillWidth: true
             visible: root.dubbing.mediaQueueDownloading || root.dubbing.mediaQueueProcessing
@@ -899,7 +742,7 @@ Rectangle {
                     Text { anchors.horizontalCenter: parent.horizontalCenter; text: qsTr("Audio track playing"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 }
             }
-            MouseArea { anchors.fill: parent; enabled: root.dubbing.sourceMediaPath.length === 0 && !root.dubbing.linkImporting; cursorShape: Qt.PointingHandCursor; onClicked: root.browseRequested() }
+            MouseArea { anchors.fill: parent; enabled: root.dubbing.sourceMediaPath.length === 0; cursorShape: Qt.PointingHandCursor; onClicked: root.browseRequested() }
 
             HoverHandler {
                 id: previewHoverHandler
@@ -1067,7 +910,7 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true
             FieldProxy { Layout.fillWidth: true; text: root.dubbing.sourceMediaPath; placeholderText: qsTr("Media file path") }
-            PrimaryButton { text: qsTr("Browse"); iconName: "folder"; quiet: true; enabled: !root.dubbing.processing && !root.dubbing.linkImporting; onClicked: root.browseRequested() }
+            PrimaryButton { text: qsTr("Browse"); iconName: "folder"; quiet: true; enabled: !root.dubbing.processing; onClicked: root.browseRequested() }
         }
     }
 
@@ -1157,11 +1000,4 @@ Rectangle {
         dubbing: root.dubbing
     }
 
-    FileDialog {
-        id: douyinCookieFileDialog
-        title: qsTr("Choose a fresh Douyin Netscape cookie file")
-        fileMode: FileDialog.OpenFile
-        nameFilters: [qsTr("Netscape cookie files (*.txt *.cookies)"), qsTr("All files (*)")]
-        onAccepted: root.dubbing.setDouyinCookieFile(AppController.files.urlToLocalPath(selectedFile.toString()))
-    }
 }

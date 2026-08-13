@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RUNNER = ROOT / "scripts" / "run_live_colab_acceptance.py"
 TOKENS = {capability: f"local-contract-{capability}-token" for capability in (
     "stt", "tts", "translation", "llm-chat", "voice-design",
-    "forced-alignment", "voice-isolation", "voice-cloning",
+    "forced-alignment", "voice-isolation", "voice-cloning", "media-download", "subtitle-ocr",
 )}
 WAV = b"RIFF" + (36).to_bytes(4, "little") + b"WAVEfmt " + (16).to_bytes(4, "little") \
     + (1).to_bytes(2, "little") + (1).to_bytes(2, "little") + (16000).to_bytes(4, "little") \
@@ -41,7 +41,12 @@ MODELS = {
     "forced-alignment": "canary-ctc-aligner",
     "voice-isolation": "sherpa-onnx-spleeter-2stems-fp16",
     "voice-cloning": "omnivoice",
+    "media-download": "yt-dlp-media-download",
+    "subtitle-ocr": "pp-ocrv5-multilingual-3.1",
 }
+PNG = (b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+       b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDAT\x08\xd7c``\x00\x00\x00\x04\x00\x01"
+       b"\xf6\x178U\x00\x00\x00\x00IEND\xaeB`\x82")
 
 
 def json_bytes(payload: dict[str, Any]) -> bytes:
@@ -103,15 +108,27 @@ class AcceptanceFixture(BaseHTTPRequestHandler):
             return
         path = urlparse(self.path).path
         if path == "/health":
-            _, model = self.selected() or ("", "")
-            self.send_json(200, {"ready": True, "device": "cuda", "model": model,
+            capability, model = self.selected() or ("", "")
+            device = "colab-cpu" if capability == "media-download" else "cuda"
+            self.send_json(200, {"ready": True, "device": device, "model": model,
                                  "cpu_fallback": False})
             return
         if path == "/v1/capabilities":
             capability, model = self.selected() or ("", "")
-            self.send_json(200, {"contract_version": 1, "device": "cuda", "capabilities": [{
-                "id": capability, "models": [{"id": model, "loaded": True, "device": "cuda"}],
+            device = "colab-cpu" if capability == "media-download" else "cuda"
+            model_entry = {"id": model, "loaded": True, "device": device}
+            if capability == "media-download":
+                model_entry["response_contract"] = "media-download-jobs-v1"
+            self.send_json(200, {"contract_version": 1, "device": device, "capabilities": [{
+                "id": capability, "models": [model_entry],
             }]})
+            return
+        if path == "/v1/media/downloads/media-job":
+            self.send_json(200, {"state": "ready", "received_bytes": len(WAV),
+                                 "total_bytes": len(WAV), "file_name": "fixture.wav"})
+            return
+        if path == "/v1/media/downloads/media-job/file":
+            self.send_wav()
             return
         if path == "/v2/jobs/transcriptions/stt-job":
             self.send_json(200, {"status": "succeeded", "progress": 100,
@@ -163,6 +180,9 @@ class AcceptanceFixture(BaseHTTPRequestHandler):
             self.send_json(404, {"detail": path})
             return
         capability, expected_model = identity
+        if capability == "media-download" and path == "/v1/media/downloads":
+            self.send_json(200, {"job_id": "media-job"})
+            return
         requested_model = self.requested_model(body)
         if requested_model != expected_model:
             self.send_json(409, {"detail": "exact model required"})
@@ -182,6 +202,8 @@ class AcceptanceFixture(BaseHTTPRequestHandler):
             self.wfile.write(response)
         elif path == "/v1/audio/alignments":
             self.send_json(200, {"segments": [{"start": 0.0, "end": 0.5, "text": "ready"}]})
+        elif path == "/v1/ocr/subtitles":
+            self.send_json(200, {"text": "ready", "confidence": 0.99})
         elif path == "/v1/audio/separations":
             self.send_json(200, {"job_id": "separation-job"})
         elif path == "/v2/jobs/profile":
@@ -200,7 +222,7 @@ def write_sample_wav(path: Path) -> None:
         output.writeframes(b"\0\0" * 160)
 
 
-def worker_config(base_url: str, audio_path: Path) -> list[dict[str, Any]]:
+def worker_config(base_url: str, audio_path: Path, image_path: Path) -> list[dict[str, Any]]:
     workers: list[dict[str, Any]] = []
     for capability, model in MODELS.items():
         prefix = "LASTUDIO_CONTRACT_" + capability.upper().replace("-", "_")
@@ -219,6 +241,12 @@ def worker_config(base_url: str, audio_path: Path) -> list[dict[str, Any]]:
             worker["reference_text"] = "ready"
         if capability == "voice-design":
             worker["voice_description"] = "calm narrator"
+        if capability == "media-download":
+            worker["public_url"] = "https://public.example/live-acceptance.mp4"
+            worker["job_timeout_seconds"] = 10
+        if capability == "subtitle-ocr":
+            worker["image_path"] = str(image_path)
+            worker["language"] = "en"
         workers.append(worker)
         os.environ[prefix + "_URL"] = base_url
         os.environ[prefix + "_TOKEN"] = TOKENS[capability]
@@ -233,11 +261,13 @@ def main() -> int:
         with tempfile.TemporaryDirectory(prefix="lastudio-live-acceptance-contract-") as temporary:
             root = Path(temporary)
             audio_path = root / "sample.wav"
+            image_path = root / "subtitle.png"
             config_path = root / "workers.json"
             report_path = root / "report.md"
             write_sample_wav(audio_path)
+            image_path.write_bytes(PNG)
             base_url = f"http://127.0.0.1:{server.server_port}"
-            config_path.write_text(json.dumps({"workers": worker_config(base_url, audio_path)}), encoding="utf-8")
+            config_path.write_text(json.dumps({"workers": worker_config(base_url, audio_path, image_path)}), encoding="utf-8")
             completed = subprocess.run(
                 [sys.executable, str(RUNNER), "--config", str(config_path), "--report", str(report_path),
                  "--allow-http-localhost"],
@@ -246,14 +276,14 @@ def main() -> int:
             if completed.returncode != 0:
                 raise RuntimeError("live acceptance contract failed:\n" + completed.stdout + completed.stderr)
             report = report_path.read_text(encoding="utf-8")
-            if "8/8 workers passed" not in completed.stdout:
-                raise RuntimeError("runner did not report all eight capability paths as passed")
+            if "10/10 workers passed" not in completed.stdout:
+                raise RuntimeError("runner did not report all ten capability paths as passed")
             if base_url in report or any(token in report for token in TOKENS.values()):
                 raise RuntimeError("acceptance report exposed a local worker secret")
     finally:
         server.shutdown()
         server.server_close()
-    print("Live Colab acceptance runner contract verified: 8 capability paths.")
+    print("Live Colab acceptance runner contract verified: 10 capability paths.")
     return 0
 
 

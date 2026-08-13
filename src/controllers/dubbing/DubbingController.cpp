@@ -13,8 +13,7 @@
 #include "dubbing/DubbingTranscriptFusionService.h"
 #include "dubbing/DubbingTimingService.h"
 #include "dubbing/EspeakNgPhonemizer.h"
-#include "dubbing/media/RemoteMediaImportService.h"
-#include "dubbing/media/DouyinBrowserSessionService.h"
+#include "dubbing/media/ColabMediaDownloadRunner.h"
 #include "dubbing/workflow/DubbingWorkflowDefinition.h"
 #include "dubbing/workflow/DubbingWorkflowNodes.h"
 #include "workflows/WorkflowGraphRunner.h"
@@ -131,13 +130,6 @@ bool writeDubbingSubtitles(const QVariantList &segments, const QString &path,
     return DubbingSubtitleService::writeSidecar(segments, path, useTargetText, error);
 }
 
-bool mediaDownloadNeedsFreshCookies(const QString &error)
-{
-    return error.contains(QStringLiteral("Choose a Netscape cookie file"),
-                          Qt::CaseInsensitive)
-        || error.contains(QStringLiteral("fresh cookies"), Qt::CaseInsensitive);
-}
-
 bool replaceCopy(const QString &source, const QString &destination, QString *error)
 {
     if (source.isEmpty() || !QFileInfo(source).isFile()) return true;
@@ -187,20 +179,10 @@ DubbingController::DubbingController(SttSessionController *sttSession, TtsEngine
 {
     m_translation = translation;
     m_runner = new DubbingJobRunner(sttSession, tts, translation, models, runtimes, this);
-    m_remoteMediaImport = new RemoteMediaImportService(QString(), this);
-    connect(m_remoteMediaImport, &RemoteMediaImportService::transferProgress, this,
-            [this](qint64 receivedBytes, qint64 totalBytes) {
-        m_linkImportReceivedBytes = receivedBytes;
-        m_linkImportTotalBytes = totalBytes;
-        emit linkImportChanged();
-    });
-    connect(m_remoteMediaImport, &RemoteMediaImportService::finished, this,
-            &DubbingController::onRemoteMediaDownloadFinished);
-    // The batch downloader intentionally has its own serial worker.  It must
-    // never cancel a one-off import that an operator started from the Dubbing
-    // source panel, and it never persists a submitted URL.
-    m_batchMediaImport = new RemoteMediaImportService(QString(), this);
-    connect(m_batchMediaImport, &RemoteMediaImportService::transferProgress, this,
+    // Public-media links are intentionally not handled by a local resolver.
+    // The runner is wired when the dedicated Colab session is injected below.
+    m_colabMediaDownload = new ColabMediaDownloadRunner(nullptr, this);
+    connect(m_colabMediaDownload, &ColabMediaDownloadRunner::transferProgress, this,
             [this](qint64 receivedBytes, qint64 totalBytes) {
         const int index = mediaQueueIndex(m_activeMediaQueueDownloadId);
         if (index < 0) return;
@@ -209,32 +191,22 @@ DubbingController::DubbingController(SttSessionController *sttSession, TtsEngine
         item.insert(QStringLiteral("totalBytes"), totalBytes);
         item.insert(QStringLiteral("downloadState"), QStringLiteral("downloading"));
         item.insert(QStringLiteral("status"), totalBytes > 0
-                        ? QStringLiteral("Downloading %1 / %2 bytes").arg(receivedBytes).arg(totalBytes)
-                        : QStringLiteral("Downloading %1 bytes").arg(receivedBytes));
+                        ? QStringLiteral("Receiving completed media %1 / %2 bytes").arg(receivedBytes).arg(totalBytes)
+                        : QStringLiteral("Downloading through Colab (%1 bytes)").arg(receivedBytes));
         replaceMediaQueueItem(index, item);
     });
-    connect(m_batchMediaImport, &RemoteMediaImportService::finished, this,
+    connect(m_colabMediaDownload, &ColabMediaDownloadRunner::phaseChanged, this,
+            [this](const QString &phase) {
+        const int index = mediaQueueIndex(m_activeMediaQueueDownloadId);
+        if (index < 0) return;
+        QVariantMap item = m_mediaQueueItems.at(index).toMap();
+        item.insert(QStringLiteral("status"), phase);
+        replaceMediaQueueItem(index, item);
+        m_mediaQueueStatus = phase;
+        emit mediaQueueChanged();
+    });
+    connect(m_colabMediaDownload, &ColabMediaDownloadRunner::finished, this,
             &DubbingController::onBatchMediaDownloadFinished);
-    m_douyinBrowserSession = new DouyinBrowserSessionService(this);
-    connect(m_douyinBrowserSession, &DouyinBrowserSessionService::statusChanged, this,
-            [this](const QString &status) {
-        m_douyinBrowserStatus = status;
-        emit douyinBrowserChanged();
-    });
-    connect(m_douyinBrowserSession, &DouyinBrowserSessionService::loginFinished, this,
-            [this](bool success, const QString &message) {
-        m_douyinBrowserStatus = message;
-        if (!success) m_douyinBrowserVerified = false;
-        emit douyinBrowserChanged();
-    });
-    connect(m_douyinBrowserSession, &DouyinBrowserSessionService::connectionChecked, this,
-            [this](bool success, const QString &message) {
-        m_douyinBrowserVerified = success;
-        m_douyinBrowserStatus = message;
-        if (m_remoteMediaImport) m_remoteMediaImport->setDouyinBrowserEnabled(success);
-        if (m_batchMediaImport) m_batchMediaImport->setDouyinBrowserEnabled(success);
-        emit douyinBrowserChanged();
-    });
     m_translationFix = new DubbingTranslationFixService(this);
     connect(m_translationFix, &DubbingTranslationFixService::stateChanged,
             this, [this]() {
@@ -441,13 +413,6 @@ DubbingController::DubbingController(SttSessionController *sttSession, TtsEngine
 
     connect(m_runner, &DubbingJobRunner::errorOccurred, this, [this](const QString &) {
         m_pendingExportPath.clear();
-        if (!m_pendingLinkedMediaPath.isEmpty()) {
-            m_pendingLinkedMediaPath.clear();
-            m_linkImportStatus.clear();
-            m_linkImportReceivedBytes = 0;
-            m_linkImportTotalBytes = -1;
-            emit linkImportChanged();
-        }
     });
 
     connect(m_runner, &DubbingJobRunner::segmentsUpdated, this, [this](const QVariantList &segments) {
@@ -597,22 +562,6 @@ bool DubbingController::processing() const
         || (m_translationFix && m_translationFix->busy())
         || m_runner->processing()
         || (m_workflowRunner && m_workflowRunner->running());
-}
-
-bool DubbingController::linkImporting() const
-{
-    return (m_remoteMediaImport && m_remoteMediaImport->active())
-        || !m_pendingLinkedMediaPath.isEmpty();
-}
-
-bool DubbingController::downloadedMediaReady() const
-{
-    return !m_downloadedMediaPath.isEmpty() && QFileInfo(m_downloadedMediaPath).isFile();
-}
-
-QString DubbingController::downloadedMediaFileName() const
-{
-    return downloadedMediaReady() ? QFileInfo(m_downloadedMediaPath).fileName() : QString();
 }
 
 QString DubbingController::stage() const
@@ -968,7 +917,8 @@ QString DubbingController::exportPath() const
 void DubbingController::setRemoteServices(Settings *settings, ColabSession *translationSession,
                                            ColabSession *ttsSession, ColabSession *voiceCloneSession,
                                            ColabSession *separationSession,
-                                           ColabSession *alignmentSession)
+                                           ColabSession *alignmentSession,
+                                           ColabSession *mediaDownloadSession)
 {
     m_settings = settings;
     if (m_runner) {
@@ -992,6 +942,9 @@ void DubbingController::setRemoteServices(Settings *settings, ColabSession *tran
     observeColabSession(QStringLiteral("synthesize"), ttsSession);
     Q_UNUSED(voiceCloneSession);
     observeColabSession(QStringLiteral("alignment"), alignmentSession);
+    m_mediaDownloadSession = mediaDownloadSession;
+    if (m_colabMediaDownload) m_colabMediaDownload->setSession(mediaDownloadSession);
+    observeColabSession(QStringLiteral("media-download"), mediaDownloadSession);
     observeColabSession(QStringLiteral("adaptive-llm"),
                         AppController::instance() ? AppController::instance()->colabChatSession() : nullptr);
     emit colabSetupChanged();
@@ -999,6 +952,7 @@ void DubbingController::setRemoteServices(Settings *settings, ColabSession *tran
 
 QString DubbingController::colabCapabilityForStage(const QString &stageId)
 {
+    if (stageId == QStringLiteral("media-download")) return QStringLiteral("media-download");
     if (stageId == QStringLiteral("source-separate")) return QStringLiteral("voice-isolation");
     if (stageId == QStringLiteral("transcribe")) return QStringLiteral("stt");
     if (stageId == QStringLiteral("subtitle-ocr")) return QStringLiteral("subtitle-ocr");
@@ -1050,6 +1004,7 @@ ExecutionProvider configuredSynthesisProvider(const QVariantMap &configuration)
 
 ColabSession *DubbingController::colabSessionForStage(const QString &stageId) const
 {
+    if (stageId == QStringLiteral("media-download")) return m_mediaDownloadSession;
     AppController *app = AppController::instance();
     if (!app) return nullptr;
     if (stageId == QStringLiteral("source-separate")) return app->colabSeparationSession();
@@ -1064,6 +1019,7 @@ ColabSession *DubbingController::colabSessionForStage(const QString &stageId) co
 
 QString DubbingController::selectedColabModelForStage(const QString &stageId) const
 {
+    if (stageId == QStringLiteral("media-download")) return QStringLiteral("yt-dlp-media-download");
     if (stageId == QStringLiteral("adaptive-llm")) {
         const QString configured = translationFixConfiguration().value(
             QStringLiteral("model")).toString().trimmed().toLower();
@@ -1270,6 +1226,30 @@ QVariantList DubbingController::colabSetupStages() const
         });
     }
     return result;
+}
+
+QVariantMap DubbingController::mediaDownloadColabSetup() const
+{
+    const QString stageId = QStringLiteral("media-download");
+    const QString modelId = QStringLiteral("yt-dlp-media-download");
+    QString diagnostic;
+    const bool verified = m_mediaDownloadSession
+        && m_mediaDownloadSession->hasVerifiedRoute(stageId, modelId, &diagnostic);
+    if (diagnostic.isEmpty() && m_mediaDownloadSession) {
+        diagnostic = m_mediaDownloadSession->verificationMessage().isEmpty()
+            ? m_mediaDownloadSession->lastError() : m_mediaDownloadSession->verificationMessage();
+    }
+    return {{QStringLiteral("id"), stageId},
+            {QStringLiteral("title"), QStringLiteral("Download public media in Colab")},
+            {QStringLiteral("capability"), stageId},
+            {QStringLiteral("modelId"), modelId},
+            {QStringLiteral("variant"), QStringLiteral("fixed")},
+            {QStringLiteral("notebookFile"), DubbingColabModelRoutes::notebookForModel(
+                stageId, modelId)},
+            {QStringLiteral("active"), m_mediaDownloadSession && m_mediaDownloadSession->isActive()},
+            {QStringLiteral("checking"), m_mediaDownloadSession && m_mediaDownloadSession->isChecking()},
+            {QStringLiteral("verified"), verified},
+            {QStringLiteral("diagnostic"), diagnostic}};
 }
 
 bool DubbingController::connectWorkflowColabStage(const QString &stageId, const QString &modelId,
@@ -3954,7 +3934,9 @@ bool DubbingController::selectWorkflowColabModel(const QString &nodeId,
 
     AppController *app = AppController::instance();
     bool selected = false;
-    if (nodeId == QStringLiteral("source-separate") && app && app->colabVoiceIsolator())
+    if (nodeId == QStringLiteral("media-download"))
+        selected = true;
+    else if (nodeId == QStringLiteral("source-separate") && app && app->colabVoiceIsolator())
         selected = app->colabVoiceIsolator()->selectColabModel(normalized);
     else if (nodeId == QStringLiteral("transcribe") && app && app->sttSession())
         selected = app->sttSession()->selectColabModel(normalized);
@@ -4362,7 +4344,10 @@ bool DubbingController::importMedia(const QString &pathOrUrl)
     if (suppliedUrl.isValid()
         && (suppliedUrl.scheme().compare(QStringLiteral("http"), Qt::CaseInsensitive) == 0
             || suppliedUrl.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) == 0)) {
-        return importMediaFromLink(input);
+        setError(QStringLiteral(
+            "Public links must be downloaded by the dedicated Colab media worker. "
+            "Or download the file yourself and add the local file."));
+        return false;
     }
     const QString localPath = PathUtils::urlToLocalPath(input).trimmed();
     const QFileInfo fileInfo(localPath);
@@ -4647,7 +4632,7 @@ void DubbingController::replaceMediaQueueItem(int index, const QVariantMap &item
 
 bool DubbingController::mediaQueueDownloading() const
 {
-    if ((m_batchMediaImport && m_batchMediaImport->active())
+    if ((m_colabMediaDownload && m_colabMediaDownload->active())
         || !m_activeMediaQueueDownloadId.isEmpty()) {
         return true;
     }
@@ -4789,6 +4774,15 @@ bool DubbingController::loadMediaQueueProject(const QVariantMap &item, DubbingPr
 
 int DubbingController::enqueueMediaLinks(const QString &urls)
 {
+    QString routeError;
+    if (!m_colabMediaDownload || !m_mediaDownloadSession
+        || !m_mediaDownloadSession->hasVerifiedRoute(
+            QStringLiteral("media-download"), QStringLiteral("yt-dlp-media-download"), &routeError)) {
+        setError(routeError.isEmpty()
+            ? QStringLiteral("Connect and check the dedicated Colab media downloader before adding links.")
+            : routeError);
+        return 0;
+    }
     int added = 0;
     QStringList rejected;
     const QStringList candidates = extractedSharedMediaUrls(urls);
@@ -4797,7 +4791,8 @@ int DubbingController::enqueueMediaLinks(const QString &urls)
         if (source.isEmpty()) continue;
         const QUrl url = QUrl::fromUserInput(source);
         const QString scheme = url.scheme().toLower();
-        if (!url.isValid() || (scheme != QStringLiteral("https") && scheme != QStringLiteral("http"))) {
+        if (!url.isValid() || scheme != QStringLiteral("https") || url.host().isEmpty()
+            || !url.userInfo().isEmpty()) {
             rejected.append(source.left(96));
             continue;
         }
@@ -4811,9 +4806,10 @@ int DubbingController::enqueueMediaLinks(const QString &urls)
         item.insert(QStringLiteral("displayName"), url.host().isEmpty()
                     ? QStringLiteral("Queued media") : url.host());
         item.insert(QStringLiteral("localPath"), QString());
+        item.insert(QStringLiteral("sourceMode"), QStringLiteral("colab-download"));
         item.insert(QStringLiteral("downloadState"), QStringLiteral("queued"));
         item.insert(QStringLiteral("processState"), QStringLiteral("not-ready"));
-        item.insert(QStringLiteral("status"), QStringLiteral("Waiting to download"));
+        item.insert(QStringLiteral("status"), QStringLiteral("Waiting for dedicated Colab download"));
         item.insert(QStringLiteral("selected"), false);
         item.insert(QStringLiteral("progress"), 0);
         item.insert(QStringLiteral("createdAt"), QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
@@ -4821,121 +4817,16 @@ int DubbingController::enqueueMediaLinks(const QString &urls)
         ++added;
     }
     if (added > 0) {
-        m_mediaQueueStatus = QStringLiteral("%1 link(s) queued for serial download").arg(added);
+        m_mediaQueueStatus = QStringLiteral("%1 link(s) queued for serial Colab download").arg(added);
         emit mediaQueueChanged();
         startNextQueuedMediaDownload();
     }
     if (!rejected.isEmpty()) {
-        setError(QStringLiteral("Only valid HTTP(S) links can be queued. Rejected %1 line(s).").arg(rejected.size()));
+        setError(QStringLiteral("Only valid public HTTPS links can be queued. Rejected %1 line(s).").arg(rejected.size()));
     } else if (added > 0) {
         clearError();
     }
     return added;
-}
-
-bool DubbingController::setDouyinCookieFile(const QString &path)
-{
-    if (linkImporting() || mediaQueueDownloading() || mediaQueueProcessing() || processing()) {
-        setBusyError(QStringLiteral("Choose Douyin cookies before starting a download or batch operation."));
-        return false;
-    }
-    if (!m_remoteMediaImport || !m_batchMediaImport) {
-        setError(QStringLiteral("Douyin cookie support is unavailable in this build."));
-        return false;
-    }
-    const QString localPath = PathUtils::urlToLocalPath(path.trimmed());
-    QString error;
-    if (!m_remoteMediaImport->setCookieFilePath(localPath, &error)
-        || !m_batchMediaImport->setCookieFilePath(localPath, &error)) {
-        m_remoteMediaImport->clearCookieFilePath();
-        m_batchMediaImport->clearCookieFilePath();
-        if (error.isEmpty()) error = QStringLiteral("The selected Douyin cookie file is invalid.");
-        setError(error);
-        return false;
-    }
-    m_douyinCookieFilePath = QFileInfo(localPath).absoluteFilePath();
-    clearError();
-    emit douyinCookieChanged();
-    return true;
-}
-
-void DubbingController::clearDouyinCookieFile()
-{
-    if (m_remoteMediaImport) m_remoteMediaImport->clearCookieFilePath();
-    if (m_batchMediaImport) m_batchMediaImport->clearCookieFilePath();
-    if (m_douyinCookieFilePath.isEmpty()) return;
-    m_douyinCookieFilePath.clear();
-    emit douyinCookieChanged();
-}
-
-bool DubbingController::douyinBrowserAvailable() const
-{
-    return m_douyinBrowserSession && m_douyinBrowserSession->available();
-}
-
-bool DubbingController::douyinBrowserConfigured() const
-{
-    return m_douyinBrowserSession && m_douyinBrowserSession->profileExists();
-}
-
-bool DubbingController::douyinBrowserBusy() const
-{
-    return m_douyinBrowserSession && m_douyinBrowserSession->busy();
-}
-
-bool DubbingController::openDouyinBrowserSession()
-{
-    if (linkImporting() || mediaQueueDownloading() || mediaQueueProcessing() || processing()) {
-        setBusyError(QStringLiteral("Wait for the current media operation before opening the Douyin browser session."));
-        return false;
-    }
-    if (!m_douyinBrowserSession) {
-        setError(QStringLiteral("The managed Douyin browser session is unavailable in this build."));
-        return false;
-    }
-    QString error;
-    if (!m_douyinBrowserSession->openLogin(&error)) {
-        setError(error);
-        emit douyinBrowserChanged();
-        return false;
-    }
-    clearError();
-    emit douyinBrowserChanged();
-    return true;
-}
-
-bool DubbingController::checkDouyinBrowserSession(const QString &url)
-{
-    if (linkImporting() || mediaQueueDownloading() || mediaQueueProcessing() || processing()) {
-        setBusyError(QStringLiteral("Wait for the current media operation before checking the Douyin browser session."));
-        return false;
-    }
-    if (!m_douyinBrowserSession) {
-        setError(QStringLiteral("The managed Douyin browser session is unavailable in this build."));
-        return false;
-    }
-    const QUrl source = url.trimmed().isEmpty()
-        ? QUrl(QStringLiteral("https://www.douyin.com/"))
-        : QUrl::fromUserInput(url.trimmed());
-    QString error;
-    if (!source.isValid() || !m_douyinBrowserSession->checkConnection(source, &error)) {
-        setError(error.isEmpty() ? QStringLiteral("Enter a valid Douyin URL to check the session.") : error);
-        return false;
-    }
-    clearError();
-    emit douyinBrowserChanged();
-    return true;
-}
-
-void DubbingController::disconnectDouyinBrowserSession()
-{
-    if (m_douyinBrowserSession && m_douyinBrowserSession->busy())
-        m_douyinBrowserSession->cancel();
-    m_douyinBrowserVerified = false;
-    m_douyinBrowserStatus = QStringLiteral("Managed Douyin browser session disabled for this run");
-    if (m_remoteMediaImport) m_remoteMediaImport->setDouyinBrowserEnabled(false);
-    if (m_batchMediaImport) m_batchMediaImport->setDouyinBrowserEnabled(false);
-    emit douyinBrowserChanged();
 }
 
 int DubbingController::enqueueMediaFiles(const QVariantList &paths)
@@ -4948,9 +4839,10 @@ int DubbingController::enqueueMediaFiles(const QVariantList &paths)
         item.insert(QStringLiteral("id"), QUuid::createUuid().toString(QUuid::WithoutBraces));
         item.insert(QStringLiteral("displayName"), QFileInfo(localPath).fileName());
         item.insert(QStringLiteral("localPath"), localPath);
+        item.insert(QStringLiteral("sourceMode"), QStringLiteral("manual-upload"));
         item.insert(QStringLiteral("downloadState"), QStringLiteral("downloaded"));
         item.insert(QStringLiteral("processState"), QStringLiteral("ready"));
-        item.insert(QStringLiteral("status"), QStringLiteral("Ready for selected batch tasks"));
+        item.insert(QStringLiteral("status"), QStringLiteral("Manual file ready for selected batch tasks"));
         item.insert(QStringLiteral("selected"), true);
         item.insert(QStringLiteral("progress"), 0);
         item.insert(QStringLiteral("createdAt"), QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
@@ -4983,15 +4875,11 @@ bool DubbingController::retryMediaQueueItem(const QString &itemId)
         setBusyError(QStringLiteral("Wait for the current download or batch operation to finish before retrying."));
         return false;
     }
-    if (!douyinCookieConfigured()) {
-        setError(QStringLiteral("Choose a fresh Douyin Netscape cookie file before retrying this link."));
-        return false;
-    }
     const int index = mediaQueueIndex(itemId);
     if (index < 0) return false;
     QVariantMap item = m_mediaQueueItems.at(index).toMap();
     const QString state = item.value(QStringLiteral("downloadState")).toString();
-    if (state != QStringLiteral("needs-auth") && state != QStringLiteral("failed")) {
+    if (state != QStringLiteral("failed")) {
         setError(QStringLiteral("Only a failed download that still has its source link can be retried."));
         return false;
     }
@@ -5001,11 +4889,11 @@ bool DubbingController::retryMediaQueueItem(const QString &itemId)
     }
     item.insert(QStringLiteral("downloadState"), QStringLiteral("queued"));
     item.insert(QStringLiteral("processState"), QStringLiteral("not-ready"));
-    item.insert(QStringLiteral("status"), QStringLiteral("Waiting to retry with the selected Douyin cookies"));
+    item.insert(QStringLiteral("status"), QStringLiteral("Waiting to retry in the dedicated Colab downloader"));
     item.insert(QStringLiteral("selected"), false);
     item.insert(QStringLiteral("progress"), 0);
     replaceMediaQueueItem(index, item);
-    m_mediaQueueStatus = QStringLiteral("Retrying queued media with fresh Douyin cookies");
+    m_mediaQueueStatus = QStringLiteral("Retrying queued media in Colab");
     clearError();
     startNextQueuedMediaDownload();
     return true;
@@ -5038,7 +4926,7 @@ void DubbingController::clearCompletedMediaQueue()
         const QString downloadState = value.toMap().value(QStringLiteral("downloadState")).toString();
         if (state != QStringLiteral("completed") && state != QStringLiteral("failed")
             && state != QStringLiteral("cancelled")
-            && downloadState != QStringLiteral("needs-auth")) {
+            ) {
             retained.append(value);
         }
     }
@@ -5051,26 +4939,27 @@ void DubbingController::clearCompletedMediaQueue()
 void DubbingController::startNextQueuedMediaDownload()
 {
     if (m_mediaQueueCancelling) return;
-    if (!m_batchMediaImport || m_batchMediaImport->active() || !m_activeMediaQueueDownloadId.isEmpty()) return;
+    if (!m_colabMediaDownload || m_colabMediaDownload->active()
+        || !m_activeMediaQueueDownloadId.isEmpty()) return;
     for (int index = 0; index < m_mediaQueueItems.size(); ++index) {
         QVariantMap item = m_mediaQueueItems.at(index).toMap();
         if (item.value(QStringLiteral("downloadState")).toString() != QStringLiteral("queued")) continue;
         const QUrl url = QUrl::fromUserInput(item.value(QStringLiteral("sourceUrl")).toString());
-        if (!url.isValid()) {
+        if (!url.isValid() || url.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) != 0
+            || url.host().isEmpty() || !url.userInfo().isEmpty()) {
             item.insert(QStringLiteral("downloadState"), QStringLiteral("failed"));
             item.insert(QStringLiteral("processState"), QStringLiteral("not-ready"));
             item.insert(QStringLiteral("status"), QStringLiteral("Invalid queued media URL"));
-            item.remove(QStringLiteral("sourceUrl"));
             replaceMediaQueueItem(index, item);
             continue;
         }
         m_activeMediaQueueDownloadId = item.value(QStringLiteral("id")).toString();
         item.insert(QStringLiteral("downloadState"), QStringLiteral("downloading"));
-        item.insert(QStringLiteral("status"), QStringLiteral("Downloading"));
+        item.insert(QStringLiteral("status"), QStringLiteral("Submitting to dedicated Colab downloader"));
         replaceMediaQueueItem(index, item);
-        m_mediaQueueStatus = QStringLiteral("Downloading queued media %1").arg(index + 1);
+        m_mediaQueueStatus = QStringLiteral("Downloading queued media %1 in Colab").arg(index + 1);
         emit mediaQueueChanged();
-        if (!m_batchMediaImport->download(url)) {
+        if (!m_colabMediaDownload->download(url)) {
             onBatchMediaDownloadFinished(false, QString(),
                 QStringLiteral("The queued media download could not be started."));
         }
@@ -5082,14 +4971,13 @@ void DubbingController::startNextQueuedMediaDownload()
         for (const QVariant &value : std::as_const(m_mediaQueueItems)) {
             const QString state = value.toMap().value(QStringLiteral("downloadState")).toString();
             if (state == QStringLiteral("downloaded")) ++downloaded;
-            else if (state == QStringLiteral("failed") || state == QStringLiteral("needs-auth")) ++failed;
+            else if (state == QStringLiteral("failed")) ++failed;
         }
         m_mediaQueueStatus = failed > 0
             ? QStringLiteral("Download queue finished: %1 downloaded, %2 failed. Only downloaded items can be selected.")
                   .arg(downloaded).arg(failed)
             : QStringLiteral("All queued links have finished downloading");
         emit mediaQueueChanged();
-        clearDouyinCookieFile();
     }
 }
 
@@ -5120,13 +5008,10 @@ void DubbingController::onBatchMediaDownloadFinished(bool success, const QString
         } else {
             const QString safeError = error.trimmed().isEmpty()
                 ? QStringLiteral("Media download failed") : error.trimmed();
-            const bool needsCookies = mediaDownloadNeedsFreshCookies(safeError);
-            item.insert(QStringLiteral("downloadState"), needsCookies
-                        ? QStringLiteral("needs-auth") : QStringLiteral("failed"));
+            item.insert(QStringLiteral("downloadState"), QStringLiteral("failed"));
             item.insert(QStringLiteral("processState"), QStringLiteral("not-ready"));
             item.insert(QStringLiteral("status"), safeError);
             item.insert(QStringLiteral("selected"), false);
-            if (!needsCookies) item.remove(QStringLiteral("sourceUrl"));
         }
         replaceMediaQueueItem(index, item);
     }
@@ -5200,7 +5085,7 @@ bool DubbingController::writeMediaQueueSubtitles(const QString &key, bool useTar
 
 bool DubbingController::startMediaQueue(const QVariantMap &tasks)
 {
-    if (mediaQueueDownloading() || linkImporting() || processing()) {
+    if (mediaQueueDownloading() || processing()) {
         setBusyError(QStringLiteral("Wait for active import, download, or Dubbing work before starting the media batch."));
         return false;
     }
@@ -5600,7 +5485,6 @@ void DubbingController::finishMediaQueueRun(const QString &message)
 void DubbingController::cancelMediaQueue()
 {
     if (mediaQueueDownloading()) {
-        clearDouyinCookieFile();
         m_mediaQueueCancelling = true;
         for (int index = 0; index < m_mediaQueueItems.size(); ++index) {
             QVariantMap item = m_mediaQueueItems.at(index).toMap();
@@ -5616,8 +5500,8 @@ void DubbingController::cancelMediaQueue()
         }
         m_mediaQueueStatus = QStringLiteral("Cancelling download queue");
         emit mediaQueueChanged();
-        if (m_batchMediaImport && m_batchMediaImport->active()) {
-            m_batchMediaImport->cancel();
+        if (m_colabMediaDownload && m_colabMediaDownload->active()) {
+            m_colabMediaDownload->cancel();
         } else {
             m_activeMediaQueueDownloadId.clear();
             m_mediaQueueCancelling = false;
@@ -5649,134 +5533,9 @@ void DubbingController::cancelMediaQueue()
     if (!m_runner || !m_runner->processing()) finishMediaQueueRun(QStringLiteral("Batch cancelled"));
 }
 
-bool DubbingController::importMediaFromLink(const QString &url)
-{
-    const QUrl sourceUrl = QUrl::fromUserInput(url.trimmed());
-    if (!m_remoteMediaImport) {
-        setError(QStringLiteral("Media link import is unavailable in this build."));
-        return false;
-    }
-    if (linkImporting() || processing()) {
-        setBusyError(QStringLiteral("Finish or cancel the active media import before starting another one."));
-        return false;
-    }
-    if (m_project.projectPath.isEmpty() && !newProject()) return false;
-
-    clearError();
-    m_downloadOnly = false;
-    m_downloadedMediaPath.clear();
-    m_linkImportStatus = QStringLiteral("Downloading direct media link");
-    m_linkImportReceivedBytes = 0;
-    m_linkImportTotalBytes = -1;
-    emit linkImportChanged();
-    // The remote service deliberately receives no cookie, API key, or browser
-    // profile. Its result is a private app-owned file; the URL is never put in
-    // project JSON, settings, metadata, or logs.
-    return m_remoteMediaImport->download(sourceUrl);
-}
-
-bool DubbingController::downloadMediaFromLink(const QString &url)
-{
-    const QUrl sourceUrl = QUrl::fromUserInput(url.trimmed());
-    if (!m_remoteMediaImport) {
-        setError(QStringLiteral("Media download is unavailable in this build."));
-        return false;
-    }
-    if (linkImporting() || processing()) {
-        setBusyError(QStringLiteral("Finish or cancel the active media import before starting another download."));
-        return false;
-    }
-
-    clearError();
-    m_downloadOnly = true;
-    m_downloadedMediaPath.clear();
-    m_linkImportStatus = QStringLiteral("Downloading direct media link");
-    m_linkImportReceivedBytes = 0;
-    m_linkImportTotalBytes = -1;
-    emit linkImportChanged();
-    // RemoteMediaImportService is the one direct-media downloader used by
-    // both Download and Dubbing. It stages an owned file and never persists
-    // the source URL, cookies, browser state, or credentials.
-    return m_remoteMediaImport->download(sourceUrl);
-}
-
-bool DubbingController::handoffDownloadedMediaToDubbing()
-{
-    if (!downloadedMediaReady()) {
-        setError(QStringLiteral("Download a media file before sending it to Dubbing."));
-        return false;
-    }
-    if (linkImporting() || processing()) {
-        setBusyError(QStringLiteral("Finish or cancel the active media import before sending downloaded media to Dubbing."));
-        return false;
-    }
-    if (!m_runner) {
-        setError(QStringLiteral("Dubbing media validation is unavailable in this build."));
-        return false;
-    }
-    if (m_project.projectPath.isEmpty() && !newProject()) return false;
-
-    clearError();
-    m_downloadOnly = false;
-    m_pendingLinkedMediaPath = m_downloadedMediaPath;
-    m_linkImportStatus = QStringLiteral("Validating and normalizing downloaded media");
-    m_linkImportReceivedBytes = QFileInfo(m_downloadedMediaPath).size();
-    m_linkImportTotalBytes = m_linkImportReceivedBytes;
-    emit linkImportChanged();
-    // This is deliberately not importMedia(): local-file import previews a
-    // source, whereas link handoff must validate/probe before it can replace
-    // Dubbing project media.
-    m_runner->startIngest(m_downloadedMediaPath);
-    return true;
-}
-
-void DubbingController::cancelMediaLinkImport()
-{
-    if (m_remoteMediaImport && m_remoteMediaImport->active()) m_remoteMediaImport->cancel();
-    if (!m_pendingLinkedMediaPath.isEmpty() && m_runner) m_runner->cancel();
-    m_pendingLinkedMediaPath.clear();
-    m_downloadOnly = false;
-    m_linkImportStatus.clear();
-    m_linkImportReceivedBytes = 0;
-    m_linkImportTotalBytes = -1;
-    emit linkImportChanged();
-}
-
 void DubbingController::onIngestFinished(bool success, const QVariantMap &manifest)
 {
-    const bool importedFromLink = !m_pendingLinkedMediaPath.isEmpty();
-    if (!success) {
-        if (importedFromLink) {
-            m_pendingLinkedMediaPath.clear();
-            m_linkImportStatus.clear();
-            m_linkImportReceivedBytes = 0;
-            m_linkImportTotalBytes = -1;
-            emit linkImportChanged();
-        }
-        return; // Error is already handled and set on runner
-    }
-
-    if (importedFromLink) {
-        // The candidate does not become project state until FFprobe and audio
-        // normalization succeed; a failed link leaves the previous project as-is.
-        m_project.sourceMediaPath.clear();
-        m_project.sourceHash.clear();
-        m_project.masterAudioPath.clear();
-        m_project.analysisAudioPath.clear();
-        m_project.backgroundAudioPath.clear();
-        m_project.sourceDurationMs = 0;
-        m_project.sourceSampleRate = 0;
-        m_project.sourceChannels = 0;
-        m_project.sourceIsVideo = false;
-        m_project.segments.clear();
-        m_stepOutputs.clear();
-        m_lastCompletedStepId.clear();
-        m_runner->setBackgroundAudioPath(QString());
-        m_runner->setPreviewPath(QString());
-        m_runner->setExportPath(QString());
-        setWorkflowMode(QStringLiteral("idle"));
-        setCurrentStep(QStringLiteral("source-separate"));
-    }
+    if (!success) return; // Error is already handled and set on runner
     
     m_project.sourceMediaPath = manifest.value(QStringLiteral("sourcePath")).toString();
     m_project.sourceHash = manifest.value(QStringLiteral("sourceHash")).toString();
@@ -5792,60 +5551,11 @@ void DubbingController::onIngestFinished(bool success, const QVariantMap &manife
                  QStringLiteral("Media normalized successfully: source=%1, hash=%2, master=%3, analysis=%4")
                      .arg(m_project.sourceMediaPath, m_project.sourceHash,
                           m_project.masterAudioPath, m_project.analysisAudioPath));
-    if (importedFromLink) {
-        const bool usedStandaloneDownload = m_pendingLinkedMediaPath == m_downloadedMediaPath;
-        m_pendingLinkedMediaPath.clear();
-        if (usedStandaloneDownload) m_downloadedMediaPath.clear();
-        m_linkImportStatus.clear();
-        m_linkImportReceivedBytes = 0;
-        m_linkImportTotalBytes = -1;
-        emit linkImportChanged();
-        emit segmentsChanged();
-    }
     emit projectChanged();
     emit workflowChanged();
     persistAfterEdit();
 }
 
-void DubbingController::onRemoteMediaDownloadFinished(bool success, const QString &localPath,
-                                                       const QString &error)
-{
-    if (!success) {
-        clearDouyinCookieFile();
-        m_downloadOnly = false;
-        m_linkImportStatus.clear();
-        m_linkImportReceivedBytes = 0;
-        m_linkImportTotalBytes = -1;
-        emit linkImportChanged();
-        if (!error.trimmed().isEmpty()) setError(error);
-        return;
-    }
-    if (!m_runner || !QFileInfo(localPath).isFile()) {
-        clearDouyinCookieFile();
-        m_downloadOnly = false;
-        m_linkImportStatus.clear();
-        emit linkImportChanged();
-        setError(QStringLiteral("Downloaded media staging file is unavailable."));
-        return;
-    }
-    if (m_downloadOnly) {
-        clearDouyinCookieFile();
-        m_downloadOnly = false;
-        m_downloadedMediaPath = localPath;
-        m_linkImportStatus = QStringLiteral("Download complete — ready to send to Dubbing");
-        m_linkImportReceivedBytes = QFileInfo(localPath).size();
-        m_linkImportTotalBytes = m_linkImportReceivedBytes;
-        emit linkImportChanged();
-        return;
-    }
-    m_pendingLinkedMediaPath = localPath;
-    clearDouyinCookieFile();
-    m_linkImportStatus = QStringLiteral("Validating and normalizing downloaded media");
-    m_linkImportReceivedBytes = QFileInfo(localPath).size();
-    m_linkImportTotalBytes = m_linkImportReceivedBytes;
-    emit linkImportChanged();
-    m_runner->startIngest(localPath);
-}
 
 void DubbingController::transcribeSource()
 {

@@ -174,12 +174,6 @@ SubtitleOcrController::SubtitleOcrController(SubtitleVoiceController *subtitleVo
             this, &SubtitleOcrController::checkForwardProgress);
     connect(&m_sourceFingerprintWatcher, &QFutureWatcher<QString>::finished,
             this, &SubtitleOcrController::onSourceFingerprintReady);
-    if (m_dubbing) {
-        connect(m_dubbing, &DubbingController::linkImportChanged,
-                this, &SubtitleOcrController::onSharedMediaImportChanged);
-        connect(m_dubbing, &DubbingController::errorChanged,
-                this, &SubtitleOcrController::onSharedMediaImportError);
-    }
     m_colabRunner = new ColabSubtitleOcrRunner;
     m_colabRunner->moveToThread(&m_colabThread);
     connect(&m_colabThread, &QThread::finished, m_colabRunner, &QObject::deleteLater);
@@ -640,7 +634,6 @@ bool SubtitleOcrController::loadSource(const QString &path)
 bool SubtitleOcrController::useDownloadedMedia(const QString &path)
 {
     if (m_processing || m_sourceImporting) return false;
-    m_waitingForSharedMedia = false;
     setSourceImportState(false);
     const bool accepted = loadSource(path);
     if (!accepted) {
@@ -652,52 +645,26 @@ bool SubtitleOcrController::useDownloadedMedia(const QString &path)
 
 bool SubtitleOcrController::importSourceLink(const QString &url)
 {
-    const QString candidate = url.trimmed();
-    if (!m_dubbing) {
-        setSourceImportState(false, {}, QStringLiteral("Shared public-media import is unavailable in this build."));
-        return false;
-    }
-    if (m_processing || m_sourceImporting) {
-        setSourceImportState(false, {}, QStringLiteral("Finish or cancel the current Subtitle OCR source operation first."));
-        return false;
-    }
-    if (candidate.isEmpty()) {
-        setSourceImportState(false, {}, QStringLiteral("Enter a media link before importing it."));
-        return false;
-    }
-
-    // This URL is deliberately memory-only: no project, settings or log write
-    // occurs here. It exists solely to support the visible Retry action.
-    m_lastSourceImportUrl = candidate;
-    m_waitingForSharedMedia = true;
-    m_sourceImportCancelRequested = false;
-    setSourceImportState(true, QStringLiteral("Starting shared media import"));
-    if (m_dubbing->downloadMediaFromLink(candidate)) return true;
-
-    m_waitingForSharedMedia = false;
-    setSourceImportState(false, {}, m_dubbing->lastError().isEmpty()
-        ? QStringLiteral("Could not start the shared media import.") : m_dubbing->lastError());
+    Q_UNUSED(url);
+    // Subtitle OCR accepts local media only.  A public link must first be
+    // resolved by the dedicated Colab downloader and then selected from the
+    // local media library; OCR never activates a desktop downloader fallback.
+    setSourceImportState(false, {}, QStringLiteral(
+        "Download the public link with the Colab media downloader, then choose the local file for Subtitle OCR."));
     return false;
 }
 
 void SubtitleOcrController::cancelSourceImport()
 {
-    if (!m_sourceImporting && !m_waitingForSharedMedia) return;
-    // Keep the UI in a canceling state until the shared service has actually
-    // cleaned its partial transfer. Retrying earlier would race that one
-    // shared downloader and be rejected as a second concurrent import.
-    m_sourceImportCancelRequested = true;
-    setSourceImportState(true, QStringLiteral("Canceling shared media import"));
-    if (m_dubbing) m_dubbing->cancelMediaLinkImport();
+    if (!m_sourceImporting) return;
+    setSourceImportState(false, {}, QStringLiteral("The Colab media download was canceled from its media library."));
 }
 
 bool SubtitleOcrController::retrySourceImport()
 {
-    if (m_lastSourceImportUrl.isEmpty()) {
-        setSourceImportState(false, {}, QStringLiteral("There is no media link available to retry."));
-        return false;
-    }
-    return importSourceLink(m_lastSourceImportUrl);
+    setSourceImportState(false, {}, QStringLiteral(
+        "Retry the public link from the Colab media downloader, then choose the completed local file."));
+    return false;
 }
 
 void SubtitleOcrController::setSourceImportState(bool importing, const QString &status,
@@ -716,42 +683,6 @@ void SubtitleOcrController::setSourceImportState(bool importing, const QString &
     m_sourceImportReceivedBytes = received;
     m_sourceImportTotalBytes = total;
     emit sourceImportChanged();
-}
-
-void SubtitleOcrController::onSharedMediaImportChanged()
-{
-    if (!m_waitingForSharedMedia || !m_dubbing) return;
-    if (m_dubbing->linkImporting()) {
-        m_sourceImportReceivedBytes = m_dubbing->linkImportReceivedBytes();
-        m_sourceImportTotalBytes = m_dubbing->linkImportTotalBytes();
-        setSourceImportState(true, m_dubbing->linkImportStatus());
-        return;
-    }
-    if (m_dubbing->downloadedMediaReady()) {
-        const QString stagedPath = m_dubbing->downloadedMediaPath();
-        m_waitingForSharedMedia = false;
-        const bool canceled = m_sourceImportCancelRequested;
-        m_sourceImportCancelRequested = false;
-        if (canceled) {
-            setSourceImportState(false, {}, QStringLiteral("Media link import canceled."));
-            return;
-        }
-        setSourceImportState(false, QStringLiteral("Inspecting staged media"));
-        if (!loadSource(stagedPath)) {
-            m_sourceImportError = m_error;
-            emit sourceImportChanged();
-        }
-    }
-}
-
-void SubtitleOcrController::onSharedMediaImportError()
-{
-    if (!m_waitingForSharedMedia || !m_dubbing) return;
-    const QString error = m_dubbing->lastError();
-    if (error.isEmpty()) return;
-    m_waitingForSharedMedia = false;
-    m_sourceImportCancelRequested = false;
-    setSourceImportState(false, {}, error);
 }
 
 void SubtitleOcrController::completeProbe(const QByteArray &output)

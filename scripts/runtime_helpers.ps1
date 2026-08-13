@@ -324,7 +324,6 @@ function Assert-StagedRuntimeManifest {
         "zlib1.dll",
         "7z.exe",
         "bsdtar.exe",
-        "yt-dlp.exe",
         "subtitle-ocr\README.txt",
         "subtitle-ocr\runtime-manifest.json",
         "media-tools\ffmpeg.exe",
@@ -385,7 +384,6 @@ function Assert-StagedLicenseManifest {
         "licenses\vietnorm\LICENSE",
         "licenses\vietnorm\NOTICE",
         "licenses\libarchive\LICENSE",
-        "licenses\yt-dlp\UNLICENSE.txt",
         "licenses\tesseract\RUNTIME-NOTICE.md"
     )
     $missing = @($required | Where-Object { -not (Test-Path -LiteralPath (Join-Path $StageRoot $_)) })

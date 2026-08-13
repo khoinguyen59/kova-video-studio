@@ -6,7 +6,7 @@ include(cmake/RuntimeAbi.cmake)
 # automation may override it with -DLASTUDIO_VERSION=<major.minor.release.build>.
 # Internal builds use four single-digit fields. Carry at 9 rather than extending
 # one field: 0.0.0.1 ... 0.0.0.9, then 0.0.1.0.
-set(LASTUDIO_VERSION "0.0.6.7" CACHE STRING "LA Studio application version")
+set(LASTUDIO_VERSION "0.0.6.8" CACHE STRING "LA Studio application version")
 if(NOT LASTUDIO_VERSION MATCHES "^[0-9]\\.[0-9]\\.[0-9]\\.[0-9]$")
     message(FATAL_ERROR "LASTUDIO_VERSION must use four single digits (0-9), for example 0.0.1.0; got '${LASTUDIO_VERSION}'")
 endif()
@@ -254,8 +254,7 @@ set(LASTUDIO_SOURCES
     src/dubbing/media/MediaToolService.cpp
     src/dubbing/media/AtomicMediaCommit.cpp
     src/dubbing/media/MediaIngestService.cpp
-    src/dubbing/media/DouyinBrowserSessionService.cpp
-    src/dubbing/media/RemoteMediaImportService.cpp
+    src/dubbing/media/ColabMediaDownloadRunner.cpp
     src/controllers/app/WorkflowActivityManager.cpp
     src/workflows/WorkflowTypes.cpp
     src/workflows/WorkflowSession.cpp
@@ -455,8 +454,7 @@ set(LASTUDIO_HEADERS
     src/dubbing/media/MediaToolService.h
     src/dubbing/media/AtomicMediaCommit.h
     src/dubbing/media/MediaIngestService.h
-    src/dubbing/media/DouyinBrowserSessionService.h
-    src/dubbing/media/RemoteMediaImportService.h
+    src/dubbing/media/ColabMediaDownloadRunner.h
     src/controllers/app/WorkflowActivityManager.h
     src/workflows/WorkflowTypes.h
     src/workflows/IWorkflowResolver.h
@@ -565,6 +563,7 @@ qt_add_qml_module(LAStudio
         qml/components/dubbing/DubbingNodeInspector.qml
         qml/components/dubbing/DubbingWorkflowStep.qml
         qml/components/dubbing/DubbingWorkflowHeader.qml
+        qml/components/dubbing/ColabMediaAcquisitionPanel.qml
         qml/components/dubbing/DubbingSourceMediaPanel.qml
         qml/components/dubbing/DubbingMediaQueueDialog.qml
         qml/components/dubbing/DubbingVoiceClipReview.qml

@@ -235,7 +235,7 @@ Dialog {
                             anchors.fill: parent
                             anchors.margins: Theme.paddingMedium
                             Text { text: qsTr("Source media *"); color: root.preflight.sourceMediaPath ? Theme.textPrimary : Theme.danger; font.bold: true }
-                            Text { Layout.fillWidth: true; text: qsTr("Choose a local audio/video file or import a direct URL before stages are assessed. This uses the project ingest service and saves the selected media immediately."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                            Text { Layout.fillWidth: true; text: qsTr("Choose a local audio/video file before stages are assessed. Public links must first finish in the dedicated Colab media downloader, then be selected as local media."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
                             RowLayout {
                                 Layout.fillWidth: true
                                 TextField {
@@ -252,31 +252,11 @@ Dialog {
                                     objectName: "dubbingPreflightSourceBrowseButton"
                                     text: qsTr("Browse local file")
                                     iconName: "folder"
-                                    enabled: !root.dubbing.processing && !root.dubbing.linkImporting
+                                    enabled: !root.dubbing.processing
                                     onClicked: root.sourceBrowseRequested()
                                 }
                             }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                TextField {
-                                    id: sourceUrlField
-                                    objectName: "dubbingPreflightSourceUrlField"
-                                    Layout.fillWidth: true
-                                    placeholderText: qsTr("Direct media URL to import/download")
-                                    color: Theme.textPrimary
-                                    selectByMouse: true
-                                    enabled: !root.dubbing.processing && !root.dubbing.linkImporting
-                                    onAccepted: if (text.trim() !== "") root.sourceLinkImportRequested(text.trim())
-                                }
-                                PrimaryButton {
-                                    objectName: "dubbingPreflightSourceUrlImportButton"
-                                    text: qsTr("Import URL")
-                                    iconName: "download"
-                                    enabled: sourceUrlField.text.trim() !== "" && !root.dubbing.processing && !root.dubbing.linkImporting
-                                    onClicked: root.sourceLinkImportRequested(sourceUrlField.text.trim())
-                                }
-                            }
-                            Text { visible: !root.preflight.sourceMediaPath; text: qsTr("Choose or import source media to unlock the next step."); color: Theme.danger; font.pixelSize: Theme.fontSmall }
+                            Text { visible: !root.preflight.sourceMediaPath; text: qsTr("Choose source media to unlock the next step."); color: Theme.danger; font.pixelSize: Theme.fontSmall }
                         }
                     }
                     Rectangle {

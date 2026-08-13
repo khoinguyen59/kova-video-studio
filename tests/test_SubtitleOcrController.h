@@ -26,8 +26,8 @@ private slots:
     void timesOutFrameExtractionAndKeepsDiagnosticsForRetry();
     void rejectsNoTextCompletionClearsStaleSegmentsAndBlocksExport();
     void extractsBottomRoiWithTheStagedPackagedFfmpegRuntime();
-    void importsSharedStagedMediaWithoutRedownloadAndPreservesSourceOnProbeFailure();
-    void importsSharedMediaWithAnUnknownContentLength();
+    void acceptsLocallyStagedMediaAndPreservesSourceOnProbeFailure();
+    void rejectsRemoteMediaLinksBeforeAnyDesktopRequest();
 };
 
 } // namespace LAStudio

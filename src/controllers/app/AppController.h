@@ -87,6 +87,7 @@ class AppController : public QObject {
     Q_PROPERTY(ColabSession* colabTranslationSession READ colabTranslationSession CONSTANT)
     Q_PROPERTY(ColabSession* colabSubtitleOcrSession READ colabSubtitleOcrSession CONSTANT)
     Q_PROPERTY(ColabSession* colabChatSession READ colabChatSession CONSTANT)
+    Q_PROPERTY(ColabSession* colabMediaDownloadSession READ colabMediaDownloadSession CONSTANT)
     Q_PROPERTY(AudioRecorder*   recorder  READ recorder  CONSTANT)
     Q_PROPERTY(AudioPlayer*     player    READ player    CONSTANT)
     Q_PROPERTY(AudioPreviewService* preview READ preview CONSTANT)
@@ -160,6 +161,7 @@ public:
     ColabSession* colabTranslationSession() const { return m_colabTranslationSession; }
     ColabSession* colabSubtitleOcrSession() const { return m_colabSubtitleOcrSession; }
     ColabSession* colabChatSession() const { return m_colabChatSession; }
+    ColabSession* colabMediaDownloadSession() const { return m_colabMediaDownloadSession; }
     AudioRecorder*   recorder()  const { return m_recorder; }
     AudioPlayer*     player()    const { return m_player; }
     AudioPreviewService* preview() const { return m_preview; }
@@ -248,6 +250,9 @@ private:
     ColabSession* m_colabTranslationSession = nullptr;
     ColabSession* m_colabSubtitleOcrSession = nullptr;
     ColabSession* m_colabChatSession = nullptr;
+    // Public media download is a separate transient Colab route. It must
+    // never reuse the credentials of any GPU model worker.
+    ColabSession* m_colabMediaDownloadSession = nullptr;
     AudioRecorder*   m_recorder = nullptr;
     AudioPlayer*     m_player = nullptr;
     WaveformProvider* m_waveformProvider = nullptr;

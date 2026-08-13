@@ -29,8 +29,9 @@ def build_worker_launch(
     worker_python: str | None = None,
     isolate_python: bool = False,
     worker_environment: dict[str, str] | None = None,
+    requires_cuda: bool = True,
 ) -> str:
-    """Return a Colab code cell that launches one exact CUDA worker safely."""
+    """Return a Colab code cell that launches one verified worker safely."""
     if not all((capability_label, module, model_id, token_env, url_env, model_env, log_path)):
         raise ValueError("Colab launch metadata must be complete")
     if not 1 <= port <= 65535:
@@ -66,6 +67,7 @@ WORKER_MODULE = __WORKER_MODULE__
 WORKER_PYTHON = __WORKER_PYTHON__
 WORKER_PYTHON_ISOLATED = __WORKER_PYTHON_ISOLATED__
 WORKER_ENVIRONMENT = __WORKER_ENVIRONMENT__
+REQUIRES_CUDA = __REQUIRES_CUDA__
 STARTUP_TIMEOUT_SECONDS = 20 * 60
 TUNNEL_TIMEOUT_SECONDS = 90
 TOKEN = secrets.token_urlsafe(32)
@@ -234,7 +236,8 @@ with WORKER_LOG.open("w", encoding="utf-8", buffering=1) as worker_output:
         stdout=worker_output,
         stderr=subprocess.STDOUT,
     )
-    print(f"Starting exact CUDA {CAPABILITY_LABEL} worker; initial model load can take several minutes.")
+    worker_kind = "exact CUDA" if REQUIRES_CUDA else "dedicated Colab CPU"
+    print(f"Starting {worker_kind} {CAPABILITY_LABEL} worker.")
     deadline = time.monotonic() + STARTUP_TIMEOUT_SECONDS
     last_error = "worker has not answered /health yet"
     next_report = time.monotonic()
@@ -254,10 +257,11 @@ with WORKER_LOG.open("w", encoding="utf-8", buffering=1) as worker_output:
                 health = json.loads(response.read().decode("utf-8"))
             if (response.status == 200
                     and health.get("ready") is True
-                    and str(health.get("device", "")).lower() == "cuda"
+                    and str(health.get("device", "")).lower()
+                        == ("cuda" if REQUIRES_CUDA else "colab-cpu")
                     and str(health.get("model", "")).strip().lower() == MODEL_ID
                     and health.get("cpu_fallback") is False):
-                print("Exact CUDA worker is ready:", health)
+                print(worker_kind.title() + " worker is ready:", health)
                 break
             last_error = "unexpected /health response: " + json.dumps(health, ensure_ascii=False)
         except urllib.error.HTTPError as error:
@@ -265,13 +269,13 @@ with WORKER_LOG.open("w", encoding="utf-8", buffering=1) as worker_output:
         except Exception as error:
             last_error = f"/health is not ready: {type(error).__name__}: {error}"
         if time.monotonic() >= next_report:
-            print("Waiting for the exact CUDA model…", last_error)
+            print(f"Waiting for the {worker_kind} worker...", last_error)
             next_report = time.monotonic() + 30
         time.sleep(2)
     else:
         stop_process(worker)
         raise RuntimeError(
-            f"The exact-model {CAPABILITY_LABEL} worker did not become CUDA-ready within "
+            f"The {worker_kind} {CAPABILITY_LABEL} worker did not become ready within "
             f"{STARTUP_TIMEOUT_SECONDS // 60} minutes. Last health-check result: {last_error}\n\n"
             "---- LA Studio worker log (last 12,000 characters) ----\n" + worker_log_tail()
         )
@@ -383,6 +387,7 @@ print("Click Check Colab in the matching LA Studio feature before running it.")
         "__WORKER_PYTHON__": repr(worker_python) if worker_python else "sys.executable",
         "__WORKER_PYTHON_ISOLATED__": repr(bool(isolate_python)),
         "__WORKER_ENVIRONMENT__": json.dumps(worker_environment or {}, sort_keys=True),
+        "__REQUIRES_CUDA__": repr(bool(requires_cuda)),
     }
     for placeholder, value in replacements.items():
         template = template.replace(placeholder, value)

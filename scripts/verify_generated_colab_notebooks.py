@@ -32,8 +32,9 @@ GENERATORS = (
     "generate_spleeter_safe_colab_notebook.py",
     "generate_language_colab_notebooks.py",
     "generate_subtitle_ocr_colab_notebook.py",
+    "generate_media_download_colab_notebook.py",
 )
-EXPECTED_EXACT_NOTEBOOKS = 32
+EXPECTED_EXACT_NOTEBOOKS = 33
 
 
 def load_generator(path: Path, index: int) -> ModuleType:
@@ -178,6 +179,26 @@ def main() -> int:
                             or "NONLEXICAL_UTTERANCES" not in worker_source:
                         mismatches.append(
                             f"Translation worker lacks the retry-and-continue patch contract: {generated.name}"
+                        )
+                if capability == "media-download":
+                    required_media_markers = (
+                        'RESPONSE_CONTRACT = "media-download-jobs-v1"',
+                        'WORKER_REVISION = "media-download-2026-08-14.1"',
+                        '@app.post("/v1/media/downloads")',
+                        '@app.get("/v1/media/downloads/{job_id}")',
+                        '@app.get("/v1/media/downloads/{job_id}/file")',
+                        'def public_url_or_error',
+                        'ip.is_private or ip.is_loopback or ip.is_link_local',
+                        'sys.executable, "-m", "yt_dlp"',
+                        'requires_cuda=False',
+                    )
+                    if any(marker not in worker_source for marker in required_media_markers):
+                        mismatches.append(
+                            f"Media-download notebook lacks the isolated public-download contract: {generated.name}"
+                        )
+                    if '"--cookies"' in worker_source or "playwright" in worker_source:
+                        mismatches.append(
+                            f"Media-download notebook must not consume desktop/browser cookies: {generated.name}"
                         )
                 if capability == "subtitle-ocr":
                     if "import torch" in worker_source or "torch.cuda" in worker_source:

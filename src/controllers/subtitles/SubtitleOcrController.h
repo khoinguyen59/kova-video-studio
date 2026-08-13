@@ -126,9 +126,9 @@ public:
     QString sourceImportError() const { return m_sourceImportError; }
 
     Q_INVOKABLE bool loadSource(const QString &path);
-    // Public media URLs always delegate to DubbingController's existing
-    // RemoteMediaImportService.  The staged file is then probed as an OCR
-    // source; the URL itself is kept only in-memory for an explicit retry.
+    // Subtitle OCR deliberately accepts local files only. Public links are
+    // acquired by the dedicated Colab media-download worker, then selected
+    // from the media library as a local file.
     Q_INVOKABLE bool importSourceLink(const QString &url);
     Q_INVOKABLE void cancelSourceImport();
     Q_INVOKABLE bool retrySourceImport();
@@ -187,8 +187,6 @@ private slots:
     void onProcessFinished(int exitCode, QProcess::ExitStatus status);
     void onProcessError(QProcess::ProcessError error);
     void onFrameExtractionTimeout();
-    void onSharedMediaImportChanged();
-    void onSharedMediaImportError();
     void onColabRecognitionFinished(const QString &text, double confidence);
     void onColabRecognitionFailed(const QString &message);
 
@@ -312,12 +310,9 @@ private:
     QString m_projectPath;
     QString m_workspacePath;
     QString m_cropPreviewPath;
-    bool m_waitingForSharedMedia = false;
-    bool m_sourceImportCancelRequested = false;
     bool m_sourceImporting = false;
     QString m_sourceImportStatus;
     QString m_sourceImportError;
-    QString m_lastSourceImportUrl;
     qint64 m_sourceImportReceivedBytes = 0;
     qint64 m_sourceImportTotalBytes = -1;
     QVector<qint64> m_samples;

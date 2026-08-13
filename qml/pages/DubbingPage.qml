@@ -1315,9 +1315,7 @@ Item {
                     previewFocusMode: root.previewFocusMode
                     onBrowseRequested: mediaFileDialog.open()
                     onSubtitleEditorRequested: subtitleEditorDialog.open()
-                    onLinkImportRequested: function(url) { root.dubbing.importMediaFromLink(url) }
-                    onMediaQueueRequested: function(urls) { root.dubbing.enqueueMediaLinks(urls) }
-                    onCancelLinkImportRequested: root.dubbing.cancelMediaLinkImport()
+                    onManualMediaFilesRequested: queuedMediaFilesDialog.open()
                     onSegmentSelected: root.selectedSegment = index
                     onSelectedSegmentChanged: root.selectedSegment = selectedSegment
                     onPreviewFocusRequested: function(focused) {
@@ -2180,6 +2178,19 @@ Item {
         onCapCutDraftExportRequested: capCutDraftFolderDialog.open()
     }
 
+    FileDialog {
+        id: queuedMediaFilesDialog
+        title: qsTr("Choose media files for the Dubbing library")
+        fileMode: FileDialog.OpenFiles
+        nameFilters: [qsTr("Media files (*.wav *.mp3 *.flac *.mp4 *.mkv *.mov *.webm *.avi)"), qsTr("All files (*)")]
+        onAccepted: {
+            var paths = []
+            for (var index = 0; index < selectedFiles.length; ++index)
+                paths.push(AppController.files.urlToLocalPath(selectedFiles[index].toString()))
+            root.dubbing.enqueueMediaFiles(paths)
+        }
+    }
+
     DubbingSubtitleEditor {
         id: subtitleEditorDialog
         dubbing: root.dubbing
@@ -2236,7 +2247,6 @@ Item {
             root.qmlSmokeMediaPickerRequested = true
             mediaFileDialog.open()
         }
-        onSourceLinkImportRequested: function(url) { dubbing.importMediaFromLink(url) }
         onAdaptiveLlmSetupRequested: qualityDialog.openForMode("adaptive")
     }
 

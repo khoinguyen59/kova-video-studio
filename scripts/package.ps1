@@ -502,66 +502,6 @@ function Ensure-Bsdtar {
     Write-Host ">> Staged pinned bsdtar $version" -ForegroundColor Green
 }
 
-function Ensure-YtDlpRuntime {
-    param(
-        [Parameter(Mandatory = $true)][string] $RepositoryRoot,
-        [Parameter(Mandatory = $true)][string] $DeployRoot,
-        [Parameter(Mandatory = $true)][string] $StageRoot
-    )
-
-    # Pinned standalone adapter: no browser profile, cookies, or Python runtime
-    # is shipped. The application invokes it only with an argument list.
-    $version = "2026.07.04"
-    # Verified against the upstream 2026.07.04 SHA2-256SUMS release asset.
-    $expectedSha256 = "52fe3c26dcf71fbdc85b528589020bb0b8e383155cfa81b64dd447bbe35e24b8"
-    $cachePath = Join-Path $RepositoryRoot ".deps\yt-dlp-$version.exe"
-    $target = Join-Path $DeployRoot "yt-dlp.exe"
-    New-Item -ItemType Directory -Path (Split-Path -Parent $cachePath) -Force | Out-Null
-    if (-not (Test-Path -LiteralPath $cachePath -PathType Leaf)) {
-        Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/download/$version/yt-dlp.exe" -OutFile $cachePath -UseBasicParsing
-    }
-    $actualSha256 = (Get-FileHash -LiteralPath $cachePath -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($actualSha256 -ne $expectedSha256) {
-        throw "yt-dlp SHA-256 mismatch. Expected $expectedSha256 but got $actualSha256."
-    }
-    Copy-Item -LiteralPath $cachePath -Destination $target -Force
-    $licenseDir = Join-Path $StageRoot "licenses\yt-dlp"
-    New-Item -ItemType Directory -Path $licenseDir -Force | Out-Null
-    @"
-yt-dlp is released under The Unlicense (public domain dedication).
-Source: https://github.com/yt-dlp/yt-dlp
-Pinned binary version: $version
-"@ | Set-Content -LiteralPath (Join-Path $licenseDir "UNLICENSE.txt") -Encoding UTF8
-    Write-Host ">> Staged pinned yt-dlp $version" -ForegroundColor Green
-}
-
-function Stage-DouyinBrowserHelper {
-    param(
-        [Parameter(Mandatory = $true)][string] $RepositoryRoot,
-        [Parameter(Mandatory = $true)][string] $DeployRoot,
-        [Parameter(Mandatory = $true)][string] $StageRoot
-    )
-
-    # Playwright and Chromium remain an explicit user-installed dependency;
-    # this only stages the auditable helper beside the portable application.
-    # It uses an app-owned profile and never reads a browser's default profile.
-    $source = Join-Path $RepositoryRoot "scripts\douyin_browser_session.py"
-    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
-        throw "Douyin browser-session helper was not found at '$source'."
-    }
-    $targetDirectory = Join-Path $DeployRoot "douyin-browser"
-    New-Item -ItemType Directory -Path $targetDirectory -Force | Out-Null
-    Copy-Item -LiteralPath $source -Destination (Join-Path $targetDirectory "douyin_browser_session.py") -Force
-    $licenseDir = Join-Path $StageRoot "licenses\lastudio-douyin-browser"
-    New-Item -ItemType Directory -Path $licenseDir -Force | Out-Null
-    @"
-LA Studio Douyin browser-session helper
-This helper is part of LA Studio and is distributed under the project license.
-It requires a user-installed Python Playwright package and Chromium browser.
-"@ | Set-Content -LiteralPath (Join-Path $licenseDir "NOTICE.txt") -Encoding UTF8
-    Write-Host ">> Staged app-owned Douyin browser-session helper" -ForegroundColor Green
-}
-
 function Stage-ThirdPartyLicenseTexts {
     param(
         [Parameter(Mandatory = $true)]
@@ -1052,8 +992,6 @@ Copy-VcpkgRuntimeLibraries -BuildDirectory $buildDir -Triplet $vcpkgTriplet -Dep
 $sevenZipSource = Ensure-ArchiveExtractor -DeployRoot $deployRoot -VcpkgRoot $VcpkgRoot
 Ensure-Bsdtar -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir -BuildDirectory $buildDir -Triplet $vcpkgTriplet
 Ensure-FfmpegRuntime -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir
-Ensure-YtDlpRuntime -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir
-Stage-DouyinBrowserHelper -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir
 Stage-SubtitleOcrRuntimeManifest -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir -BuildDirectory $buildDir -Triplet $vcpkgTriplet
 Stage-PaddleOcrRuntime -RepositoryRoot $RepoRoot -DeployRoot $deployRoot -StageRoot $stageDir -PaddleRuntimeRoot $PaddleRuntimeRoot
 Stage-ThirdPartyLicenseTexts -RepositoryRoot $RepoRoot -StageRoot $stageDir -BuildDirectory $buildDir -Triplet $vcpkgTriplet -QtRoot $QtRoot -SevenZipSource $sevenZipSource

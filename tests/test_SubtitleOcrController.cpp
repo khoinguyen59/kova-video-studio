@@ -889,7 +889,7 @@ void TestSubtitleOcrController::extractsBottomRoiWithTheStagedPackagedFfmpegRunt
     QVERIFY(rotatedController.diagnostics().contains(QStringLiteral("rotation=90")));
 }
 
-void TestSubtitleOcrController::importsSharedStagedMediaWithoutRedownloadAndPreservesSourceOnProbeFailure()
+void TestSubtitleOcrController::acceptsLocallyStagedMediaAndPreservesSourceOnProbeFailure()
 {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
@@ -904,46 +904,29 @@ void TestSubtitleOcrController::importsSharedStagedMediaWithoutRedownloadAndPres
     loadFixture(controller, fixtures.source);
     const QString originalSource = controller.sourcePath();
 
-    SharedMediaServer server;
-    QVERIFY(server.start());
-    QVERIFY(controller.importSourceLink(server.url().toString()));
-    QTRY_VERIFY_WITH_TIMEOUT(!controller.processing() && !controller.sourceImporting(), 10000);
+    const QString downloadedSource = directory.filePath(QStringLiteral("colab-downloaded-source.mp4"));
+    QVERIFY(writeFile(downloadedSource, QByteArrayLiteral("downloaded-by-colab")));
+    QVERIFY(controller.useDownloadedMedia(downloadedSource));
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.processing(), 10000);
     QVERIFY2(controller.error().isEmpty(), qPrintable(controller.error()));
-    QVERIFY(controller.sourcePath() != originalSource);
+    QCOMPARE(controller.sourcePath(), QFileInfo(downloadedSource).absoluteFilePath());
     QVERIFY(QFileInfo(controller.sourcePath()).isFile());
-    QCOMPARE(server.requestCount(), 1);
 
     const QString stagedSource = controller.sourcePath();
     QVERIFY(writeFile(fixtures.ffprobe, QByteArrayLiteral("@echo off\r\necho not-json\r\n")));
-    QVERIFY(controller.importSourceLink(server.url().toString()));
-    QTRY_VERIFY_WITH_TIMEOUT(!controller.processing() && !controller.sourceImporting(), 10000);
+    QVERIFY(controller.useDownloadedMedia(originalSource));
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.processing(), 10000);
     QCOMPARE(controller.sourcePath(), stagedSource);
     QVERIFY(controller.error().contains(QStringLiteral("readable video stream"), Qt::CaseInsensitive));
-    QCOMPARE(server.requestCount(), 2);
 
     QVERIFY(writeFile(fixtures.ffprobe, QByteArrayLiteral("@echo off\r\necho {\"streams\":[{\"width\":1920,\"height\":1080}],\"format\":{\"duration\":\"4.0\"}}\r\n")));
-    SharedMediaServer delayedServer(250);
-    QVERIFY(delayedServer.start());
-    QVERIFY(controller.importSourceLink(delayedServer.url().toString()));
-    QTRY_VERIFY_WITH_TIMEOUT(controller.sourceImporting(), 2000);
-    // Wait for the transfer to have actually reached the shared backend.
-    // sourceImporting becomes true synchronously while the request is still
-    // being scheduled, so canceling before this point would not exercise the
-    // active-transfer cancellation and retry contract.
-    QTRY_COMPARE_WITH_TIMEOUT(delayedServer.requestCount(), 1, 2000);
-    controller.cancelSourceImport();
-    QTRY_VERIFY_WITH_TIMEOUT(!controller.sourceImporting(), 5000);
-    QCOMPARE(controller.sourcePath(), stagedSource);
-    QVERIFY(controller.sourceImportError().contains(QStringLiteral("canceled"), Qt::CaseInsensitive));
-
-    QVERIFY(controller.retrySourceImport());
-    QTRY_VERIFY_WITH_TIMEOUT(!controller.processing() && !controller.sourceImporting(), 10000);
+    QVERIFY(controller.useDownloadedMedia(originalSource));
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.processing(), 10000);
     QVERIFY2(controller.error().isEmpty(), qPrintable(controller.error()));
-    QVERIFY(controller.sourcePath() != stagedSource);
-    QCOMPARE(delayedServer.requestCount(), 2);
+    QCOMPARE(controller.sourcePath(), originalSource);
 }
 
-void TestSubtitleOcrController::importsSharedMediaWithAnUnknownContentLength()
+void TestSubtitleOcrController::rejectsRemoteMediaLinksBeforeAnyDesktopRequest()
 {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
@@ -958,13 +941,13 @@ void TestSubtitleOcrController::importsSharedMediaWithAnUnknownContentLength()
     SharedMediaServer server(350, false);
     QVERIFY(server.start());
 
-    QVERIFY(controller.importSourceLink(server.url().toString()));
-    QTRY_COMPARE_WITH_TIMEOUT(server.requestCount(), 1, 2000);
-    QTRY_VERIFY_WITH_TIMEOUT(controller.sourceImporting(), 2000);
+    QVERIFY(!controller.importSourceLink(server.url().toString()));
+    QVERIFY(!controller.processing());
+    QVERIFY(!controller.sourceImporting());
     QCOMPARE(controller.sourceImportTotalBytes(), qint64(-1));
-    QTRY_VERIFY_WITH_TIMEOUT(!controller.processing() && !controller.sourceImporting(), 10000);
-    QVERIFY2(controller.error().isEmpty(), qPrintable(controller.error()));
-    QVERIFY(QFileInfo(controller.sourcePath()).isFile());
+    QVERIFY(controller.sourceImportError().contains(QStringLiteral("Colab media downloader"), Qt::CaseInsensitive));
+    QTest::qWait(500);
+    QCOMPARE(server.requestCount(), 0);
 }
 
 } // namespace LAStudio
