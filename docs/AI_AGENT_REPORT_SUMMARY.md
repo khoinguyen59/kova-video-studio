@@ -2,6 +2,33 @@
 
 Cap nhat: 2026-08-12
 
+## 2026-08-13 - Dubbing model commit, Direct Colab TTS language gate, internal package 0.0.6.7
+
+- **Model selection repaired:** the Dubbing model dialog now has explicit
+  **Apply selected model** and **Cancel** actions. Choosing an item remains
+  pending until Apply; closing, Escape, or Cancel cannot write a stale SQLite
+  default back over the visible choice. The same apply callback is used by the
+  standalone dialog, workflow dialog, and Automatic-Dubbing preflight.
+- **Actual TTS failure repaired:** Direct-Colab Kokoro with Vietnamese was
+  sending an unsupported request and the worker returned HTTP 422. The
+  controller and synthesis job now reject that known incompatible pair before
+  a network call, explain that **Kokoro Vietnamese** is required, and show the
+  same actionable issue in Automatic preflight. No model, route, or language
+  is silently substituted. A saved OmniVoice clone remains valid because it
+  uses its own exact voice-clone worker rather than the normal Kokoro route.
+- **Regression evidence:** focused `TestDubbingProject` passed **97 passed,
+  0 failed, 5 skipped**; full CTest passed **39/39** in 109.29 seconds;
+  `git diff --check` and `graphify update .` passed.
+- **Internal package:** `out/LA-Studio-0.0.6.7/LA-Studio-0.0.6.7.exe`,
+  FileVersion/ProductVersion `0.0.6.7`, SHA-256
+  `0FF2B8B49D427DE02B7B31FD684D2B558A52B2CD740AB018A2970D33CD1E73DB`.
+  Package inventory and CLI checks verified Qt platform/QML/Quick plugins,
+  FFmpeg, yt-dlp, OCR manifests, notices, and VC runtime. This is an internal
+  package only because its verified eSpeak component is unsigned.
+- **Boundary:** no visible desktop GUI and no live Colab worker was launched.
+  The regressions prove the desktop/controller/UI contract; live Colab still
+  requires the user to run a fresh notebook and use its temporary URL/token.
+
 ## 2026-08-12 - Subtitle OCR bootstrap `.13`: direct CUDA wheel, deterministic resolver
 
 - **Root cause:** `paddleocr==3.1.1` declares

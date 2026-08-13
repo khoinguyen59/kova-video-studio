@@ -1,5 +1,34 @@
 # AI agent response — Dubbing workspace and Subtitle OCR bootstrap
 
+## 2026-08-13 - Dubbing picker/TTS repair and internal package 0.0.6.7
+
+### Delivered
+
+- Repaired the Dubbing model-picker commit path. Select a model, then press
+  **Apply selected model**. Cancel/Close/Escape discard the pending selection;
+  they cannot preserve or restore the previous default model.
+- Repaired the actual Direct-Colab TTS mismatch: Vietnamese cannot now be sent
+  to English Kokoro `af_heart`. The app blocks that request before HTTP and
+  tells the user to choose **Kokoro Vietnamese**. It never switches model,
+  route, or language silently. OmniVoice saved-clone synthesis is preserved.
+- Built the internal portable executable:
+  `C:\\Users\\Nguyen Trong Khoi\\Downloads\\LA-STUDIO\\out\\LA-Studio-0.0.6.7\\LA-Studio-0.0.6.7.exe`.
+
+### Evidence
+
+- Targeted Dubbing suite: **97 passed, 0 failed, 5 skipped**.
+- Full CTest: **39/39 passed** in 109.29 seconds.
+- Source/package version check, package artifact inventory, FFmpeg and yt-dlp
+  CLI checks: passed. EXE SHA-256:
+  `0FF2B8B49D427DE02B7B31FD684D2B558A52B2CD740AB018A2970D33CD1E73DB`.
+- Source commit pushed directly to `origin/main`: `8c34556`.
+
+### Boundary
+
+No GUI was opened and no live Colab worker was run. The package is internally
+verified; a fresh Colab notebook run is still the acceptance check for the
+temporary external worker URL/token.
+
 ## 2026-08-13 - Automatic Dubbing audit outcome
 
 I audited only the current Automatic Dubbing A-B contract. The eight visible

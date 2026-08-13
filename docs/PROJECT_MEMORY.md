@@ -2,6 +2,26 @@
 
 Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de agent khong lam lai viec cu. Khong chep patch hay log dai.
 
+## 2026-08-13 - Dubbing picker and Direct-Colab TTS contract
+
+- Dubbing model cards are not a commit action. `WorkflowNodeModelDialog` must
+  retain a pending selection and require its visible **Apply selected model**
+  action before `setWorkflowNodeModel` writes controller/project state. Close,
+  Escape and Cancel discard it. Keep this shared contract for standalone,
+  pipeline and Automatic-preflight pickers; do not restore close-on-outside.
+- Direct-Colab normal TTS must reject known model/language incompatibilities
+  before creating a worker request. In particular `kokoro` / `af_heart` does
+  not support `vi`; direct users to `kokoro-vietnamese`. Do not silently change
+  language, model, route, or fall back to local CPU/API.
+- Saved OmniVoice clone synthesis is an explicit exception to the normal
+  Kokoro language guard: it uses the clone worker's exact model and must not
+  be rejected merely because the top-level normal-TTS model remains `kokoro`.
+- Package current internal candidate: `0.0.6.7`, source commit `8c34556`.
+  Its SHA-256 is
+  `0FF2B8B49D427DE02B7B31FD684D2B558A52B2CD740AB018A2970D33CD1E73DB`.
+  Regression evidence is focused Dubbing 97/0/5 skipped and full CTest 39/39.
+  A package audit is not live-Colab or interactive-GUI acceptance evidence.
+
 ## 2026-08-12 - Subtitle OCR Colab bootstrap `.13` constraints
 
 - Install `paddlepaddle-gpu==3.1.0` through the exact CPython 3.12 Linux CUDA
