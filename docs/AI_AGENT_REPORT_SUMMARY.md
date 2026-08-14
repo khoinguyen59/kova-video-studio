@@ -1168,3 +1168,29 @@ Cap nhat: 2026-08-14
   reports existing standalone-import/unqualified-access warnings for this QML
   component; the built offscreen route smoke is the runtime validation.
 - No GUI was opened and no release candidate or EXE package was created.
+
+### 2026-08-15 - 0.0.7.0 project-first gate and model chooser confirmation
+
+- Operational feature routes now require an explicit **Create new project** or
+  **Open existing project** gate before their first action, including Dubbing,
+  STT, TTS, voice cloning/design/isolation, alignment, translation, media
+  download, and Subtitle OCR. Settings and model browsing remain accessible
+  before a project exists. The controller no longer creates an implicit
+  project when media is imported; it returns a clear error instead.
+- The model chooser now separates **Apply local model**, **Use selected model
+  on Colab**, and **Close**. Closing preserves the last applied selection;
+  Colab selection does not require local model files or a local runtime.
+- Evidence: targeted Dubbing project regression **98 passed, 0 failed, 5
+  skipped**; offscreen QML route smoke **3/3 passed**; full CTest **39/39
+  passed**; QML lint exited 0 with the existing callback-property and unused
+  import warnings; `git diff --check` and `graphify update .` passed.
+- Internal portable EXE staged at
+  `out/LA-Studio-0.0.7.0/LA-Studio-0.0.7.0.exe`. File/Product Version
+  `0.0.7.0`; SHA-256
+  `5B3B7876C80EC473C89A7ECC96E793545EEA3AAB19DAF6B98E5558C7EF88814E`.
+  Runtime inventory includes Qt/offscreen, runtime host, FFmpeg/FFprobe,
+  yt-dlp, Tesseract, and the isolated PaddleOCR runtime. Package smoke ran
+  offscreen with `LASTUDIO_QML_SMOKE=1` and exited 0.
+- Source commit `339cfa4` was pushed directly to `origin/main`. No visible GUI
+  or live Colab worker was opened. The package is internal-only because the
+  hash-verified eSpeak payload is unsigned.

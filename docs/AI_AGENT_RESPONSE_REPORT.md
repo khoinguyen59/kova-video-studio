@@ -36,3 +36,34 @@ source, controller, offscreen-QML, generated-notebook, contract, and staged
 runtime behavior. A user must still run a fresh Colab notebook to accept a
 live temporary GPU worker. The package is internal-only because its verified
 eSpeak payload is unsigned.
+
+## 2026-08-15 - completed: project-first gate and package 0.0.7.0
+
+### Delivered
+
+- Added a global New/Open project gate before operational feature routes,
+  including Dubbing. Settings and model browsing remain available before a
+  project. Importing media through the controller now requires an existing
+  project instead of creating one implicitly.
+- Added explicit model chooser actions for local apply, independent Colab
+  selection, and non-destructive close.
+
+### Evidence
+
+- Targeted Dubbing project regression: **98 passed, 0 failed, 5 skipped**.
+- Offscreen QML route smoke: **3/3 passed**; full CTest: **39/39 passed**.
+- QML lint exited 0 with existing warnings; `git diff --check` and
+  `graphify update .` passed.
+- Portable internal EXE:
+  `C:\Users\Nguyen Trong Khoi\Downloads\LA-STUDIO\out\LA-Studio-0.0.7.0\LA-Studio-0.0.7.0.exe`
+  (File/Product Version `0.0.7.0`, SHA-256
+  `5B3B7876C80EC473C89A7ECC96E793545EEA3AAB19DAF6B98E5558C7EF88814E`).
+  The staged package contains Qt/offscreen, runtime host, FFmpeg/FFprobe,
+  yt-dlp, Tesseract, and the isolated PaddleOCR runtime. Package offscreen
+  smoke exited 0.
+
+### Boundary
+
+Source commit `339cfa4` was pushed directly to `origin/main`. No visible GUI or
+live Colab worker was used. This is an internal package only because the
+hash-verified eSpeak payload is unsigned.

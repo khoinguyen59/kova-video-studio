@@ -814,3 +814,21 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 - Regression coverage lives in `TestDubbingProject` readiness-matrix and QML
   source-contract checks. Validation after the change: targeted 3/3 and full
   CTest 39/39. Do not package from this audit alone.
+
+### 2026-08-15 - Project-first navigation gate and 0.0.7.0 package
+
+- Keep the global project gate in `Main.qml`: operational studio and media
+  routes must create or open a `.ladub.json` before action; settings and model
+  browsing are intentionally available without a project. Preserve the pending
+  route/model handoff after the gate completes.
+- Keep `DubbingController::importMedia()` fail-closed when no project exists;
+  never silently create a project from a feature action. The user-facing gate
+  owns project creation/opening.
+- Keep model chooser semantics explicit: local apply, independent Colab use,
+  and non-destructive close. Do not couple a Colab selection to installed
+  local assets.
+- 0.0.7.0 evidence: targeted Dubbing project test 98/0/5, QML route smoke
+  3/3, full CTest 39/39, QML lint exit 0 with existing warnings, package
+  offscreen smoke exit 0. Portable package is staged under
+  `out/LA-Studio-0.0.7.0` with EXE SHA-256
+  `5B3B7876C80EC473C89A7ECC96E793545EEA3AAB19DAF6B98E5558C7EF88814E`.
