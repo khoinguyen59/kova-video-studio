@@ -41,7 +41,10 @@ Rectangle {
     signal stopRequested()
     signal workflowRequested()
     signal colabSetupRequested()
+    signal newProjectRequested()
+    signal openProjectRequested()
     signal saveRequested()
+    signal saveProjectAsRequested()
     signal exportRequested()
 
     function qmlSmokeClickProjectStatusToggle() {
@@ -253,9 +256,25 @@ Rectangle {
         width: 220
 
         MenuItem {
+            text: qsTr("New project…")
+            enabled: !root.dubbing.processing && !root.dubbing.settingsLocked
+            onTriggered: root.newProjectRequested()
+        }
+        MenuItem {
+            text: qsTr("Open project…")
+            enabled: !root.dubbing.processing && !root.dubbing.settingsLocked
+            onTriggered: root.openProjectRequested()
+        }
+        MenuSeparator {}
+        MenuItem {
             text: qsTr("Save project")
             enabled: root.dubbing.hasProject && !root.dubbing.settingsLocked
             onTriggered: root.saveRequested()
+        }
+        MenuItem {
+            text: qsTr("Save project as…")
+            enabled: root.dubbing.hasProject && !root.dubbing.processing && !root.dubbing.settingsLocked
+            onTriggered: root.saveProjectAsRequested()
         }
         MenuItem {
             text: qsTr("Export / Output")

@@ -67,7 +67,6 @@ source of each entry; it never combines their tokens or routes.
 | Forced Alignment | Exact-model notebook selected from the four `LA_STUDIO_ALIGNMENT_*_GPU.ipynb` workers | model-bound alignment jobs |
 | Translation | One exact-model notebook selected from the three `LA_STUDIO_TRANSLATION_*_GPU.ipynb` workers | model-bound `/v1/translations` |
 | LLM Chat | `LA_STUDIO_LLM_QWEN3_5_2B_GPU.ipynb` | model-bound `/v1/chat/completions` |
-| Public media download | `LA_STUDIO_MEDIA_DOWNLOAD_YTDLP_COLAB.ipynb` | separate CPU-only, bearer-protected `media-download-jobs-v1` worker; it is not an API Gateway route and never activates desktop `yt-dlp` or Chromium |
 
 Every notebook exposes `/health` and `/v1/capabilities` in addition to its
 feature endpoint. The capabilities response identifies CUDA-backed models that
@@ -75,21 +74,18 @@ the active worker can serve and declares `contract_version: 1`; an older or
 different contract is rejected before model selection. The notebooks contain no
 Gateway URL, API key, or Gateway forwarding logic.
 
-## Public media: two explicit choices
+## Public media download
 
-The **Download media** page offers two separate, user-chosen paths:
+**Download media** is a local CPU-only utility, not a Colab worker and not an
+API Gateway route. It uses LA Studio's SHA-pinned `yt-dlp` runtime to resolve
+public HTTPS pages. A user may optionally provide a Netscape cookie export for
+one retry; LA Studio never reads a browser cookie store. The completed file is
+then selected explicitly before it enters a Dubbing project.
 
-1. Pair the dedicated temporary **Colab media-download** worker, paste public
-   links, then choose the completed local downloads in LA Studio.
-2. Download media yourself through a lawful source, then use **Choose local
-   files**. No Colab URL, token, browser profile, cookie, or desktop downloader
-   is required for this path.
-
-The Windows package deliberately does not ship `yt-dlp`, a Chromium session
-helper, or automatic browser-cookie access. The Colab worker validates public
-HTTPS URLs and performs its own isolated download job; completion still gives
-control back to the user, who explicitly selects which local files enter a
-project.
+If a user independently created media in a Colab notebook, download the exact
+output printed by that notebook's final cell from the **Files** folder in
+Colab's left sidebar, then use **Choose local files**. No worker URL or token
+belongs on the download page.
 
 ## Live preflight, one route at a time
 

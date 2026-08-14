@@ -156,12 +156,8 @@ set(TEST_SOURCES
     ../src/dubbing/media/MediaToolService.cpp
     ../src/dubbing/media/AtomicMediaCommit.cpp
     ../src/dubbing/media/MediaIngestService.cpp
-    # These isolated unit-test fixtures remain only to preserve their historical
-    # adapter tests; the production application no longer links either desktop
-    # public-link implementation.
     ../src/dubbing/media/DouyinBrowserSessionService.cpp
     ../src/dubbing/media/RemoteMediaImportService.cpp
-    ../src/dubbing/media/ColabMediaDownloadRunner.cpp
     ../src/separation/SeparationAudioIO.cpp
     ../src/separation/SourceSeparationService.cpp
     ../src/separation/SeparationWorker.cpp

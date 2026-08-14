@@ -17,6 +17,7 @@ notice does not replace those terms.
 | 7-Zip | 26.2, installed by release CI and staged for archive handling | LGPL-2.1-or-later; some code has additional unRAR restrictions | [7-Zip license](https://www.7-zip.org/license.txt) |
 | libarchive / bsdtar | libarchive 3.8.1, built during packaging from SHA-256-pinned upstream source | BSD-2-Clause | [libarchive source](https://github.com/libarchive/libarchive/releases/tag/v3.8.1) |
 | FFmpeg / FFprobe | BtbN win64 LGPL shared build, SHA-256-pinned and extracted during packaging | LGPL-3.0-or-later | [BtbN FFmpeg Builds](https://github.com/BtbN/FFmpeg-Builds) |
+| yt-dlp | 2026.07.04 standalone executable, SHA-256-pinned and staged only for local public video-page resolution | Unlicense | [yt-dlp releases](https://github.com/yt-dlp/yt-dlp/releases) |
 | VietNorm text normalization | Port of `vietnormalizer` 0.2.3 commit `dd38778731d6ca4e9e670a19abb2df1c901a1852` and `nghitts` material | MIT and Apache-2.0 | `src/textnorm/UPSTREAM.md`, `licenses/vietnorm/NOTICE` |
 
 ## External, user-supplied runtime
@@ -44,13 +45,16 @@ upstream license, gating, and commercial-use information before a production
 release; review the selected model or runtime's upstream terms before use or
 redistribution.
 
-## Colab media download
+## Public media download
 
-Public media-page downloads are not executed by the Windows application and no
-browser-session helper or `yt-dlp` binary is bundled. The optional LA Studio
-Media Download Colab notebook installs its own worker-only dependencies in the
-user's temporary Colab runtime. A user can instead download media by any lawful
-means and select the resulting local file in LA Studio.
+Public media-page downloads run through LA Studio's bundled, SHA-256-pinned
+`yt-dlp` adapter on the local CPU; they do not use Colab, a GPU, or API
+Gateway. When a provider needs login cookies, the user must explicitly choose
+a Netscape `cookies.txt` export. LA Studio makes a temporary private copy for
+that download attempt and never reads browser profiles or browser cookies.
+Media made in a user-run Colab notebook must be downloaded from Colab's Files
+sidebar using the output path printed by that notebook, then selected as a
+local file in LA Studio.
 
 ## License texts and source
 

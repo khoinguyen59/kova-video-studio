@@ -93,7 +93,7 @@ Rectangle {
                     }
                     Text {
                         Layout.fillWidth: true
-                        text: qsTr("Each completed Colab download and each local file is stored as a separate library item. Open Dubbing to select only the files and only the task you want to run.")
+                        text: qsTr("Each completed local download and each chosen file is stored as a separate library item. Open Dubbing to select only the files and only the task you want to run.")
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fontSmall
                         wrapMode: Text.WordWrap
@@ -146,7 +146,7 @@ Rectangle {
                                     }
                                     Text {
                                         text: modelData.sourceMode === "manual-upload"
-                                              ? qsTr("Local file") : qsTr("Colab download")
+                                              ? qsTr("Local file") : qsTr("Local download")
                                         color: Theme.textSecondary
                                         font.pixelSize: Theme.fontSmall
                                     }
@@ -157,7 +157,7 @@ Rectangle {
                                     }
                                     PrimaryButton {
                                         visible: modelData.downloadState === "failed"
-                                        text: qsTr("Retry in Colab")
+                                        text: qsTr("Retry download")
                                         quiet: true
                                         enabled: !root.dubbing.mediaQueueDownloading && !root.dubbing.mediaQueueProcessing
                                         onClicked: root.dubbing.retryMediaQueueItem(modelData.id)
@@ -191,7 +191,7 @@ Rectangle {
                     Text {
                         Layout.fillWidth: true
                         visible: root.dubbing.mediaQueueItems.length === 0
-                        text: qsTr("No media yet. Connect the Colab downloader for public links, or add files you downloaded yourself.")
+                        text: qsTr("No media yet. Download public links locally, or add files you downloaded yourself.")
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fontSmall
                     }

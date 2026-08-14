@@ -25,13 +25,11 @@ private slots:
     void douyinBrowserDoesNotUseBrowserCookieImportFlags();
     void explicitCookieFileIsCopiedTemporarilyAndRemovedAfterResolver();
     void resolverFreshCookieDiagnosticIsActionable();
-    void controllerRejectsDesktopLinkAndCookieRoutes();
+    void controllerDownloadsSharedTextLocallyAndClearsCookieSelection();
     void controllerAddsMultipleManualFilesWithoutDownloader();
-    void colabMediaRunnerRejectsUnsafeAndUnverifiedUrls();
-    void colabMediaRunnerDownloadsVerifiedWorkerResult();
     void legacyLinkHandoffIsDisabled();
     void manualMediaLibraryHasNoSourceUrls();
-    void sharedVideoTextRequiresVerifiedColabDownloader();
+    void sharedVideoTextIsExtractedForLocalDownloader();
     void mediaLibraryRunsOnlyTheLaterSelectedActionSubset();
     void mediaBatchContinuesAfterARealWorkerFailure();
     void mediaBatchCanRunEachStageAcrossTheSelectedQueue();

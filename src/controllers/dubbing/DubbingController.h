@@ -29,7 +29,7 @@ class CapabilityFamilyModel;
 class Settings;
 class ColabSession;
 class VoiceClonePresetService;
-class ColabMediaDownloadRunner;
+class RemoteMediaImportService;
 class SubtitleOcrController;
 
 class DubbingController : public QObject
@@ -61,13 +61,14 @@ class DubbingController : public QObject
     Q_PROPERTY(QString capCutDraftPath READ capCutDraftPath NOTIFY exportChanged)
     Q_PROPERTY(QString capCutDraftWarning READ capCutDraftWarning NOTIFY exportChanged)
     // A batch item represents a locally staged media file and its durable
-    // per-item outputs. Public source URLs are transient Colab-job input only
-    // and are removed before a library item becomes ready.
+    // per-item outputs. Public source URLs are transient local-download input
+    // only and are removed before a library item becomes ready.
     Q_PROPERTY(QVariantList mediaQueueItems READ mediaQueueItems NOTIFY mediaQueueChanged)
     Q_PROPERTY(bool mediaQueueDownloading READ mediaQueueDownloading NOTIFY mediaQueueChanged)
     Q_PROPERTY(bool mediaQueueProcessing READ mediaQueueProcessing NOTIFY mediaQueueChanged)
     Q_PROPERTY(QString mediaQueueStatus READ mediaQueueStatus NOTIFY mediaQueueChanged)
     Q_PROPERTY(int mediaQueueProgress READ mediaQueueProgress NOTIFY mediaQueueChanged)
+    Q_PROPERTY(bool mediaDownloadCookieFileConfigured READ mediaDownloadCookieFileConfigured NOTIFY mediaQueueChanged)
     Q_PROPERTY(QVariantList workflowNodes READ workflowNodes NOTIFY workflowChanged)
     // Presentation-only aggregation of the durable workflow node ids.  The
     // serialized graph deliberately keeps its existing ids so projects made
@@ -124,7 +125,6 @@ class DubbingController : public QObject
     Q_PROPERTY(bool ttsVoiceSelectionValid READ ttsVoiceSelectionValid NOTIFY cloneVoiceSelectionChanged)
     Q_PROPERTY(QString ttsVoiceSelectionError READ ttsVoiceSelectionError NOTIFY cloneVoiceSelectionChanged)
     Q_PROPERTY(QVariantList colabSetupStages READ colabSetupStages NOTIFY colabSetupChanged)
-    Q_PROPERTY(QVariantMap mediaDownloadColabSetup READ mediaDownloadColabSetup NOTIFY colabSetupChanged)
     Q_PROPERTY(bool colabSetupChecking READ colabSetupChecking NOTIFY colabSetupChanged)
     Q_PROPERTY(QString colabSetupSummary READ colabSetupSummary NOTIFY colabSetupChanged)
 
@@ -140,11 +140,7 @@ public:
     void setRemoteServices(Settings *settings, ColabSession *translationSession,
                             ColabSession *ttsSession, ColabSession *voiceCloneSession,
                             ColabSession *separationSession,
-                            ColabSession *alignmentSession,
-                            // Keep existing controller-only integrations valid;
-                            // production AppController always supplies the dedicated
-                            // media-download session.
-                            ColabSession *mediaDownloadSession = nullptr);
+                            ColabSession *alignmentSession);
     void setVoiceClonePresetService(VoiceClonePresetService *service);
     void setSubtitleOcrController(SubtitleOcrController *controller);
 
@@ -183,6 +179,7 @@ public:
     bool mediaQueueProcessing() const { return m_mediaQueueProcessing; }
     QString mediaQueueStatus() const { return m_mediaQueueStatus; }
     int mediaQueueProgress() const;
+    bool mediaDownloadCookieFileConfigured() const;
     QVariantList workflowNodes() const;
     QVariantList workflowStages() const;
     QVariantMap workflowNodeConfigurations() const { return m_workflowNodeConfigurations; }
@@ -240,7 +237,6 @@ public:
     bool ttsVoiceSelectionValid() const { return cloneVoiceSelectionValid(); }
     QString ttsVoiceSelectionError() const { return cloneVoiceSelectionError(); }
     QVariantList colabSetupStages() const;
-    QVariantMap mediaDownloadColabSetup() const;
     bool colabSetupChecking() const { return !m_colabSetupPendingChecks.isEmpty(); }
     QString colabSetupSummary() const { return m_colabSetupSummary; }
 
@@ -252,14 +248,21 @@ public:
     Q_INVOKABLE bool newProject(const QString &path = QString());
     Q_INVOKABLE bool openProject(const QString &path);
     Q_INVOKABLE bool saveProject();
+    Q_INVOKABLE bool saveProjectAs(const QString &path);
     Q_INVOKABLE bool deleteHistoryItem(const QString &id);
     Q_INVOKABLE void clearHistory();
     Q_INVOKABLE void closeProject();
     Q_INVOKABLE bool importMedia(const QString &pathOrUrl);
-    // Each non-empty line is an independent public URL. It is sent only to the
-    // dedicated verified Colab media-downloader and never to a local resolver,
-    // browser profile, cookie store, project, settings, or output metadata.
+    // Each non-empty line is an independent public URL. Share text is reduced
+    // to its URL locally, then the managed CPU-only downloader stages it. The
+    // URL is removed from memory as soon as the local media file is ready and
+    // is never persisted in a project, settings, history, or output metadata.
     Q_INVOKABLE int enqueueMediaLinks(const QString &urls);
+    // Cookies are opt-in, supplied only as a Netscape export, copied into a
+    // private temporary file for one public-page resolve, then discarded.
+    // LA Studio never reads a browser cookie store.
+    Q_INVOKABLE bool setMediaDownloadCookieFile(const QString &path);
+    Q_INVOKABLE void clearMediaDownloadCookieFile();
     Q_INVOKABLE int enqueueMediaFiles(const QVariantList &paths);
     Q_INVOKABLE bool setMediaQueueItemSelected(const QString &itemId, bool selected);
     Q_INVOKABLE bool retryMediaQueueItem(const QString &itemId);
@@ -485,10 +488,9 @@ private:
     QString m_capCutDraftWarning;
     QVariantMap m_timingResolutionPreview;
     QVariantList m_timingUndoSegments;
-    // Public links use the isolated temporary Colab session; manual files
-    // bypass every downloader entirely.
-    ColabMediaDownloadRunner *m_colabMediaDownload = nullptr;
-    ColabSession *m_mediaDownloadSession = nullptr;
+    // Public links use the managed local CPU downloader; manual files bypass
+    // every downloader entirely. Neither path uses a Colab or GPU worker.
+    RemoteMediaImportService *m_remoteMediaImport = nullptr;
     QVariantList m_mediaQueueItems;
     QString m_activeMediaQueueDownloadId;
     QString m_activeMediaQueueItemId;

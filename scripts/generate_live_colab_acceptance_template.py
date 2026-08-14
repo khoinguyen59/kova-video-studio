@@ -90,11 +90,6 @@ def defaults_for(capability: str, model: str) -> dict[str, Any]:
             "image_path": "REPLACE_WITH_SHORT_SUBTITLE_CROP.png",
             "language": "en",
         }
-    if capability == "media-download":
-        return {
-            "public_url": "REPLACE_WITH_A_PUBLIC_MEDIA_URL",
-            "job_timeout_seconds": 2700,
-        }
     raise ValueError(f"Unsupported capability in notebook metadata: {capability}")
 
 

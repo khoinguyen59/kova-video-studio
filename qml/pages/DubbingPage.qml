@@ -961,7 +961,10 @@ Item {
                 dubbingColabSetupDialog.stageIds = []
                 dubbingColabSetupDialog.open()
             }
+            onNewProjectRequested: newDubbingProjectFileDialog.open()
+            onOpenProjectRequested: openDubbingProjectFileDialog.open()
             onSaveRequested: root.dubbing.saveProject()
+            onSaveProjectAsRequested: saveDubbingProjectAsFileDialog.open()
             onExportRequested: exportOptionsDialog.open()
         }
 
@@ -2137,6 +2140,53 @@ Item {
 
         }
 
+    }
+
+    FileDialog {
+        id: newDubbingProjectFileDialog
+        title: qsTr("Create LA Studio Dubbing project")
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "json"
+        nameFilters: [qsTr("LA Studio Dubbing project (*.ladub.json)"), qsTr("All files (*)")]
+        onAccepted: {
+            if (root.dubbing.newProject(selectedFile.toString())) {
+                root.reviewStepId = "import"
+                root.isHistoryOpen = false
+                root.isNodeInspectorOpen = true
+            }
+        }
+    }
+
+    FileDialog {
+        id: openDubbingProjectFileDialog
+        title: qsTr("Open LA Studio Dubbing project")
+        fileMode: FileDialog.OpenFile
+        nameFilters: [qsTr("LA Studio Dubbing project (*.ladub.json)"), qsTr("All files (*)")]
+        onAccepted: {
+            if (root.dubbing.openProject(selectedFile.toString())) {
+                root.reviewStepId = root.dubbing.currentStepId
+                root.isHistoryOpen = false
+                root.isNodeInspectorOpen = true
+                if (root.dubbing.workflowRecoveryAvailable)
+                    projectRecoveryDialog.open()
+            }
+        }
+    }
+
+    FileDialog {
+        id: saveDubbingProjectAsFileDialog
+        title: qsTr("Save LA Studio Dubbing project as")
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "json"
+        nameFilters: [qsTr("LA Studio Dubbing project (*.ladub.json)"), qsTr("All files (*)")]
+        onAccepted: root.dubbing.saveProjectAs(selectedFile.toString())
+    }
+
+    MessageDialog {
+        id: projectRecoveryDialog
+        title: qsTr("Unfinished project restored")
+        text: qsTr("LA Studio restored the saved project. An interrupted workflow was found; review its current task before continuing.")
+        buttons: MessageDialog.Ok
     }
 
     FileDialog {

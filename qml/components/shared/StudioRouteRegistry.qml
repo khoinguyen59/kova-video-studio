@@ -41,7 +41,7 @@ QtObject {
         { id: "my-models", label: qsTr("My Models"), iconName: "folder" },
         { id: "developer", label: qsTr("Developer"), iconName: "code" },
         { id: "settings", label: qsTr("Settings"), iconName: "settings" },
-        { id: "media-download", label: qsTr("Download"), iconName: "download", homeCard: true, group: qsTr("Media"), description: qsTr("Stage direct public media links for LA Studio without browser cookies or playlists."), accent: "#f6c453" },
+        { id: "media-download", label: qsTr("Download"), iconName: "download", homeCard: true, group: qsTr("Media"), description: qsTr("Download supported public media pages locally, then choose files explicitly for a project."), accent: "#f6c453" },
         { id: "subtitle-ocr", label: qsTr("Subtitle OCR"), iconName: "scan", homeCard: true, group: qsTr("Subtitles"), description: qsTr("Extract burned-in image subtitles from video with a reviewed transcript workflow."), accent: "#b18cff" }
     ]
 

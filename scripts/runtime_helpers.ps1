@@ -303,6 +303,55 @@ function Ensure-FfmpegRuntime {
     Write-Host ">> Staged pinned FFmpeg runtime: $runtimeRoot" -ForegroundColor Green
 }
 
+function Ensure-YtDlpRuntime {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $RepositoryRoot,
+        [Parameter(Mandatory = $true)]
+        [string] $DeployRoot,
+        [Parameter(Mandatory = $true)]
+        [string] $StageRoot
+    )
+
+    # Public page resolution is a local CPU task.  Keep yt-dlp pinned by both
+    # release tag and SHA-256; do not replace this with a moving `latest`
+    # download or silently route the download through a Colab worker.
+    $version = "2026.07.04"
+    $expectedSha256 = "52fe3c26dcf71fbdc85b528589020bb0b8e383155cfa81b64dd447bbe35e24b8"
+    $cacheRoot = Join-Path $RepositoryRoot ".deps"
+    $cachePath = Join-Path $cacheRoot "yt-dlp-$version.exe"
+    $target = Join-Path $DeployRoot "yt-dlp.exe"
+    $downloadUrl = "https://github.com/yt-dlp/yt-dlp/releases/download/$version/yt-dlp.exe"
+
+    New-Item -ItemType Directory -Path $cacheRoot -Force | Out-Null
+    if (-not (Test-Path -LiteralPath $cachePath -PathType Leaf)) {
+        Write-Host ">> Downloading pinned yt-dlp runtime" -ForegroundColor Cyan
+        Invoke-WebRequest -Headers @{ "User-Agent" = "LA-Studio-packaging" } -Uri $downloadUrl -OutFile $cachePath -UseBasicParsing
+    }
+    $actualSha256 = (Get-FileHash -LiteralPath $cachePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actualSha256 -ne $expectedSha256) {
+        throw "yt-dlp runtime SHA-256 mismatch. Expected $expectedSha256 but got $actualSha256."
+    }
+
+    Copy-Item -LiteralPath $cachePath -Destination $target -Force
+    if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
+        throw "yt-dlp runtime staging was incomplete: $target"
+    }
+    & $target --version | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Staged yt-dlp runtime could not start (exit code $LASTEXITCODE)."
+    }
+
+    $licenseRoot = Join-Path $StageRoot "licenses\yt-dlp"
+    New-Item -ItemType Directory -Path $licenseRoot -Force | Out-Null
+    @(
+        "yt-dlp $version",
+        "Source: https://github.com/yt-dlp/yt-dlp",
+        "License: Unlicense (https://unlicense.org/)"
+    ) | Set-Content -LiteralPath (Join-Path $licenseRoot "UNLICENSE.txt") -Encoding UTF8
+    Write-Host ">> Staged pinned yt-dlp runtime: $target" -ForegroundColor Green
+}
+
 function Assert-StagedRuntimeManifest {
     param(
         [Parameter(Mandatory = $true)]
@@ -328,6 +377,7 @@ function Assert-StagedRuntimeManifest {
         "subtitle-ocr\runtime-manifest.json",
         "media-tools\ffmpeg.exe",
         "media-tools\ffprobe.exe",
+        "yt-dlp.exe",
         "espeak-ng\libespeak-ng.dll",
         "espeak-ng\espeak-ng-data\voices"
     )

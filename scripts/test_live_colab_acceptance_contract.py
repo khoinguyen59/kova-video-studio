@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RUNNER = ROOT / "scripts" / "run_live_colab_acceptance.py"
 TOKENS = {capability: f"local-contract-{capability}-token" for capability in (
     "stt", "tts", "translation", "llm-chat", "voice-design",
-    "forced-alignment", "voice-isolation", "voice-cloning", "media-download", "subtitle-ocr",
+    "forced-alignment", "voice-isolation", "voice-cloning", "subtitle-ocr",
 )}
 WAV = b"RIFF" + (36).to_bytes(4, "little") + b"WAVEfmt " + (16).to_bytes(4, "little") \
     + (1).to_bytes(2, "little") + (1).to_bytes(2, "little") + (16000).to_bytes(4, "little") \
@@ -41,7 +41,6 @@ MODELS = {
     "forced-alignment": "canary-ctc-aligner",
     "voice-isolation": "sherpa-onnx-spleeter-2stems-fp16",
     "voice-cloning": "omnivoice",
-    "media-download": "yt-dlp-media-download",
     "subtitle-ocr": "pp-ocrv5-multilingual-3.1",
 }
 PNG = (b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
@@ -109,16 +108,14 @@ class AcceptanceFixture(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/health":
             capability, model = self.selected() or ("", "")
-            device = "colab-cpu" if capability == "media-download" else "cuda"
+            device = "cuda"
             self.send_json(200, {"ready": True, "device": device, "model": model,
                                  "cpu_fallback": False})
             return
         if path == "/v1/capabilities":
             capability, model = self.selected() or ("", "")
-            device = "colab-cpu" if capability == "media-download" else "cuda"
+            device = "cuda"
             model_entry = {"id": model, "loaded": True, "device": device}
-            if capability == "media-download":
-                model_entry["response_contract"] = "media-download-jobs-v1"
             self.send_json(200, {"contract_version": 1, "device": device, "capabilities": [{
                 "id": capability, "models": [model_entry],
             }]})
@@ -180,9 +177,6 @@ class AcceptanceFixture(BaseHTTPRequestHandler):
             self.send_json(404, {"detail": path})
             return
         capability, expected_model = identity
-        if capability == "media-download" and path == "/v1/media/downloads":
-            self.send_json(200, {"job_id": "media-job"})
-            return
         requested_model = self.requested_model(body)
         if requested_model != expected_model:
             self.send_json(409, {"detail": "exact model required"})
@@ -241,9 +235,6 @@ def worker_config(base_url: str, audio_path: Path, image_path: Path) -> list[dic
             worker["reference_text"] = "ready"
         if capability == "voice-design":
             worker["voice_description"] = "calm narrator"
-        if capability == "media-download":
-            worker["public_url"] = "https://public.example/live-acceptance.mp4"
-            worker["job_timeout_seconds"] = 10
         if capability == "subtitle-ocr":
             worker["image_path"] = str(image_path)
             worker["language"] = "en"
@@ -276,14 +267,14 @@ def main() -> int:
             if completed.returncode != 0:
                 raise RuntimeError("live acceptance contract failed:\n" + completed.stdout + completed.stderr)
             report = report_path.read_text(encoding="utf-8")
-            if "10/10 workers passed" not in completed.stdout:
-                raise RuntimeError("runner did not report all ten capability paths as passed")
+            if "9/9 workers passed" not in completed.stdout:
+                raise RuntimeError("runner did not report all nine capability paths as passed")
             if base_url in report or any(token in report for token in TOKENS.values()):
                 raise RuntimeError("acceptance report exposed a local worker secret")
     finally:
         server.shutdown()
         server.server_close()
-    print("Live Colab acceptance runner contract verified: 10 capability paths.")
+    print("Live Colab acceptance runner contract verified: 9 capability paths.")
     return 0
 
 

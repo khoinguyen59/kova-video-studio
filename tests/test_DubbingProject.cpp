@@ -889,6 +889,26 @@ void TestDubbingProject::roundTripsVersionedJson()
     QCOMPARE(loaded.segments.first().toMap().value(QStringLiteral("startMs")).toLongLong(), qint64(1000));
 }
 
+void TestDubbingProject::controllerSaveAsPersistsProjectForLaterResume()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    const QString projectPath = dir.filePath(QStringLiteral("resume-project.ladub.json"));
+    DubbingController writer(nullptr, nullptr);
+    QVERIFY(writer.newProject());
+    writer.setSourceLanguage(QStringLiteral("zh"));
+    writer.setTargetLanguage(QStringLiteral("vi"));
+    QVERIFY2(writer.saveProjectAs(projectPath), qPrintable(writer.lastError()));
+    QVERIFY(QFileInfo::exists(projectPath));
+
+    DubbingController reader(nullptr, nullptr);
+    QVERIFY2(reader.openProject(projectPath), qPrintable(reader.lastError()));
+    QCOMPARE(reader.projectPath(), QFileInfo(projectPath).absoluteFilePath());
+    QCOMPARE(reader.sourceLanguage(), QStringLiteral("zh"));
+    QCOMPARE(reader.targetLanguage(), QStringLiteral("vi"));
+}
+
 void TestDubbingProject::migratesLegacyProjectsToLlmRewritePipeline()
 {
     DubbingProject migrated;
@@ -4827,16 +4847,28 @@ void TestDubbingProject::mediaBatchQueueWiresSerialRealOutputs()
     QFile controllerSource(sourceRoot.filePath(QStringLiteral("src/controllers/dubbing/DubbingController.cpp")));
     QFile queuePage(sourceRoot.filePath(QStringLiteral("qml/pages/MediaDownloadPage.qml")));
     QFile sourcePanel(sourceRoot.filePath(QStringLiteral("qml/components/dubbing/DubbingSourceMediaPanel.qml")));
+    QFile acquisitionPanel(sourceRoot.filePath(QStringLiteral("qml/components/dubbing/ColabMediaAcquisitionPanel.qml")));
+    QFile header(sourceRoot.filePath(QStringLiteral("qml/components/dubbing/DubbingWorkflowHeader.qml")));
+    QFile dubbingPage(sourceRoot.filePath(QStringLiteral("qml/pages/DubbingPage.qml")));
     QVERIFY(controllerSource.open(QIODevice::ReadOnly));
     QVERIFY(queuePage.open(QIODevice::ReadOnly));
     QVERIFY(sourcePanel.open(QIODevice::ReadOnly));
+    QVERIFY(acquisitionPanel.open(QIODevice::ReadOnly));
+    QVERIFY(header.open(QIODevice::ReadOnly));
+    QVERIFY(dubbingPage.open(QIODevice::ReadOnly));
     const QString controllerText = QString::fromUtf8(controllerSource.readAll());
     const QString queuePageText = QString::fromUtf8(queuePage.readAll());
     const QString sourcePanelText = QString::fromUtf8(sourcePanel.readAll());
+    const QString acquisitionPanelText = QString::fromUtf8(acquisitionPanel.readAll());
+    const QString headerText = QString::fromUtf8(header.readAll());
+    const QString dubbingPageText = QString::fromUtf8(dubbingPage.readAll());
 
     QVERIFY(controllerText.contains(QStringLiteral("startNextQueuedMediaDownload")));
-    QVERIFY(controllerText.contains(QStringLiteral("m_colabMediaDownload")));
-    QVERIFY(controllerText.contains(QStringLiteral("dedicated Colab downloader")));
+    QVERIFY(controllerText.contains(QStringLiteral("m_remoteMediaImport")));
+    QVERIFY(controllerText.contains(QStringLiteral("local public-media download")));
+    QVERIFY(controllerText.contains(QStringLiteral("setMediaDownloadCookieFile")));
+    QVERIFY(controllerText.contains(QStringLiteral("clearMediaDownloadCookieFile")));
+    QVERIFY(!controllerText.contains(QStringLiteral("m_colabMediaDownload")));
     QVERIFY(controllerText.contains(QStringLiteral("m_runner->startIngest")));
     QVERIFY(controllerText.contains(QStringLiteral("m_runner->startSourceSeparation")));
     QVERIFY(controllerText.contains(QStringLiteral("transcribeSource();")));
@@ -4851,7 +4883,7 @@ void TestDubbingProject::mediaBatchQueueWiresSerialRealOutputs()
     QVERIFY(controllerText.contains(QStringLiteral("item.remove(QStringLiteral(\"sourceUrl\"))")));
 
     QVERIFY(queuePageText.contains(QStringLiteral("ColabMediaAcquisitionPanel")));
-    QVERIFY(queuePageText.contains(QStringLiteral("Choose Dubbing actions")));
+    QVERIFY(queuePageText.contains(QStringLiteral("Media library")));
     QVERIFY(!queuePageText.contains(QStringLiteral("Set up Chromium")));
     QVERIFY(!queuePageText.contains(QStringLiteral("openDouyinBrowserSession")));
     QVERIFY(!queuePageText.contains(QStringLiteral("Choose Douyin cookies")));
@@ -4864,6 +4896,22 @@ void TestDubbingProject::mediaBatchQueueWiresSerialRealOutputs()
     QVERIFY(!sourcePanelText.contains(QStringLiteral("Set up Chromium")));
     QVERIFY(!sourcePanelText.contains(QStringLiteral("openDouyinBrowserSession")));
     QVERIFY(!sourcePanelText.contains(QStringLiteral("Choose Douyin cookies")));
+
+    QVERIFY(acquisitionPanelText.contains(QStringLiteral("Download public links locally")));
+    QVERIFY(acquisitionPanelText.contains(QStringLiteral("managed yt-dlp adapter")));
+    QVERIFY(acquisitionPanelText.contains(QStringLiteral("Choose optional Douyin cookies")));
+    QVERIFY(acquisitionPanelText.contains(QStringLiteral("Files folder in Colab's left sidebar")));
+    QVERIFY(acquisitionPanelText.contains(QStringLiteral("enqueueMediaLinks(publicLinks.text)")));
+    QVERIFY(!acquisitionPanelText.contains(QStringLiteral("connectWorkflowColabStage(\"media-download")));
+    QVERIFY(!acquisitionPanelText.contains(QStringLiteral("Worker URL")));
+    QVERIFY(!acquisitionPanelText.contains(QStringLiteral("Session token")));
+
+    QVERIFY(headerText.contains(QStringLiteral("New project")));
+    QVERIFY(headerText.contains(QStringLiteral("Open project")));
+    QVERIFY(headerText.contains(QStringLiteral("Save project as")));
+    QVERIFY(dubbingPageText.contains(QStringLiteral("newDubbingProjectFileDialog")));
+    QVERIFY(dubbingPageText.contains(QStringLiteral("openDubbingProjectFileDialog")));
+    QVERIFY(dubbingPageText.contains(QStringLiteral("saveDubbingProjectAsFileDialog")));
 }
 
 

@@ -73,7 +73,6 @@ AppController::AppController(QObject *parent)
     m_colabTranslationSession = new ColabSession(this);
     m_colabSubtitleOcrSession = new ColabSession(this);
     m_colabChatSession = new ColabSession(this);
-    m_colabMediaDownloadSession = new ColabSession(this);
     Logger::info(QStringLiteral("App"), QStringLiteral("Initializing runtime services."));
     m_runtimes  = new RuntimeManager(m_catalog, m_settings, this);
     m_alignment = new AlignmentExecutionService(m_runtimes, m_models, this);
@@ -132,7 +131,7 @@ AppController::AppController(QObject *parent)
     m_dubbing->setVoiceClonePresetService(m_voiceClonePresets);
     m_dubbing->setRemoteServices(m_settings, m_colabTranslationSession, m_colabTtsSession,
                                  m_colabVoiceCloneSession, m_colabSeparationSession,
-                                 m_colabAlignmentSession, m_colabMediaDownloadSession);
+                                 m_colabAlignmentSession);
     m_updates = new AppUpdateService(m_downloads, this);
     m_examples = new ExampleManager(this);
     m_workflows = new WorkflowActivityManager(

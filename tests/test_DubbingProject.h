@@ -9,6 +9,7 @@ class TestDubbingProject : public QObject
     Q_OBJECT
 private slots:
     void roundTripsVersionedJson();
+    void controllerSaveAsPersistsProjectForLaterResume();
     void migratesLegacyProjectsToLlmRewritePipeline();
     void rejectsUnknownSchema();
     void mergesSegmentPatchesByStableId();

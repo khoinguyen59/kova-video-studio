@@ -647,23 +647,23 @@ bool SubtitleOcrController::importSourceLink(const QString &url)
 {
     Q_UNUSED(url);
     // Subtitle OCR accepts local media only.  A public link must first be
-    // resolved by the dedicated Colab downloader and then selected from the
+    // resolved by the dedicated local downloader and then selected from the
     // local media library; OCR never activates a desktop downloader fallback.
     setSourceImportState(false, {}, QStringLiteral(
-        "Download the public link with the Colab media downloader, then choose the local file for Subtitle OCR."));
+        "Download the public link locally, then choose the completed file for Subtitle OCR."));
     return false;
 }
 
 void SubtitleOcrController::cancelSourceImport()
 {
     if (!m_sourceImporting) return;
-    setSourceImportState(false, {}, QStringLiteral("The Colab media download was canceled from its media library."));
+    setSourceImportState(false, {}, QStringLiteral("The local media download was canceled from its media library."));
 }
 
 bool SubtitleOcrController::retrySourceImport()
 {
     setSourceImportState(false, {}, QStringLiteral(
-        "Retry the public link from the Colab media downloader, then choose the completed local file."));
+        "Retry the public link with the local downloader, then choose the completed file."));
     return false;
 }
 

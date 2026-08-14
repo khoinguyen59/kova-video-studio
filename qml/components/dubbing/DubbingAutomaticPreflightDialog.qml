@@ -235,7 +235,7 @@ Dialog {
                             anchors.fill: parent
                             anchors.margins: Theme.paddingMedium
                             Text { text: qsTr("Source media *"); color: root.preflight.sourceMediaPath ? Theme.textPrimary : Theme.danger; font.bold: true }
-                            Text { Layout.fillWidth: true; text: qsTr("Choose a local audio/video file before stages are assessed. Public links must first finish in the dedicated Colab media downloader, then be selected as local media."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
+                            Text { Layout.fillWidth: true; text: qsTr("Choose a local audio/video file before stages are assessed. Public links must first finish in the local downloader, then be selected as local media."); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; wrapMode: Text.WordWrap }
                             RowLayout {
                                 Layout.fillWidth: true
                                 TextField {

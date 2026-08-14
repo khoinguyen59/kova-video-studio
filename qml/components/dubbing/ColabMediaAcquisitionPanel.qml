@@ -1,12 +1,11 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import "../base"
 
-// Explicit acquisition boundary for public media.  It intentionally contains
-// no browser/cookie/local-yt-dlp controls: link downloads happen in the
-// temporary, separately verified Colab worker, while local files bypass that
-// worker entirely.
+// Downloading a public file is a CPU-only acquisition task, not AI inference.
+// Keep its controls deliberately independent from every Colab/GPU route.
 Rectangle {
     id: root
 
@@ -16,11 +15,7 @@ Rectangle {
     signal localFilesRequested()
     signal libraryRequested()
 
-    readonly property var colab: root.dubbing.mediaDownloadColabSetup || ({})
-    readonly property bool colabVerified: colab.verified === true
-    readonly property bool colabChecking: colab.checking === true
     readonly property bool busy: root.dubbing.mediaQueueDownloading || root.dubbing.mediaQueueProcessing
-    readonly property string notebookUrl: "https://colab.research.google.com/github/khoinguyen59/kova-video-studio/blob/main/notebooks/LA_STUDIO_MEDIA_DOWNLOAD_YTDLP_COLAB.ipynb"
 
     implicitHeight: content.implicitHeight + Theme.paddingMedium * 2
     radius: Theme.radiusSmall
@@ -28,9 +23,12 @@ Rectangle {
     border.color: Qt.rgba(0.55, 0.35, 1.0, 0.42)
     border.width: 1
 
-    function connectWorker() {
-        root.dubbing.connectWorkflowColabStage("media-download", "yt-dlp-media-download",
-                                                workerUrl.text.trim(), sessionToken.text.trim())
+    FileDialog {
+        id: douyinCookieFileDialog
+        title: qsTr("Choose a Netscape Douyin cookies.txt file")
+        fileMode: FileDialog.OpenFile
+        nameFilters: [qsTr("Cookie export (*.txt *.cookies)"), qsTr("All files (*)")]
+        onAccepted: root.dubbing.setMediaDownloadCookieFile(selectedFile.toString())
     }
 
     ColumnLayout {
@@ -41,14 +39,14 @@ Rectangle {
 
         Text {
             Layout.fillWidth: true
-            text: qsTr("Choose how to add media")
+            text: qsTr("Add media")
             color: Theme.textPrimary
             font.bold: true
             font.pixelSize: Theme.fontLarge
         }
         Text {
             Layout.fillWidth: true
-            text: qsTr("Option 1 downloads public links in a dedicated Colab worker and copies the completed file into LA Studio. Option 2 adds files you already downloaded. Neither option starts STT, translation, voice, or isolation.")
+            text: qsTr("Download public links on this computer, or add files you already downloaded. This page does not use Colab, GPU, API Gateway, STT, translation, voice, or isolation.")
             color: Theme.textSecondary
             font.pixelSize: Theme.fontSmall
             wrapMode: Text.WordWrap
@@ -56,112 +54,23 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
-            implicitHeight: colabLayout.implicitHeight + Theme.paddingMedium * 2
+            implicitHeight: downloaderLayout.implicitHeight + Theme.paddingMedium * 2
             radius: Theme.radiusSmall
             color: Qt.rgba(0.45, 0.20, 1.0, 0.07)
             border.color: Qt.rgba(0.55, 0.35, 1.0, 0.30)
             border.width: 1
+
             ColumnLayout {
-                id: colabLayout
+                id: downloaderLayout
                 anchors.fill: parent
                 anchors.margins: Theme.paddingMedium
                 spacing: Theme.paddingSmall
-                RowLayout {
-                    Layout.fillWidth: true
-                    Text {
-                        Layout.fillWidth: true
-                        text: qsTr("1. Download public links with Colab")
-                        color: Theme.textPrimary
-                        font.bold: true
-                    }
-                    Text {
-                        text: root.colabVerified ? qsTr("Verified")
-                              : (root.colabChecking ? qsTr("Checking…") : qsTr("Not connected"))
-                        color: root.colabVerified ? Theme.success
-                              : (root.colabChecking ? Theme.warning : Theme.textSecondary)
-                        font.pixelSize: Theme.fontSmall
-                    }
-                }
+
+                Text { text: qsTr("1. Download public links locally"); color: Theme.textPrimary; font.bold: true }
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("Run the dedicated media-download notebook once in Colab, then paste only its temporary Worker URL and session token below. This CPU worker is independent of all GPU model workers and API Gateway.")
+                    text: qsTr("Uses LA Studio's managed yt-dlp adapter and local CPU. Paste a public HTTPS link or a full share message; LA Studio extracts only the URL. No Colab URL or token is needed.")
                     color: Theme.textSecondary
-                    font.pixelSize: Theme.fontSmall
-                    wrapMode: Text.WordWrap
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    PrimaryButton {
-                        text: qsTr("Open downloader notebook in Colab")
-                        iconName: "external-link"
-                        quiet: true
-                        onClicked: Qt.openUrlExternally(root.notebookUrl)
-                    }
-                    PrimaryButton {
-                        visible: root.colabVerified || root.colabChecking
-                        text: root.colabChecking ? qsTr("Checking…") : qsTr("Check connection")
-                        iconName: "play"
-                        quiet: true
-                        enabled: !root.colabChecking && !root.busy
-                        onClicked: root.dubbing.checkWorkflowColabStage("media-download")
-                    }
-                    PrimaryButton {
-                        visible: root.colabVerified || root.colabChecking
-                        text: qsTr("Disconnect")
-                        iconName: "close"
-                        quiet: true
-                        enabled: !root.busy
-                        onClicked: root.dubbing.disconnectWorkflowColabStage("media-download")
-                    }
-                    Item { Layout.fillWidth: true }
-                }
-                TextField {
-                    id: workerUrl
-                    Layout.fillWidth: true
-                    enabled: !root.busy
-                    placeholderText: qsTr("Temporary Colab Worker URL (https://…trycloudflare.com)")
-                    selectByMouse: true
-                    color: Theme.textPrimary
-                    background: Rectangle {
-                        radius: Theme.radiusSmall
-                        color: Qt.rgba(1, 1, 1, 0.035)
-                        border.color: workerUrl.activeFocus ? Theme.accent : Qt.rgba(1, 1, 1, 0.09)
-                        border.width: workerUrl.activeFocus ? 2 : 1
-                    }
-                }
-                TextField {
-                    id: sessionToken
-                    Layout.fillWidth: true
-                    enabled: !root.busy
-                    echoMode: TextInput.Password
-                    placeholderText: root.colabVerified ? qsTr("Connected — enter a replacement token only if the notebook was restarted")
-                                                      : qsTr("Temporary session token from the Colab notebook")
-                    selectByMouse: true
-                    color: Theme.textPrimary
-                    background: Rectangle {
-                        radius: Theme.radiusSmall
-                        color: Qt.rgba(1, 1, 1, 0.035)
-                        border.color: sessionToken.activeFocus ? Theme.accent : Qt.rgba(1, 1, 1, 0.09)
-                        border.width: sessionToken.activeFocus ? 2 : 1
-                    }
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    PrimaryButton {
-                        objectName: "colabMediaDownloadConnectButton"
-                        text: root.colabChecking ? qsTr("Checking…") : qsTr("Connect and check Colab downloader")
-                        iconName: "link"
-                        enabled: workerUrl.text.trim().length > 0 && sessionToken.text.trim().length > 0
-                                 && !root.colabChecking && !root.busy
-                        onClicked: root.connectWorker()
-                    }
-                    Item { Layout.fillWidth: true }
-                }
-                Text {
-                    Layout.fillWidth: true
-                    visible: root.colab.diagnostic !== undefined && root.colab.diagnostic !== ""
-                    text: root.colab.diagnostic || ""
-                    color: root.colabVerified ? Theme.success : Theme.textSecondary
                     font.pixelSize: Theme.fontSmall
                     wrapMode: Text.WordWrap
                 }
@@ -169,8 +78,8 @@ Rectangle {
                     id: publicLinks
                     Layout.fillWidth: true
                     Layout.minimumHeight: root.compact ? 86 : 116
-                    enabled: root.colabVerified && !root.busy
-                    placeholderText: qsTr("Paste one public HTTPS link or share message per line. LA Studio extracts the URL, sends it only to this Colab worker, then downloads the completed file into its local media library.")
+                    enabled: !root.busy
+                    placeholderText: qsTr("Paste one public HTTPS link or share message per line")
                     selectByMouse: true
                     color: Theme.textPrimary
                     placeholderTextColor: Theme.textSecondary
@@ -187,10 +96,10 @@ Rectangle {
                 RowLayout {
                     Layout.fillWidth: true
                     PrimaryButton {
-                        objectName: "colabMediaDownloadAddLinksButton"
-                        text: qsTr("Download link(s) with Colab")
+                        objectName: "localMediaDownloadAddLinksButton"
+                        text: qsTr("Download link(s)")
                         iconName: "download"
-                        enabled: root.colabVerified && publicLinks.text.trim().length > 0 && !root.busy
+                        enabled: publicLinks.text.trim().length > 0 && !root.busy
                         onClicked: {
                             if (root.dubbing.enqueueMediaLinks(publicLinks.text) > 0)
                                 publicLinks.clear()
@@ -202,6 +111,34 @@ Rectangle {
                         iconName: "close"
                         quiet: true
                         onClicked: root.dubbing.cancelMediaQueue()
+                    }
+                    Item { Layout.fillWidth: true }
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("Douyin only: if the local downloader asks for fresh cookies, export a Netscape cookies.txt yourself and select it below. LA Studio copies it into a private temporary file for one retry, then removes the copy; it never reads Chrome or Edge cookies.")
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSmall
+                    wrapMode: Text.WordWrap
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    PrimaryButton {
+                        objectName: "douyinCookieFileButton"
+                        text: root.dubbing.mediaDownloadCookieFileConfigured
+                              ? qsTr("Douyin cookies selected") : qsTr("Choose optional Douyin cookies")
+                        iconName: "folder"
+                        quiet: true
+                        enabled: !root.busy
+                        onClicked: douyinCookieFileDialog.open()
+                    }
+                    PrimaryButton {
+                        visible: root.dubbing.mediaDownloadCookieFileConfigured
+                        text: qsTr("Clear cookies")
+                        iconName: "close"
+                        quiet: true
+                        enabled: !root.busy
+                        onClicked: root.dubbing.clearMediaDownloadCookieFile()
                     }
                     Item { Layout.fillWidth: true }
                 }
@@ -223,7 +160,7 @@ Rectangle {
                 Text { text: qsTr("2. Add files already downloaded"); color: Theme.textPrimary; font.bold: true }
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("Choose multiple local video or audio files. They are available immediately in the same media library and no Colab downloader, local yt-dlp, Chromium, or cookies are used.")
+                    text: qsTr("If you downloaded or created media in Colab yourself, click the Files folder in Colab's left sidebar and download the exact output path printed by that notebook's final cell. Then choose that file here. No worker URL or token from that notebook belongs on this page.")
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fontSmall
                     wrapMode: Text.WordWrap

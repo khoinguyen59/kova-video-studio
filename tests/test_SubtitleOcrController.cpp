@@ -945,7 +945,7 @@ void TestSubtitleOcrController::rejectsRemoteMediaLinksBeforeAnyDesktopRequest()
     QVERIFY(!controller.processing());
     QVERIFY(!controller.sourceImporting());
     QCOMPARE(controller.sourceImportTotalBytes(), qint64(-1));
-    QVERIFY(controller.sourceImportError().contains(QStringLiteral("Colab media downloader"), Qt::CaseInsensitive));
+    QVERIFY(controller.sourceImportError().contains(QStringLiteral("download the public link locally"), Qt::CaseInsensitive));
     QTest::qWait(500);
     QCOMPARE(server.requestCount(), 0);
 }

@@ -127,7 +127,8 @@ public:
 
     Q_INVOKABLE bool loadSource(const QString &path);
     // Subtitle OCR deliberately accepts local files only. Public links are
-    // acquired by the dedicated Colab media-download worker, then selected
+    // acquired by the local media downloader or chosen from a local file,
+    // then selected
     // from the media library as a local file.
     Q_INVOKABLE bool importSourceLink(const QString &url);
     Q_INVOKABLE void cancelSourceImport();

@@ -41,7 +41,6 @@ CAPABILITIES = {
     "subtitle-ocr",
     "translation",
     "llm-chat",
-    "media-download",
 }
 
 
@@ -214,8 +213,8 @@ class WorkerClient:
 
 def exact_model_preflight(client: WorkerClient) -> list[Check]:
     checks: list[Check] = []
-    expected_device = "colab-cpu" if client.capability == "media-download" else "cuda"
-    worker_label = "Colab CPU downloader" if client.capability == "media-download" else "CUDA worker"
+    expected_device = "cuda"
+    worker_label = "CUDA worker"
     started = time.monotonic()
     status, health = client.request_json("GET", "/health")
     elapsed = time.monotonic() - started
@@ -248,9 +247,6 @@ def exact_model_preflight(client: WorkerClient) -> list[Check]:
         if not isinstance(selected_model, dict) or selected_model.get("loaded") is not True \
                 or str(selected_model.get("device", "")).lower() != expected_device:
             raise AcceptanceError(f"worker did not advertise the selected loaded {expected_device} model")
-        if client.capability == "media-download" \
-                and selected_model.get("response_contract") != "media-download-jobs-v1":
-            raise AcceptanceError("media downloader did not advertise the media-download-jobs-v1 contract")
         checks.append(Check("live exact-model capability", True, "capability and model match", elapsed))
     except AcceptanceError as error:
         checks.append(Check("live exact-model capability", False, redact_detail(error), elapsed))
@@ -260,13 +256,6 @@ def exact_model_preflight(client: WorkerClient) -> list[Check]:
 def exact_model_rejection_probe(client: WorkerClient) -> Check:
     """Prove the live endpoint refuses a request for any other model ID."""
     started = time.monotonic()
-    if client.capability == "media-download":
-        # This protocol intentionally has no caller-selectable model field: the
-        # dedicated URL downloader exposes one immutable model identity from
-        # /health and /v1/capabilities, so there is no alternate model request
-        # to send or silently ignore.
-        return Check("immutable downloader model", True,
-                     "media-download accepts no caller model override", time.monotonic() - started)
     wrong_model = "lastudio-live-acceptance-wrong-model"
     try:
         if client.capability == "stt":
@@ -390,53 +379,6 @@ def poll_job(client: WorkerClient, path: str, job_id: str, result_statuses: set[
             raise AcceptanceError(f"job ended as {state}: {redact_detail(payload.get('detail', payload.get('error', '')))}")
         time.sleep(2.0)
     raise AcceptanceError("job did not finish before job_timeout_seconds")
-
-
-def run_media_download(client: WorkerClient) -> Check:
-    """Download one public URL through the real dedicated Colab CPU worker."""
-    started = time.monotonic()
-    try:
-        public_url = require_string(client.config, "public_url", "media-download")
-        if urlparse(public_url).scheme.lower() != "https":
-            raise AcceptanceError("media-download public_url must use HTTPS")
-        status, response = client.request_json("POST", "/v1/media/downloads", {"url": public_url})
-        response = client.require_success(status, response, "media download create")
-        job_id = require_string(response, "job_id", "media download create response")
-        maximum = int(client.config.get("job_timeout_seconds", 2700))
-        if maximum < 10 or maximum > 3600:
-            raise AcceptanceError("media-download job_timeout_seconds must be between 10 and 3600")
-        deadline = time.monotonic() + maximum
-        received_bytes = -1
-        observed_progress = False
-        while time.monotonic() < deadline:
-            status, current = client.request_json("GET", f"/v1/media/downloads/{job_id}")
-            current = client.require_success(status, current, "media download status")
-            state = str(current.get("state", "")).lower()
-            current_bytes = current.get("received_bytes")
-            if not isinstance(current_bytes, (int, float)) or current_bytes < 0:
-                raise AcceptanceError("media download status did not report received_bytes")
-            current_bytes = int(current_bytes)
-            if current_bytes < received_bytes:
-                raise AcceptanceError("media download received_bytes regressed")
-            observed_progress = observed_progress or current_bytes > received_bytes
-            received_bytes = current_bytes
-            if state == "ready":
-                if received_bytes <= 0 or not observed_progress:
-                    raise AcceptanceError("media download reached ready without real byte progress")
-                status, media, _ = client.request("GET", f"/v1/media/downloads/{job_id}/file", None,
-                                                  None, "application/octet-stream")
-                if not 200 <= status < 300 or not media:
-                    raise AcceptanceError(f"media download result fetch failed with HTTP {status}")
-                return Check("real public-media download", True,
-                             f"download job completed and returned {len(media)} bytes", time.monotonic() - started)
-            if state in {"failed", "cancelled", "canceled"}:
-                raise AcceptanceError("media download worker reported failure")
-            if state not in {"queued", "downloading"}:
-                raise AcceptanceError(f"media download returned an invalid state '{state}'")
-            time.sleep(2.0)
-        raise AcceptanceError("media download did not finish before job_timeout_seconds")
-    except (AcceptanceError, json.JSONDecodeError) as error:
-        return Check("real public-media download", False, redact_detail(error), time.monotonic() - started)
 
 
 def run_subtitle_ocr(client: WorkerClient) -> Check:
@@ -676,7 +618,6 @@ def run_voice_clone(client: WorkerClient) -> Check:
 
 
 INFERENCE_RUNNERS: dict[str, Callable[[WorkerClient], Check]] = {
-    "media-download": run_media_download,
     "subtitle-ocr": run_subtitle_ocr,
     "stt": run_stt,
     "tts": run_tts,

@@ -4,7 +4,6 @@
 #include "controllers/dubbing/DubbingController.h"
 #include "audio/WavIO.h"
 #include "dubbing/media/MediaIngestService.h"
-#include "dubbing/media/ColabMediaDownloadRunner.h"
 #include "dubbing/media/RemoteMediaImportService.h"
 #include "dubbing/media/DouyinBrowserSessionService.h"
 #include "remote/ColabSession.h"
@@ -614,28 +613,26 @@ void TestMediaIngestService::resolverFreshCookieDiagnosticIsActionable()
     QVERIFY(error.contains(QStringLiteral("Choose a Netscape cookie file"), Qt::CaseInsensitive));
 }
 
-void TestMediaIngestService::controllerRejectsDesktopLinkAndCookieRoutes()
+void TestMediaIngestService::controllerDownloadsSharedTextLocallyAndClearsCookieSelection()
 {
-    DirectMediaServer server;
-    QVERIFY(server.start());
-    DubbingController controller(nullptr, nullptr);
-    QVERIFY(!controller.importMedia(server.url().toString()));
-    QVERIFY(controller.lastError().contains(QStringLiteral("dedicated Colab media worker"),
-                                             Qt::CaseInsensitive));
-    QCOMPARE(server.requestCount(), 0);
-#if 0 // Historical local-yt-dlp regression retained only for git archaeology.
     QTemporaryDir staging;
     QVERIFY(staging.isValid());
-    DirectMediaServer server;
+    DirectMediaServer server(QByteArrayLiteral("RIFFcontroller-local-download"));
     QVERIFY(server.start());
 
-    const QString adapterPath = staging.filePath(QStringLiteral("retryable-yt-dlp.cmd"));
-    const auto writeAdapter = [&](const QByteArray &contents) {
-        QFile adapter(adapterPath);
-        if (!adapter.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) return false;
-        return adapter.write(contents) == contents.size();
-    };
-    QVERIFY(writeAdapter("@echo off\r\necho ERROR: [Douyin] Fresh cookies (not necessarily logged in) are needed 1>&2\r\nexit /b 1\r\n"));
+    const QString adapterPath = staging.filePath(QStringLiteral("shared-text-yt-dlp.cmd"));
+    QFile adapter(adapterPath);
+    QVERIFY(adapter.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text));
+    const QByteArray adapterBody = QByteArrayLiteral("@echo off\r\necho ")
+        + server.url().toString(QUrl::FullyEncoded).toUtf8() + QByteArrayLiteral("\r\n");
+    QCOMPARE(adapter.write(adapterBody), adapterBody.size());
+    adapter.close();
+
+    const QString cookiePath = staging.filePath(QStringLiteral("douyin-cookies.txt"));
+    QFile cookie(cookiePath);
+    QVERIFY(cookie.open(QIODevice::WriteOnly | QIODevice::Text));
+    QVERIFY(cookie.write("# Netscape HTTP Cookie File\n.douyin.com\tTRUE\t/\tFALSE\t0\ts_v_web_id\tfixture\n") > 0);
+    cookie.close();
 
     const QByteArray previous = qgetenv("LASTUDIO_YTDLP");
     const bool hadPrevious = qEnvironmentVariableIsSet("LASTUDIO_YTDLP");
@@ -646,37 +643,18 @@ void TestMediaIngestService::controllerRejectsDesktopLinkAndCookieRoutes()
     qputenv("LASTUDIO_YTDLP", adapterPath.toUtf8());
 
     DubbingController controller(nullptr, nullptr);
-    QCOMPARE(controller.enqueueMediaLinks(QStringLiteral("https://v.douyin.com/retry-fixture/")), 1);
-    QTRY_VERIFY_WITH_TIMEOUT(!controller.mediaQueueDownloading(), 10000);
-    const QVariantList failedItems = controller.mediaQueueItems();
-    QCOMPARE(failedItems.size(), 1);
-    const QVariantMap failed = failedItems.constFirst().toMap();
-    QCOMPARE(failed.value(QStringLiteral("downloadState")).toString(), QStringLiteral("needs-auth"));
-    const QString itemId = failed.value(QStringLiteral("id")).toString();
-    QVERIFY(!failed.value(QStringLiteral("sourceUrl")).toString().isEmpty());
-
-    const QString cookiePath = staging.filePath(QStringLiteral("douyin-cookies.txt"));
-    QFile cookie(cookiePath);
-    QVERIFY(cookie.open(QIODevice::WriteOnly | QIODevice::Text));
-    QVERIFY(cookie.write("# Netscape HTTP Cookie File\n.douyin.com\tTRUE\t/\tFALSE\t0\ts_v_web_id\tfixture\n") > 0);
-    cookie.close();
-    QVERIFY2(controller.setDouyinCookieFile(cookiePath), qPrintable(controller.lastError()));
-    QVERIFY(writeAdapter("@echo off\r\necho "
-                         + server.url().toString(QUrl::FullyEncoded).toUtf8() + "\r\n"));
-    QVERIFY(controller.retryMediaQueueItem(itemId));
+    QVERIFY2(controller.setMediaDownloadCookieFile(cookiePath), qPrintable(controller.lastError()));
+    QVERIFY(controller.mediaDownloadCookieFileConfigured());
+    const QString sharedText = QStringLiteral(
+        "4.10 M@w.SL :4pm yTl:/ copied share https://v.douyin.com/AL73DeZmRGU/ extra text");
+    QCOMPARE(controller.enqueueMediaLinks(sharedText), 1);
     QTRY_VERIFY_WITH_TIMEOUT(!controller.mediaQueueDownloading(), 10000);
     const QVariantMap downloaded = controller.mediaQueueItems().constFirst().toMap();
     QCOMPARE(downloaded.value(QStringLiteral("downloadState")).toString(), QStringLiteral("downloaded"));
     QVERIFY(QFileInfo(downloaded.value(QStringLiteral("localPath")).toString()).isFile());
     QVERIFY(!downloaded.contains(QStringLiteral("sourceUrl")));
-    // Queue advancement is deliberately posted after the resolver's finished
-    // signal so the next queued URL cannot re-enter that signal handler.  The
-    // selected cookie is nevertheless memory-only and must be cleared before
-    // the retry is observable as complete to the caller.
-    QTRY_VERIFY_WITH_TIMEOUT(!controller.douyinCookieConfigured(), 1000);
-}
-
-#endif
+    QCOMPARE(server.requestCount(), 1);
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.mediaDownloadCookieFileConfigured(), 1000);
 }
 
 void TestMediaIngestService::controllerAddsMultipleManualFilesWithoutDownloader()
@@ -737,84 +715,6 @@ void TestMediaIngestService::controllerAddsMultipleManualFilesWithoutDownloader(
 }
 
 #endif
-}
-
-void TestMediaIngestService::colabMediaRunnerRejectsUnsafeAndUnverifiedUrls()
-{
-    ColabMediaDownloadRunner runner;
-    QSignalSpy finished(&runner, &ColabMediaDownloadRunner::finished);
-    QVERIFY(!runner.download(QUrl(QStringLiteral("https://127.0.0.1/private.wav"))));
-    QCOMPARE(finished.count(), 1);
-    QVERIFY(finished.constFirst().at(2).toString().contains(QStringLiteral("public media"), Qt::CaseInsensitive));
-    QVERIFY(!runner.download(QUrl(QStringLiteral("https://public.example/unverified.wav"))));
-    QCOMPARE(finished.count(), 2);
-    QVERIFY(finished.constLast().at(2).toString().contains(QStringLiteral("Connect and check")));
-#if 0 // Historical standalone desktop download regression.
-    MediaIngestService mediaRuntimeCheck;
-    if (!mediaRuntimeCheck.available()) {
-        QSKIP("This integration regression requires the managed FFmpeg/FFprobe runtime. Set LASTUDIO_FFMPEG and LASTUDIO_FFPROBE in the test environment.");
-    }
-
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-    const QString fixturePath = dir.filePath(QStringLiteral("handoff.wav"));
-    const QVector<float> samples(16000, 0.02F);
-    QVERIFY(WavIO::saveFloat(fixturePath, samples.constData(), samples.size(), 16000));
-    QFile fixture(fixturePath);
-    QVERIFY(fixture.open(QIODevice::ReadOnly));
-    DirectMediaServer server(fixture.readAll());
-    QVERIFY(server.start());
-
-    DubbingController controller(nullptr, nullptr);
-    QVERIFY(controller.downloadMediaFromLink(server.url().toString()));
-    QTRY_VERIFY_WITH_TIMEOUT(!controller.linkImporting(), 15000);
-    QVERIFY2(controller.lastError().isEmpty(), qPrintable(controller.lastError()));
-    QVERIFY(controller.downloadedMediaReady());
-    const QString stagedPath = controller.downloadedMediaPath();
-    QVERIFY(QFileInfo(stagedPath).isFile());
-    QCOMPARE(server.requestCount(), 1);
-
-    QVERIFY(controller.handoffDownloadedMediaToDubbing());
-    QTRY_VERIFY_WITH_TIMEOUT(!controller.linkImporting(), 15000);
-    QVERIFY2(controller.lastError().isEmpty(), qPrintable(controller.lastError()));
-    QCOMPARE(server.requestCount(), 1);
-    QVERIFY(QFileInfo(controller.sourceMediaPath()).isFile());
-    QVERIFY(QFileInfo(controller.normalizedAudioPath()).isFile());
-    QVERIFY(!controller.downloadedMediaReady());
-#endif
-}
-
-void TestMediaIngestService::colabMediaRunnerDownloadsVerifiedWorkerResult()
-{
-    const QByteArray expectedResult("RIFFmock-colab-media");
-    ColabMediaDownloadWorkerMock worker(expectedResult);
-    QVERIFY(worker.start());
-
-    ColabSession session;
-    QString sessionError;
-    QVERIFY2(session.setSession(worker.endpoint().toString(), QStringLiteral("test-token"),
-                                &sessionError, true), qPrintable(sessionError));
-
-    ColabMediaDownloadRunner runner(&session);
-    QSignalSpy finished(&runner, &ColabMediaDownloadRunner::finished);
-    QSignalSpy progress(&runner, &ColabMediaDownloadRunner::transferProgress);
-    QVERIFY(runner.download(QUrl(QStringLiteral("https://public.example/fixture"))));
-    QVERIFY2(finished.wait(5000), "The verified Colab media worker did not return a result.");
-    QCOMPARE(finished.count(), 1);
-    const QList<QVariant> result = finished.constFirst();
-    QVERIFY2(result.at(0).toBool(), qPrintable(result.at(2).toString()));
-    const QString outputPath = result.at(1).toString();
-    QVERIFY(QFileInfo(outputPath).isFile());
-    QFile output(outputPath);
-    QVERIFY(output.open(QIODevice::ReadOnly));
-    QCOMPARE(output.readAll(), expectedResult);
-    output.close();
-    QVERIFY(QFile::remove(outputPath));
-    QVERIFY(progress.count() >= 1);
-    QCOMPARE(worker.requests().size(), 3);
-    QVERIFY(worker.requests().at(0).startsWith("POST /v1/media/downloads "));
-    QVERIFY(worker.requests().at(1).startsWith("GET /v1/media/downloads/fixture-job "));
-    QVERIFY(worker.requests().at(2).startsWith("GET /v1/media/downloads/fixture-job/file "));
 }
 
 void TestMediaIngestService::legacyLinkHandoffIsDisabled()
@@ -906,14 +806,38 @@ void TestMediaIngestService::manualMediaLibraryHasNoSourceUrls()
 #endif
 }
 
-void TestMediaIngestService::sharedVideoTextRequiresVerifiedColabDownloader()
+void TestMediaIngestService::sharedVideoTextIsExtractedForLocalDownloader()
 {
+    QTemporaryDir staging;
+    QVERIFY(staging.isValid());
+    DirectMediaServer server(QByteArrayLiteral("RIFFshare-text-local-download"));
+    QVERIFY(server.start());
+    const QString adapterPath = staging.filePath(QStringLiteral("shared-text-parser-yt-dlp.cmd"));
+    QFile adapter(adapterPath);
+    QVERIFY(adapter.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text));
+    const QByteArray adapterBody = QByteArrayLiteral("@echo off\r\necho ")
+        + server.url().toString(QUrl::FullyEncoded).toUtf8() + QByteArrayLiteral("\r\n");
+    QCOMPARE(adapter.write(adapterBody), adapterBody.size());
+    adapter.close();
+    const QByteArray previous = qgetenv("LASTUDIO_YTDLP");
+    const bool hadPrevious = qEnvironmentVariableIsSet("LASTUDIO_YTDLP");
+    const auto restoreAdapter = qScopeGuard([previous, hadPrevious] {
+        if (hadPrevious) qputenv("LASTUDIO_YTDLP", previous);
+        else qunsetenv("LASTUDIO_YTDLP");
+    });
+    qputenv("LASTUDIO_YTDLP", adapterPath.toUtf8());
+
     DubbingController controller(nullptr, nullptr);
     const QString sharedText = QStringLiteral(
         "4.10 M@w.SL :4pm yTl:/ copied share https://v.douyin.com/AL73DeZmRGU/ extra text");
-    QCOMPARE(controller.enqueueMediaLinks(sharedText), 0);
-    QVERIFY(controller.mediaQueueItems().isEmpty());
-    QVERIFY(controller.lastError().contains(QStringLiteral("Connect and check")));
+    QCOMPARE(controller.enqueueMediaLinks(sharedText), 1);
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.mediaQueueDownloading(), 10000);
+    const QVariantMap item = controller.mediaQueueItems().constFirst().toMap();
+    QCOMPARE(item.value(QStringLiteral("downloadState")).toString(), QStringLiteral("downloaded"));
+    QVERIFY(item.value(QStringLiteral("selected")).toBool());
+    QVERIFY(QFileInfo(item.value(QStringLiteral("localPath")).toString()).isFile());
+    QVERIFY(!item.contains(QStringLiteral("sourceUrl")));
+    QCOMPARE(server.requestCount(), 1);
 #if 0 // Historical direct network resolution regression.
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
@@ -1083,21 +1007,21 @@ void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
     QVERIFY(main.contains(QStringLiteral("MediaDownloadPage")));
     QVERIFY(main.contains(QStringLiteral("case 14: return mediaDownloadLoader.status === Loader.Ready")));
     const QString acquisition = readSource(QStringLiteral("qml/components/dubbing/ColabMediaAcquisitionPanel.qml"));
-    const QString runner = readSource(QStringLiteral("src/dubbing/media/ColabMediaDownloadRunner.cpp"));
     QVERIFY(page.contains(QStringLiteral("ColabMediaAcquisitionPanel")));
     QVERIFY(page.contains(QStringLiteral("onLocalFilesRequested")));
     QVERIFY(page.contains(QStringLiteral("localMediaFilesDialog")));
     QVERIFY(!page.contains(QStringLiteral("Set up Chromium")));
     QVERIFY(!page.contains(QStringLiteral("openDouyinBrowserSession")));
-    QVERIFY(!page.contains(QStringLiteral("Douyin cookies")));
-    QVERIFY(acquisition.contains(QStringLiteral("Download public links with Colab")));
-    QVERIFY(acquisition.contains(QStringLiteral("Choose downloaded file(s)")));
-    QVERIFY(acquisition.contains(QStringLiteral("connectWorkflowColabStage(\"media-download\"")));
+    QVERIFY(!page.contains(QStringLiteral("Worker URL")));
+    QVERIFY(!page.contains(QStringLiteral("Session token")));
+    QVERIFY(acquisition.contains(QStringLiteral("Download public links locally")));
+    QVERIFY(acquisition.contains(QStringLiteral("managed yt-dlp adapter")));
+    QVERIFY(acquisition.contains(QStringLiteral("Choose optional Douyin cookies")));
+    QVERIFY(acquisition.contains(QStringLiteral("Files folder in Colab's left sidebar")));
     QVERIFY(acquisition.contains(QStringLiteral("enqueueMediaLinks(publicLinks.text)")));
-    QVERIFY(runner.contains(QStringLiteral("v1/media/downloads")));
-    QVERIFY(runner.contains(QStringLiteral("hasVerifiedRoute(QStringLiteral(\"media-download\")")));
-    QVERIFY(!runner.contains(QStringLiteral("QProcess")));
-    QVERIFY(!runner.contains(QStringLiteral("--cookies-from-browser")));
+    QVERIFY(!acquisition.contains(QStringLiteral("connectWorkflowColabStage(\"media-download\"")));
+    QVERIFY(!acquisition.contains(QStringLiteral("Worker URL")));
+    QVERIFY(!acquisition.contains(QStringLiteral("Session token")));
     QVERIFY(!page.contains(QStringLiteral("startMediaQueue({")));
     QVERIFY(!page.contains(QStringLiteral("objectName: \"dubbingQueueIsolateTask\"")));
     QVERIFY(!page.contains(QStringLiteral("objectName: \"dubbingQueueTranscribeTask\"")));
@@ -1111,7 +1035,7 @@ void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
     QVERIFY(dubbingSource.contains(QStringLiteral("ColabMediaAcquisitionPanel")));
     QVERIFY(dubbingSource.contains(QStringLiteral("manualMediaFilesRequested")));
     QVERIFY(dubbingSource.contains(QStringLiteral("mediaQueueDialog.open()")));
-    QVERIFY(acquisition.contains(QStringLiteral("Download public links with Colab")));
+    QVERIFY(acquisition.contains(QStringLiteral("Download public links locally")));
     QVERIFY(dubbingSource.contains(QStringLiteral("DubbingMediaQueueDialog")));
     QVERIFY(dubbingSource.contains(QStringLiteral("Show source setup by default only until a source exists")));
     QVERIFY(dubbingSource.contains(QStringLiteral("Change / download source")));
