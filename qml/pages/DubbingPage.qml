@@ -6,6 +6,7 @@ import "../components/base"
 import "../components/alignment"
 import "../components/dubbing"
 import "../components/shared"
+import "../components/base/colabNotebookUrls.js" as ColabNotebookUrls
 import LAStudio
 
 Item {
@@ -2469,6 +2470,20 @@ Item {
             return { accepted: accepted,
                      error: accepted ? "" : dubbing.lastError }
         }
+        nodeColabConfigurationApplier: function(nodeId, familyId, openNotebook) {
+            if (nodeId === "adaptive-llm") {
+                return { accepted: false,
+                         error: qsTr("Choose the Adaptive LLM route in its task settings.") }
+            }
+            var accepted = dubbing.selectWorkflowColabModel(nodeId, familyId)
+            if (accepted && openNotebook) {
+                var notebook = dubbing.colabNotebookForNode(nodeId, familyId)
+                if (notebook !== "")
+                    Qt.openUrlExternally(ColabNotebookUrls.forNotebookFile(notebook))
+            }
+            return { accepted: accepted,
+                     error: accepted ? "" : dubbing.lastError }
+        }
     }
 
     WorkflowNodeModelDialog {
@@ -2488,6 +2503,20 @@ Item {
                 return { accepted: accepted,
                          error: accepted ? "" : dubbing.lastError }
             }
+        }
+        colabConfigurationApplier: function(nodeId, familyId, openNotebook) {
+            if (nodeId === "adaptive-llm") {
+                return { accepted: false,
+                         error: qsTr("Choose the Adaptive LLM route in its task settings.") }
+            }
+            var accepted = dubbing.selectWorkflowColabModel(nodeId, familyId)
+            if (accepted && openNotebook) {
+                var notebook = dubbing.colabNotebookForNode(nodeId, familyId)
+                if (notebook !== "")
+                    Qt.openUrlExternally(ColabNotebookUrls.forNotebookFile(notebook))
+            }
+            return { accepted: accepted,
+                     error: accepted ? "" : dubbing.lastError }
         }
     }
 }

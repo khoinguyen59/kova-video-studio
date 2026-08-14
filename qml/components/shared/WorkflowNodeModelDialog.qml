@@ -17,6 +17,11 @@ Dialog {
     // on mutation of a cross-component QVariantMap.  Close/Cancel therefore
     // always discard the pending card selection.
     property var configurationApplier: null
+    // Direct Colab is intentionally a different action from installing a
+    // local runtime.  A Colab selection stores only the exact model route;
+    // it must never be disabled because this PC has not downloaded local
+    // files or a local runtime.
+    property var colabConfigurationApplier: null
     readonly property string selectedFamilyLabel: {
         var family = gallery.selectedFamilyItem()
         return gallery.hasFamilyValue(family)
@@ -39,6 +44,28 @@ Dialog {
                      error: qsTr("No Dubbing configuration handler is available.") })
         if (!result.accepted) {
             applyError = result.error || qsTr("LA Studio could not save the selected model configuration.")
+            return false
+        }
+
+        root.close()
+        return true
+    }
+
+    function applySelectedColabConfiguration(openNotebook) {
+        applyError = ""
+        var selected = gallery.selectedConfiguration()
+        if (!selected.familyId || selected.familyId === "") {
+            applyError = qsTr("Select a model before choosing its Direct Colab route.")
+            return false
+        }
+
+        var result = root.colabConfigurationApplier
+                ? root.colabConfigurationApplier(root.nodeId, selected.familyId,
+                                                  openNotebook === true)
+                : ({ accepted: false,
+                     error: qsTr("This Dubbing task has no Direct Colab configuration handler.") })
+        if (!result.accepted) {
+            applyError = result.error || qsTr("LA Studio could not select the Direct Colab model.")
             return false
         }
 
@@ -113,6 +140,13 @@ Dialog {
         // the footer Apply button.  It must use the same transactional path,
         // never close the dialog with an uncommitted card selection.
         onConfigurationAccepted: root.applySelectedConfiguration()
+        colabModelSelectionEnabled: root.colabConfigurationApplier !== null
+        onColabConfigurationAccepted: function(familyId, openNotebook) {
+            // `familyId` is the same pending gallery selection.  Read the
+            // canonical configuration once here so the dialog and controller
+            // cannot drift to a different card during a model refresh.
+            root.applySelectedColabConfiguration(openNotebook)
+        }
     }
 
     footer: Rectangle {
@@ -153,21 +187,31 @@ Dialog {
             }
 
             PrimaryButton {
-                objectName: "workflowNodeModelCancelButton"
-                text: qsTr("Cancel")
+                objectName: "workflowNodeModelCloseButton"
+                text: qsTr("Close")
                 quiet: true
                 onClicked: root.close()
             }
 
             PrimaryButton {
-                objectName: "workflowNodeModelApplyButton"
-                text: qsTr("Apply selected model")
+                objectName: "workflowNodeModelApplyLocalButton"
+                text: qsTr("Apply local model")
                 iconName: "check"
                 enabled: gallery.canUseSelectedFamily()
                 toolTip: enabled
                          ? qsTr("Save this exact model and runtime for the Dubbing task")
                          : qsTr("Install the selected model files and a compatible runtime first")
                 onClicked: root.applySelectedConfiguration()
+            }
+
+            PrimaryButton {
+                objectName: "workflowNodeModelUseColabButton"
+                text: qsTr("Use selected model on Colab")
+                iconName: "cloud"
+                visible: root.colabConfigurationApplier !== null
+                enabled: root.selectedFamilyLabel !== ""
+                toolTip: qsTr("Save this exact model for Direct Colab without downloading it locally")
+                onClicked: root.applySelectedColabConfiguration(false)
             }
         }
     }

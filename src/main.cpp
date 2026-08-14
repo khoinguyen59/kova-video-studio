@@ -9,6 +9,7 @@
 #include <QStandardPaths>
 #include <QJsonDocument>
 #include <QSaveFile>
+#include <QUrl>
 
 #include <atomic>
 #include <cstdio>
@@ -142,6 +143,10 @@ int main(int argc, char *argv[])
         }
         smokeMedia.close();
         root->setProperty("qmlSmokeMediaPath", smokeMediaPath);
+        const QString smokeProjectPath = QDir(smokeDataDir).filePath(
+            QStringLiteral("qml-route-smoke.ladub.json"));
+        root->setProperty("qmlSmokeProjectUrl",
+                          QUrl::fromLocalFile(smokeProjectPath).toString());
         QTimer::singleShot(0, root, [root] {
             QMetaObject::invokeMethod(root, "startQmlRouteSmoke");
         });

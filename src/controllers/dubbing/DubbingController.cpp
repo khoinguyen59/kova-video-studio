@@ -4340,7 +4340,14 @@ bool DubbingController::importMedia(const QString &pathOrUrl)
         setError(QStringLiteral("Media file does not exist: %1").arg(path));
         return false;
     }
-    if (m_project.projectPath.isEmpty() && !newProject()) return false;
+    // Import is a durable project operation.  Do not silently manufacture an
+    // untitled project here: the application-level project gate must be the
+    // first decision before a studio can change media, model routes or output
+    // state.  This also keeps API/controller callers aligned with the QML.
+    if (!hasProject()) {
+        setError(QStringLiteral("Create or open an LA Studio project before adding media."));
+        return false;
+    }
 
     // Import is intentionally side-effect free: preview the selected media and
     // reset downstream artifacts. Normalization and source separation only run

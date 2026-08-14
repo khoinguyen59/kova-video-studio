@@ -42,6 +42,21 @@ if(BUILD_TESTING)
     target_link_libraries(VietNormUnitTests PRIVATE vietnorm::vietnorm Qt6::Test)
     target_include_directories(VietNormUnitTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
     add_test(NAME VietNormUnitTests COMMAND VietNormUnitTests)
+    # This standalone test is registered from the textnorm subdirectory, so
+    # it does not inherit the Qt runtime path that the main test harness adds.
+    # Keep the test runnable from a clean CTest invocation instead of relying
+    # on a developer shell or a previously deployed Qt DLL beside the exe.
+    if(WIN32)
+        get_target_property(VIETNORM_QT6_CORE_DLL Qt6::Core IMPORTED_LOCATION_DEBUG)
+        if(NOT VIETNORM_QT6_CORE_DLL)
+            get_target_property(VIETNORM_QT6_CORE_DLL Qt6::Core IMPORTED_LOCATION)
+        endif()
+        if(VIETNORM_QT6_CORE_DLL)
+            get_filename_component(VIETNORM_QT_BIN_DIR "${VIETNORM_QT6_CORE_DLL}" DIRECTORY)
+            set_tests_properties(VietNormUnitTests PROPERTIES
+                ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${VIETNORM_QT_BIN_DIR}")
+        endif()
+    endif()
 endif()
 
 install(TARGETS vietnorm

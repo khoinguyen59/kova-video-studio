@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import "../base"
 import "../shared"
+import "../base/colabNotebookUrls.js" as ColabNotebookUrls
 import LAStudio
 
 // The automatic workflow must be reviewed before it can start.  This dialog
@@ -673,6 +674,16 @@ Dialog {
             if (accepted)
                 accepted = root.dubbing.setWorkflowNodeParameters(
                             nodeId, { executionProvider: "local-dev" })
+            return { accepted: accepted,
+                     error: accepted ? "" : root.dubbing.lastError }
+        }
+        colabConfigurationApplier: function(nodeId, familyId, openNotebook) {
+            var accepted = root.dubbing.selectWorkflowColabModel(nodeId, familyId)
+            if (accepted && openNotebook) {
+                var notebook = root.dubbing.colabNotebookForNode(nodeId, familyId)
+                if (notebook !== "")
+                    Qt.openUrlExternally(ColabNotebookUrls.forNotebookFile(notebook))
+            }
             return { accepted: accepted,
                      error: accepted ? "" : root.dubbing.lastError }
         }

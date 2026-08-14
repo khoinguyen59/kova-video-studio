@@ -29,10 +29,17 @@ ApplicationWindow {
     property bool qmlSmokeDubbingLayoutResizePending: false
     property bool qmlSmokeDubbingAutomaticPending: false
     property string qmlSmokeMediaPath: ""
+    property string qmlSmokeProjectUrl: ""
+    property bool qmlSmokeProjectGatePending: false
     property var qmlSmokeDubbingTrace: []
     property bool qmlSmokeFailed: false
     property int qmlSmokeVoiceCloneLayoutSizeIndex: 0
     property bool qmlSmokeVoiceCloneLayoutResizePending: false
+    // A project is the application workspace, not a late Dubbing-only form.
+    // Preserve a requested model card while the operator creates/opens the
+    // project, then route to it after the gate accepts the project.
+    property string pendingProjectRouteId: ""
+    property string pendingProjectFamilyId: ""
     title: appName + " - " + appVersion
     color: Theme.background
     palette {
@@ -61,6 +68,59 @@ ApplicationWindow {
         next.push({ "control": control, "action": action,
                     "before": before, "after": after })
         qmlSmokeDubbingTrace = next
+    }
+
+    function routeRequiresProject(routeId) {
+        return ["studio-stt", "studio-tts", "studio-voice-cloning",
+                "studio-voice-design", "studio-voice-isolator",
+                "studio-alignment", "studio-translation", "studio-dubbing",
+                "studio-llm", "media-download", "subtitle-ocr"].indexOf(routeId) >= 0
+    }
+
+    function routeLabel(routeId) {
+        var routes = StudioRouteRegistry.routes || []
+        for (var index = 0; index < routes.length; ++index) {
+            if (routes[index].id === routeId)
+                return routes[index].label || routeId
+        }
+        return routeId
+    }
+
+    function activateStudioRoute(routeId, familyId) {
+        stack.currentIndex = StudioRouteRegistry.getIndex(routeId)
+        if (!familyId || familyId === "")
+            return
+        Qt.callLater(function() {
+            if (routeId === "studio-stt") sttLoader.openConfig(familyId)
+            else if (routeId === "studio-tts") ttsLoader.openConfig(familyId)
+            else if (routeId === "studio-voice-cloning") voiceCloningLoader.openConfig(familyId)
+            else if (routeId === "studio-voice-design") voiceDesignLoader.openConfig(familyId)
+            else if (routeId === "studio-alignment") alignmentLoader.openConfig(familyId)
+            else if (routeId === "studio-translation") translationLoader.openConfig(familyId)
+            else if (routeId === "studio-llm") llmLoader.openConfig(familyId)
+        })
+    }
+
+    function requestStudioRoute(routeId, familyId) {
+        workflowsPopup.close()
+        downloadsPopup.close()
+        communityDialog.close()
+        if (!routeRequiresProject(routeId) || AppController.dubbing.hasProject) {
+            activateStudioRoute(routeId, familyId || "")
+            return
+        }
+        pendingProjectRouteId = routeId
+        pendingProjectFamilyId = familyId || ""
+        globalProjectGate.openFor(routeLabel(routeId))
+    }
+
+    function resumeProjectRoute() {
+        var routeId = pendingProjectRouteId
+        var familyId = pendingProjectFamilyId
+        pendingProjectRouteId = ""
+        pendingProjectFamilyId = ""
+        if (routeId !== "")
+            activateStudioRoute(routeId, familyId)
     }
 
     function runUpdateBannerAction() {
@@ -136,10 +196,17 @@ ApplicationWindow {
     Connections {
         target: AppController.workflows
         function onOpenRequested(routeId) {
-            stack.currentIndex = StudioRouteRegistry.getIndex(routeId)
-            workflowsPopup.close()
-            downloadsPopup.close()
-            communityDialog.close()
+            root.requestStudioRoute(routeId)
+        }
+    }
+
+    ProjectSelectionGate {
+        id: globalProjectGate
+        onProjectReady: root.resumeProjectRoute()
+        onLeaveRequested: {
+            root.pendingProjectRouteId = ""
+            root.pendingProjectFamilyId = ""
+            root.activateStudioRoute("welcome", "")
         }
     }
 
@@ -216,8 +283,22 @@ ApplicationWindow {
         qmlSmokeDubbingLayoutSizeIndex = 0
         qmlSmokeDubbingLayoutResizePending = false
         qmlSmokeDubbingAutomaticPending = false
+        qmlSmokeProjectGatePending = false
         qmlSmokeVoiceCloneLayoutSizeIndex = 0
         qmlSmokeVoiceCloneLayoutResizePending = false
+        // Exercise the same global project gate as an operator.  The Dubbing
+        // controller no longer creates an untitled project implicitly, so the
+        // smoke must establish its isolated .ladub.json workspace before it
+        // can cross the production file-picker boundary later in the route.
+        if (!AppController.dubbing.hasProject) {
+            if (qmlSmokeProjectUrl === "") {
+                console.warn("QML smoke has no isolated project fixture URL")
+                qmlSmokeFailed = true
+                return
+            }
+            qmlSmokeProjectGatePending = true
+            requestStudioRoute("studio-dubbing")
+        }
         qmlSmokeTimer.start()
     }
 
@@ -353,6 +434,30 @@ ApplicationWindow {
         property int waitTicks: 0
 
         onTriggered: {
+            if (root.qmlSmokeProjectGatePending) {
+                if (waitTicks === 0) {
+                    if (!globalProjectGate.visible) {
+                        console.warn("Global project gate did not block a studio route")
+                        root.qmlSmokeFailed = true
+                        running = false
+                        Qt.quit()
+                        return
+                    }
+                    globalProjectGate.createProject(root.qmlSmokeProjectUrl)
+                    waitTicks = 1
+                    return
+                }
+                if (!AppController.dubbing.hasProject || globalProjectGate.visible) {
+                    console.warn("Global project gate did not create the isolated smoke project")
+                    root.qmlSmokeFailed = true
+                    running = false
+                    Qt.quit()
+                    return
+                }
+                root.qmlSmokeProjectGatePending = false
+                waitTicks = 0
+                return
+            }
             if (routeIndex >= StudioRouteRegistry.routes.length) {
                 running = false
                 Qt.quit()
@@ -535,10 +640,7 @@ ApplicationWindow {
                 downloadsActive: downloadsPopup.opened
                 communityActive: communityDialog.opened
                 onNavigated: function(routeId) {
-                    stack.currentIndex = StudioRouteRegistry.getIndex(routeId)
-                    workflowsPopup.close()
-                    downloadsPopup.close()
-                    communityDialog.close()
+                    root.requestStudioRoute(routeId)
                 }
                 onCommunityClicked: {
                     workflowsPopup.close()
@@ -588,7 +690,7 @@ ApplicationWindow {
                 WelcomePage {
                     id: welcomePage
                     onPageRequested: function(routeId) {
-                        stack.currentIndex = StudioRouteRegistry.getIndex(routeId)
+                        root.requestStudioRoute(routeId)
                     }
                 }
                 Loader {
@@ -751,22 +853,7 @@ ApplicationWindow {
                     sourceComponent: ModelsPage {
                     onOpenStudioRequested: function(capability, familyId) {
                         var routeId = StudioRouteRegistry.routeForCapability(capability)
-                        stack.currentIndex = StudioRouteRegistry.getIndex(routeId)
-                        if (routeId === "studio-stt") {
-                            sttLoader.openConfig(familyId)
-                        } else if (routeId === "studio-tts") {
-                            ttsLoader.openConfig(familyId)
-                        } else if (routeId === "studio-voice-cloning") {
-                            voiceCloningLoader.openConfig(familyId)
-                        } else if (routeId === "studio-voice-design") {
-                            voiceDesignLoader.openConfig(familyId)
-                        } else if (routeId === "studio-alignment") {
-                            alignmentLoader.openConfig(familyId)
-                        } else if (routeId === "studio-translation") {
-                            translationLoader.openConfig(familyId)
-                        } else if (routeId === "studio-llm") {
-                            llmLoader.openConfig(familyId)
-                        }
+                        root.requestStudioRoute(routeId, familyId)
                     }
                     }
                 }
@@ -779,22 +866,7 @@ ApplicationWindow {
                     sourceComponent: MyModelsPage {
                     onOpenStudioRequested: function(capability, familyId) {
                         var routeId = StudioRouteRegistry.routeForCapability(capability)
-                        stack.currentIndex = StudioRouteRegistry.getIndex(routeId)
-                        if (routeId === "studio-stt") {
-                            sttLoader.openConfig(familyId)
-                        } else if (routeId === "studio-tts") {
-                            ttsLoader.openConfig(familyId)
-                        } else if (routeId === "studio-voice-cloning") {
-                            voiceCloningLoader.openConfig(familyId)
-                        } else if (routeId === "studio-voice-design") {
-                            voiceDesignLoader.openConfig(familyId)
-                        } else if (routeId === "studio-alignment") {
-                            alignmentLoader.openConfig(familyId)
-                        } else if (routeId === "studio-translation") {
-                            translationLoader.openConfig(familyId)
-                        } else if (routeId === "studio-llm") {
-                            llmLoader.openConfig(familyId)
-                        }
+                        root.requestStudioRoute(routeId, familyId)
                     }
                     }
                 }
@@ -819,10 +891,10 @@ ApplicationWindow {
                     active: stack.currentIndex === 14
                     sourceComponent: MediaDownloadPage {
                         onOpenDubbingRequested: {
-                            stack.currentIndex = StudioRouteRegistry.getIndex("studio-dubbing")
+                            root.requestStudioRoute("studio-dubbing")
                         }
                         onOpenSubtitleOcrRequested: {
-                            stack.currentIndex = StudioRouteRegistry.getIndex("subtitle-ocr")
+                            root.requestStudioRoute("subtitle-ocr")
                         }
                     }
                 }

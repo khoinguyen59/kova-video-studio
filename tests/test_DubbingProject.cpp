@@ -1809,6 +1809,10 @@ void TestDubbingProject::automaticWorkflowRequiresFreshPreflightApproval()
     media.close();
 
     DubbingController controller(nullptr, nullptr);
+    QVERIFY(!controller.importMedia(mediaPath));
+    QVERIFY(controller.lastError().contains(
+        QStringLiteral("Create or open an LA Studio project")));
+    QVERIFY(!controller.hasProject());
     QVERIFY(controller.newProject(dir.filePath(QStringLiteral("project.ladub.json"))));
     QVERIFY(controller.importMedia(mediaPath));
     const QString output = dir.filePath(QStringLiteral("dubbed.mp4"));
@@ -2350,31 +2354,64 @@ void TestDubbingProject::dubbingUiUsesExactModelWorkers()
     QVERIFY(capabilityGallery.open(QIODevice::ReadOnly));
     const QString workflowModelDialogSource = QString::fromUtf8(workflowModelDialog.readAll());
     const QString capabilityGallerySource = QString::fromUtf8(capabilityGallery.readAll());
-    // Selecting a gallery card is intentionally temporary.  The Dubbing
-    // picker must expose a visible Apply action and must remain open when the
-    // real controller rejects the selected runtime/files.
+    // Selecting a gallery card is intentionally temporary. The Dubbing picker
+    // exposes separate local and Direct Colab choices: local is allowed only
+    // after its files/runtime are installed, while Colab stores the exact
+    // model without pretending local prerequisites exist.
     QVERIFY(workflowModelDialogSource.contains(
-        QStringLiteral("workflowNodeModelApplyButton")));
+        QStringLiteral("workflowNodeModelApplyLocalButton")));
     QVERIFY(workflowModelDialogSource.contains(
-        QStringLiteral("Apply selected model")));
+        QStringLiteral("Apply local model")));
     QVERIFY(workflowModelDialogSource.contains(
-        QStringLiteral("workflowNodeModelCancelButton")));
+        QStringLiteral("workflowNodeModelUseColabButton")));
+    QVERIFY(workflowModelDialogSource.contains(
+        QStringLiteral("Use selected model on Colab")));
+    QVERIFY(workflowModelDialogSource.contains(
+        QStringLiteral("workflowNodeModelCloseButton")));
+    QVERIFY(workflowModelDialogSource.contains(
+        QStringLiteral("text: qsTr(\"Close\")")));
     QVERIFY(workflowModelDialogSource.contains(
         QStringLiteral("Selected: %1")));
     QVERIFY(workflowModelDialogSource.contains(
         QStringLiteral("property var configurationApplier")));
+    QVERIFY(workflowModelDialogSource.contains(
+        QStringLiteral("property var colabConfigurationApplier")));
     QVERIFY(workflowModelDialogSource.contains(
         QStringLiteral("root.configurationApplier")));
     QVERIFY(workflowModelDialogSource.contains(
         QStringLiteral("if (!result.accepted)")));
     QVERIFY(workflowModelDialogSource.contains(
         QStringLiteral("Install the selected model files and a compatible runtime")));
+    QVERIFY(workflowModelDialogSource.contains(
+        QStringLiteral("root.applySelectedColabConfiguration(false)")));
+    QVERIFY(workflowModelDialogSource.contains(
+        QStringLiteral("colabModelSelectionEnabled: root.colabConfigurationApplier !== null")));
     QVERIFY(capabilityGallerySource.contains(
         QStringLiteral("function selectedConfiguration()")));
     QVERIFY(capabilityGallerySource.contains(
         QStringLiteral("function canUseSelectedFamily()")));
     QVERIFY(workflowModelDialogSource.contains(
         QStringLiteral("onConfigurationAccepted: root.applySelectedConfiguration()")));
+
+    QFile mainQml(sourceRoot.filePath(QStringLiteral("qml/Main.qml")));
+    QFile projectGate(sourceRoot.filePath(
+        QStringLiteral("qml/components/shared/ProjectSelectionGate.qml")));
+    QVERIFY(mainQml.open(QIODevice::ReadOnly));
+    QVERIFY(projectGate.open(QIODevice::ReadOnly));
+    const QString mainQmlSource = QString::fromUtf8(mainQml.readAll());
+    const QString projectGateSource = QString::fromUtf8(projectGate.readAll());
+    QVERIFY(mainQmlSource.contains(QStringLiteral("function routeRequiresProject(routeId)")));
+    QVERIFY(mainQmlSource.contains(QStringLiteral("function requestStudioRoute(routeId, familyId)")));
+    QVERIFY(mainQmlSource.contains(QStringLiteral("AppController.dubbing.hasProject")));
+    QVERIFY(mainQmlSource.contains(QStringLiteral("globalProjectGate.openFor")));
+    QVERIFY(mainQmlSource.contains(QStringLiteral("root.requestStudioRoute(routeId)")));
+    QVERIFY(mainQmlSource.contains(QStringLiteral("root.requestStudioRoute(routeId, familyId)")));
+    QVERIFY(projectGateSource.contains(QStringLiteral("Choose an LA Studio project first")));
+    QVERIFY(projectGateSource.contains(QStringLiteral("Create new project")));
+    QVERIFY(projectGateSource.contains(QStringLiteral("Open existing project")));
+    QVERIFY(projectGateSource.contains(QStringLiteral("AppController.dubbing.newProject")));
+    QVERIFY(projectGateSource.contains(QStringLiteral("AppController.dubbing.openProject")));
+    QVERIFY(projectGateSource.contains(QStringLiteral("closePolicy: Popup.NoAutoClose")));
 
     QFile settingsPanel(
         QStringLiteral(LASTUDIO_SOURCE_DIR)

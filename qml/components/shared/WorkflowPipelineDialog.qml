@@ -30,6 +30,7 @@ Dialog {
     signal rejectRequested()
     signal nodeConfigureRequested(string nodeId)
     property var nodeConfigurationApplier: null
+    property var nodeColabConfigurationApplier: null
 
     function configureNode(nodeId) { Qt.callLater(function() { modelDialog.openFor(nodeId) }) }
 
@@ -349,6 +350,12 @@ Dialog {
                                                      selectedFiles)
                     : ({ accepted: false,
                          error: qsTr("No Dubbing configuration handler is available.") })
+        }
+        colabConfigurationApplier: function(nodeId, familyId, openNotebook) {
+            return root.nodeColabConfigurationApplier
+                    ? root.nodeColabConfigurationApplier(nodeId, familyId, openNotebook)
+                    : ({ accepted: false,
+                         error: qsTr("This workflow task has no Direct Colab configuration handler.") })
         }
     }
 
