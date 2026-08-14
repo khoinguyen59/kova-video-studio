@@ -2,6 +2,28 @@
 
 Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de agent khong lam lai viec cu. Khong chep patch hay log dai.
 
+## 2026-08-14 - Media acquisition local CPU va project persistence
+
+- Public-video/media download **khong phai Colab capability** va khong dung
+  API Gateway. `RemoteMediaImportService` dung `yt-dlp` tren CPU local; binary
+  version/hash duoc package stage va license duoc ghi notice. Khong cho phep
+  silent local-GPU fallback trong download.
+- UI Download media khong duoc hoi worker URL/token/GPU. No nhan share text,
+  trich URL HTTPS, cho phep Netscape cookie file tuy chon va khong tu doc
+  browser cookie. Direct Colab/API Gateway chi xuat hien o task can model.
+- Khi output do user tu tao trong Colab, chi huong dan dung **Files** sidebar
+  va output path cua final cell de download/up file local; khong duoc gan
+  temporary credential cua notebook vao media-download.
+- `DubbingController` phai giu New/Open/Save/Save As. `saveProjectAs` phai
+  atomic, khong duoc doi projectPath neu save that bai; open phai khoi phuc
+  workflow va cho phep review job bi gian doan.
+- Package internal hien tai la `0.0.6.9`:
+  `out/LA-Studio-0.0.6.9/LA-Studio-0.0.6.9.exe`, SHA-256
+  `CDC449056C120B6F00CE562C24F163A44E49C1A88E1229438E5C37BF16B62361`.
+  Evidence: full CTest 39/39, notebooks 32/32, contract 9 path, stage
+  artifact inventory 8/8. Khong su dung cac so lieu nay de tuyen bo live
+  Colab hay GUI acceptance.
+
 ## 2026-08-14 - Media acquisition: Colab hoac file local
 
 - Public-video/media download la capability rieng `media-download`, khong phai

@@ -2,6 +2,36 @@
 
 Cap nhat: 2026-08-14
 
+## 2026-08-14 - Media download local CPU, project persistence, internal package 0.0.6.9
+
+- **Download khong dung Colab:** public link duoc resolve bang `yt-dlp` tren
+  CPU local, duoc pin hash va stage cung package. UI chi hien field URL/cookie
+  tu chon o Download media; khong hien worker URL, token, GPU hay API Gateway.
+  Chia se link Douyin day du duoc trich xuat thanh URL HTTPS truoc khi gui vao
+  adapter. Cookie Netscape la tuy chon va app khong tu doc cookie trinh duyet.
+- **Colab chi o task can AI/GPU:** cac stage model nhu STT, OCR, translate,
+  TTS va isolator van giu route Direct Colab/API Gateway/local rieng biet. Neu
+  nguoi dung tai/xuat file trong Colab, UI chi huong dan mo **Files** o sidebar
+  trai cua Colab va tai dung output path in o final cell, sau do chon file local;
+  khong co credential Colab nao duoc dung cho Download media.
+- **Project tiep tuc duoc:** header Dubbing co New, Open, Save va Save As.
+  `Save As` ghi atomically `.ladub.json`; `Open` khoi phuc project path, ngon
+  ngu, workflow state va thong bao neu luong truoc bi ngat. Regression tao,
+  luu, mo lai project xac nhan du lieu ton tai qua controller moi.
+- **Evidence:** full CTest **39/39 PASS, 0 failed** tren source version
+  `0.0.6.9`; generated exact-model notebooks **32/32 PASS**; live-Colab
+  acceptance runner contract **9 capability paths PASS**; `graphify update .`
+  va `git diff --check` da chay. Day la offline/controller/QML-contract
+  evidence, khong phai GUI hay live Colab acceptance.
+- **Package 0.0.6.9:**
+  `out/LA-Studio-0.0.6.9/LA-Studio-0.0.6.9.exe`; FileVersion/ProductVersion
+  `0.0.6.9`; SHA-256
+  `CDC449056C120B6F00CE562C24F163A44E49C1A88E1229438E5C37BF16B62361`.
+  Inventory da xac nhan 8/8 artifact bat buoc, gom Qt platform plugin,
+  FFmpeg/FFprobe, `yt-dlp 2026.07.04`, runtime host va notice/license.
+- **Boundary:** khong mo GUI va khong goi Colab that. eSpeak verified payload
+  van unsigned, vi vay chi la internal package.
+
 ## 2026-08-14 - Hai lua chon media: Colab tai xuong hoac tu tai va chon file; internal package 0.0.6.8
 
 - **Hai luong doc lap:** trang Download media cung cap (1) worker Colab
