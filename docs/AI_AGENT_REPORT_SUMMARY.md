@@ -2,6 +2,22 @@
 
 Cap nhat: 2026-08-14
 
+## 2026-08-15 - Internal portable package 0.0.7.1
+
+- Package moi nhat duoc stage tai `out/LA-Studio-0.0.7.1` voi EXE
+  `LA-Studio-0.0.7.1.exe`. Source, FileVersion va ProductVersion deu la
+  `0.0.7.1`; SHA-256 cua EXE la
+  `435BA385480DB098D3CCFB1BA7AEBDB0DB188C34C4B76C5E787C71D3EF455DDE`.
+- Package bao gom day du **19/19** runtime bat buoc: Windows/offscreen Qt,
+  Runtime Host, FFmpeg/FFprobe, yt-dlp, Subtitle OCR manifest, eSpeak va
+  cac license/notices. FFmpeg, FFprobe va yt-dlp da duoc goi tu ban staged.
+- Smoke headless tu chinh EXE voi `QT_QPA_PLATFORM=offscreen` va
+  `LASTUDIO_QML_SMOKE=1` thoat `0`, ghi 19 su kien tuong tac Dubbing. Full
+  CTest 39/39 va QML regression cho batch handoff artifact Dubbing da pass
+  truoc khi package.
+- Day la package noi bo: eSpeak payload da hash-verify nhung chua signed.
+  Khong mo GUI desktop hoac goi Colab that trong package gate nay.
+
 ## 2026-08-14 - Media download local CPU, project persistence, internal package 0.0.6.9
 
 - **Download khong dung Colab:** public link duoc resolve bang `yt-dlp` tren

@@ -868,3 +868,15 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   Import must copy into the project artifact cache, validate subtitles/cues,
   and wire the real downstream artifact; never mark a stage complete merely
   because a file picker was opened.
+
+### 2026-08-15 - Package baseline 0.0.7.1
+
+- Current portable internal candidate is `0.0.7.1` at
+  `out/LA-Studio-0.0.7.1/LA-Studio-0.0.7.1.exe`. All version surfaces agree
+  and the EXE SHA-256 is
+  `435BA385480DB098D3CCFB1BA7AEBDB0DB188C34C4B76C5E787C71D3EF455DDE`.
+- The staged 19-item runtime manifest, FFmpeg/FFprobe/yt-dlp launch checks,
+  and the shipped offscreen QML smoke (19 trace actions, exit 0) passed.
+  This remains package/controller evidence, not visible-GUI or live-Colab
+  acceptance. Treat any later package as the next sequential four-field
+  candidate after 0.0.7.1.

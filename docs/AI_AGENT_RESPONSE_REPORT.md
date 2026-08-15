@@ -149,3 +149,29 @@ No visible desktop GUI or live Colab worker was opened. This establishes the
 controller/QML and artifact-handoff contract, but a user still needs to test
 their own temporary Colab URL and files. No EXE was packaged for this
 source-only request.
+
+## 2026-08-15 - completed: internal package 0.0.7.1
+
+### Delivered
+
+- Packaged the current `main` source as the portable internal EXE
+  `out/LA-Studio-0.0.7.1/LA-Studio-0.0.7.1.exe`.
+- Source `LASTUDIO_VERSION`, FileVersion and ProductVersion were all verified
+  as `0.0.7.1`.
+
+### Evidence
+
+- EXE SHA-256:
+  `435BA385480DB098D3CCFB1BA7AEBDB0DB188C34C4B76C5E787C71D3EF455DDE`.
+- Runtime staging inventory: **19/19** required artifacts, including Qt
+  `qwindows`/`qoffscreen`, Runtime Host, FFmpeg/FFprobe, yt-dlp, Subtitle OCR,
+  eSpeak and notices/licenses. Staged FFmpeg, FFprobe and yt-dlp launch checks
+  passed.
+- Shipped EXE headless QML smoke passed with exit `0` and generated a
+  **19-action** Dubbing trace. The preceding source batch had full CTest
+  **39/39 pass** and QML build/lint validation.
+
+### Boundary
+
+No visible desktop GUI or live Colab worker was started. The build is internal
+only because its hash-verified eSpeak payload is unsigned.
