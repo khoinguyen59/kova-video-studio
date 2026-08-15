@@ -175,3 +175,33 @@ source-only request.
 
 No visible desktop GUI or live Colab worker was started. The build is internal
 only because its hash-verified eSpeak payload is unsigned.
+
+## 2026-08-15 — completed: generalized Dubbing manual Colab handoff
+
+### Delivered
+
+- Applied the same handoff rule to every Dubbing task that produces an output,
+  not just Isolator. Automatic worker transfer remains normal; a file selection
+  is harmless until **Use uploaded output and continue** confirms it.
+- Confirming valid output during the matching active transfer stops only that
+  transfer and advances the next Dubbing task. A different running task cannot
+  be cancelled by the current panel.
+- Isolator has distinct required `vocals.wav` and `background.wav` inputs and
+  documents `/content/la-studio-separation-jobs/<model-id>/<job-id>/`.
+  `source.wav` is input-only. Other stages validate their own normalized WAV,
+  subtitle/cue, TTS/timing/mix WAV, or final export contracts.
+- Repaired the CTest OCR frame-runtime fixture by using .NET SHA-256 instead of
+  an auto-loaded PowerShell `Get-FileHash` cmdlet.
+
+### Evidence
+
+- Targeted `TestDubbingProject`: **1/1 passed**.
+- Full CTest: **39/39 passed** in **57.70 s**.
+- QML lint exit 0 with only existing warnings; `git diff --check` passed.
+- `graphify update .` was attempted but Graphify is not installed/on PATH, so
+  no graph update is claimed.
+
+### Boundary
+
+No visible GUI or live Colab worker was launched. This is controller/QML/test
+evidence; no EXE was packaged for the current source-only batch.

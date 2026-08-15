@@ -1254,3 +1254,21 @@ Cap nhat: 2026-08-14
   visible stage contract and a real stereo handoff through the mixer; QML lint
   exited 0 with only existing warnings. No visible GUI or live Colab worker
   was opened, and no package was made in this source-only batch.
+
+## 2026-08-15 - Generalized manual Colab artifact handoff
+
+- Manual output upload is now a confirmed replacement for automatic Direct
+  Colab transfer on every Dubbing output task, not only Isolator. Selecting a
+  file does nothing; confirmation validates it, cancels only the matching
+  active task transfer, and advances the workflow.
+- Contracts are strict and task-specific. Isolator requires exactly
+  `vocals.wav` plus `background.wav` from
+  `/content/la-studio-separation-jobs/<model-id>/<job-id>/`; `source.wav` is
+  input only. Export accepts final output only, never an ambiguous mix/export
+  pair. Progress is displayed only when a byte-counted transfer exists.
+- Regression repair: the Subtitle OCR runtime fixture now uses .NET SHA-256,
+  avoiding CTest's constrained PowerShell module path.
+- Verification: targeted `TestDubbingProject` **1/1 PASS**, full CTest
+  **39/39 PASS** in **57.70 s**, QML lint exit 0 with baseline warnings, and
+  `git diff --check` PASS. Graphify update was attempted but its CLI is not
+  installed/on PATH. No GUI, live Colab test, or package was performed.

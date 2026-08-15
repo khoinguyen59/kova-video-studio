@@ -880,3 +880,17 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   This remains package/controller evidence, not visible-GUI or live-Colab
   acceptance. Treat any later package as the next sequential four-field
   candidate after 0.0.7.1.
+
+### 2026-08-15 - General per-task manual Colab handoff
+
+- Every result-producing Dubbing task now exposes a strict output upload
+  contract. Default behavior is automatic Direct-Colab transfer; a manually
+  uploaded output replaces only the currently matching transfer after explicit
+  validation/confirmation, then advances to the next task.
+- Isolator uses the exact folder
+  `/content/la-studio-separation-jobs/<model-id>/<job-id>/` and requires
+  `vocals.wav` plus `background.wav`. `source.wav` is input only. Export is
+  separate and accepts final output only, not the internal mix artifact.
+- Never show invented percent progress. Only a real byte-counted transfer can
+  expose a percentage. The OCR test runtime hashes via .NET so CTest does not
+  depend on the PowerShell `Get-FileHash` cmdlet being auto-loaded.
