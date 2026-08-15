@@ -2,6 +2,26 @@
 
 Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de agent khong lam lai viec cu. Khong chep patch hay log dai.
 
+## 2026-08-16 - STT FLAC decoder and transcript-source separation
+
+- A valid Direct Colab `vocals.flac` must never be treated as an empty WAV.
+  The previous `QAudioDecoder` route can complete with zero PCM samples for a
+  valid FLAC. All STT input now goes through the common resilient decoder on a
+  worker thread: direct WAV, Qt multimedia, then staged FFmpeg; the final STT
+  format remains mono 16 kHz PCM.
+- Dubbing source modes are independent: `stt` starts STT only, `ocr` starts OCR
+  only, and `reconcile` is local and may run only when saved STT and OCR results
+  exist. Do not restore the old behavior that forced both model setups before
+  either source could run.
+- PP-OCRv5 generated notebook bootstrap revision `2026-08-16.15` installs the
+  pinned compatibility `langchain==0.2.17` separately for PaddleX OCR
+  discovery. The generated-notebook verifier is not a live Colab test.
+- Current internal baseline: `0.0.7.4`, at
+  `out/LA-Studio-0.0.7.4/LA-Studio-0.0.7.4.exe`, SHA-256
+  `F179A90B98C6517EFE3017939F50F3F5D6B0D9068958C283C5F63512A6536555`.
+  Evidence: CTest 39/39, notebook verifier 32/32, packaged offscreen smoke
+  exit 0. No visible GUI or live Colab claim.
+
 ## 2026-08-16 - Isolator artifact format and observable Colab completion
 
 - Direct Colab isolation must prefer `flac` for inter-machine stem transport;

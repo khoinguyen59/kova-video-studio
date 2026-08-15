@@ -1,6 +1,39 @@
 # Bao cao tong hop LA Studio
 
-Cap nhat: 2026-08-14
+Cap nhat: 2026-08-16
+
+## 2026-08-16 - STT FLAC recovery and independent transcript sources, package 0.0.7.4
+
+- Production log investigation found that the Direct Colab Isolator artifact was
+  valid: `vocals.flac` was 45,637,385 bytes, 44.1 kHz stereo, and about
+  899.84 seconds long. The failure was the prior desktop `QAudioDecoder` path
+  completing with zero PCM samples for that valid FLAC, not an empty Colab WAV
+  or failed separation output.
+- `SttAudioDecoder` now decodes on a worker thread through the shared resilient
+  audio decoder: WAV parsing first, Qt decoding where it works, then the staged
+  FFmpeg fallback with mono/16 kHz conversion. The UI thread is no longer the
+  decode path and a useful decoder error is propagated only after all supported
+  paths fail.
+- Dubbing transcript operations are split: **STT only** and **OCR only** run
+  independently; **Reconcile STT + OCR** is a local review action that requires
+  the two saved results and invokes fusion only then. It no longer asks the
+  operator to configure both workers before running either source.
+- The generated PP-OCRv5 notebook revision now pins the missing `langchain`
+  compatibility dependency required by PaddleX OCR discovery. This is static
+  generator verification only; no live Colab session was launched.
+- Verification: full CTest **39/39 passed**; generated exact-model notebook
+  verifier **32/32 passed**; `graphify update .` completed; packaged EXE
+  offscreen QML smoke exited `0`.
+- Internal portable package:
+  `out/LA-Studio-0.0.7.4/LA-Studio-0.0.7.4.exe`. Source, FileVersion, and
+  ProductVersion are `0.0.7.4`; SHA-256:
+  `F179A90B98C6517EFE3017939F50F3F5D6B0D9068958C283C5F63512A6536555`.
+
+### Boundary
+
+No visible GUI or live Colab worker was opened. The regression proves the
+desktop decode/fallback path and generated notebook contract, not a fresh
+remote GPU acceptance run.
 
 ## 2026-08-16 - Direct Colab Isolator FLAC transport, package 0.0.7.3
 

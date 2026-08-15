@@ -1,5 +1,35 @@
 # AI agent response — local download and resumable Dubbing projects
 
+## 2026-08-16 — completed: valid FLAC STT recovery and package 0.0.7.4
+
+### Root cause and repair
+
+- The live desktop log showed a valid Direct Colab `vocals.flac` (45.6 MB,
+  44.1 kHz stereo, ~15 minutes) reaching the STT stage. The old standalone
+  `QAudioDecoder` completed with **0 samples**, which produced “No audio data
+  was decoded.” It was not an empty artifact.
+- Replaced that path with the shared asynchronous decoder. It validates the
+  file, decodes off the UI thread, and falls back to the packaged FFmpeg path
+  when Qt cannot decode FLAC; the STT session receives mono 16 kHz PCM.
+- STT, OCR, and reconciliation are now distinct Dubbing actions. Run STT or OCR
+  independently; reconciliation consumes their completed saved transcripts and
+  does not start either model.
+- Updated the generated PP-OCRv5 Colab bootstrap with its missing compatibility
+  `langchain` dependency. No live Colab session was run by this delivery.
+
+### Verification and handoff
+
+- CTest: **39/39 passed**. Exact-model notebook verifier: **32/32 passed**.
+- Packaged offscreen QML smoke: exit `0`.
+- Internal EXE: `out/LA-Studio-0.0.7.4/LA-Studio-0.0.7.4.exe`.
+- SHA-256:
+  `F179A90B98C6517EFE3017939F50F3F5D6B0D9068958C283C5F63512A6536555`.
+
+### Boundary
+
+The package has been checked without opening a visible window. A new Colab
+runtime remains the user's acceptance step for its temporary GPU worker.
+
 ## 2026-08-16 — completed: FLAC Colab isolation transport and package 0.0.7.3
 
 ### Delivered
