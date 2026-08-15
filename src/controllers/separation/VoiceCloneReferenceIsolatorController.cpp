@@ -184,7 +184,11 @@ bool VoiceCloneReferenceIsolatorController::validStem(const QString &path) const
     if (!info.isFile() || !info.isReadable()) return false;
     QFile file(info.absoluteFilePath());
     if (!file.open(QIODevice::ReadOnly)) return false;
-    const QByteArray header = file.read(42);
+    // RIFF/WAV has a 44-byte fixed header while FLAC's STREAMINFO metadata
+    // starts at byte 4 and needs only 42 bytes for the lightweight cache
+    // validation below.  Read the larger prefix so legacy WAV workers remain
+    // valid after adding FLAC support.
+    const QByteArray header = file.read(44);
     const QString suffix = info.suffix().toLower();
     // Direct Colab isolation now transfers lossless FLAC by default.  Do not
     // synchronously decode an entire stem merely to decide whether it can be
