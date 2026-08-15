@@ -67,3 +67,39 @@ eSpeak payload is unsigned.
 Source commit `339cfa4` was pushed directly to `origin/main`. No visible GUI or
 live Colab worker was used. This is an internal package only because the
 hash-verified eSpeak payload is unsigned.
+
+## 2026-08-15 - Dubbing OCR/Colab controls and per-task artifact handoff
+
+### Delivered
+
+- Transcribe/STT now exposes `STT`, `OCR`, and `STT + OCR`, an explicit Subtitle
+  OCR model selector, a Local CPU/Colab GPU route, the exact notebook/model
+  identity, and a **Set up OCR Colab** action in the Dubbing task controls and
+  review panel. The selection is persisted through the workflow configuration.
+- When `STT + OCR` is selected, the UI explains the source-language AI
+  reconciliation stage before Translate. The request is gated until unresolved
+  conflicts exist; review/accept/reject remains authoritative. Translate is
+  documented as consuming the reviewed source transcript and its selected model.
+- Added strict per-task output upload for isolation, STT/OCR, translation, TTS,
+  mix, and export. Each task states its exact Colab folder and worker path,
+  validates extensions and counts (isolation requires `vocals.wav` plus
+  `background.wav`), imports subtitles/cues safely, and hands artifacts to the
+  normal downstream step from the project cache.
+- Wrapped the task controls in a vertical scroll area so OCR model/route and AI
+  controls remain reachable in compact Dubbing layouts.
+
+### Evidence
+
+- Build succeeded: `out/build/windows-msvc-release/LA-Studio-0.0.7.0.exe`.
+- Full CTest: **39/39 passed, 0 failed** (55.12 s), including strict artifact
+  contract and Dubbing QML source regressions.
+- QML parser/build validation passed. `qmllint` reports only the pre-existing
+  unused-import and callback-property warnings; no Dubbing syntax error remains.
+- `graphify update .` and `git diff --check` passed. No desktop GUI or live
+  Colab worker was opened; evidence covers source/controller contracts,
+  offscreen QML, build, and test fixtures.
+
+### Boundary
+
+No EXE package was created for this change because this request asked for the
+Dubbing/OCR implementation and verification, not a new release package.

@@ -832,3 +832,20 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   offscreen smoke exit 0. Portable package is staged under
   `out/LA-Studio-0.0.7.0` with EXE SHA-256
   `5B3B7876C80EC473C89A7ECC96E793545EEA3AAB19DAF6B98E5558C7EF88814E`.
+
+### 2026-08-15 - Dubbing OCR and per-task Colab artifact contracts
+
+- Keep Dubbing Transcribe/STT self-contained: expose `STT`, `OCR`, and
+  `STT + OCR`, the Subtitle OCR model selector, Local CPU/Colab GPU route,
+  exact notebook/model identity, and a setup/check action in the task shelf
+  and review pane. The shelf must scroll rather than hide these controls.
+- AI reconciliation is a source-language review aid only. Request it after
+  STT and OCR produce unresolved conflicts; review/accept/reject remains
+  required before Translate. Translate consumes the reviewed source transcript
+  and its own selected route/model.
+- Per-task Colab output uploads must use the declared folder and worker path,
+  strict extension allow-lists, exact `vocals.wav`/`background.wav` names for
+  isolation, and subtitle/cue validation before downstream handoff.
+- Latest validation: build succeeded, CTest 39/39 passed, QML parser/build
+  clean apart from baseline lint warnings, and graphify update completed. No
+  live Colab worker or interactive GUI was used; no package was produced.

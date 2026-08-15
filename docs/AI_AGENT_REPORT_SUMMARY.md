@@ -1194,3 +1194,19 @@ Cap nhat: 2026-08-14
 - Source commit `339cfa4` was pushed directly to `origin/main`. No visible GUI
   or live Colab worker was opened. The package is internal-only because the
   hash-verified eSpeak payload is unsigned.
+
+### 2026-08-15 - Dubbing OCR/Colab and per-task output upload
+
+- Added Dubbing-local controls for `STT`, `OCR`, and `STT + OCR`, including the
+  exact Subtitle OCR model dropdown, Local CPU/Colab GPU route, notebook
+  identity, and a setup/check action. The task shelf scrolls so these controls
+  remain reachable in compact layouts.
+- Added source-language AI reconciliation for `STT + OCR`; requests are
+  disabled until unresolved conflicts exist, and Translate is explicitly tied
+  to the reviewed source transcript.
+- Added strict per-task output uploads with exact Colab folders, worker paths,
+  extension allow-lists, exact isolation filenames, subtitle/cue validation,
+  and project-cache handoff for downstream steps.
+- Evidence: build succeeded, CTest **39/39 passed**, QML parser/build passed
+  with only baseline warnings, and `graphify update .` completed. No live Colab
+  or GUI run was performed; no new package was made for this change.
