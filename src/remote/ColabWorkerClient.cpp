@@ -628,6 +628,7 @@ bool ColabWorkerClient::alignAudioFile(const QString &audioPath, const QString &
 }
 
 bool ColabWorkerClient::createSeparationJob(const QString &audioPath, const QString &model,
+                                            const QString &artifactFormat,
                                             QJsonObject *job, QString *errorMessage)
 {
     if (job) *job = {};
@@ -655,6 +656,9 @@ bool ColabWorkerClient::createSeparationJob(const QString &audioPath, const QStr
     auto *multipart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
     multipart->append(formField("model", model.trimmed().isEmpty() ? QByteArrayLiteral("htdemucs") : model.trimmed().toUtf8()));
     multipart->append(formField("stems", "vocals,background"));
+    const QString normalizedFormat = artifactFormat.trimmed().toLower() == QStringLiteral("wav")
+        ? QStringLiteral("wav") : QStringLiteral("flac");
+    multipart->append(formField("output_format", normalizedFormat.toUtf8()));
     QHttpPart audioPart;
     const QString sourceFilename = QFileInfo(audio->fileName()).fileName();
     const QString filename = sourceFilename.isEmpty() ? QStringLiteral("audio.wav") : sourceFilename;
@@ -702,11 +706,12 @@ bool ColabWorkerClient::separationJobStatus(const QString &jobId, QJsonObject *j
 }
 
 bool ColabWorkerClient::downloadSeparationArtifact(const QString &jobId, const QString &stem,
+                                                   const QString &artifactFormat,
                                                    const std::shared_ptr<std::atomic_bool> &cancelToken,
-                                                   QByteArray *wavData, QString *errorMessage,
+                                                   QByteArray *artifactData, QString *errorMessage,
                                                    const DownloadProgressCallback &downloadProgress)
 {
-    if (wavData) wavData->clear();
+    if (artifactData) artifactData->clear();
     if (!m_workerUrl.isValid() || m_bearerToken.isEmpty() || jobId.trimmed().isEmpty()
         || (stem != QStringLiteral("vocals") && stem != QStringLiteral("background"))) {
         if (errorMessage) *errorMessage = QStringLiteral("Colab separation artifact is unavailable");
@@ -717,7 +722,9 @@ bool ColabWorkerClient::downloadSeparationArtifact(const QString &jobId, const Q
         QStringLiteral("v1/audio/separations/%1/artifacts/%2").arg(jobId.trimmed(), stem)));
     request.setTransferTimeout(kInferenceRequestTimeoutMs);
     request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
-    request.setRawHeader("Accept", "audio/wav, application/octet-stream");
+    const bool wantsWav = artifactFormat.trimmed().compare(QStringLiteral("wav"), Qt::CaseInsensitive) == 0;
+    request.setRawHeader("Accept", wantsWav ? "audio/wav, application/octet-stream"
+                                             : "audio/flac, application/octet-stream");
     QNetworkReply *reply = manager.get(request);
     m_activeReply = reply;
     qint64 lastReceived = -1;
@@ -745,15 +752,19 @@ bool ColabWorkerClient::downloadSeparationArtifact(const QString &jobId, const Q
             : QStringLiteral("Colab worker request failed: %1").arg(networkErrorText);
         return false;
     }
-    if (body.size() < 44 || !body.startsWith("RIFF")) {
-        if (errorMessage) *errorMessage = QStringLiteral("Colab worker returned an invalid WAV separation artifact");
+    const bool valid = wantsWav
+        ? body.size() >= 44 && body.startsWith("RIFF")
+        : body.size() >= 4 && body.startsWith("fLaC");
+    if (!valid) {
+        if (errorMessage) *errorMessage = QStringLiteral("Colab worker returned an invalid %1 separation artifact")
+            .arg(wantsWav ? QStringLiteral("WAV") : QStringLiteral("FLAC"));
         return false;
     }
     // Some backends only emit downloadProgress after an event-loop turn.  A
     // validated response still supplies an exact final byte count.
     if (downloadProgress && (lastReceived != body.size() || lastTotal != body.size()))
         downloadProgress(body.size(), body.size());
-    if (wavData) *wavData = body;
+    if (artifactData) *artifactData = body;
     return true;
 }
 

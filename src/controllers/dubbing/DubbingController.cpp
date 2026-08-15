@@ -165,11 +165,12 @@ QVariantMap workflowArtifactSpecForNode(const QString &nodeId)
     if (id == QStringLiteral("source-separate")) {
         return {{QStringLiteral("nodeId"), id},
                 {QStringLiteral("title"), QStringLiteral("Voice isolation")},
-                {QStringLiteral("description"), QStringLiteral("Upload the two stems saved by the Spleeter/UVR Colab notebook. Both files are required and must be WAV." )},
+                {QStringLiteral("description"), QStringLiteral("Upload the two lossless stems saved by the Spleeter/UVR Colab notebook. Both files must use the selected transfer format." )},
                 {QStringLiteral("colabFolder"), QStringLiteral("/content/la-studio-separation-jobs/<model-id>/<job-id>/")},
-                {QStringLiteral("workerPath"), QStringLiteral("In Colab Files, open la-studio-separation-jobs/<model-id>/<job-id>/ and download vocals.wav plus background.wav. The job-id directory is created by this run; source.wav is input and must not be uploaded." )},
-                {QStringLiteral("expectedFiles"), QStringList{QStringLiteral("vocals.wav"), QStringLiteral("background.wav")}},
-                {QStringLiteral("allowedExtensions"), QStringList{QStringLiteral(".wav")}},
+                {QStringLiteral("workerPath"), QStringLiteral("In Colab Files, open la-studio-separation-jobs/<model-id>/<job-id>/ and download the matching vocals and background stem files. The job-id directory is created by this run; source.wav is input and must not be uploaded." )},
+                {QStringLiteral("expectedFiles"), QStringList{QStringLiteral("vocals.flac"), QStringLiteral("background.flac")}},
+                {QStringLiteral("allowedExtensions"), QStringList{QStringLiteral(".flac")}},
+                {QStringLiteral("artifactTransferFormat"), QStringLiteral("flac")},
                 {QStringLiteral("multiple"), true}};
     }
     if (id == QStringLiteral("transcribe")) {
@@ -602,19 +603,21 @@ DubbingController::DubbingController(SttSessionController *sttSession, TtsEngine
             if (nodeId == QStringLiteral("source-separate")) {
                 const QString outputDirectory = mediaQueueOutputDirectory(m_activeMediaQueueItemId);
                 QString error;
+                const QString vocalsName = QFileInfo(m_project.analysisAudioPath).fileName();
+                const QString backgroundName = QFileInfo(m_project.backgroundAudioPath).fileName();
                 const bool wroteVocals = QFileInfo(m_project.analysisAudioPath).isFile()
                     && replaceCopy(m_project.analysisAudioPath,
-                                   QDir(outputDirectory).filePath(QStringLiteral("vocals.wav")), &error);
+                                   QDir(outputDirectory).filePath(vocalsName), &error);
                 if (wroteVocals) recordMediaQueueOutput(
-                    QStringLiteral("vocalsWav"), QDir(outputDirectory).filePath(QStringLiteral("vocals.wav")));
+                    QStringLiteral("vocals"), QDir(outputDirectory).filePath(vocalsName));
                 const bool wroteBackground = QFileInfo(m_project.backgroundAudioPath).isFile()
                     && replaceCopy(m_project.backgroundAudioPath,
-                                   QDir(outputDirectory).filePath(QStringLiteral("background.wav")), &error);
+                                   QDir(outputDirectory).filePath(backgroundName), &error);
                 if (wroteBackground) recordMediaQueueOutput(
-                    QStringLiteral("backgroundWav"), QDir(outputDirectory).filePath(QStringLiteral("background.wav")));
+                    QStringLiteral("background"), QDir(outputDirectory).filePath(backgroundName));
                 if (!wroteVocals || !wroteBackground) {
                     completeCurrentMediaQueueItem(false, error.isEmpty()
-                        ? QStringLiteral("Voice isolation completed without writable vocal and background WAV files.")
+                        ? QStringLiteral("Voice isolation completed without writable vocal and background stem files.")
                         : error);
                     return;
                 }
@@ -6107,6 +6110,22 @@ QVariantMap DubbingController::workflowArtifactSpec(const QString &nodeId) const
     if (id == QStringLiteral("source-separate") && !spec.isEmpty()) {
         const QVariantMap configuration = m_workflowNodeConfigurations.value(id).toMap();
         const QVariantMap parameters = configuration.value(QStringLiteral("parameters")).toMap();
+        const QString transferFormat = parameters.value(QStringLiteral("artifactTransferFormat"),
+                                                        QStringLiteral("flac")).toString().trimmed().toLower()
+            == QStringLiteral("wav") ? QStringLiteral("wav") : QStringLiteral("flac");
+        const QString vocalsName = QStringLiteral("vocals.") + transferFormat;
+        const QString backgroundName = QStringLiteral("background.") + transferFormat;
+        spec.insert(QStringLiteral("artifactTransferFormat"), transferFormat);
+        spec.insert(QStringLiteral("description"), QStringLiteral(
+            "Upload the two %1 stems saved by the Spleeter/UVR Colab notebook. Both files are required. %2")
+                        .arg(transferFormat.toUpper(), transferFormat == QStringLiteral("flac")
+                             ? QStringLiteral("FLAC is lossless and greatly reduces Colab transfer size.")
+                             : QStringLiteral("WAV is uncompressed for compatibility.")));
+        spec.insert(QStringLiteral("workerPath"), QStringLiteral(
+            "In Colab Files, open la-studio-separation-jobs/<model-id>/<job-id>/ and download %1 plus %2. The job-id directory is created by this run; source.wav is input and must not be uploaded.")
+                        .arg(vocalsName, backgroundName));
+        spec.insert(QStringLiteral("expectedFiles"), QStringList{vocalsName, backgroundName});
+        spec.insert(QStringLiteral("allowedExtensions"), QStringList{QStringLiteral(".") + transferFormat});
         const QString modelId = configuration.value(
             QStringLiteral("modelId"), parameters.value(QStringLiteral("modelId"))).toString().trimmed();
         if (!modelId.isEmpty()) {
@@ -6161,7 +6180,7 @@ QVariantList DubbingController::workflowArtifactSpecsForStage(const QString &nod
 
     QVariantList result;
     for (const QString &productionId : productionIds) {
-        QVariantMap spec = workflowArtifactSpecForNode(productionId);
+        QVariantMap spec = workflowArtifactSpec(productionId);
         if (!spec.isEmpty()) result.append(spec);
     }
     return result;
@@ -6214,7 +6233,7 @@ bool DubbingController::importWorkflowArtifactFiles(const QString &nodeId,
         else if (source == QStringLiteral("stt+ocr"))
             id = QStringLiteral("review-transcript");
     }
-    const QVariantMap spec = workflowArtifactSpecForNode(id);
+    const QVariantMap spec = workflowArtifactSpec(id);
     if (spec.isEmpty()) {
         setError(QStringLiteral("This Dubbing task does not accept a manual Colab output."));
         return false;
@@ -6239,7 +6258,7 @@ bool DubbingController::importWorkflowArtifactFiles(const QString &nodeId,
     const int expectedCount = multiple ? 2 : 1;
     if (sourcePaths.size() != expectedCount) {
         setError(multiple
-                     ? QStringLiteral("Voice isolation requires exactly two files: vocals.wav and background.wav.")
+                     ? QStringLiteral("Voice isolation requires exactly the declared vocals and background stem files.")
                      : QStringLiteral("This task requires exactly one output file; select only the declared Colab artifact."));
         return false;
     }
@@ -6258,9 +6277,12 @@ bool DubbingController::importWorkflowArtifactFiles(const QString &nodeId,
         QSet<QString> names;
         for (const QString &sourcePath : sourcePaths)
             names.insert(QFileInfo(sourcePath).fileName().toLower());
-        if (names.size() != 2 || !names.contains(QStringLiteral("vocals.wav"))
-            || !names.contains(QStringLiteral("background.wav"))) {
-            setError(QStringLiteral("Voice isolation outputs must be named exactly vocals.wav and background.wav."));
+        const QStringList exactNames = spec.value(QStringLiteral("expectedFiles")).toStringList();
+        if (names.size() != 2 || exactNames.size() != 2
+            || !names.contains(exactNames.at(0).toLower())
+            || !names.contains(exactNames.at(1).toLower())) {
+            setError(QStringLiteral("Voice isolation outputs must be named exactly %1 and %2.")
+                         .arg(exactNames.value(0), exactNames.value(1)));
             return false;
         }
     } else if (!expectedFiles.isEmpty()) {
@@ -6346,9 +6368,9 @@ bool DubbingController::importWorkflowArtifactFiles(const QString &nodeId,
         QString vocalsPath;
         QString backgroundPath;
         for (const QString &path : copiedPaths) {
-            if (QFileInfo(path).fileName().compare(QStringLiteral("vocals.wav"), Qt::CaseInsensitive) == 0)
+            if (QFileInfo(path).fileName().startsWith(QStringLiteral("vocals."), Qt::CaseInsensitive))
                 vocalsPath = path;
-            else if (QFileInfo(path).fileName().compare(QStringLiteral("background.wav"), Qt::CaseInsensitive) == 0)
+            else if (QFileInfo(path).fileName().startsWith(QStringLiteral("background."), Qt::CaseInsensitive))
                 backgroundPath = path;
         }
         cancelMatchingWorker();

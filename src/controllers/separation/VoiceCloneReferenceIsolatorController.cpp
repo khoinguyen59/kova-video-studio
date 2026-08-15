@@ -1,6 +1,5 @@
 #include "controllers/separation/VoiceCloneReferenceIsolatorController.h"
 
-#include "audio/WavIO.h"
 #include "controllers/separation/ColabVoiceIsolatorController.h"
 #include "controllers/separation/VoiceIsolatorController.h"
 #include "core/PathUtils.h"
@@ -182,12 +181,20 @@ QString VoiceCloneReferenceIsolatorController::configurationFingerprint() const
 bool VoiceCloneReferenceIsolatorController::validStem(const QString &path) const
 {
     const QFileInfo info(path);
-    if (!info.isFile() || info.size() <= 44 || !info.isReadable()) return false;
-    // Do not treat a merely existing file as an acceptable clone input.  The
-    // cached artifact has to be decodable WAV audio before it can be passed to
-    // the local or Direct Colab cloning boundary.
-    const WavIO::WavData wav = WavIO::loadAsFloat(info.absoluteFilePath());
-    return wav.sampleRate > 0 && !wav.samples.isEmpty();
+    if (!info.isFile() || !info.isReadable()) return false;
+    QFile file(info.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly)) return false;
+    const QByteArray header = file.read(42);
+    const QString suffix = info.suffix().toLower();
+    // Direct Colab isolation now transfers lossless FLAC by default.  Do not
+    // synchronously decode an entire stem merely to decide whether it can be
+    // cached: that is wasteful for large files and can freeze the UI on a bad
+    // upload.  The exact consumer validates/decodes it when it needs PCM.
+    if (suffix == QStringLiteral("flac"))
+        return header.size() >= 42 && header.startsWith("fLaC");
+    return header.size() >= 44
+        && header.startsWith("RIFF")
+        && header.mid(8, 4) == QByteArrayLiteral("WAVE");
 }
 
 bool VoiceCloneReferenceIsolatorController::loadCachedResult(
@@ -200,7 +207,8 @@ bool VoiceCloneReferenceIsolatorController::loadCachedResult(
     if (!manifest.open(QIODevice::ReadOnly)) return false;
     const QJsonDocument parsed = QJsonDocument::fromJson(manifest.readAll());
     const QJsonObject object = parsed.object();
-    if (object.value(QStringLiteral("version")).toInt() != 1
+    const int version = object.value(QStringLiteral("version")).toInt();
+    if ((version != 1 && version != 2)
         || object.value(QStringLiteral("sourceFingerprint")).toString() != expectedSourceFingerprint
         || object.value(QStringLiteral("configurationFingerprint")).toString()
                != expectedConfigurationFingerprint
@@ -228,17 +236,25 @@ bool VoiceCloneReferenceIsolatorController::persistResult(const QString &key, co
     if (!validStem(vocals) || !validStem(background)) return false;
     const QString directory = QDir(cacheRoot()).filePath(key);
     if (!QDir().mkpath(directory)) return false;
-    const QString vocalsDestination = QDir(directory).filePath(QStringLiteral("vocals.wav"));
-    const QString backgroundDestination = QDir(directory).filePath(QStringLiteral("background.wav"));
+    const QString vocalsSuffix = QFileInfo(vocals).suffix().toLower();
+    const QString backgroundSuffix = QFileInfo(background).suffix().toLower();
+    if ((vocalsSuffix != QStringLiteral("wav") && vocalsSuffix != QStringLiteral("flac"))
+        || (backgroundSuffix != QStringLiteral("wav") && backgroundSuffix != QStringLiteral("flac"))) {
+        return false;
+    }
+    const QString vocalsFile = QStringLiteral("vocals.") + vocalsSuffix;
+    const QString backgroundFile = QStringLiteral("background.") + backgroundSuffix;
+    const QString vocalsDestination = QDir(directory).filePath(vocalsFile);
+    const QString backgroundDestination = QDir(directory).filePath(backgroundFile);
     if (!copyAtomically(vocals, vocalsDestination) || !copyAtomically(background, backgroundDestination)) return false;
     const QJsonObject manifest{
-        {QStringLiteral("version"), 1},
+        {QStringLiteral("version"), 2},
         {QStringLiteral("sourceFingerprint"), sourceFingerprint()},
         {QStringLiteral("configurationFingerprint"), configurationFingerprint()},
         {QStringLiteral("route"), usingColab() ? QStringLiteral("colab-direct") : QStringLiteral("local")},
         {QStringLiteral("model"), selectedModel()},
-        {QStringLiteral("vocalsFile"), QStringLiteral("vocals.wav")},
-        {QStringLiteral("backgroundFile"), QStringLiteral("background.wav")}
+        {QStringLiteral("vocalsFile"), vocalsFile},
+        {QStringLiteral("backgroundFile"), backgroundFile}
     };
     QSaveFile file(QDir(directory).filePath(QStringLiteral("manifest.json")));
     if (!file.open(QIODevice::WriteOnly)

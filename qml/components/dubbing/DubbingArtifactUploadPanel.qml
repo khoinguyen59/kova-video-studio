@@ -48,17 +48,17 @@ Rectangle {
 
     FileDialog {
         id: vocalsDialog
-        title: qsTr("Choose vocals.wav from the completed Colab job")
+        title: qsTr("Choose %1 from the completed Colab job").arg(root.isolationStemName("vocals"))
         fileMode: FileDialog.OpenFile
-        nameFilters: [qsTr("Vocals WAV (vocals.wav)")]
+        nameFilters: [qsTr("Vocals output (%1)").arg(root.isolationStemName("vocals"))]
         onAccepted: root.selectedVocalsPath = AppController.files.urlToLocalPath(selectedFile.toString())
     }
 
     FileDialog {
         id: backgroundDialog
-        title: qsTr("Choose background.wav from the completed Colab job")
+        title: qsTr("Choose %1 from the completed Colab job").arg(root.isolationStemName("background"))
         fileMode: FileDialog.OpenFile
-        nameFilters: [qsTr("Background WAV (background.wav)")]
+        nameFilters: [qsTr("Background output (%1)").arg(root.isolationStemName("background"))]
         onAccepted: root.selectedBackgroundPath = AppController.files.urlToLocalPath(selectedFile.toString())
     }
 
@@ -68,6 +68,18 @@ Rectangle {
         for (var index = 0; index < extensions.length; ++index)
             patterns.push("*" + extensions[index])
         return patterns
+    }
+
+    function isolationStemName(stem) {
+        var expected = root.spec.expectedFiles || []
+        for (var index = 0; index < expected.length; ++index) {
+            var name = String(expected[index])
+            if (name.toLowerCase().indexOf(stem + ".") === 0)
+                return name
+        }
+        var extensions = root.spec.allowedExtensions || []
+        var extension = extensions.length > 0 ? String(extensions[0]) : ".flac"
+        return stem + extension
     }
 
     function acceptOutput(paths) {
@@ -168,7 +180,7 @@ Rectangle {
             spacing: Theme.paddingSmall
             Text {
                 Layout.fillWidth: true
-                text: qsTr("Select both stems separately. LA Studio will not accept source.wav or an arbitrary WAV file.")
+                text: qsTr("Select both stems separately. LA Studio will not accept source.wav or an arbitrary audio file.")
                 color: Theme.textPrimary
                 font.pixelSize: 10
                 wrapMode: Text.WordWrap
@@ -176,7 +188,7 @@ Rectangle {
             RowLayout {
                 Layout.fillWidth: true
                 PrimaryButton {
-                    text: qsTr("Choose vocals.wav")
+                    text: qsTr("Choose %1").arg(root.isolationStemName("vocals"))
                     iconName: "folder"
                     Layout.fillWidth: true
                     enabled: root.mayChooseOutput
@@ -193,7 +205,7 @@ Rectangle {
             RowLayout {
                 Layout.fillWidth: true
                 PrimaryButton {
-                    text: qsTr("Choose background.wav")
+                    text: qsTr("Choose %1").arg(root.isolationStemName("background"))
                     iconName: "folder"
                     Layout.fillWidth: true
                     enabled: root.mayChooseOutput

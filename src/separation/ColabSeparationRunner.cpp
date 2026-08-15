@@ -17,6 +17,12 @@ namespace {
 constexpr int kDefaultFinalizeTimeoutMs = 5 * 60 * 1000;
 constexpr int kDefaultStatusPollIntervalMs = 350;
 
+QString normalizedArtifactFormat(const QString &value)
+{
+    return value.trimmed().compare(QStringLiteral("wav"), Qt::CaseInsensitive) == 0
+        ? QStringLiteral("wav") : QStringLiteral("flac");
+}
+
 QString failureForUser(const QString &detail)
 {
     const QString normalized = detail.simplified();
@@ -69,7 +75,8 @@ void ColabSeparationRunner::separate(const ColabSeparationRequest &request)
         return;
     }
     QJsonObject job;
-    if (!d->client.createSeparationJob(request.audioPath, request.model, &job, &error)) {
+    QString artifactFormat = normalizedArtifactFormat(request.artifactFormat);
+    if (!d->client.createSeparationJob(request.audioPath, request.model, artifactFormat, &job, &error)) {
         emit failed(error);
         return;
     }
@@ -77,6 +84,14 @@ void ColabSeparationRunner::separate(const ColabSeparationRequest &request)
     if (d->activeJobId.isEmpty()) {
         emit failed(QStringLiteral("Colab worker returned a separation job without an ID"));
         return;
+    }
+    // A current worker echoes the negotiated format.  Older notebooks omit it
+    // and are treated as WAV so a stale notebook fails safely neither during
+    // transfer nor by silently relabelling a binary artifact.
+    if (job.contains(QStringLiteral("artifact_format"))) {
+        artifactFormat = normalizedArtifactFormat(job.value(QStringLiteral("artifact_format")).toString());
+    } else {
+        artifactFormat = QStringLiteral("wav");
     }
     reportPhase(QStringLiteral("Waiting for the Direct Colab CUDA worker"));
     int lastProgress = -1;
@@ -118,7 +133,17 @@ void ColabSeparationRunner::separate(const ColabSeparationRequest &request)
             return;
         }
         if (state == QStringLiteral("ready") || state == QStringLiteral("completed")) {
-            reportPhase(QStringLiteral("Direct Colab worker is ready; downloading separated stems"));
+            const QString reportedFormat = status.value(QStringLiteral("artifact_format")).toString();
+            if (!reportedFormat.trimmed().isEmpty())
+                artifactFormat = normalizedArtifactFormat(reportedFormat);
+            const bool artifactsReady = status.value(QStringLiteral("artifacts_ready")).toBool(true);
+            if (!artifactsReady) {
+                d->activeJobId.clear();
+                emit failed(QStringLiteral("Colab reported completion before both separated stems were available."));
+                return;
+            }
+            reportPhase(QStringLiteral("Colab created both %1 stems; downloading them now")
+                            .arg(artifactFormat.toUpper()));
             break;
         }
         const QString detail = status.value(QStringLiteral("detail")).toString().simplified();
@@ -150,11 +175,11 @@ void ColabSeparationRunner::separate(const ColabSeparationRequest &request)
         return;
     }
     QByteArray vocals, background;
-    const auto downloadArtifact = [this, &request, &error, &reportPhase](const QString &artifact,
+    const auto downloadArtifact = [this, &request, &artifactFormat, &error, &reportPhase](const QString &artifact,
                                                                            QByteArray *data) {
         reportPhase(QStringLiteral("Requesting %1 stem from Direct Colab").arg(artifact));
         return d->client.downloadSeparationArtifact(
-            d->activeJobId, artifact, request.cancellation.sharedFlag(), data, &error,
+            d->activeJobId, artifact, artifactFormat, request.cancellation.sharedFlag(), data, &error,
             [this, artifact](qint64 received, qint64 total) {
                 emit artifactTransferProgress(artifact, received, total);
             });
@@ -174,8 +199,8 @@ void ColabSeparationRunner::separate(const ColabSeparationRequest &request)
     }
     reportPhase(QStringLiteral("Saving separated stems locally"));
     QDir().mkpath(request.outputRoot);
-    const QString vocalsPath = QDir(request.outputRoot).filePath(QStringLiteral("vocals.wav"));
-    const QString backgroundPath = QDir(request.outputRoot).filePath(QStringLiteral("background.wav"));
+    const QString vocalsPath = QDir(request.outputRoot).filePath(QStringLiteral("vocals.") + artifactFormat);
+    const QString backgroundPath = QDir(request.outputRoot).filePath(QStringLiteral("background.") + artifactFormat);
     auto saveArtifact = [](const QString &path, const QByteArray &data) {
         QSaveFile file(path);
         return file.open(QIODevice::WriteOnly) && file.write(data) == data.size() && file.commit();

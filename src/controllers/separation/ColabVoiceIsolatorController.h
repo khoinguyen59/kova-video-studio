@@ -85,7 +85,9 @@ private slots:
     void onRunnerFailed(const QString &error);
 
 private:
-    void loadSamples(const QString &path, QVariantList *target, bool vocals);
+    // Waveform decoding is deliberately asynchronous.  A large lossless stem
+    // must never make the desktop UI look frozen while its preview is built.
+    void loadSamples(const QString &path, bool vocals);
     void setError(const QString &error);
 
     ColabSession *m_session = nullptr;

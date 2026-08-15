@@ -13,7 +13,7 @@ import urllib.request
 from pathlib import Path
 
 
-WORKER_CONTRACT = "spleeter-cuda-safe-20260805.1"
+WORKER_CONTRACT = "spleeter-cuda-safe-20260816.1"
 MODEL_ID = "sherpa-onnx-spleeter-2stems-fp16"
 CAPABILITY_LABEL = "Voice Isolation"
 PORT = 3924

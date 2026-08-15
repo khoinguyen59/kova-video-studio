@@ -1,6 +1,6 @@
 #include "ColabVoiceIsolatorController.h"
 
-#include "audio/WavIO.h"
+#include "audio/AudioFileDecoder.h"
 #include "core/PathUtils.h"
 #include "core/Settings.h"
 #include "remote/ColabSession.h"
@@ -9,9 +9,11 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QFutureWatcher>
 #include <QMetaObject>
 #include <QSaveFile>
 #include <QUrl>
+#include <QtConcurrent>
 
 namespace LAStudio {
 
@@ -209,8 +211,8 @@ bool ColabVoiceIsolatorController::exportStem(const QString &sourcePath, const Q
 void ColabVoiceIsolatorController::openRecent(const QString &vocalsPath, const QString &backgroundPath)
 {
     m_vocalsPath = vocalsPath; m_backgroundPath = backgroundPath;
-    loadSamples(m_vocalsPath, &m_vocalsSamples, true);
-    loadSamples(m_backgroundPath, &m_backgroundSamples, false);
+    loadSamples(m_vocalsPath, true);
+    loadSamples(m_backgroundPath, false);
     emit stateChanged();
 }
 
@@ -252,8 +254,8 @@ void ColabVoiceIsolatorController::onRunnerFinished(const ColabSeparationResult 
     }
     m_processing = false; m_progress = 100; m_lastError.clear();
     m_vocalsPath = result.vocalsPath; m_backgroundPath = result.backgroundPath;
-    loadSamples(m_vocalsPath, &m_vocalsSamples, true);
-    loadSamples(m_backgroundPath, &m_backgroundSamples, false);
+    loadSamples(m_vocalsPath, true);
+    loadSamples(m_backgroundPath, false);
     m_recentResults = {QVariantMap{{QStringLiteral("vocalsPath"), m_vocalsPath},
                                    {QStringLiteral("backgroundPath"), m_backgroundPath},
                                    {QStringLiteral("sourceHash"), QStringLiteral("colab:%1").arg(result.jobId)}}};
@@ -276,14 +278,55 @@ void ColabVoiceIsolatorController::onRunnerFailed(const QString &error)
     if (wasProcessing) emit stateChanged();
 }
 
-void ColabVoiceIsolatorController::loadSamples(const QString &path, QVariantList *target, bool vocals)
+void ColabVoiceIsolatorController::loadSamples(const QString &path, bool vocals)
 {
-    if (!target) return;
+    QVariantList *target = vocals ? &m_vocalsSamples : &m_backgroundSamples;
     target->clear();
-    const WavIO::WavData data = WavIO::loadAsFloat(path);
-    const int step = qMax(1, data.samples.size() / 1000);
-    for (int index = 0; index < data.samples.size(); index += step) target->append(data.samples.at(index));
     if (vocals) emit vocalsSamplesChanged(); else emit backgroundSamplesChanged();
+
+    const QString samplePath = PathUtils::urlToLocalPath(path);
+    if (samplePath.isEmpty() || !QFileInfo::exists(samplePath)) return;
+
+    // A valid FLAC contains at least the 4-byte marker and a metadata block
+    // header.  Reject a visibly truncated upload before handing it to a media
+    // backend which may wait for more bytes.  This protects both manually
+    // uploaded stems and the preview UI from malformed files.
+    if (samplePath.endsWith(QStringLiteral(".flac"), Qt::CaseInsensitive)) {
+        QFile file(samplePath);
+        if (!file.open(QIODevice::ReadOnly)) return;
+        const QByteArray header = file.read(42);
+        if (header.size() < 42 || !header.startsWith("fLaC")) {
+            qWarning().noquote() << "[colab-voice-isolator] ignored truncated FLAC waveform:" << samplePath;
+            return;
+        }
+    }
+
+    auto *watcher = new QFutureWatcher<WavIO::WavData>(this);
+    connect(watcher, &QFutureWatcher<WavIO::WavData>::finished, this,
+            [this, watcher, samplePath, vocals] {
+        const WavIO::WavData data = watcher->result();
+        watcher->deleteLater();
+        if ((vocals ? m_vocalsPath : m_backgroundPath) != samplePath) return;
+
+        QVariantList samples;
+        const int step = qMax(1, data.samples.size() / 1000);
+        for (int index = 0; index < data.samples.size(); index += step)
+            samples.append(data.samples.at(index));
+        if (vocals) {
+            m_vocalsSamples = std::move(samples);
+            emit vocalsSamplesChanged();
+        } else {
+            m_backgroundSamples = std::move(samples);
+            emit backgroundSamplesChanged();
+        }
+    });
+    watcher->setFuture(QtConcurrent::run([samplePath] {
+        QString error;
+        WavIO::WavData data = AudioFileDecoder::decode(samplePath, &error);
+        if (data.samples.isEmpty() && !error.isEmpty())
+            qWarning().noquote() << "[colab-voice-isolator] waveform decode failed:" << error;
+        return data;
+    }));
 }
 
 void ColabVoiceIsolatorController::setError(const QString &error)

@@ -478,7 +478,7 @@ def cleanup(job_id: str) -> None:
     if job:
         shutil.rmtree(job.get("directory", ""), ignore_errors=True)
 
-def run_job(job_id: str, directory: Path, source: Path) -> None:
+def run_job(job_id: str, directory: Path, source: Path, output_format: str) -> None:
     try:
         update(job_id, status="running", progress=20, detail=f"{MODEL_NAME} is separating vocals on CUDA")
         wav_path = directory / "source-44100-stereo.wav"
@@ -492,10 +492,14 @@ def run_job(job_id: str, directory: Path, source: Path) -> None:
         output = SEPARATOR.process(sample_rate=sample_rate, samples=samples)
         if len(output.stems) != 2:
             raise RuntimeError(f"expected two stems, received {len(output.stems)}")
-        vocals = directory / "vocals.wav"
-        background = directory / "background.wav"
-        sf.write(vocals, np.asarray(output.stems[0].data).T, output.sample_rate, subtype="PCM_16")
-        sf.write(background, np.asarray(output.stems[1].data).T, output.sample_rate, subtype="PCM_16")
+        suffix = ".wav" if output_format == "wav" else ".flac"
+        file_format = "WAV" if output_format == "wav" else "FLAC"
+        vocals = directory / ("vocals" + suffix)
+        background = directory / ("background" + suffix)
+        sf.write(vocals, np.asarray(output.stems[0].data).T, output.sample_rate,
+                 format=file_format, subtype="PCM_16")
+        sf.write(background, np.asarray(output.stems[1].data).T, output.sample_rate,
+                 format=file_format, subtype="PCM_16")
         with JOB_LOCK:
             cancelled = JOBS.get(job_id, {}).get("cancel_requested", False)
         if cancelled:
@@ -506,6 +510,7 @@ def run_job(job_id: str, directory: Path, source: Path) -> None:
             update(
                 job_id, status="ready", progress=100, detail="Separated stems are ready",
                 vocals=str(vocals), background=str(background),
+                artifact_format=output_format, artifacts_ready=True,
             )
     except Exception as error:
         update(job_id, status="failed", progress=0, detail=f"{type(error).__name__}: {str(error)[:1800]}")
@@ -545,7 +550,7 @@ def capabilities(authorization: str | None = Header(default=None)):
                 "upstream_model": UPSTREAM_MODEL,
                 "artifact_url": ARTIFACT_URL,
                 "stems": ["vocals", "background"],
-                "formats": ["wav"],
+                "formats": ["flac", "wav"],
                 "device": "cuda",
                 "loaded": True,
             }],
@@ -557,12 +562,16 @@ async def create_separation(
     file: UploadFile = File(...),
     stems: str = Form("vocals,background"),
     model: str = Form(...),
+    output_format: str = Form("flac"),
     authorization: str | None = Header(default=None),
 ):
     authorize(authorization)
     require_exact_model(model)
     if stems != "vocals,background":
         raise HTTPException(status_code=422, detail="this worker returns vocals and background stems")
+    output_format = output_format.strip().lower()
+    if output_format not in {"flac", "wav"}:
+        raise HTTPException(status_code=422, detail="output_format must be flac or wav")
     suffix = Path(file.filename or "source.wav").suffix.lower() or ".wav"
     if suffix not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=415, detail="unsupported media filename extension")
@@ -594,8 +603,9 @@ async def create_separation(
         job_id, status="queued", progress=10, detail=f"Media uploaded; {MODEL_NAME} CUDA job is queued",
         directory=str(directory), cancel_requested=False,
     )
-    threading.Thread(target=run_job, args=(job_id, directory, source), daemon=True).start()
-    return {"job_id": job_id, "status": "queued", "progress": 10}
+    threading.Thread(target=run_job, args=(job_id, directory, source, output_format), daemon=True).start()
+    return {"job_id": job_id, "status": "queued", "progress": 10,
+            "artifact_format": output_format}
 
 @app.get("/v1/audio/separations/{job_id}")
 def separation_status(job_id: str, authorization: str | None = Header(default=None)):
@@ -604,7 +614,7 @@ def separation_status(job_id: str, authorization: str | None = Header(default=No
         job = dict(JOBS.get(job_id, {}))
     if not job:
         raise HTTPException(status_code=404, detail="separation job not found")
-    return {key: job.get(key) for key in ("status", "progress", "detail") if key in job} | {"job_id": job_id}
+    return {key: job.get(key) for key in ("status", "progress", "detail", "artifact_format", "artifacts_ready") if key in job} | {"job_id": job_id}
 
 @app.get("/v1/audio/separations/{job_id}/artifacts/{stem}")
 def artifact(job_id: str, stem: str, authorization: str | None = Header(default=None)):
@@ -616,7 +626,9 @@ def artifact(job_id: str, stem: str, authorization: str | None = Header(default=
     path = Path(job.get(stem, ""))
     if job.get("status") != "ready" or not path.is_file():
         raise HTTPException(status_code=409, detail="stem is not ready")
-    return FileResponse(path, media_type="audio/wav", filename=stem + ".wav")
+    output_format = job.get("artifact_format", "wav")
+    media_type = "audio/wav" if output_format == "wav" else "audio/flac"
+    return FileResponse(path, media_type=media_type, filename=stem + "." + output_format)
 
 @app.delete("/v1/audio/separations/{job_id}")
 def cancel_separation(job_id: str, authorization: str | None = Header(default=None)):

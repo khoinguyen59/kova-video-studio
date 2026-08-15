@@ -59,11 +59,13 @@ public:
                         const QString &model, const std::shared_ptr<std::atomic_bool> &cancelToken,
                         QJsonObject *response, QString *errorMessage);
     bool createSeparationJob(const QString &audioPath, const QString &model,
+                             const QString &artifactFormat,
                              QJsonObject *job, QString *errorMessage);
     bool separationJobStatus(const QString &jobId, QJsonObject *job, QString *errorMessage);
     bool downloadSeparationArtifact(const QString &jobId, const QString &stem,
+                                    const QString &artifactFormat,
                                     const std::shared_ptr<std::atomic_bool> &cancelToken,
-                                    QByteArray *wavData, QString *errorMessage,
+                                    QByteArray *artifactData, QString *errorMessage,
                                     const DownloadProgressCallback &downloadProgress = {});
     bool cancelSeparationJob(const QString &jobId, QString *errorMessage = nullptr);
     bool translateSegments(const QVariantList &segments, const QString &sourceLanguage,

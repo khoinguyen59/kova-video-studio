@@ -40,13 +40,21 @@ QByteArray tinyWav()
     return wav;
 }
 
+QByteArray tinyFlac()
+{
+    // Enough for the transfer contract.  It deliberately is not a decodable
+    // media stream, so the controller regression also verifies that a bad
+    // manually supplied FLAC cannot block the UI waveform preview.
+    return QByteArrayLiteral("fLaC");
+}
+
 class SeparationMock final : public QObject
 {
 public:
     explicit SeparationMock(bool permanentlyQueued = false, bool cudaFailure = false,
-                            bool stuckAtNinety = false)
+                            bool stuckAtNinety = false, bool legacyWav = false)
         : m_permanentlyQueued(permanentlyQueued), m_cudaFailure(cudaFailure),
-          m_stuckAtNinety(stuckAtNinety)
+          m_stuckAtNinety(stuckAtNinety), m_legacyWav(legacyWav)
     {
         connect(&m_server, &QTcpServer::newConnection, this, [this] {
             while (QTcpSocket *socket = m_server.nextPendingConnection()) {
@@ -75,16 +83,21 @@ private:
         QByteArray body;
         QByteArray contentType = "application/json";
         if (request.startsWith("POST /v1/audio/separations ")) {
-            body = R"({"job_id":"job-direct","status":"queued","progress":10})";
+            body = m_legacyWav
+                ? R"({"job_id":"job-direct","status":"queued","progress":10})"
+                : R"({"job_id":"job-direct","status":"queued","progress":10,"artifact_format":"flac"})";
         } else if (request.startsWith("GET /v1/audio/separations/job-direct/artifacts/vocals ")
                    || request.startsWith("GET /v1/audio/separations/job-direct/artifacts/background ")) {
-            body = tinyWav(); contentType = "audio/wav";
+            body = m_legacyWav ? tinyWav() : tinyFlac();
+            contentType = m_legacyWav ? "audio/wav" : "audio/flac";
         } else if (request.startsWith("GET /v1/audio/separations/job-direct ")) {
             body = m_cudaFailure
                 ? R"({"job_id":"job-direct","status":"failed","progress":0,"detail":"RuntimeError: CUDNN_FE failure 8: HEURISTIC_QUERY_FAILED; a deliberately long remote CUDA trace follows"})"
                 : (m_stuckAtNinety ? R"({"job_id":"job-direct","status":"running","progress":90,"detail":"Writing separated CUDA stems"})"
                    : (m_permanentlyQueued ? R"({"job_id":"job-direct","status":"running","progress":30})"
-                                       : R"({"job_id":"job-direct","status":"ready","progress":100})"));
+                                       : (m_legacyWav
+                                              ? R"({"job_id":"job-direct","status":"ready","progress":100,"artifacts_ready":true})"
+                                              : R"({"job_id":"job-direct","status":"ready","progress":100,"artifact_format":"flac","artifacts_ready":true})")));
         } else if (request.startsWith("DELETE /v1/audio/separations/job-direct ")) {
             body = R"({"status":"cancelled"})";
         } else {
@@ -103,6 +116,7 @@ private:
     bool m_permanentlyQueued = false;
     bool m_cudaFailure = false;
     bool m_stuckAtNinety = false;
+    bool m_legacyWav = false;
 };
 
 QString sourceFile(QTemporaryDir *directory)
@@ -144,23 +158,35 @@ void TestColabSeparationRunner::testUsesDirectJobAndArtifactContract()
     QCOMPARE(failures.count(), 0);
     const ColabSeparationResult result = finished.takeFirst().at(0).value<ColabSeparationResult>();
     QVERIFY(QFileInfo::exists(result.vocalsPath)); QVERIFY(QFileInfo::exists(result.backgroundPath));
+    QVERIFY(result.vocalsPath.endsWith(QStringLiteral("vocals.flac")));
+    QVERIFY(result.backgroundPath.endsWith(QStringLiteral("background.flac")));
     // This mock completes the remote job on its first status poll. The
     // runner must not manufacture an intermediate percentage; it reports
     // 100 only after both artifacts are downloaded and committed locally.
     QCOMPARE(progress.count(), 1);
     QCOMPARE(progress.at(0).at(0).toInt(), 100);
     QVERIFY(phases.count() >= 4);
+    bool sawArtifactsReadyPhase = false;
+    for (const QList<QVariant> &entry : phases) {
+        if (!entry.isEmpty()
+            && entry.constFirst().toString() == QStringLiteral("Colab created both FLAC stems; downloading them now")) {
+            sawArtifactsReadyPhase = true;
+            break;
+        }
+    }
+    QVERIFY(sawArtifactsReadyPhase);
     QVERIFY(transfers.count() >= 2);
     const QString firstArtifact = transfers.at(0).at(0).toString();
     const qint64 firstReceived = transfers.at(0).at(1).toLongLong();
     const qint64 firstTotal = transfers.at(0).at(2).toLongLong();
     QCOMPARE(firstArtifact, QStringLiteral("vocals"));
     QCOMPARE(firstReceived, firstTotal);
-    QVERIFY(firstTotal >= 44);
+    QVERIFY(firstTotal >= 4);
     const QByteArray requests = server.requests();
     QVERIFY(requests.startsWith("POST /v1/audio/separations HTTP/1.1\r\n"));
     QVERIFY(requests.toLower().contains("authorization: bearer colab-separation-token"));
     QVERIFY(requests.contains("name=\"stems\"")); QVERIFY(requests.contains("vocals,background"));
+    QVERIFY(requests.contains("name=\"output_format\"")); QVERIFY(requests.contains("flac"));
     QVERIFY(requests.contains("name=\"model\""));
     QVERIFY(requests.contains("sherpa-onnx-spleeter-2stems-fp16"));
     QVERIFY(requests.contains("name=\"file\"; filename=\"source.wav\""));
@@ -239,7 +265,10 @@ void TestColabSeparationRunner::cudaWorkerFailureIsActionableAndDoesNotDumpRunti
 
 void TestColabSeparationRunner::voiceCloneReferenceUsesCachedVocalsOnly()
 {
-    SeparationMock server;
+    // This branch intentionally emulates the old WAV-only notebook.  It
+    // proves the new FLAC transfer default remains backward compatible for a
+    // previously configured worker while the direct-runner test covers FLAC.
+    SeparationMock server(false, false, false, true);
     QVERIFY(server.start());
     QTemporaryDir directory;
     QVERIFY(directory.isValid());

@@ -42,7 +42,8 @@ Rectangle {
                         compactReloadAction, compactUnloadAction,
                         compactRunAction, compactRerunAction,
                         compactFixAction, compactNextAction,
-                        compactRouteAction, compactArtifactUploadAction]
+                        compactRouteAction, compactArtifactUploadAction,
+                        compactIsolationTransferFormat]
         for (var index = 0; index < controls.length; ++index) {
             var control = controls[index]
             if (!control.visible)
@@ -59,6 +60,7 @@ Rectangle {
     Layout.fillWidth: true
     Layout.preferredHeight: root.compact
                             ? ((root.remoteRouteConfigurable() ? 430 : 294)
+                               + (root.nodeId === "source-separate" ? 52 : 0)
                                + (root.artifactUploadAvailable ? 48 : 0))
                             : (root.remoteRouteConfigurable() ? 146 : 86)
     // Never permit a task-control child to render outside its owning pane.
@@ -228,6 +230,28 @@ Rectangle {
                          ? qsTr("Use a verified manual output and stop this task's automatic Colab transfer")
                          : qsTr("Upload the declared Colab output for this task")
                 onClicked: root.artifactUploadRequested()
+            }
+            ComboBox {
+                id: compactIsolationTransferFormat
+                visible: root.nodeId === "source-separate"
+                Layout.fillWidth: true
+                textRole: "label"
+                model: [
+                    { "id": "flac", "label": qsTr("Transfer: lossless FLAC (recommended)") },
+                    { "id": "wav", "label": qsTr("Transfer: PCM WAV (larger)") }
+                ]
+                currentIndex: {
+                    var selected = (root.node && root.node.parameters
+                                    && root.node.parameters.artifactTransferFormat) || "flac"
+                    return String(selected).toLowerCase() === "wav" ? 1 : 0
+                }
+                enabled: root.setupEditable()
+                onActivated: function(index) {
+                    root.dubbing.setWorkflowNodeParameters(
+                        root.nodeId, { "artifactTransferFormat": model[index].id })
+                }
+                ToolTip.visible: compactIsolationTransferFormat.hovered
+                ToolTip.text: qsTr("FLAC is lossless and substantially smaller than 44.1 kHz stereo WAV. LA Studio decodes it only when a later task requires PCM.")
             }
         }
         ColumnLayout {

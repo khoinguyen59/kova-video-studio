@@ -15,10 +15,14 @@ struct ColabSeparationRequest {
     QString audioPath;
     QString outputRoot;
     QString model = QStringLiteral("sherpa-onnx-spleeter-2stems-fp16");
+    // FLAC keeps the separated PCM stems lossless while avoiding the very
+    // large 44.1 kHz stereo WAV transfer.  WAV remains available for an
+    // operator or a legacy worker that explicitly needs it.
+    QString artifactFormat = QStringLiteral("flac");
     InferenceCancellationToken cancellation;
     bool allowInsecureLocalhost = false;
     // Protocol guard, not a user setting. The exact worker writes its two
-    // WAV artifacts immediately after it reaches 90%; it must not keep the
+    // negotiated-format artifacts immediately after it reaches 90%; it must not keep the
     // desktop waiting indefinitely if it never transitions to ready.
     int finalizeTimeoutMs = 5 * 60 * 1000;
     int statusPollIntervalMs = 350;

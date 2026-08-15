@@ -2365,10 +2365,10 @@ void TestDubbingProject::dubbingManualArtifactSpecsExposeStrictColabContracts()
     QVERIFY(isolation.value(QStringLiteral("workerPath")).toString().contains(
         QStringLiteral("source.wav is input")));
     const QStringList expectedIsolationFiles{
-        QStringLiteral("vocals.wav"), QStringLiteral("background.wav")};
+        QStringLiteral("vocals.flac"), QStringLiteral("background.flac")};
     QCOMPARE(isolation.value(QStringLiteral("expectedFiles")).toStringList(),
              expectedIsolationFiles);
-    const QStringList expectedWavExtensions{QStringLiteral(".wav")};
+    const QStringList expectedWavExtensions{QStringLiteral(".flac")};
     QCOMPARE(isolation.value(QStringLiteral("allowedExtensions")).toStringList(),
              expectedWavExtensions);
     QCOMPARE(isolation.value(QStringLiteral("multiple")).toBool(), true);
@@ -2411,21 +2411,34 @@ void TestDubbingProject::dubbingManualArtifactSpecsExposeStrictColabContracts()
     QVERIFY(dir.isValid());
     QVERIFY(controller.newProject(dir.filePath(QStringLiteral("artifact.ladub.json"))));
 
-    const QString vocals = dir.filePath(QStringLiteral("vocals.wav"));
-    const QString background = dir.filePath(QStringLiteral("background.wav"));
-    QVERIFY(writeFixtureFile(vocals, QByteArrayLiteral("wav fixture")));
-    QVERIFY(writeFixtureFile(background, QByteArrayLiteral("wav fixture")));
+    const QString vocals = dir.filePath(QStringLiteral("vocals.flac"));
+    const QString background = dir.filePath(QStringLiteral("background.flac"));
+    QVERIFY(writeFixtureFile(vocals, QByteArrayLiteral("flac fixture")));
+    QVERIFY(writeFixtureFile(background, QByteArrayLiteral("flac fixture")));
 
     // The task contract is exact: isolation rejects an arbitrary file name,
-    // then accepts only the two declared WAV artifacts.
-    const QString wrongName = dir.filePath(QStringLiteral("other.wav"));
-    QVERIFY(writeFixtureFile(wrongName, QByteArrayLiteral("wav fixture")));
+    // then accepts only the two declared lossless FLAC artifacts.
+    const QString wrongName = dir.filePath(QStringLiteral("other.flac"));
+    QVERIFY(writeFixtureFile(wrongName, QByteArrayLiteral("flac fixture")));
     QVERIFY(!controller.importWorkflowArtifactFiles(
         QStringLiteral("source-separate"), QVariantList{vocals, wrongName}));
     QVERIFY(controller.importWorkflowArtifactFiles(
         QStringLiteral("source-separate"), QVariantList{vocals, background}));
     QVERIFY(QFileInfo(controller.vocalsPath()).isFile());
     QVERIFY(QFileInfo(controller.backgroundPath()).isFile());
+
+    // WAV remains an explicit compatibility choice. It is never silently
+    // selected for a new Direct-Colab isolation route, but projects that need
+    // PCM handoff can opt in and receive an equally strict WAV-only contract.
+    QVERIFY(controller.setWorkflowNodeParameters(QStringLiteral("source-separate"), {
+        {QStringLiteral("artifactTransferFormat"), QStringLiteral("wav")},
+    }));
+    const QVariantMap wavIsolation = controller.workflowArtifactSpec(
+        QStringLiteral("source-separate"));
+    QCOMPARE(wavIsolation.value(QStringLiteral("expectedFiles")).toStringList(),
+             QStringList({QStringLiteral("vocals.wav"), QStringLiteral("background.wav")}));
+    QCOMPARE(wavIsolation.value(QStringLiteral("allowedExtensions")).toStringList(),
+             QStringList({QStringLiteral(".wav")}));
 }
 
 void TestDubbingProject::dubbingUiUsesExactModelWorkers()
@@ -2687,8 +2700,7 @@ void TestDubbingProject::dubbingUiUsesExactModelWorkers()
     QVERIFY(artifactUploadSource.contains(QStringLiteral("workflowArtifactHandoffStatus")));
     QVERIFY(artifactUploadSource.contains(QStringLiteral("Use uploaded output and continue")));
     QVERIFY(artifactUploadSource.contains(QStringLiteral("Use uploaded stems and continue")));
-    QVERIFY(artifactUploadSource.contains(QStringLiteral("Choose vocals.wav")));
-    QVERIFY(artifactUploadSource.contains(QStringLiteral("Choose background.wav")));
+    QVERIFY(artifactUploadSource.contains(QStringLiteral("isolationStemName")));
     QVERIFY(artifactUploadSource.contains(QStringLiteral("Colab save folder")));
     QVERIFY(artifactUploadSource.contains(QStringLiteral("Allowed output")));
 

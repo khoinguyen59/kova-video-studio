@@ -25,7 +25,7 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 
-WORKER_CONTRACT = "spleeter-cuda-safe-20260805.1"
+WORKER_CONTRACT = "spleeter-cuda-safe-20260816.1"
 MODEL_ID = "sherpa-onnx-spleeter-2stems-fp16"
 MODEL_NAME = "Spleeter 2-stem FP16"
 UPSTREAM_MODEL = "k2-fsa/sherpa-onnx-spleeter-2stems-fp16"
@@ -277,7 +277,7 @@ def concise_failure(error: Exception) -> str:
     return f"{type(error).__name__}: {text[:600]}"
 
 
-def run_job(job_id: str, directory: Path, source: Path) -> None:
+def run_job(job_id: str, directory: Path, source: Path, output_format: str) -> None:
     try:
         update(job_id, status="running", progress=12, detail="Decoding media for bounded CUDA separation")
         wav_path = directory / "source-44100-stereo.wav"
@@ -293,13 +293,22 @@ def run_job(job_id: str, directory: Path, source: Path) -> None:
             update(job_id, status="cancelled", progress=0, detail="Separation cancelled")
             return
         update(job_id, status="running", progress=90, detail="Writing separated CUDA stems")
-        vocals = directory / "vocals.wav"
-        background = directory / "background.wav"
-        sf.write(vocals, vocals_data, sample_rate, subtype="PCM_16")
-        sf.write(background, background_data, sample_rate, subtype="PCM_16")
+        suffix = ".wav" if output_format == "wav" else ".flac"
+        vocals = directory / ("vocals" + suffix)
+        background = directory / ("background" + suffix)
+        # FLAC is lossless and typically reduces the 44.1 kHz stereo transfer
+        # by far more than 50%; PCM WAV remains the explicit compatibility
+        # choice for an operator who needs it.
+        sf.write(vocals, vocals_data, sample_rate,
+                 format="WAV" if output_format == "wav" else "FLAC",
+                 subtype="PCM_16")
+        sf.write(background, background_data, sample_rate,
+                 format="WAV" if output_format == "wav" else "FLAC",
+                 subtype="PCM_16")
         update(
             job_id, status="ready", progress=100, detail="Separated CUDA stems are ready",
             vocals=str(vocals), background=str(background),
+            artifact_format=output_format, artifacts_ready=True,
         )
     except Exception as error:
         traceback.print_exc()
@@ -346,7 +355,7 @@ def capabilities(authorization: str | None = Header(default=None)):
                 "upstream_model": UPSTREAM_MODEL,
                 "artifact_url": ARTIFACT_URL,
                 "stems": ["vocals", "background"],
-                "formats": ["wav"],
+                "formats": ["flac", "wav"],
                 "device": "cuda",
                 "loaded": True,
             }],
@@ -359,12 +368,16 @@ async def create_separation(
     file: UploadFile = File(...),
     stems: str = Form("vocals,background"),
     model: str = Form(...),
+    output_format: str = Form("flac"),
     authorization: str | None = Header(default=None),
 ):
     authorize(authorization)
     require_exact_model(model)
     if stems != "vocals,background":
         raise HTTPException(status_code=422, detail="this worker returns vocals and background stems")
+    output_format = output_format.strip().lower()
+    if output_format not in {"flac", "wav"}:
+        raise HTTPException(status_code=422, detail="output_format must be flac or wav")
     suffix = Path(file.filename or "source.wav").suffix.lower() or ".wav"
     if suffix not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=415, detail="unsupported media filename extension")
@@ -397,8 +410,9 @@ async def create_separation(
         detail=f"Media uploaded; {MODEL_NAME} CUDA job is queued",
         directory=str(directory), cancel_requested=False,
     )
-    threading.Thread(target=run_job, args=(job_id, directory, source), daemon=True).start()
-    return {"job_id": job_id, "status": "queued", "progress": 10}
+    threading.Thread(target=run_job, args=(job_id, directory, source, output_format), daemon=True).start()
+    return {"job_id": job_id, "status": "queued", "progress": 10,
+            "artifact_format": output_format}
 
 
 @app.get("/v1/audio/separations/{job_id}")
@@ -408,7 +422,7 @@ def separation_status(job_id: str, authorization: str | None = Header(default=No
         job = dict(JOBS.get(job_id, {}))
     if not job:
         raise HTTPException(status_code=404, detail="separation job not found")
-    return {key: job.get(key) for key in ("status", "progress", "detail") if key in job} | {"job_id": job_id}
+    return {key: job.get(key) for key in ("status", "progress", "detail", "artifact_format", "artifacts_ready") if key in job} | {"job_id": job_id}
 
 
 @app.get("/v1/audio/separations/{job_id}/artifacts/{stem}")
@@ -421,7 +435,9 @@ def artifact(job_id: str, stem: str, authorization: str | None = Header(default=
     path = Path(job.get(stem, ""))
     if job.get("status") != "ready" or not path.is_file():
         raise HTTPException(status_code=409, detail="stem is not ready")
-    return FileResponse(path, media_type="audio/wav", filename=stem + ".wav")
+    output_format = job.get("artifact_format", "wav")
+    media_type = "audio/flac" if output_format == "flac" else "audio/wav"
+    return FileResponse(path, media_type=media_type, filename=stem + "." + output_format)
 
 
 @app.delete("/v1/audio/separations/{job_id}")

@@ -117,7 +117,7 @@ DubbingJobRunner::DubbingJobRunner(SttSessionController *sttSession, TtsEngine *
         if (!m_run.processing() || m_run.stageId() != DubbingStage::SourceSeparation) return;
         m_colabSeparationActivityStatus = phase;
         if (!phase.startsWith(QStringLiteral("Requesting "))
-            && !phase.startsWith(QStringLiteral("Direct Colab worker is ready"))) {
+            && !phase.startsWith(QStringLiteral("Colab created both "))) {
             m_colabSeparationTransferActive = false;
         }
         emit stateChanged();
@@ -635,10 +635,12 @@ void DubbingJobRunner::startSourceSeparation(const QString &audioPath,
             QStringLiteral("dubbing/colab-separation/%1/%2")
                 .arg(m_run.runId(), m_run.nodeRunId()));
         request.model = model;
+        request.artifactFormat = parameters.value(QStringLiteral("artifactTransferFormat"),
+                                                   QStringLiteral("flac")).toString();
         request.cancellation = InferenceCancellationToken(m_colabSeparationCancellation);
         Logger::info(QStringLiteral("DubbingPipeline"),
-                     QStringLiteral("[source-separate] direct Colab run=%1 node=%2 model=%3")
-                         .arg(m_run.runId(), m_run.nodeRunId(), request.model));
+                     QStringLiteral("[source-separate] direct Colab run=%1 node=%2 model=%3 transfer=%4")
+                         .arg(m_run.runId(), m_run.nodeRunId(), request.model, request.artifactFormat));
         QMetaObject::invokeMethod(m_colabSeparationRunner, "separate", Qt::QueuedConnection,
                                   Q_ARG(ColabSeparationRequest, request));
         return;
