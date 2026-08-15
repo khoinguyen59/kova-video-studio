@@ -40,6 +40,7 @@
 #include <QDir>
 #include <QDateTime>
 #include <QHash>
+#include <QSet>
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QSaveFile>
@@ -146,6 +147,81 @@ bool replaceCopy(const QString &source, const QString &destination, QString *err
         return false;
     }
     return true;
+}
+
+QVariantMap workflowArtifactSpecForNode(const QString &nodeId)
+{
+    const QString id = nodeId.trimmed().toLower();
+    if (id == QStringLiteral("source-separate")) {
+        return {{QStringLiteral("nodeId"), id},
+                {QStringLiteral("title"), QStringLiteral("Voice isolation")},
+                {QStringLiteral("description"), QStringLiteral("Upload the two stems saved by the Spleeter/UVR Colab notebook. Both files are required and must be WAV." )},
+                {QStringLiteral("colabFolder"), QStringLiteral("/content/la_studio_outputs/isolator/")},
+                {QStringLiteral("workerPath"), QStringLiteral("The worker output is temporary; save vocals.wav and background.wav into the folder above before downloading." )},
+                {QStringLiteral("expectedFiles"), QStringList{QStringLiteral("vocals.wav"), QStringLiteral("background.wav")}},
+                {QStringLiteral("allowedExtensions"), QStringList{QStringLiteral(".wav")}},
+                {QStringLiteral("multiple"), true}};
+    }
+    if (id == QStringLiteral("transcribe")) {
+        return {{QStringLiteral("nodeId"), id},
+                {QStringLiteral("title"), QStringLiteral("STT transcript")},
+                {QStringLiteral("description"), QStringLiteral("Upload one timed or line-mapped source transcript. This is imported as the reviewed source text; it does not start a local or remote model." )},
+                {QStringLiteral("colabFolder"), QStringLiteral("/content/la_studio_outputs/stt/<model-id>/")},
+                {QStringLiteral("workerPath"), QStringLiteral("Save transcript.srt (or .vtt/.ass/.ssa/.txt/.md) from the STT Colab notebook before downloading." )},
+                {QStringLiteral("expectedFiles"), QStringList{QStringLiteral("one transcript file")}},
+                {QStringLiteral("allowedExtensions"), QStringList{QStringLiteral(".srt"), QStringLiteral(".vtt"), QStringLiteral(".ass"), QStringLiteral(".ssa"), QStringLiteral(".txt"), QStringLiteral(".md"), QStringLiteral(".markdown")}},
+                {QStringLiteral("multiple"), false}};
+    }
+    if (id == QStringLiteral("subtitle-ocr")) {
+        QVariantMap spec = workflowArtifactSpecForNode(QStringLiteral("transcribe"));
+        spec.insert(QStringLiteral("nodeId"), id);
+        spec.insert(QStringLiteral("title"), QStringLiteral("Subtitle OCR transcript"));
+        spec.insert(QStringLiteral("description"), QStringLiteral("Upload the reviewed OCR subtitle file produced by the exact Subtitle OCR Colab notebook."));
+        spec.insert(QStringLiteral("colabFolder"), QStringLiteral("/content/la_studio_outputs/ocr/<model-id>/"));
+        spec.insert(QStringLiteral("workerPath"), QStringLiteral("Save ocr.srt (or .vtt/.ass/.ssa/.txt/.md) before downloading."));
+        return spec;
+    }
+    if (id == QStringLiteral("translate")) {
+        return {{QStringLiteral("nodeId"), id},
+                {QStringLiteral("title"), QStringLiteral("Translated subtitles")},
+                {QStringLiteral("description"), QStringLiteral("Upload one target-language subtitle file. Cue count must match the reviewed transcript; LA Studio will not invent timing or silently drop rows." )},
+                {QStringLiteral("colabFolder"), QStringLiteral("/content/la_studio_outputs/translate/<model-id>/")},
+                {QStringLiteral("workerPath"), QStringLiteral("Save translated.srt (or .vtt/.ass/.ssa/.txt/.md) from the translation Colab notebook before downloading." )},
+                {QStringLiteral("expectedFiles"), QStringList{QStringLiteral("one translated subtitle file")}},
+                {QStringLiteral("allowedExtensions"), QStringList{QStringLiteral(".srt"), QStringLiteral(".vtt"), QStringLiteral(".ass"), QStringLiteral(".ssa"), QStringLiteral(".txt"), QStringLiteral(".md"), QStringLiteral(".markdown")}},
+                {QStringLiteral("multiple"), false}};
+    }
+    if (id == QStringLiteral("synthesize")) {
+        return {{QStringLiteral("nodeId"), id},
+                {QStringLiteral("title"), QStringLiteral("Generated voice")},
+                {QStringLiteral("description"), QStringLiteral("Upload the rendered WAV voice output exported by the TTS/voice-clone Colab notebook." )},
+                {QStringLiteral("colabFolder"), QStringLiteral("/content/la_studio_outputs/tts/<model-id>/")},
+                {QStringLiteral("workerPath"), QStringLiteral("Save voice.wav before downloading. Segment-level bundles are not accepted by this handoff." )},
+                {QStringLiteral("expectedFiles"), QStringList{QStringLiteral("voice.wav")}},
+                {QStringLiteral("allowedExtensions"), QStringList{QStringLiteral(".wav")}},
+                {QStringLiteral("multiple"), false}};
+    }
+    if (id == QStringLiteral("mix")) {
+        return {{QStringLiteral("nodeId"), id},
+                {QStringLiteral("title"), QStringLiteral("Mixed voice audio")},
+                {QStringLiteral("description"), QStringLiteral("Upload the final WAV mix exported by the Colab mix step." )},
+                {QStringLiteral("colabFolder"), QStringLiteral("/content/la_studio_outputs/mix/")},
+                {QStringLiteral("workerPath"), QStringLiteral("Save voice.wav before downloading." )},
+                {QStringLiteral("expectedFiles"), QStringList{QStringLiteral("voice.wav")}},
+                {QStringLiteral("allowedExtensions"), QStringList{QStringLiteral(".wav")}},
+                {QStringLiteral("multiple"), false}};
+    }
+    if (id == QStringLiteral("export")) {
+        return {{QStringLiteral("nodeId"), id},
+                {QStringLiteral("title"), QStringLiteral("Final media")},
+                {QStringLiteral("description"), QStringLiteral("Upload the final video exported by the Colab render step." )},
+                {QStringLiteral("colabFolder"), QStringLiteral("/content/la_studio_outputs/export/")},
+                {QStringLiteral("workerPath"), QStringLiteral("Save final.mp4 (or MKV/WebM/MOV) before downloading." )},
+                {QStringLiteral("expectedFiles"), QStringList{QStringLiteral("one final video file")}},
+                {QStringLiteral("allowedExtensions"), QStringList{QStringLiteral(".mp4"), QStringLiteral(".mkv"), QStringLiteral(".webm"), QStringLiteral(".mov")}},
+                {QStringLiteral("multiple"), false}};
+    }
+    return {};
 }
 
 QString activityNodeId(const QString &stage)
@@ -5954,6 +6030,201 @@ bool DubbingController::importSubtitles(const QString &path, const QString &unti
     emit projectChanged();
     emit workflowChanged();
     persistAfterEdit();
+    return true;
+}
+
+QVariantMap DubbingController::workflowArtifactSpec(const QString &nodeId) const
+{
+    QVariantMap spec = workflowArtifactSpecForNode(nodeId);
+    const QString id = nodeId.trimmed().toLower();
+    // The visible Transcribe task can be driven by OCR instead of audio STT.
+    // Reflect that choice in the handoff instructions rather than asking the
+    // operator to guess which Colab output belongs to the current route.
+    if (id == QStringLiteral("transcribe")
+        && m_project.transcriptConfiguration.value(QStringLiteral("transcriptSource"),
+                                                   QStringLiteral("stt")).toString().trimmed().toLower()
+               == QStringLiteral("ocr")) {
+        spec = workflowArtifactSpecForNode(QStringLiteral("subtitle-ocr"));
+        spec.insert(QStringLiteral("nodeId"), id);
+    }
+    return spec;
+}
+
+bool DubbingController::importWorkflowArtifactFiles(const QString &nodeId,
+                                                     const QVariantList &paths)
+{
+    if (processing()) {
+        setBusyError(QStringLiteral("Wait for the active Dubbing operation before importing a Colab output."));
+        return false;
+    }
+    if (!hasProject()) {
+        setError(QStringLiteral("Open or create a Dubbing project before importing a Colab output."));
+        return false;
+    }
+
+    const QString id = nodeId.trimmed().toLower();
+    const QVariantMap spec = workflowArtifactSpec(id);
+    if (spec.isEmpty()) {
+        setError(QStringLiteral("This Dubbing task does not accept a manual Colab output."));
+        return false;
+    }
+
+    QStringList sourcePaths;
+    for (const QVariant &value : paths) {
+        const QString candidate = QFileInfo(PathUtils::urlToLocalPath(value.toString())).absoluteFilePath();
+        if (candidate.isEmpty() || !QFileInfo(candidate).isFile()) {
+            setError(QStringLiteral("Every selected Colab output must be an existing local file."));
+            return false;
+        }
+        if (!sourcePaths.contains(candidate, Qt::CaseInsensitive)) sourcePaths.append(candidate);
+    }
+
+    const bool multiple = spec.value(QStringLiteral("multiple")).toBool();
+    const int expectedCount = multiple ? 2 : 1;
+    if (sourcePaths.size() != expectedCount) {
+        setError(multiple
+                     ? QStringLiteral("Voice isolation requires exactly two files: vocals.wav and background.wav.")
+                     : QStringLiteral("This task requires exactly one output file; select only the declared Colab artifact."));
+        return false;
+    }
+
+    const QStringList allowedExtensions = spec.value(QStringLiteral("allowedExtensions")).toStringList();
+    for (const QString &sourcePath : sourcePaths) {
+        const QString extension = QStringLiteral(".") + QFileInfo(sourcePath).suffix().toLower();
+        if (!allowedExtensions.contains(extension)) {
+            setError(QStringLiteral("Unsupported Colab output format '%1'. Allowed formats: %2.")
+                         .arg(extension, allowedExtensions.join(QStringLiteral(", "))));
+            return false;
+        }
+    }
+    if (id == QStringLiteral("source-separate")) {
+        QSet<QString> names;
+        for (const QString &sourcePath : sourcePaths)
+            names.insert(QFileInfo(sourcePath).fileName().toLower());
+        if (names.size() != 2 || !names.contains(QStringLiteral("vocals.wav"))
+            || !names.contains(QStringLiteral("background.wav"))) {
+            setError(QStringLiteral("Voice isolation outputs must be named exactly vocals.wav and background.wav."));
+            return false;
+        }
+    }
+
+    QString projectStem = QFileInfo(m_project.projectPath).completeBaseName();
+    projectStem.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9._-]+")), QStringLiteral("_"));
+    if (projectStem.isEmpty()) projectStem = QStringLiteral("project");
+    const QString destinationRoot = QDir(PathUtils::cacheDir()).filePath(
+        QStringLiteral("dubbing-artifacts/%1/%2").arg(projectStem, id));
+    if (!QDir().mkpath(destinationRoot)) {
+        setError(QStringLiteral("Cannot create the Dubbing artifact cache: %1").arg(destinationRoot));
+        return false;
+    }
+
+    QStringList copiedPaths;
+    QString copyError;
+    for (const QString &sourcePath : sourcePaths) {
+        const QString destination = QDir(destinationRoot).filePath(QFileInfo(sourcePath).fileName());
+        if (!replaceCopy(sourcePath, destination, &copyError)) {
+            setError(copyError);
+            return false;
+        }
+        copiedPaths.append(destination);
+    }
+
+    if (id == QStringLiteral("source-separate")) {
+        QString vocalsPath;
+        QString backgroundPath;
+        for (const QString &path : copiedPaths) {
+            if (QFileInfo(path).fileName().compare(QStringLiteral("vocals.wav"), Qt::CaseInsensitive) == 0)
+                vocalsPath = path;
+            else if (QFileInfo(path).fileName().compare(QStringLiteral("background.wav"), Qt::CaseInsensitive) == 0)
+                backgroundPath = path;
+        }
+        m_project.analysisAudioPath = vocalsPath;
+        m_project.backgroundAudioPath = backgroundPath;
+        m_runner->setBackgroundAudioPath(backgroundPath);
+        m_stepOutputs.insert(id, QVariantMap{{QStringLiteral("manualUpload"), true},
+                                             {QStringLiteral("vocals"), vocalsPath},
+                                             {QStringLiteral("background"), backgroundPath},
+                                             {QStringLiteral("path"), destinationRoot},
+                                             {QStringLiteral("colabFolder"), spec.value(QStringLiteral("colabFolder"))},
+                                             {QStringLiteral("workerPath"), spec.value(QStringLiteral("workerPath"))}});
+    } else if (id == QStringLiteral("transcribe") || id == QStringLiteral("subtitle-ocr")) {
+        if (!importSubtitles(copiedPaths.constFirst(), QStringLiteral("existing-segment"))) return false;
+        m_stepOutputs.insert(id, QVariantMap{{QStringLiteral("manualUpload"), true},
+                                             {QStringLiteral("path"), copiedPaths.constFirst()},
+                                             {QStringLiteral("colabFolder"), spec.value(QStringLiteral("colabFolder"))},
+                                             {QStringLiteral("workerPath"), spec.value(QStringLiteral("workerPath"))}});
+    } else if (id == QStringLiteral("translate")) {
+        QVariantList imported;
+        bool hasTiming = false;
+        QString format;
+        QString importError;
+        if (!DubbingSubtitleService::importFile(copiedPaths.constFirst(), imported, hasTiming, format, &importError)) {
+            setError(importError);
+            return false;
+        }
+        QVariantList targetLines = imported;
+        if (!hasTiming) {
+            if (!DubbingSubtitleService::mapUntimedLines(imported, m_project.segments, targetLines, &importError)) {
+                setError(importError);
+                return false;
+            }
+        }
+        if (targetLines.size() != m_project.segments.size()) {
+            setError(QStringLiteral("The translated Colab output has %1 cues, but this transcript has %2. No rows were changed.")
+                         .arg(targetLines.size()).arg(m_project.segments.size()));
+            return false;
+        }
+        QVariantList updated = m_project.segments;
+        for (int index = 0; index < updated.size(); ++index) {
+            const QString text = targetLines.at(index).toMap().value(QStringLiteral("sourceText")).toString().trimmed();
+            if (text.isEmpty()) {
+                setError(QStringLiteral("The translated Colab output contains an empty cue at row %1.").arg(index + 1));
+                return false;
+            }
+            QVariantMap segment = updated.at(index).toMap();
+            segment.insert(QStringLiteral("targetText"), text);
+            segment.insert(QStringLiteral("translationSource"), QStringLiteral("manual-colab-upload"));
+            segment.insert(QStringLiteral("state"), QStringLiteral("translated"));
+            updated[index] = segment;
+        }
+        m_project.segments = updated;
+        m_project.subtitleConfiguration.insert(QStringLiteral("translationSource"), QStringLiteral("manual-colab-upload"));
+        m_project.subtitleConfiguration.insert(QStringLiteral("translatedFileName"), QFileInfo(copiedPaths.constFirst()).fileName());
+        m_stepOutputs.insert(id, QVariantMap{{QStringLiteral("manualUpload"), true},
+                                             {QStringLiteral("path"), copiedPaths.constFirst()},
+                                             {QStringLiteral("colabFolder"), spec.value(QStringLiteral("colabFolder"))},
+                                             {QStringLiteral("workerPath"), spec.value(QStringLiteral("workerPath"))}});
+        emit segmentsChanged();
+    } else if (id == QStringLiteral("synthesize")) {
+        m_runner->setDubbedVocalPath(copiedPaths.constFirst());
+        m_stepOutputs.insert(id, QVariantMap{{QStringLiteral("manualUpload"), true},
+                                             {QStringLiteral("audio"), copiedPaths.constFirst()},
+                                             {QStringLiteral("path"), copiedPaths.constFirst()},
+                                             {QStringLiteral("colabFolder"), spec.value(QStringLiteral("colabFolder"))},
+                                             {QStringLiteral("workerPath"), spec.value(QStringLiteral("workerPath"))}});
+    } else if (id == QStringLiteral("mix")) {
+        m_runner->setPreviewPath(copiedPaths.constFirst());
+        m_stepOutputs.insert(id, QVariantMap{{QStringLiteral("manualUpload"), true},
+                                             {QStringLiteral("audio"), copiedPaths.constFirst()},
+                                             {QStringLiteral("path"), copiedPaths.constFirst()},
+                                             {QStringLiteral("colabFolder"), spec.value(QStringLiteral("colabFolder"))},
+                                             {QStringLiteral("workerPath"), spec.value(QStringLiteral("workerPath"))}});
+    } else if (id == QStringLiteral("export")) {
+        m_runner->setExportPath(copiedPaths.constFirst());
+        m_stepOutputs.insert(id, QVariantMap{{QStringLiteral("manualUpload"), true},
+                                             {QStringLiteral("path"), copiedPaths.constFirst()},
+                                             {QStringLiteral("colabFolder"), spec.value(QStringLiteral("colabFolder"))},
+                                             {QStringLiteral("workerPath"), spec.value(QStringLiteral("workerPath"))}});
+    }
+
+    m_lastCompletedStepId = id;
+    clearError();
+    emit projectChanged();
+    emit previewChanged();
+    emit exportChanged();
+    emit workflowChanged();
+    persistAfterEdit();
+    if (m_workflowMode == QStringLiteral("step")) advanceManualStep(id);
     return true;
 }
 

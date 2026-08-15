@@ -88,6 +88,7 @@ public:
 
     // Helpers to let controller update/clear state in runner
     void setPreviewPath(const QString &path);
+    void setDubbedVocalPath(const QString &path) { m_dubbedVocalPath = path; emit stateChanged(); }
     void setExportPath(const QString &path);
     void clearError();
     void setProcessingState(bool value, const QString &stage, int progress);

@@ -2343,6 +2343,55 @@ void TestDubbingProject::dubbingColabModelsMapToExactNotebooks()
                 QStringLiteral("not-a-model")).isEmpty());
 }
 
+void TestDubbingProject::dubbingManualArtifactSpecsExposeStrictColabContracts()
+{
+    DubbingController controller(nullptr, nullptr);
+
+    const QVariantMap ocr = controller.workflowArtifactSpec(QStringLiteral("subtitle-ocr"));
+    QCOMPARE(ocr.value(QStringLiteral("colabFolder")).toString(),
+             QStringLiteral("/content/la_studio_outputs/ocr/<model-id>/"));
+    QVERIFY(ocr.value(QStringLiteral("workerPath")).toString().contains(
+        QStringLiteral("ocr.srt")));
+    QVERIFY(ocr.value(QStringLiteral("allowedExtensions")).toStringList().contains(
+        QStringLiteral(".srt")));
+    QVERIFY(!ocr.value(QStringLiteral("allowedExtensions")).toStringList().contains(
+        QStringLiteral(".mp4")));
+    QCOMPARE(ocr.value(QStringLiteral("multiple")).toBool(), false);
+
+    const QVariantMap isolation = controller.workflowArtifactSpec(
+        QStringLiteral("source-separate"));
+    QCOMPARE(isolation.value(QStringLiteral("colabFolder")).toString(),
+             QStringLiteral("/content/la_studio_outputs/isolator/"));
+    const QStringList expectedIsolationFiles{
+        QStringLiteral("vocals.wav"), QStringLiteral("background.wav")};
+    QCOMPARE(isolation.value(QStringLiteral("expectedFiles")).toStringList(),
+             expectedIsolationFiles);
+    const QStringList expectedWavExtensions{QStringLiteral(".wav")};
+    QCOMPARE(isolation.value(QStringLiteral("allowedExtensions")).toStringList(),
+             expectedWavExtensions);
+    QCOMPARE(isolation.value(QStringLiteral("multiple")).toBool(), true);
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QVERIFY(controller.newProject(dir.filePath(QStringLiteral("artifact.ladub.json"))));
+
+    const QString vocals = dir.filePath(QStringLiteral("vocals.wav"));
+    const QString background = dir.filePath(QStringLiteral("background.wav"));
+    QVERIFY(writeFixtureFile(vocals, QByteArrayLiteral("wav fixture")));
+    QVERIFY(writeFixtureFile(background, QByteArrayLiteral("wav fixture")));
+
+    // The task contract is exact: isolation rejects an arbitrary file name,
+    // then accepts only the two declared WAV artifacts.
+    const QString wrongName = dir.filePath(QStringLiteral("other.wav"));
+    QVERIFY(writeFixtureFile(wrongName, QByteArrayLiteral("wav fixture")));
+    QVERIFY(!controller.importWorkflowArtifactFiles(
+        QStringLiteral("source-separate"), QVariantList{vocals, wrongName}));
+    QVERIFY(controller.importWorkflowArtifactFiles(
+        QStringLiteral("source-separate"), QVariantList{vocals, background}));
+    QVERIFY(QFileInfo(controller.vocalsPath()).isFile());
+    QVERIFY(QFileInfo(controller.backgroundPath()).isFile());
+}
+
 void TestDubbingProject::dubbingUiUsesExactModelWorkers()
 {
     const QDir sourceRoot(QStringLiteral(LASTUDIO_SOURCE_DIR));
@@ -2584,6 +2633,23 @@ void TestDubbingProject::dubbingUiUsesExactModelWorkers()
         QStringLiteral("dubbing.resolveTranscriptConflict(index, \"stt\")")));
     QVERIFY(dubbingPageSource.contains(
         QStringLiteral("dubbing.resolveTranscriptConflict(index, \"ocr\")")));
+    QVERIFY(dubbingPageSource.contains(QStringLiteral("objectName: \"dubbingArtifactUploadPanel\"")));
+    QVERIFY(dubbingPageSource.contains(QStringLiteral("objectName: \"dubbingTranslationInputPanel\"")));
+    QVERIFY(dubbingPageSource.contains(QStringLiteral("objectName: \"compactOcrModel\"")));
+    QVERIFY(dubbingPageSource.contains(QStringLiteral("objectName: \"dubbingOcrModelMode\"")));
+    QVERIFY(dubbingPageSource.contains(QStringLiteral("Set up OCR Colab")));
+    QVERIFY(dubbingPageSource.contains(QStringLiteral("AI source reconciliation before Translate")));
+    QVERIFY(dubbingPageSource.contains(QStringLiteral("unresolvedTranscriptConflictCount > 0")));
+
+    QFile artifactUpload(
+        QStringLiteral(LASTUDIO_SOURCE_DIR)
+        + QStringLiteral("/qml/components/dubbing/DubbingArtifactUploadPanel.qml"));
+    QVERIFY(artifactUpload.open(QIODevice::ReadOnly));
+    const QString artifactUploadSource = QString::fromUtf8(artifactUpload.readAll());
+    QVERIFY(artifactUploadSource.contains(QStringLiteral("workflowArtifactSpec")));
+    QVERIFY(artifactUploadSource.contains(QStringLiteral("importWorkflowArtifactFiles")));
+    QVERIFY(artifactUploadSource.contains(QStringLiteral("Colab save folder")));
+    QVERIFY(artifactUploadSource.contains(QStringLiteral("Allowed output")));
 
     QFile transcriptionRunner(
         QStringLiteral(LASTUDIO_SOURCE_DIR)

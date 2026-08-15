@@ -284,6 +284,13 @@ public:
     Q_INVOKABLE bool exportSubtitles(const QString &path, bool useTargetText = true);
     Q_INVOKABLE bool importSubtitles(const QString &path,
                                      const QString &untimedStrategy = QStringLiteral("existing-segment"));
+    // Manual Colab artifact handoff is scoped to the selected production task.
+    // The controller owns the allow-list and copies accepted files into the
+    // project cache; QML must not be able to bypass validation with arbitrary
+    // paths or extensions.
+    Q_INVOKABLE QVariantMap workflowArtifactSpec(const QString &nodeId) const;
+    Q_INVOKABLE bool importWorkflowArtifactFiles(const QString &nodeId,
+                                                 const QVariantList &paths);
     Q_INVOKABLE bool setSubtitleStyle(const QVariantMap &style);
     Q_INVOKABLE bool setSubtitleTextSource(const QString &source);
     Q_INVOKABLE bool setSubtitleBurnIn(bool enabled);

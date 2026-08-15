@@ -91,6 +91,7 @@ private slots:
     void dubbingRejectsAConnectedColabWorkerForTheWrongModel();
     void remoteDubbingWorkflowIsReadyWithoutLocalModels();
     void dubbingColabModelsMapToExactNotebooks();
+    void dubbingManualArtifactSpecsExposeStrictColabContracts();
     void dubbingUiUsesExactModelWorkers();
     void dubbingEntryAndAutomaticSetupCannotBypassConfiguration();
     void dubbingTranscriptionWaitsForFreshDecodedAudio();

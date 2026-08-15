@@ -1164,27 +1164,78 @@ Item {
                             }
                         }
                     }
-                    DubbingNodeSettingsPanel {
-                        id: taskShelfNodeSettings
-                        dubbing: root.dubbing
-                        nodeId: root.displayedStepId
-                        node: root.workflowNode(nodeId)
-                        nodeTitle: root.stepTitle(nodeId)
-                        canRun: root.canRunStep(nodeId)
-                        canRerun: root.canRerunStep(nodeId)
-                        runReady: root.stepRunReady(nodeId)
-                        nextNodeId: root.nextNodeId(nodeId)
-                        nextReady: root.nextNodeReady(nodeId)
-                        compact: true
-                        visible: node !== null
-                        onConfigureRequested: nodeModelDialog.openFor(nodeId)
-                        onLoadRequested: dubbing.loadWorkflowNodeModel(nodeId)
-                        onUnloadRequested: dubbing.unloadWorkflowNodeModel(nodeId)
-                        onReloadRequested: dubbing.reloadWorkflowNodeModel(nodeId)
-                        onRunRequested: root.runStep(nodeId)
-                        onNextRequested: root.runNextNode(nodeId)
-                        onFixRequested: translationFixDialog.openForAll()
-                    }
+                    ScrollView {
+                        id: taskShelfScroll
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        contentWidth: availableWidth
+
+                        ColumnLayout {
+                            id: taskShelfContent
+                            width: taskShelfScroll.availableWidth
+                            spacing: Theme.paddingSmall
+
+                            DubbingNodeSettingsPanel {
+                                id: taskShelfNodeSettings
+                                dubbing: root.dubbing
+                                nodeId: root.displayedStepId
+                                node: root.workflowNode(nodeId)
+                                nodeTitle: root.stepTitle(nodeId)
+                                canRun: root.canRunStep(nodeId)
+                                canRerun: root.canRerunStep(nodeId)
+                                runReady: root.stepRunReady(nodeId)
+                                nextNodeId: root.nextNodeId(nodeId)
+                                nextReady: root.nextNodeReady(nodeId)
+                                compact: true
+                                visible: node !== null
+                                onConfigureRequested: nodeModelDialog.openFor(nodeId)
+                                onLoadRequested: dubbing.loadWorkflowNodeModel(nodeId)
+                                onUnloadRequested: dubbing.unloadWorkflowNodeModel(nodeId)
+                                onReloadRequested: dubbing.reloadWorkflowNodeModel(nodeId)
+                                onRunRequested: root.runStep(nodeId)
+                                onNextRequested: root.runNextNode(nodeId)
+                                onFixRequested: translationFixDialog.openForAll()
+                            }
+                            DubbingArtifactUploadPanel {
+                                id: dubbingArtifactUploadPanel
+                                objectName: "dubbingArtifactUploadPanel"
+                                dubbing: root.dubbing
+                                nodeId: root.displayedStepId
+                                visible: ["source-separate", "transcribe", "translate", "synthesize", "mix", "export"]
+                                            .indexOf(root.displayedStepId) >= 0
+                            }
+                            Rectangle {
+                                id: dubbingTranslationInputPanel
+                                objectName: "dubbingTranslationInputPanel"
+                                visible: root.displayedStepId === "translate"
+                                Layout.fillWidth: true
+                                implicitHeight: translationInputLayout.implicitHeight + Theme.paddingSmall * 2
+                                radius: Theme.radiusSmall
+                                color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.08)
+                                border.color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.24)
+                                ColumnLayout {
+                                    id: translationInputLayout
+                                    anchors.fill: parent
+                                    anchors.margins: Theme.paddingSmall
+                                    spacing: 2
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: qsTr("AI translation input")
+                                        color: Theme.textPrimary
+                                        font.bold: true
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: (dubbing.transcriptConfiguration.transcriptSource || "stt") === "stt+ocr"
+                                              ? qsTr("Translate uses the reviewed STT/OCR source after conflicts are resolved. The selected translation model converts it to the target language.")
+                                              : qsTr("Translate uses the reviewed source transcript from the selected STT or OCR route.")
+                                        color: Theme.textSecondary
+                                        font.pixelSize: 10
+                                        wrapMode: Text.WordWrap
+                                    }
+                                }
+                            }
                     // Keep the primary STT/OCR source decision next to the
                     // selected task.  Detailed conflict and OCR controls stay
                     // in the right review pane, but this makes the active
@@ -1247,28 +1298,136 @@ Item {
                                 font.pixelSize: 10
                                 wrapMode: Text.WordWrap
                             }
+                            Text {
+                                Layout.fillWidth: true
+                                text: qsTr("Subtitle OCR model and route (optional)")
+                                color: Theme.textPrimary
+                                font.bold: true
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                ComboBox {
+                                    id: compactOcrModel
+                                    objectName: "compactOcrModel"
+                                    Layout.fillWidth: true
+                                    textRole: "displayName"
+                                    valueRole: "modelId"
+                                    model: dubbing.colabModelOptionsForNode("subtitle-ocr")
+                                    currentIndex: {
+                                        var selected = dubbing.transcriptConfiguration.ocrColabModelId
+                                                       || dubbing.defaultColabModelForNode("subtitle-ocr")
+                                        for (var i = 0; i < model.length; ++i)
+                                            if (model[i].modelId === selected) return i
+                                        return 0
+                                    }
+                                    enabled: root.ocrSetupEditable()
+                                    onActivated: function(index) {
+                                        if (model[index] && model[index].modelId)
+                                            dubbing.selectWorkflowColabModel("subtitle-ocr", model[index].modelId)
+                                    }
+                                }
+                                PrimaryButton {
+                                    text: qsTr("Set up OCR Colab")
+                                    iconName: "cloud"
+                                    quiet: true
+                                    enabled: root.ocrSetupEditable()
+                                    onClicked: {
+                                        var selected = compactOcrModel.currentIndex >= 0
+                                                ? compactOcrModel.model[compactOcrModel.currentIndex].modelId
+                                                : dubbing.defaultColabModelForNode("subtitle-ocr")
+                                        if (selected) dubbing.selectWorkflowColabModel("subtitle-ocr", selected)
+                                        root.openOcrColabSetup()
+                                    }
+                                }
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: qsTr("Exact OCR model: %1 · notebook: %2")
+                                      .arg(dubbing.transcriptConfiguration.ocrColabModelId
+                                           || dubbing.defaultColabModelForNode("subtitle-ocr"))
+                                      .arg(dubbing.colabNotebookForNode(
+                                               "subtitle-ocr",
+                                               dubbing.transcriptConfiguration.ocrColabModelId
+                                               || dubbing.defaultColabModelForNode("subtitle-ocr")))
+                                color: Theme.textSecondary
+                                font.pixelSize: 10
+                                wrapMode: Text.WordWrap
+                            }
+                            Rectangle {
+                                Layout.fillWidth: true
+                                visible: (dubbing.transcriptConfiguration.transcriptSource || "stt") === "stt+ocr"
+                                implicitHeight: aiTranscriptLayout.implicitHeight + Theme.paddingSmall * 2
+                                color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.08)
+                                radius: Theme.radiusSmall
+                                border.color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.24)
+                                ColumnLayout {
+                                    id: aiTranscriptLayout
+                                    anchors.fill: parent
+                                    anchors.margins: Theme.paddingSmall
+                                    spacing: Theme.paddingSmall
+                                    Text {
+                                        text: qsTr("AI source reconciliation before Translate")
+                                        color: Theme.textPrimary
+                                        font.bold: true
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: qsTr("When STT and OCR are both selected, AI can prepare a source-language suggestion. It does not replace review and it is separate from the target-language translation model.")
+                                        color: Theme.textSecondary
+                                        font.pixelSize: 10
+                                        wrapMode: Text.WordWrap
+                                    }
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        PrimaryButton {
+                                            text: qsTr("Configure AI reconciliation")
+                                            iconName: "settings"
+                                            quiet: true
+                                            enabled: root.ocrSetupEditable()
+                                            onClicked: qualityDialog.openForMode("adaptive")
+                                        }
+                                        PrimaryButton {
+                                            readonly property var aiAvailability: dubbing.transcriptConflictAiAvailability()
+                                            visible: (dubbing.transcriptConfiguration.transcriptSource || "stt") === "stt+ocr"
+                                            text: qsTr("Request AI suggestion")
+                                            iconName: "spark"
+                                            quiet: true
+                                            enabled: !dubbing.processing && aiAvailability.available
+                                                     && dubbing.unresolvedTranscriptConflictCount > 0
+                                            toolTip: dubbing.unresolvedTranscriptConflictCount > 0
+                                                      ? (aiAvailability.available
+                                                         ? qsTr("Prepare source-language suggestions for review")
+                                                         : (aiAvailability.reason || ""))
+                                                      : qsTr("Run STT + OCR first; unresolved conflicts will appear here.")
+                                            onClicked: dubbing.requestTranscriptConflictAiSuggestion(-1)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
-                    PrimaryButton {
-                        Layout.fillWidth: true
-                        visible: taskShelfNodeSettings.node
-                                 && taskShelfNodeSettings.node.configurable === true
-                        text: root.isAdvancedNodeInspectorOpen
-                              ? qsTr("Show task result") : qsTr("Advanced task settings")
-                        iconName: root.isAdvancedNodeInspectorOpen ? "file" : "sliders"
-                        quiet: true
-                        onClicked: root.isAdvancedNodeInspectorOpen = !root.isAdvancedNodeInspectorOpen
+                            PrimaryButton {
+                                Layout.fillWidth: true
+                                visible: taskShelfNodeSettings.node
+                                         && taskShelfNodeSettings.node.configurable === true
+                                text: root.isAdvancedNodeInspectorOpen
+                                      ? qsTr("Show task result") : qsTr("Advanced task settings")
+                                iconName: root.isAdvancedNodeInspectorOpen ? "file" : "sliders"
+                                quiet: true
+                                onClicked: root.isAdvancedNodeInspectorOpen = !root.isAdvancedNodeInspectorOpen
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: root.isAdvancedNodeInspectorOpen
+                                      ? qsTr("The right panel shows detailed parameters for this task.")
+                                      : qsTr("The right panel shows this task's output, review, and next action.")
+                                color: Theme.textSecondary
+                                font.pixelSize: 9
+                                wrapMode: Text.WordWrap
+                            }
+                            Item { Layout.fillHeight: true }
+                        }
                     }
-                    Text {
-                        Layout.fillWidth: true
-                        text: root.isAdvancedNodeInspectorOpen
-                              ? qsTr("The right panel shows detailed parameters for this task.")
-                              : qsTr("The right panel shows this task's output, review, and next action.")
-                        color: Theme.textSecondary
-                        font.pixelSize: 9
-                        wrapMode: Text.WordWrap
-                    }
-                    Item { Layout.fillHeight: true }
                 }
             }
 
@@ -1530,14 +1689,16 @@ Item {
                                     text: qsTr("Request AI")
                                     quiet: true
                                     enabled: !dubbing.processing && aiAvailability.available
-                                    toolTip: aiAvailability.available ? qsTr("Prepare suggestions only")
-                                                                    : (aiAvailability.reason || "")
+                                             && dubbing.unresolvedTranscriptConflictCount > 0
+                                    toolTip: dubbing.unresolvedTranscriptConflictCount > 0
+                                              ? (aiAvailability.available ? qsTr("Prepare suggestions only")
+                                                                           : (aiAvailability.reason || ""))
+                                              : qsTr("Run STT + OCR first; unresolved conflicts will appear here.")
                                     onClicked: dubbing.requestTranscriptConflictAiSuggestion(-1)
                                 }
                             }
                             Text {
                                 Layout.fillWidth: true
-                                visible: (dubbing.transcriptConfiguration.transcriptSource || "stt") !== "stt"
                                 text: qsTr("OCR setup is saved with this Dubbing project when you run: %1 · sample %2 ms · confidence %3")
                                       .arg(dubbing.transcriptConfiguration.ocrLanguage || qsTr("current Subtitle OCR language"))
                                       .arg(dubbing.transcriptConfiguration.ocrSampleIntervalMs || "—")
@@ -1549,7 +1710,6 @@ Item {
                             }
                             Text {
                                 Layout.fillWidth: true
-                                visible: (dubbing.transcriptConfiguration.transcriptSource || "stt") !== "stt"
                                 text: dubbing.transcriptConfiguration.ocrExecutionRoute === "colab-gpu"
                                       ? qsTr("OCR route: Colab GPU · %1 · configure and check it in Subtitle OCR before this Dubbing run.")
                                             .arg(dubbing.transcriptConfiguration.ocrColabModelId || "pp-ocrv5-multilingual-3.1")
@@ -1563,7 +1723,6 @@ Item {
                             }
                             RowLayout {
                                 Layout.fillWidth: true
-                                visible: (dubbing.transcriptConfiguration.transcriptSource || "stt") !== "stt"
                                 spacing: Theme.paddingSmall
                                 Text {
                                     text: qsTr("OCR compute")
@@ -1572,7 +1731,7 @@ Item {
                                 }
                                 ComboBox {
                                     id: dubbingOcrRouteMode
-                                    Layout.preferredWidth: 180
+                                    Layout.preferredWidth: 150
                                     textRole: "label"
                                     model: [
                                         { id: "local-cpu", label: qsTr("Local CPU") },
@@ -1587,6 +1746,26 @@ Item {
                                             dubbing.setWorkflowNodeParameters("transcribe", {
                                                 "ocrExecutionRoute": "local-cpu"
                                             })
+                                    }
+                                }
+                                ComboBox {
+                                    id: dubbingOcrModelMode
+                                    objectName: "dubbingOcrModelMode"
+                                    Layout.fillWidth: true
+                                    textRole: "displayName"
+                                    valueRole: "modelId"
+                                    model: dubbing.colabModelOptionsForNode("subtitle-ocr")
+                                    currentIndex: {
+                                        var selected = dubbing.transcriptConfiguration.ocrColabModelId
+                                                       || dubbing.defaultColabModelForNode("subtitle-ocr")
+                                        for (var i = 0; i < model.length; ++i)
+                                            if (model[i].modelId === selected) return i
+                                        return 0
+                                    }
+                                    enabled: root.ocrSetupEditable()
+                                    onActivated: function(index) {
+                                        if (model[index] && model[index].modelId)
+                                            dubbing.selectWorkflowColabModel("subtitle-ocr", model[index].modelId)
                                     }
                                 }
                                 PrimaryButton {
