@@ -447,7 +447,7 @@ Item {
                 ? dubbingTranscriptSourceModeDetails : dubbingTranscriptSourceMode
         if (completedTranscriptSourceMode.model[0].id !== "stt"
                 || completedTranscriptSourceMode.model[1].id !== "ocr"
-                || completedTranscriptSourceMode.model[2].id !== "stt+ocr") {
+                || completedTranscriptSourceMode.model[2].id !== "reconcile") {
             qmlSmokeTranscriptSourceFailure = "transcript source model order changed"
             return -1
         }
@@ -620,6 +620,16 @@ Item {
                 return -1
             }
             if (qmlSmokeAutomaticStageIndex >= configuredStages.length) {
+                // Stage setup above can legitimately retain the Adaptive
+                // rewrite worker from a previous configuration.  This route
+                // contract intentionally exercises exactly the two node
+                // workers below, so make the unrelated rewrite route a
+                // configured API route before asserting its worker count.
+                dubbing.setAdaptiveConfiguration({
+                    provider: "api",
+                    serverUrl: "https://qml-smoke.invalid/v1",
+                    model: "qml-smoke"
+                })
                 var localRouteState = qmlSmokeAutomaticRouteState()
                 if (!dubbing.setWorkflowNodeParameters("source-separate", {
                     executionProvider: "colab-direct",
@@ -1225,7 +1235,7 @@ Item {
                                     }
                                     Text {
                                         Layout.fillWidth: true
-                                        text: (dubbing.transcriptConfiguration.transcriptSource || "stt") === "stt+ocr"
+                                        text: (dubbing.transcriptConfiguration.transcriptSource || "stt") === "reconcile"
                                               ? qsTr("Translate uses the reviewed STT/OCR source after conflicts are resolved. The selected translation model converts it to the target language.")
                                               : qsTr("Translate uses the reviewed source transcript from the selected STT or OCR route.")
                                         color: Theme.textSecondary
@@ -1270,10 +1280,11 @@ Item {
                                 model: [
                                     { id: "stt", label: qsTr("Chỉ STT") },
                                     { id: "ocr", label: qsTr("Chỉ OCR") },
-                                    { id: "stt+ocr", label: qsTr("STT + OCR") }
+                                    { id: "reconcile", label: qsTr("Khớp STT + OCR") }
                                 ]
                                 currentIndex: {
                                     var source = dubbing.transcriptConfiguration.transcriptSource || "stt"
+                                    if (source === "stt+ocr") source = "reconcile"
                                     for (var i = 0; i < model.length; ++i)
                                         if (model[i].id === source) return i
                                     return 0
@@ -1289,8 +1300,8 @@ Item {
                                 Layout.fillWidth: true
                                 text: (dubbing.transcriptConfiguration.transcriptSource || "stt") === "ocr"
                                       ? qsTr("OCR uses the selected Subtitle OCR route and ROI.")
-                                      : (dubbing.transcriptConfiguration.transcriptSource || "stt") === "stt+ocr"
-                                        ? qsTr("Both sources run; conflicts stay available for review.")
+                                      : (dubbing.transcriptConfiguration.transcriptSource || "stt") === "reconcile"
+                                        ? qsTr("Khớp hai kết quả đã hoàn thành; STT và OCR không chạy lại.")
                                         : qsTr("Uses speech-to-text only.")
                                 color: Theme.textSecondary
                                 font.pixelSize: 10
@@ -1353,7 +1364,7 @@ Item {
                             }
                             Rectangle {
                                 Layout.fillWidth: true
-                                visible: (dubbing.transcriptConfiguration.transcriptSource || "stt") === "stt+ocr"
+                                visible: (dubbing.transcriptConfiguration.transcriptSource || "stt") === "reconcile"
                                 implicitHeight: aiTranscriptLayout.implicitHeight + Theme.paddingSmall * 2
                                 color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.08)
                                 radius: Theme.radiusSmall
@@ -1386,7 +1397,7 @@ Item {
                                         }
                                         PrimaryButton {
                                             readonly property var aiAvailability: dubbing.transcriptConflictAiAvailability()
-                                            visible: (dubbing.transcriptConfiguration.transcriptSource || "stt") === "stt+ocr"
+                                            visible: (dubbing.transcriptConfiguration.transcriptSource || "stt") === "reconcile"
                                             text: qsTr("Request AI suggestion")
                                             iconName: "spark"
                                             quiet: true
@@ -1601,10 +1612,11 @@ Item {
                                     model: [
                                         { id: "stt", label: qsTr("Chỉ STT") },
                                         { id: "ocr", label: qsTr("Chỉ OCR") },
-                                        { id: "stt+ocr", label: qsTr("STT + OCR") }
+                                    { id: "reconcile", label: qsTr("Khớp STT + OCR") }
                                     ]
                                     currentIndex: {
                                         var source = dubbing.transcriptConfiguration.transcriptSource || "stt"
+                                        if (source === "stt+ocr") source = "reconcile"
                                         for (var i = 0; i < model.length; ++i)
                                             if (model[i].id === source) return i
                                         return 0
@@ -1619,8 +1631,8 @@ Item {
                                 Text {
                                     text: (dubbing.transcriptConfiguration.transcriptSource || "stt") === "ocr"
                                           ? qsTr("Uses Subtitle OCR video, selected Local CPU/Colab route, language and ROI.")
-                                          : (dubbing.transcriptConfiguration.transcriptSource || "stt") === "stt+ocr"
-                                            ? qsTr("Both sources must succeed; conflicts remain for review.")
+                                          : (dubbing.transcriptConfiguration.transcriptSource || "stt") === "reconcile"
+                                            ? qsTr("Khớp hai transcript đã lưu; phải chạy hoặc upload STT và OCR trước.")
                                             : qsTr("Uses the existing audio STT route only.")
                                     color: Theme.textSecondary
                                     font.pixelSize: Theme.fontSmall
@@ -1900,7 +1912,7 @@ Item {
                                                 PrimaryButton {
                                                     text: qsTr("Preview crop")
                                                     quiet: true
-                                                    visible: (dubbing.transcriptConfiguration.transcriptSource || "stt") !== "stt"
+                                                    visible: (dubbing.transcriptConfiguration.transcriptSource || "stt") === "ocr"
                                                     enabled: !dubbing.processing
                                                     onClicked: dubbing.previewDubbingOcrCrop(modelData.startMs || 0)
                                                 }

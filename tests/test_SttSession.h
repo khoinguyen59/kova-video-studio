@@ -9,6 +9,7 @@ class TestSttSession : public QObject {
 private slots:
     void cleanupTestCase();
     void testSttAudioDecoder();
+    void testSttAudioDecoderResamplesStereoWavOffThread();
     void testSttSessionPendingLoads();
     void testSttSessionHistoryRoundTrip();
     void testSttSessionUrlPreview();

@@ -138,10 +138,11 @@ Dialog {
                         model: [
                             { id: "stt", label: qsTr("Chỉ STT") },
                             { id: "ocr", label: qsTr("Chỉ OCR") },
-                            { id: "stt+ocr", label: qsTr("STT + OCR") }
+                            { id: "reconcile", label: qsTr("Khớp STT + OCR") }
                         ]
                         currentIndex: {
                             var source = root.dubbing.transcriptConfiguration.transcriptSource || "stt"
+                            if (source === "stt+ocr") source = "reconcile"
                             for (var i = 0; i < model.length; ++i)
                                 if (model[i].id === source) return i
                             return 0
@@ -159,7 +160,7 @@ Dialog {
                               ? qsTr("Subtitle OCR is not used. Its saved configuration remains available for a later mode change.")
                               : ((root.dubbing.transcriptConfiguration.transcriptSource || "stt") === "ocr"
                                  ? qsTr("Speech-to-text is not used. Its saved configuration remains available for a later mode change.")
-                                 : qsTr("Both transcript sources are active. Only active sources whose route is Direct Colab require a verified worker."))
+                                 : qsTr("Khớp lại dùng hai transcript đã hoàn tất; nó không khởi động STT hoặc OCR và không cần một worker mới."))
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fontSmall
                         wrapMode: Text.WordWrap

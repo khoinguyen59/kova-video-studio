@@ -2677,7 +2677,7 @@ void TestDubbingProject::dubbingUiUsesExactModelWorkers()
         QStringLiteral("objectName: \"dubbingTranscriptSourceMode\"")));
     QVERIFY(dubbingPageSource.contains(QStringLiteral("{ id: \"stt\"")));
     QVERIFY(dubbingPageSource.contains(QStringLiteral("{ id: \"ocr\"")));
-    QVERIFY(dubbingPageSource.contains(QStringLiteral("{ id: \"stt+ocr\"")));
+    QVERIFY(dubbingPageSource.contains(QStringLiteral("{ id: \"reconcile\"")));
     QVERIFY(dubbingPageSource.contains(
         QStringLiteral("dubbing.resolveTranscriptConflict(index, \"stt\")")));
     QVERIFY(dubbingPageSource.contains(
@@ -2747,7 +2747,13 @@ void TestDubbingProject::dubbingUiUsesExactModelWorkers()
         QStringLiteral("setSubtitleOcrController")));
     QVERIFY(runnerSource.contains(
         QStringLiteral("Subtitle OCR controller is unavailable.")));
-    QVERIFY(runnerSource.contains(
+    // STT and OCR now run independently.  Reconciliation is deliberately
+    // owned by the controller, which can require both completed sources
+    // before invoking the fusion service; it must not be hidden in the
+    // worker that starts either source.
+    QVERIFY(dubbingControllerSource.contains(
+        QStringLiteral("DubbingTranscriptFusionService::fuse")));
+    QVERIFY(!runnerSource.contains(
         QStringLiteral("DubbingTranscriptFusionService::fuse")));
 }
 
@@ -4470,7 +4476,7 @@ void TestDubbingProject::preservesFusionAndTranscriptSettingsAcrossProjectReload
     DubbingProject project;
     project.projectPath = dir.filePath(QStringLiteral("fusion.ladub.json"));
     project.transcriptConfiguration = {
-        {QStringLiteral("transcriptSource"), QStringLiteral("stt+ocr")},
+        {QStringLiteral("transcriptSource"), QStringLiteral("reconcile")},
         {QStringLiteral("ocrLanguage"), QStringLiteral("chi_sim")},
         {QStringLiteral("ocrExecutionRoute"), QStringLiteral("colab-gpu")},
         {QStringLiteral("ocrLocalEngineId"), QStringLiteral("paddleocr-ppocrv6-tiny")},
@@ -4496,7 +4502,7 @@ void TestDubbingProject::preservesFusionAndTranscriptSettingsAcrossProjectReload
     DubbingProject restored;
     QVERIFY2(DubbingProject::load(project.projectPath, restored, &error), qPrintable(error));
     QCOMPARE(restored.transcriptConfiguration.value(QStringLiteral("transcriptSource")).toString(),
-             QStringLiteral("stt+ocr"));
+             QStringLiteral("reconcile"));
     QCOMPARE(restored.transcriptConfiguration.value(QStringLiteral("ocrRoi")).toMap()
                  .value(QStringLiteral("y")).toDouble(), 0.70);
     QCOMPARE(restored.transcriptConfiguration.value(QStringLiteral("ocrExecutionRoute")).toString(),
@@ -4517,7 +4523,11 @@ void TestDubbingProject::preservesFusionAndTranscriptSettingsAcrossProjectReload
     QCOMPARE(subtitleOcr.localEngineVersion(), QStringLiteral("3.7.0"));
     QCOMPARE(subtitleOcr.colabModelId(), QStringLiteral("pp-ocrv5-multilingual-3.1"));
     QVERIFY(!controller.customReady());
-    QVERIFY(controller.customStatusText().contains(QStringLiteral("Connect and check")));
+    // A reconciled transcript no longer starts OCR itself.  Its saved OCR
+    // route must round-trip, but Custom setup must first report the next
+    // independently required Dubbing node rather than falsely blocking on
+    // the OCR Colab worker.
+    QVERIFY(controller.customStatusText().contains(QStringLiteral("Choose a model")));
 }
 
 void TestDubbingProject::ocrOnlyTranscriptUsesTheSharedSubtitleOcrController()
@@ -4658,7 +4668,7 @@ void TestDubbingProject::combinedTranscriptRunsSttAndSharedOcrWithoutFallback()
         {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
         {QStringLiteral("modelId"), QStringLiteral("whisper.cpp")},
         {QStringLiteral("parameters"), QVariantMap{
-            {QStringLiteral("transcriptSource"), QStringLiteral("stt+ocr")},
+            {QStringLiteral("transcriptSource"), QStringLiteral("reconcile")},
             {QStringLiteral("ocrSourceMedia"), videoPath},
             {QStringLiteral("ocrLanguage"), QStringLiteral("eng")},
             {QStringLiteral("ocrSampleIntervalMs"), 1000},
@@ -4666,19 +4676,11 @@ void TestDubbingProject::combinedTranscriptRunsSttAndSharedOcrWithoutFallback()
     };
     runner.startTranscription(QStringLiteral("en"), audioPath, {}, configuration);
 
-    QTRY_COMPARE_WITH_TIMEOUT(completed.count(), 1, 15000);
-    QCOMPARE(failed.count(), 0);
-    const QVariantList transcript = completed.constFirst().constFirst().toList();
-    QCOMPARE(transcript.size(), 1);
-    const QVariantMap segment = transcript.constFirst().toMap();
-    QCOMPARE(segment.value(QStringLiteral("sourceText")).toString(), QStringLiteral("Shared OCR"));
-    QCOMPARE(segment.value(QStringLiteral("fusionStatus")).toString(), QStringLiteral("matched"));
-    QCOMPARE(segment.value(QStringLiteral("timingSource")).toString(),
-             QStringLiteral("asr-with-ocr-text"));
-    QCOMPARE(segment.value(QStringLiteral("transcriptProvenance")).toList().size(), 2);
-    QVERIFY(worker.requests().contains("POST /v2/uploads/stt HTTP/1.1\r\n"));
-    QVERIFY(worker.requests().contains("POST /v2/uploads/stt/dubbing-stt-upload/commit HTTP/1.1\r\n"));
-    QVERIFY(worker.requests().contains("GET /v2/jobs/transcriptions/dubbing-stt-job HTTP/1.1\r\n"));
+    QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 5000);
+    QCOMPARE(completed.count(), 0);
+    QVERIFY(failed.constFirst().constFirst().toString().contains(
+        QStringLiteral("Run STT and OCR independently")));
+    QVERIFY(!worker.requests().contains("POST /v2/uploads/stt HTTP/1.1\r\n"));
     QVERIFY(!runner.processing());
 }
 
@@ -4714,15 +4716,14 @@ void TestDubbingProject::combinedTranscriptReportsOcrFailureWithoutSttFallback()
         {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
         {QStringLiteral("modelId"), QStringLiteral("whisper.cpp")},
         {QStringLiteral("parameters"), QVariantMap{
-            {QStringLiteral("transcriptSource"), QStringLiteral("stt+ocr")},
+            {QStringLiteral("transcriptSource"), QStringLiteral("reconcile")},
             {QStringLiteral("ocrSourceMedia"), directory.filePath(QStringLiteral("source.mp4"))}}}
     });
 
     QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 5000);
     QCOMPARE(completed.count(), 0);
     const QString error = failed.constFirst().constFirst().toString();
-    QVERIFY(error.contains(QStringLiteral("OCR transcript failed")));
-    QVERIFY(error.contains(QStringLiteral("Subtitle OCR controller is unavailable")));
+    QVERIFY(error.contains(QStringLiteral("Run STT and OCR independently")));
     QVERIFY(!runner.processing());
 }
 
@@ -4774,23 +4775,23 @@ void TestDubbingProject::transcriptModePersistsAndColabCardsUseOnlyActiveSourceA
     QVERIFY(controller.setWorkflowNodeParameters(QStringLiteral("transcribe"), {
         {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
         {QStringLiteral("modelId"), QStringLiteral("whisper.cpp")},
-        {QStringLiteral("transcriptSource"), QStringLiteral("stt+ocr")},
+        {QStringLiteral("transcriptSource"), QStringLiteral("reconcile")},
         {QStringLiteral("fusionPolicy"), QStringLiteral("ask")},
         {QStringLiteral("ocrExecutionRoute"), QStringLiteral("colab-gpu")},
         {QStringLiteral("ocrColabModelId"), QStringLiteral("pp-ocrv5-multilingual-3.1")}
     }));
     QCOMPARE(controller.transcriptConfiguration().value(QStringLiteral("transcriptSource")).toString(),
-             QStringLiteral("stt+ocr"));
+             QStringLiteral("reconcile"));
     QCOMPARE(controller.transcriptConfiguration().value(QStringLiteral("sttExecutionProvider")).toString(),
              QStringLiteral("colab-direct"));
     QCOMPARE(controller.transcriptConfiguration().value(QStringLiteral("sttModelId")).toString(),
              QStringLiteral("whisper.cpp"));
 
     QVariantList stages = controller.colabSetupStages();
-    QVERIFY(stage(stages, QStringLiteral("transcribe")).value(QStringLiteral("activeForTranscriptSource")).toBool());
-    QVERIFY(stage(stages, QStringLiteral("transcribe")).value(QStringLiteral("selectedForDirectColab")).toBool());
-    QVERIFY(stage(stages, QStringLiteral("subtitle-ocr")).value(QStringLiteral("activeForTranscriptSource")).toBool());
-    QVERIFY(stage(stages, QStringLiteral("subtitle-ocr")).value(QStringLiteral("selectedForDirectColab")).toBool());
+    QVERIFY(!stage(stages, QStringLiteral("transcribe")).value(QStringLiteral("activeForTranscriptSource")).toBool());
+    QVERIFY(!stage(stages, QStringLiteral("transcribe")).value(QStringLiteral("selectedForDirectColab")).toBool());
+    QVERIFY(!stage(stages, QStringLiteral("subtitle-ocr")).value(QStringLiteral("activeForTranscriptSource")).toBool());
+    QVERIFY(!stage(stages, QStringLiteral("subtitle-ocr")).value(QStringLiteral("selectedForDirectColab")).toBool());
 
     QVERIFY(controller.setWorkflowNodeParameters(QStringLiteral("transcribe"), {
         {QStringLiteral("transcriptSource"), QStringLiteral("ocr")}}));
@@ -4816,14 +4817,14 @@ void TestDubbingProject::transcriptModePersistsAndColabCardsUseOnlyActiveSourceA
     QVERIFY(controller.setWorkflowNodeParameters(QStringLiteral("transcribe"), {
         {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
         {QStringLiteral("modelId"), QStringLiteral("whisper.cpp")},
-        {QStringLiteral("transcriptSource"), QStringLiteral("stt+ocr")}}));
+        {QStringLiteral("transcriptSource"), QStringLiteral("reconcile")}}));
     QVERIFY(controller.saveProject());
 
     DubbingController reopened(nullptr, nullptr, static_cast<ModelManager *>(nullptr),
                                static_cast<RuntimeManager *>(nullptr));
     QVERIFY2(reopened.openProject(projectPath), qPrintable(reopened.lastError()));
     QCOMPARE(reopened.transcriptConfiguration().value(QStringLiteral("transcriptSource")).toString(),
-             QStringLiteral("stt+ocr"));
+             QStringLiteral("reconcile"));
     QCOMPARE(reopened.transcriptConfiguration().value(QStringLiteral("sttExecutionProvider")).toString(),
              QStringLiteral("colab-direct"));
     QCOMPARE(reopened.transcriptConfiguration().value(QStringLiteral("sttModelId")).toString(),

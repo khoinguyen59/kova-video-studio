@@ -117,7 +117,6 @@ private:
     void finishTranslation(const QVariantList &segments);
     void finishTranscript(const QVariantList &segments);
     void startOcrTranscript(const QVariantMap &parameters);
-    void finishCombinedTranscriptIfReady();
     void failTranscriptSource(const QString &source, const QString &message);
     void onSubtitleOcrSourceChanged();
     void onSubtitleOcrSegmentsChanged();

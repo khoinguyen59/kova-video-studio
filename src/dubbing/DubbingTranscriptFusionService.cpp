@@ -145,7 +145,7 @@ QVariantList DubbingTranscriptFusionService::fuse(const QVariantList &sttSegment
         }
 
         segment.insert(QStringLiteral("sttConfidence"), sttConfidence);
-        segment.insert(QStringLiteral("transcriptSourceMode"), QStringLiteral("stt+ocr"));
+        segment.insert(QStringLiteral("transcriptSourceMode"), QStringLiteral("reconcile"));
         if (bestIndex < 0) {
             segment.insert(QStringLiteral("fusionStatus"), QStringLiteral("stt-only"));
             segment.insert(QStringLiteral("transcriptProvenance"),
@@ -207,7 +207,7 @@ QVariantList DubbingTranscriptFusionService::fuse(const QVariantList &sttSegment
     for (int index = 0; index < ocr.size(); ++index) {
         if (matchedOcr.contains(index)) continue;
         QVariantMap segment = ocr.at(index);
-        segment.insert(QStringLiteral("transcriptSourceMode"), QStringLiteral("stt+ocr"));
+        segment.insert(QStringLiteral("transcriptSourceMode"), QStringLiteral("reconcile"));
         segment.insert(QStringLiteral("fusionStatus"), QStringLiteral("ocr-only"));
         result.append(segment);
     }

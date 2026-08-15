@@ -61,8 +61,13 @@ QString transcriptSourceModeFor(const QVariantMap &parameters)
 {
     const QString mode = parameters.value(QStringLiteral("transcriptSource"),
                                            QStringLiteral("stt")).toString().trimmed().toLower();
-    return mode == QStringLiteral("ocr") || mode == QStringLiteral("stt+ocr")
-        ? mode : QStringLiteral("stt");
+    // `stt+ocr` was the old coupled mode. Keep old projects readable, but do
+    // not start two workers from one click: reconciliation is now explicit
+    // after each independently produced source transcript is available.
+    if (mode == QStringLiteral("ocr")) return QStringLiteral("ocr");
+    if (mode == QStringLiteral("reconcile") || mode == QStringLiteral("stt+ocr"))
+        return QStringLiteral("reconcile");
+    return QStringLiteral("stt");
 }
 
 QString readableTransferSize(qint64 bytes)
@@ -187,11 +192,6 @@ DubbingJobRunner::DubbingJobRunner(SttSessionController *sttSession, TtsEngine *
         if (segments.isEmpty()) {
             failTranscriptSource(QStringLiteral("STT"),
                                  QStringLiteral("STT completed without usable transcript segments."));
-            return;
-        }
-        if (m_transcriptSourceMode == QStringLiteral("stt+ocr")) {
-            m_sttTranscriptSegments = segments;
-            finishCombinedTranscriptIfReady();
             return;
         }
         finishTranscript(segments);
@@ -353,16 +353,6 @@ void DubbingJobRunner::finishTranscript(const QVariantList &segments)
 
 void DubbingJobRunner::failTranscriptSource(const QString &source, const QString &message)
 {
-    if (m_transcriptSourceMode == QStringLiteral("stt+ocr") && m_ocrTranscriptActive
-        && m_subtitleOcr) {
-        m_subtitleOcr->cancel();
-        m_ocrTranscriptActive = false;
-    }
-    if (m_transcriptSourceMode == QStringLiteral("stt+ocr") && m_sttTranscriptActive
-        && m_transcriptionJob) {
-        m_transcriptionJob->cancel();
-        m_sttTranscriptActive = false;
-    }
     setError(QStringLiteral("%1 transcript failed: %2").arg(source, message));
 }
 
@@ -454,11 +444,7 @@ void DubbingJobRunner::onSubtitleOcrSegmentsChanged()
                              QStringLiteral("OCR completed without usable subtitle segments."));
         return;
     }
-    if (m_transcriptSourceMode == QStringLiteral("ocr")) {
-        finishTranscript(m_ocrTranscriptSegments);
-        return;
-    }
-    finishCombinedTranscriptIfReady();
+    finishTranscript(m_ocrTranscriptSegments);
 }
 
 void DubbingJobRunner::onSubtitleOcrErrorChanged()
@@ -477,27 +463,6 @@ void DubbingJobRunner::onSubtitleOcrProgressChanged()
     // This is a worker-reported percentage, not a synthetic workflow weight.
     m_run.setProgress(m_subtitleOcr->progress());
     emit stateChanged();
-}
-
-void DubbingJobRunner::finishCombinedTranscriptIfReady()
-{
-    if (m_transcriptSourceMode != QStringLiteral("stt+ocr") || m_ocrTranscriptActive
-        || m_sttTranscriptActive || !m_run.processing()) return;
-    if (m_sttTranscriptSegments.isEmpty() || m_ocrTranscriptSegments.isEmpty()) {
-        failTranscriptSource(m_sttTranscriptSegments.isEmpty() ? QStringLiteral("STT") : QStringLiteral("OCR"),
-                             QStringLiteral("STT + OCR requires usable segments from both sources; no fallback was used."));
-        return;
-    }
-    const QVariantList fused = DubbingTranscriptFusionService::fuse(
-        m_sttTranscriptSegments, m_ocrTranscriptSegments,
-        m_transcriptParameters.value(QStringLiteral("fusionPolicy"),
-                                     QStringLiteral("ask")).toString());
-    if (fused.isEmpty()) {
-        failTranscriptSource(QStringLiteral("STT + OCR"),
-                             QStringLiteral("The two transcript sources could not produce a reviewable result."));
-        return;
-    }
-    finishTranscript(fused);
 }
 
 void DubbingJobRunner::setRemoteServices(Settings *settings, ColabSession *translationSession,
@@ -692,7 +657,11 @@ void DubbingJobRunner::startTranscription(const QString &sourceLanguage,
         setBusyError(QStringLiteral("Speech transcription is already running."));
         return;
     }
-    if ((sourceMode == QStringLiteral("stt") || sourceMode == QStringLiteral("stt+ocr"))
+    if (sourceMode == QStringLiteral("reconcile")) {
+        setError(QStringLiteral("Reconcile STT + OCR is a local review step. Run STT and OCR independently, then reconcile their completed results."));
+        return;
+    }
+    if (sourceMode == QStringLiteral("stt")
         && sourceMediaPath.trimmed().isEmpty()) {
         setError(QStringLiteral("STT transcript failed: normalize the source audio before running STT."));
         return;
@@ -729,7 +698,7 @@ void DubbingJobRunner::startTranscription(const QString &sourceLanguage,
             return;
         }
     }
-    if (sourceMode != QStringLiteral("stt")) startOcrTranscript(parameters);
+    if (sourceMode == QStringLiteral("ocr")) startOcrTranscript(parameters);
 }
 
 void DubbingJobRunner::startTranslation(const QString &sourceLanguage, const QString &targetLanguage, const QVariantList &segments,

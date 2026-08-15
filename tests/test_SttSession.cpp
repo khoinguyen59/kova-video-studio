@@ -12,11 +12,13 @@
 #include <QTcpSocket>
 #include <QThread>
 #include <QThreadPool>
+#include <QTemporaryDir>
 #include <QUrl>
 
 #include "controllers/app/AppController.h"
 #include "controllers/stt/SttSessionController.h"
 #include "controllers/stt/SttAudioDecoder.h"
+#include "audio/WavIO.h"
 #include "controllers/models/ModelLifecycleController.h"
 #include "core/Settings.h"
 #include "core/StudioCapabilityRegistry.h"
@@ -128,6 +130,38 @@ void TestSttSession::testSttAudioDecoder()
 
     decoder.startDecode(QStringLiteral("nonexistent.wav"));
     QVERIFY(spyError.size() > 0 || spyError.wait(1000));
+}
+
+void TestSttSession::testSttAudioDecoderResamplesStereoWavOffThread()
+{
+    qDebug() << "--- START: testSttAudioDecoderResamplesStereoWavOffThread ---";
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+
+    // Use a stereo 44.1 kHz source so the public decoder contract verifies
+    // both downmixing and 16 kHz normalization.  This is the same decoder
+    // chain used for Colab FLAC stems after their container is decoded.
+    const QString sourcePath = directory.filePath(QStringLiteral("stereo-reference.wav"));
+    QVector<float> stereo(44100 * 2);
+    for (int frame = 0; frame < 44100; ++frame) {
+        stereo[frame * 2] = frame % 200 < 100 ? 0.5f : -0.5f;
+        stereo[frame * 2 + 1] = frame % 200 < 100 ? -0.25f : 0.25f;
+    }
+    QVERIFY(WavIO::saveFloat(sourcePath, stereo.constData(), stereo.size(), 44100, 2));
+
+    SttAudioDecoder decoder;
+    QVector<float> decoded;
+    QString error;
+    connect(&decoder, &SttAudioDecoder::finished, this,
+            [&decoded](const QVector<float> &samples) { decoded = samples; });
+    connect(&decoder, &SttAudioDecoder::errorOccurred, this,
+            [&error](const QString &message) { error = message; });
+
+    decoder.startDecode(sourcePath);
+    QTRY_VERIFY_WITH_TIMEOUT(!decoded.isEmpty() || !error.isEmpty(), 5000);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    // One input second, normalized to the STT engine's mono 16 kHz input.
+    QVERIFY(decoded.size() >= 15990 && decoded.size() <= 16010);
 }
 
 void TestSttSession::testSttSessionPendingLoads()

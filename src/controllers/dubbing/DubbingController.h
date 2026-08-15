@@ -275,6 +275,10 @@ public:
     Q_INVOKABLE bool startMediaQueue(const QVariantMap &tasks);
     Q_INVOKABLE void cancelMediaQueue();
     Q_INVOKABLE void transcribeSource();
+    // Reconciliation intentionally does not invoke STT or OCR. It combines
+    // the two durable independent transcript results and leaves conflicts for
+    // review before translation.
+    Q_INVOKABLE bool reconcileTranscriptSources();
     Q_INVOKABLE void translateSource();
     Q_INVOKABLE void generateAudio();
     Q_INVOKABLE void cancelProcessing();

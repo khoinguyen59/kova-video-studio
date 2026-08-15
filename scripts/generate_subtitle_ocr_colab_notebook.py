@@ -45,7 +45,7 @@ MODEL_NAME = "PP-OCRv5 Multilingual 3.1"
 UPSTREAM_MODEL = "PaddlePaddle/PaddleOCR PP-OCRv5"
 UPSTREAM_VERSION = "PaddleOCR 3.1.1"
 LICENSE = "Apache-2.0"
-WORKER_REVISION = "subtitle-ocr-2026-08-12.11"
+WORKER_REVISION = "subtitle-ocr-2026-08-16.15"
 RESPONSE_CONTRACT = "subtitle-ocr-crops-v1"
 TOKEN = os.environ["LA_STUDIO_COLAB_SUBTITLE_OCR_TOKEN"]
 MAX_UPLOAD_BYTES = 16 * 1024 * 1024
@@ -313,7 +313,7 @@ def build_notebook() -> dict:
                 import sys
                 from pathlib import Path
 
-                BOOTSTRAP_REVISION = "subtitle-ocr-bootstrap-2026-08-12.13"
+                BOOTSTRAP_REVISION = "subtitle-ocr-bootstrap-2026-08-16.15"
                 print("LA Studio Subtitle OCR bootstrap:", BOOTSTRAP_REVISION)
                 print("This revision uses a dedicated package directory; it never creates a venv or calls ensurepip.")
 
@@ -391,6 +391,13 @@ def build_notebook() -> dict:
                         "paddlex[ocr]==3.1.0", "PyYAML==6.0.2", "typing-extensions==4.15.0",
                         "Pillow==12.0.0", "fastapi==0.115.12", "uvicorn==0.34.3",
                         "python-multipart==0.0.20")
+                # Install this separately and after PaddleX.  PaddleX 3.1
+                # imports `langchain.docstore.document` while discovering
+                # OCR components. Combining it with the optional PaddleX
+                # extras allowed pip to finish with only langchain-core on
+                # some Colab images, leaving the `langchain` package absent.
+                ocr_pip("--no-cache-dir", "--upgrade", "--force-reinstall",
+                        "--only-binary=:all:", "langchain==0.2.17")
                 ocr_pip("--no-cache-dir", "--upgrade", "--force-reinstall",
                         "--only-binary=:all:", "--no-deps", "paddleocr==3.1.1")
             """)},
@@ -412,12 +419,14 @@ def build_notebook() -> dict:
                 import paddle
                 import paddleocr
                 import paddlex
+                from langchain.docstore.document import Document
                 from paddleocr import PaddleOCR
 
                 assert version(\"paddlepaddle-gpu\") == \"3.1.0\", version(\"paddlepaddle-gpu\")
                 assert version(\"paddlex\") == \"3.1.0\", version(\"paddlex\")
                 assert version(\"paddleocr\") == \"3.1.1\", version(\"paddleocr\")
                 assert version(\"pillow\") == \"12.0.0\", version(\"pillow\")
+                assert Document is not None
                 dedicated_site = str(Path(os.environ[\"LA_STUDIO_OCR_SITE\"]).resolve())
                 for package in (PIL, paddle, paddleocr, paddlex):
                     assert str(Path(package.__file__).resolve()).startswith(dedicated_site), (package.__name__, package.__file__)
