@@ -1565,7 +1565,9 @@ Item {
                         objectName: "dubbingArtifactUploadPanelReview"
                         dubbing: root.dubbing
                         nodeId: root.displayedStepId
-                        visible: ["transcribe", "translate"].indexOf(root.displayedStepId) >= 0
+                        visible: ["ingest", "normalize", "transcribe", "review-transcript",
+                                  "fit-timing", "alignment-subtitle", "translate",
+                                  "review-translation"].indexOf(root.displayedStepId) >= 0
                         Layout.fillWidth: true
                     }
                     Rectangle {
@@ -2047,7 +2049,8 @@ Item {
                         objectName: "dubbingArtifactUploadPanel"
                         dubbing: root.dubbing
                         nodeId: root.displayedStepId
-                        visible: ["source-separate", "synthesize", "mix", "export"].indexOf(root.displayedStepId) >= 0
+                        visible: ["source-separate", "isolator", "synthesize", "tts",
+                                  "mix", "export"].indexOf(root.displayedStepId) >= 0
                         Layout.fillWidth: true
                     }
                     Panel {

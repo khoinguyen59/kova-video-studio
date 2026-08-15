@@ -294,6 +294,14 @@ public:
     // for that active task so the operator never has to find a hidden result
     // pane or guess which file belongs to the next step.
     Q_INVOKABLE QVariantList workflowArtifactSpecsForStage(const QString &nodeId) const;
+    // A manual artifact can replace only the matching active worker.  This is
+    // deliberately narrow: an upload for a later task must never cancel the
+    // current task or mutate its result.
+    Q_INVOKABLE bool canOverrideRunningWorkflowArtifact(const QString &nodeId) const;
+    // Read-only state for the task-level upload UI.  Percent is supplied only
+    // when the running worker has measured it; otherwise the UI shows phase
+    // text rather than an invented progress value.
+    Q_INVOKABLE QVariantMap workflowArtifactHandoffStatus(const QString &nodeId) const;
     Q_INVOKABLE bool importWorkflowArtifactFiles(const QString &nodeId,
                                                  const QVariantList &paths);
     Q_INVOKABLE bool setSubtitleStyle(const QVariantMap &style);

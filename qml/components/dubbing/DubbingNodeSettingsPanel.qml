@@ -122,7 +122,10 @@ Rectangle {
             quiet: true
             Layout.preferredWidth: 126
             enabled: !root.dubbing.processing
-            toolTip: qsTr("Upload the exact completed Colab output for this task")
+                     || root.dubbing.canOverrideRunningWorkflowArtifact(root.nodeId)
+            toolTip: root.dubbing.canOverrideRunningWorkflowArtifact(root.nodeId)
+                     ? qsTr("Use a verified manual output and stop this task's automatic Colab transfer")
+                     : qsTr("Upload the exact completed Colab output for this task")
             onClicked: root.artifactUploadRequested()
         }
         PrimaryButton { iconName: "reload"; iconOnly: true; toolTip: qsTr("Reload model"); quiet: true; visible: root.canReload(); enabled: !root.lifecycleBusy(); onClicked: root.reloadRequested() }
@@ -220,7 +223,10 @@ Rectangle {
                 quiet: true
                 Layout.fillWidth: true
                 enabled: !root.dubbing.processing
-                toolTip: qsTr("Upload the declared Colab output for this task")
+                         || root.dubbing.canOverrideRunningWorkflowArtifact(root.nodeId)
+                toolTip: root.dubbing.canOverrideRunningWorkflowArtifact(root.nodeId)
+                         ? qsTr("Use a verified manual output and stop this task's automatic Colab transfer")
+                         : qsTr("Upload the declared Colab output for this task")
                 onClicked: root.artifactUploadRequested()
             }
         }

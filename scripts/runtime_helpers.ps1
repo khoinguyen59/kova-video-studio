@@ -1,3 +1,22 @@
+function Get-LaStudioFileSha256 {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $Path
+    )
+
+    # Do not rely on Get-FileHash being auto-loaded.  CTest can launch
+    # Windows PowerShell with a constrained module path, where that cmdlet is
+    # unavailable even though the .NET SHA-256 API remains available.
+    $stream = [System.IO.File]::OpenRead($Path)
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        return ([System.BitConverter]::ToString($sha256.ComputeHash($stream))).Replace('-', '').ToLowerInvariant()
+    } finally {
+        $sha256.Dispose()
+        $stream.Dispose()
+    }
+}
+
 function Ensure-EspeakNgRuntime {
     param(
         [Parameter(Mandatory = $true)]
@@ -22,7 +41,7 @@ function Ensure-EspeakNgRuntime {
         Invoke-WebRequest -Uri $url -OutFile $msiPath -UseBasicParsing
     }
 
-    $actualSha256 = (Get-FileHash -LiteralPath $msiPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $actualSha256 = Get-LaStudioFileSha256 -Path $msiPath
     if ($actualSha256 -ne $expectedSha256) {
         throw "eSpeak NG MSI SHA-256 mismatch. Expected $expectedSha256 but got $actualSha256."
     }
@@ -223,7 +242,7 @@ function Ensure-FfmpegRuntime {
         Write-Host ">> Downloading pinned FFmpeg runtime" -ForegroundColor Cyan
         Invoke-WebRequest -Headers @{ "User-Agent" = "LA-Studio-packaging" } -Uri $archiveUrl -OutFile $archivePath -UseBasicParsing
     }
-    $actualSha256 = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $actualSha256 = Get-LaStudioFileSha256 -Path $archivePath
     if ($actualSha256 -ne $expectedSha256) {
         throw "FFmpeg runtime SHA-256 mismatch. Expected $expectedSha256 but got $actualSha256."
     }
@@ -328,7 +347,7 @@ function Ensure-YtDlpRuntime {
         Write-Host ">> Downloading pinned yt-dlp runtime" -ForegroundColor Cyan
         Invoke-WebRequest -Headers @{ "User-Agent" = "LA-Studio-packaging" } -Uri $downloadUrl -OutFile $cachePath -UseBasicParsing
     }
-    $actualSha256 = (Get-FileHash -LiteralPath $cachePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $actualSha256 = Get-LaStudioFileSha256 -Path $cachePath
     if ($actualSha256 -ne $expectedSha256) {
         throw "yt-dlp runtime SHA-256 mismatch. Expected $expectedSha256 but got $actualSha256."
     }

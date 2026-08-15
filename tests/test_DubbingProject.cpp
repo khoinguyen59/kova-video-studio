@@ -2361,7 +2361,9 @@ void TestDubbingProject::dubbingManualArtifactSpecsExposeStrictColabContracts()
     const QVariantMap isolation = controller.workflowArtifactSpec(
         QStringLiteral("source-separate"));
     QCOMPARE(isolation.value(QStringLiteral("colabFolder")).toString(),
-             QStringLiteral("/content/la_studio_outputs/isolator/"));
+             QStringLiteral("/content/la-studio-separation-jobs/<model-id>/<job-id>/"));
+    QVERIFY(isolation.value(QStringLiteral("workerPath")).toString().contains(
+        QStringLiteral("source.wav is input")));
     const QStringList expectedIsolationFiles{
         QStringLiteral("vocals.wav"), QStringLiteral("background.wav")};
     QCOMPARE(isolation.value(QStringLiteral("expectedFiles")).toStringList(),
@@ -2391,20 +2393,19 @@ void TestDubbingProject::dubbingManualArtifactSpecsExposeStrictColabContracts()
                 QStringLiteral("normalized.wav"));
     oneArtifact(QStringLiteral("transcribe"), QStringLiteral("transcribe"),
                 QStringLiteral("transcript.srt"));
+    oneArtifact(QStringLiteral("review-transcript"), QStringLiteral("review-transcript"),
+                QStringLiteral("reviewed-transcript.srt"));
     oneArtifact(QStringLiteral("alignment-subtitle"), QStringLiteral("fit-timing"),
                 QStringLiteral("timed-voice.wav"));
     oneArtifact(QStringLiteral("translate"), QStringLiteral("translate"),
                 QStringLiteral("translated.srt"));
     oneArtifact(QStringLiteral("tts"), QStringLiteral("synthesize"),
                 QStringLiteral("voice.wav"));
+    oneArtifact(QStringLiteral("mix"), QStringLiteral("mix"),
+                QStringLiteral("mix.wav"));
 
-    const QVariantList exportArtifacts = controller.workflowArtifactSpecsForStage(
-        QStringLiteral("export-output"));
-    QCOMPARE(exportArtifacts.size(), 2);
-    QCOMPARE(exportArtifacts.at(0).toMap().value(QStringLiteral("nodeId")).toString(),
-             QStringLiteral("mix"));
-    QCOMPARE(exportArtifacts.at(1).toMap().value(QStringLiteral("nodeId")).toString(),
-             QStringLiteral("export"));
+    oneArtifact(QStringLiteral("export-output"), QStringLiteral("export"),
+                QStringLiteral("final.mp4"));
 
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
@@ -2683,6 +2684,11 @@ void TestDubbingProject::dubbingUiUsesExactModelWorkers()
     const QString artifactUploadSource = QString::fromUtf8(artifactUpload.readAll());
     QVERIFY(artifactUploadSource.contains(QStringLiteral("workflowArtifactSpec")));
     QVERIFY(artifactUploadSource.contains(QStringLiteral("importWorkflowArtifactFiles")));
+    QVERIFY(artifactUploadSource.contains(QStringLiteral("workflowArtifactHandoffStatus")));
+    QVERIFY(artifactUploadSource.contains(QStringLiteral("Use uploaded output and continue")));
+    QVERIFY(artifactUploadSource.contains(QStringLiteral("Use uploaded stems and continue")));
+    QVERIFY(artifactUploadSource.contains(QStringLiteral("Choose vocals.wav")));
+    QVERIFY(artifactUploadSource.contains(QStringLiteral("Choose background.wav")));
     QVERIFY(artifactUploadSource.contains(QStringLiteral("Colab save folder")));
     QVERIFY(artifactUploadSource.contains(QStringLiteral("Allowed output")));
 
@@ -2700,7 +2706,25 @@ void TestDubbingProject::dubbingUiUsesExactModelWorkers()
     QVERIFY(artifactUploadDialogSource.contains(QStringLiteral("DubbingArtifactUploadPanel")));
     QVERIFY(taskControlsSource.contains(QStringLiteral("Upload completed output")));
     QVERIFY(taskControlsSource.contains(QStringLiteral("artifactUploadRequested")));
+    QVERIFY(taskControlsSource.contains(QStringLiteral("canOverrideRunningWorkflowArtifact")));
     QVERIFY(dubbingPageSource.contains(QStringLiteral("dubbingArtifactUploadDialog.openFor(nodeId)")));
+
+    // The manual handoff must be general, but it can never replace a
+    // different running stage.  Selection alone is non-destructive; the
+    // controller cancels the matching automatic transfer only after the
+    // exact artifact passes validation and the user confirms it.
+    QFile dubbingControllerImplementation(
+        QStringLiteral(LASTUDIO_SOURCE_DIR)
+        + QStringLiteral("/src/controllers/dubbing/DubbingController.cpp"));
+    QVERIFY(dubbingControllerImplementation.open(QIODevice::ReadOnly));
+    const QString dubbingControllerSource = QString::fromUtf8(dubbingControllerImplementation.readAll());
+    QVERIFY(dubbingControllerSource.contains(QStringLiteral("artifactMatchesActiveStage")));
+    QVERIFY(dubbingControllerSource.contains(
+        QStringLiteral("A different Dubbing task is active")));
+    QVERIFY(dubbingControllerSource.contains(
+        QStringLiteral("Manual Colab artifact accepted; cancelling active worker transfer")));
+    QVERIFY(dubbingControllerSource.contains(QStringLiteral("m_runner->cancel()")));
+    QVERIFY(dubbingControllerSource.contains(QStringLiteral("setWorkflowMode(QStringLiteral(\"step\"))")));
 
     QFile transcriptionRunner(
         QStringLiteral(LASTUDIO_SOURCE_DIR)
