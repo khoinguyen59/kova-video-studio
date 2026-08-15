@@ -2,6 +2,28 @@
 
 Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de agent khong lam lai viec cu. Khong chep patch hay log dai.
 
+## 2026-08-16 - Isolator artifact format and observable Colab completion
+
+- Direct Colab isolation must prefer `flac` for inter-machine stem transport;
+  WAV remains a user-selected compatibility format, never a silent fallback.
+  Preserve the reported extension from worker through Dubbing cache, batch
+  output and Voice Clone reference cache.
+- A worker status only becomes transfer-ready after `artifacts_ready=true` and
+  both actual stems are present. Report the Colab-produced-artifacts phase
+  before downloading. Percentages are valid only for real byte-counted
+  transfers.
+- Do not synchronously decode large lossless stems on the UI thread. Reject a
+  malformed/truncated FLAC header before decoder startup, and retain legacy
+  WAV cache support by validating a full 44-byte RIFF header.
+- Spleeter notebook generation is pinned to worker commit
+  `eaabb045efa718c614d8155b5976fccb2e925a6b`; the worker contract includes
+  `artifact_format` and `artifacts_ready`. Keep UVR generator behavior aligned.
+- Current internal baseline: `0.0.7.3`, built at
+  `out/LA-Studio-0.0.7.3/LA-Studio-0.0.7.3.exe`, SHA-256
+  `AD99D4145471491FD36C623C1FFCA661DAD1ED5CFA0854B47F8DDD85A798E313`.
+  Validation: CTest 39/39, runtime 19/19, licenses 18/18, packaged offscreen
+  smoke exit 0. This is not live-Colab or visible-GUI acceptance.
+
 ## 2026-08-15 - Internal package hien hanh 0.0.7.2
 
 - Portable internal package hien hanh la

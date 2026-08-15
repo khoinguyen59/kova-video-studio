@@ -2,6 +2,32 @@
 
 Cap nhat: 2026-08-14
 
+## 2026-08-16 - Direct Colab Isolator FLAC transport, package 0.0.7.3
+
+- Direct-Colab voice isolation now requests lossless **FLAC** stems by default
+  instead of transferring uncompressed WAV. WAV remains an explicit
+  compatibility choice. Downstream receives the real `.flac` artifact and only
+  decodes it when a later operation truly needs PCM.
+- Both Spleeter and UVR notebook-worker contracts expose `artifact_format` and
+  `artifacts_ready`. Once Colab has created both stems, the desktop reports
+  **"Colab created both FLAC stems; downloading them now"** before any
+  Cloudflare/artifact transfer starts. Transfer percentage remains byte-counted;
+  it is not fabricated from a worker phase.
+- Large-lossless preview decoding is asynchronous and malformed/truncated FLAC
+  is rejected before the Qt decoder is called. Voice Clone cache keeps the
+  actual stem extension and remains compatible with legacy WAV worker output.
+- Evidence: Python worker/generator compilation passed; full CTest passed
+  **39/39, 0 failed**, including direct FLAC, legacy WAV, controller and QML
+  smoke coverage. The package audit found **19/19** required runtime items and
+  **18/18** license items. Packaged offscreen QML smoke exited 0. No visible GUI
+  or live Colab worker was opened.
+- Internal portable package:
+  `out/LA-Studio-0.0.7.3/LA-Studio-0.0.7.3.exe`. Source, FileVersion and
+  ProductVersion are all `0.0.7.3`; SHA-256:
+  `AD99D4145471491FD36C623C1FFCA661DAD1ED5CFA0854B47F8DDD85A798E313`.
+- `graphify query` and `graphify update .` were attempted, but the Graphify CLI
+  is unavailable on PATH, so no graph update is claimed.
+
 ## 2026-08-15 - Internal portable package 0.0.7.2
 
 - Dong goi ban moi nhat tai `out/LA-Studio-0.0.7.2` voi EXE

@@ -1,5 +1,37 @@
 # AI agent response — local download and resumable Dubbing projects
 
+## 2026-08-16 — completed: FLAC Colab isolation transport and package 0.0.7.3
+
+### Delivered
+
+- Direct Colab Isolator now uses lossless FLAC by default for `vocals` and
+  `background`, with WAV retained as an explicit compatibility selection.
+- Updated Spleeter and UVR worker/notebook contracts to publish
+  `artifact_format` and `artifacts_ready`. The app now visibly reports that
+  Colab has created both stems before it starts downloading them.
+- Moved large stem preview decode off the UI thread, rejects truncated FLAC
+  before decode, and preserves both new FLAC and old WAV Voice Clone cache
+  files.
+- Built portable internal EXE:
+  `out/LA-Studio-0.0.7.3/LA-Studio-0.0.7.3.exe`.
+
+### Evidence
+
+- Source tests: **39/39 passed, 0 failed**; Python worker/generator compile
+  passed.
+- Package audit: **19/19 runtime** and **18/18 license** artifacts present.
+- Source/FileVersion/ProductVersion: `0.0.7.3`.
+- SHA-256:
+  `AD99D4145471491FD36C623C1FFCA661DAD1ED5CFA0854B47F8DDD85A798E313`.
+- Packaged offscreen QML smoke: exit `0`; FFmpeg, FFprobe and yt-dlp staged
+  launch checks passed.
+
+### Boundary
+
+No visible desktop UI or live Colab runtime was started. The package is for
+internal use because the verified eSpeak payload remains unsigned. Graphify was
+attempted but its CLI is not available on PATH.
+
 ## 2026-08-15 — completed: package 0.0.7.2
 
 ### Delivered
