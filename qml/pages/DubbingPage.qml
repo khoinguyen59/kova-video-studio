@@ -1197,14 +1197,6 @@ Item {
                                 onNextRequested: root.runNextNode(nodeId)
                                 onFixRequested: translationFixDialog.openForAll()
                             }
-                            DubbingArtifactUploadPanel {
-                                id: dubbingArtifactUploadPanel
-                                objectName: "dubbingArtifactUploadPanel"
-                                dubbing: root.dubbing
-                                nodeId: root.displayedStepId
-                                visible: ["source-separate", "transcribe", "translate", "synthesize", "mix", "export"]
-                                            .indexOf(root.displayedStepId) >= 0
-                            }
                             Rectangle {
                                 id: dubbingTranslationInputPanel
                                 objectName: "dubbingTranslationInputPanel"
@@ -1560,6 +1552,14 @@ Item {
                         onRunRequested: root.runStep(nodeId)
                         onNextRequested: root.runNextNode(nodeId)
                         onFixRequested: translationFixDialog.openForAll()
+                    }
+                    DubbingArtifactUploadPanel {
+                        id: dubbingArtifactUploadPanelReview
+                        objectName: "dubbingArtifactUploadPanelReview"
+                        dubbing: root.dubbing
+                        nodeId: root.displayedStepId
+                        visible: ["transcribe", "translate"].indexOf(root.displayedStepId) >= 0
+                        Layout.fillWidth: true
                     }
                     Rectangle {
                         id: dubbingTranscriptSourceDetailsPanel
@@ -2033,6 +2033,14 @@ Item {
                         onReloadRequested: dubbing.reloadWorkflowNodeModel(nodeId)
                         onRunRequested: root.runStep(nodeId)
                         onNextRequested: root.runNextNode(nodeId)
+                    }
+                    DubbingArtifactUploadPanel {
+                        id: dubbingArtifactUploadPanel
+                        objectName: "dubbingArtifactUploadPanel"
+                        dubbing: root.dubbing
+                        nodeId: root.displayedStepId
+                        visible: ["source-separate", "synthesize", "mix", "export"].indexOf(root.displayedStepId) >= 0
+                        Layout.fillWidth: true
                     }
                     Panel {
                         visible: root.displayedStepId === "review-transcript"
