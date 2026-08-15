@@ -25,15 +25,15 @@ ARTIFACT_URL = (
 
 # This lock is updated only after the referenced worker templates have been
 # committed.  The notebook must never download a moving branch such as main.
-WORKER_COMMIT = "25024857dfe25355abd66b8beb02edc23455cb0e"
+WORKER_COMMIT = "eaabb045efa718c614d8155b5976fccb2e925a6b"
 WORKERS = {
     "la_studio_separation_worker.py": (
         "notebooks/workers/LA_STUDIO_SEPARATION_SPLEETER_2STEMS_WORKER.py",
-        "e50be7e6ad1015a163263339997f44ebd6f8d00154553966d5f610372428f41e",
+        "307861926e13ff9849b04594074b573b1da063b1791c56dc2f502ab64991c5af",
     ),
     "la_studio_separation_launcher.py": (
         "notebooks/workers/LA_STUDIO_SEPARATION_SPLEETER_2STEMS_LAUNCHER.py",
-        "437bc329e27d18cde12c095e766805550a0493bfc951620049432f0221241a72",
+        "d4c5d4756dd2d27ad2971c2ae338be1e92ae1ad790a6ef6d3ce07570bdfc8590",
     ),
 }
 
@@ -134,7 +134,7 @@ def make_notebook() -> dict:
                 "contract_version": 1,
                 "device": "cuda",
                 "cpu_fallback": False,
-                "worker_contract": "spleeter-cuda-safe-20260805.1",
+                "worker_contract": "spleeter-cuda-safe-20260816.1",
                 "worker_templates": [
                     "workers/LA_STUDIO_SEPARATION_SPLEETER_2STEMS_WORKER.py",
                     "workers/LA_STUDIO_SEPARATION_SPLEETER_2STEMS_LAUNCHER.py",
