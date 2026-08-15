@@ -1210,3 +1210,11 @@ Cap nhat: 2026-08-14
 - Evidence: build succeeded, CTest **39/39 passed**, QML parser/build passed
   with only baseline warnings, and `graphify update .` completed. No live Colab
   or GUI run was performed; no new package was made for this change.
+
+### 2026-08-15 - Per-task upload moved into task review panes
+
+- The Colab artifact upload control is now placed in the active task's review
+  pane, not only in the narrow task-controls shelf. Isolator, STT/Translate,
+  TTS, Mix and Export expose the same strict per-task upload contract where
+  their result is reviewed.
+- Rebuilt after the layout fix; full CTest remains **39/39 passed**.

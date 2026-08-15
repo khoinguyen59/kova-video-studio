@@ -103,3 +103,13 @@ hash-verified eSpeak payload is unsigned.
 
 No EXE package was created for this change because this request asked for the
 Dubbing/OCR implementation and verification, not a new release package.
+
+## 2026-08-15 - Per-task Colab upload visibility fix
+
+- The per-task Colab artifact panel was moved from the narrow left task shelf
+  into the active task review pane. It is now visible beside the result for
+  Isolator, STT/Translate, TTS, Mix, and Export instead of requiring the user
+  to discover a secondary scroll position.
+- The Isolator panel accepts exactly `vocals.wav` and `background.wav`; the
+  upload button remains disabled while the task is processing.
+- Build and full CTest were rerun after the QML change: **39/39 passed**.

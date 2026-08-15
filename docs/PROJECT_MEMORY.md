@@ -849,3 +849,10 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
 - Latest validation: build succeeded, CTest 39/39 passed, QML parser/build
   clean apart from baseline lint warnings, and graphify update completed. No
   live Colab worker or interactive GUI was used; no package was produced.
+
+### 2026-08-15 - Upload control placement
+
+- Per-task Colab artifact upload must be visible in the active task review
+  pane. Keeping it only in the left task shelf makes the feature effectively
+  undiscoverable. The panel is now rendered beside the result for Isolator,
+  STT/Translate, TTS, Mix and Export; processing still disables the action.
