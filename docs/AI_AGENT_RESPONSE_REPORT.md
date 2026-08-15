@@ -1,5 +1,27 @@
 # AI agent response — local download and resumable Dubbing projects
 
+## 2026-08-15 — completed: package 0.0.7.2
+
+### Delivered
+
+- Built and staged the portable internal executable:
+  `out/LA-Studio-0.0.7.2/LA-Studio-0.0.7.2.exe`.
+- Source `LASTUDIO_VERSION`, FileVersion, and ProductVersion are all
+  `0.0.7.2`.
+
+### Evidence
+
+- SHA-256:
+  `CE196C06379490BBA22D0ACD6300F53A4EA3B6353F0C7A4F715D649B59C514ED`.
+- Package audit found all required runtime items; staged FFmpeg, FFprobe, and
+  yt-dlp launch checks passed.
+- The packaged EXE passed the offscreen QML smoke with exit `0`.
+
+### Boundary
+
+No visible GUI or live Colab worker was started. `graphify update .` was
+attempted but the Graphify CLI is unavailable on PATH.
+
 ## 2026-08-14 — completed: package 0.0.6.9
 
 ### Delivered

@@ -2,6 +2,16 @@
 
 Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de agent khong lam lai viec cu. Khong chep patch hay log dai.
 
+## 2026-08-15 - Internal package hien hanh 0.0.7.2
+
+- Portable internal package hien hanh la
+  `out/LA-Studio-0.0.7.2/LA-Studio-0.0.7.2.exe`. Source/FileVersion/
+  ProductVersion deu la `0.0.7.2`; SHA-256:
+  `CE196C06379490BBA22D0ACD6300F53A4EA3B6353F0C7A4F715D649B59C514ED`.
+- Package gate da kiem tra binary va runtime bat buoc, khoi chay staged
+  FFmpeg/FFprobe/yt-dlp, va offscreen smoke cua chinh EXE. Day la package
+  noi bo; khong thay the GUI acceptance hay live Colab acceptance.
+
 ## 2026-08-14 - Media acquisition local CPU va project persistence
 
 - Public-video/media download **khong phai Colab capability** va khong dung

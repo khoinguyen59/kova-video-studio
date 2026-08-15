@@ -2,6 +2,22 @@
 
 Cap nhat: 2026-08-14
 
+## 2026-08-15 - Internal portable package 0.0.7.2
+
+- Dong goi ban moi nhat tai `out/LA-Studio-0.0.7.2` voi EXE
+  `LA-Studio-0.0.7.2.exe`. Source, FileVersion va ProductVersion deu la
+  `0.0.7.2`; SHA-256 cua EXE la
+  `CE196C06379490BBA22D0ACD6300F53A4EA3B6353F0C7A4F715D649B59C514ED`.
+- Package audit da xac nhan executable, Runtime Host, `qwindows`/
+  `qoffscreen`, FFmpeg, FFprobe, yt-dlp, Subtitle OCR manifest va notices.
+  FFmpeg, FFprobe va yt-dlp staged deu khoi chay duoc.
+- Headless QML smoke cua chinh EXE (`QT_QPA_PLATFORM=offscreen`,
+  `LASTUDIO_QML_SMOKE=1`) thoat `0`. Khong mo GUI desktop hay goi Colab that.
+- Package nay gom batch handoff Colab output Dubbing da co full CTest
+  **39/39 PASS** truoc khi packaging. `graphify update .` da duoc thu sau
+  version bump nhung CLI Graphify khong co tren PATH, nen khong claim graph
+  duoc cap nhat.
+
 ## 2026-08-15 - Internal portable package 0.0.7.1
 
 - Package moi nhat duoc stage tai `out/LA-Studio-0.0.7.1` voi EXE
