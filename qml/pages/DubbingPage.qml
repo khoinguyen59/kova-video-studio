@@ -255,12 +255,17 @@ Item {
             return true
         }
         if (stepId === "synthesize") {
+            // A manual Colab handoff is one timing-preserved voice bed. It is
+            // mixed by the real Export/Output node and must not be rejected
+            // merely because it is not a fabricated per-segment bundle.
+            if ((dubbing.dubbedVocalPath || "").length > 0) return true
             if (dubbing.segments.length === 0) return false
             for (var j = 0; j < dubbing.segments.length; ++j)
                 if (!(dubbing.segments[j].clipPath || "")) return false
             return true
         }
         if (stepId === "fit-timing" || stepId === "alignment-subtitle") {
+            if ((dubbing.dubbedVocalPath || "").length > 0) return true
             if (dubbing.segments.length === 0) return false
             for (var k = 0; k < dubbing.segments.length; ++k)
                 if (!(dubbing.segments[k].clipPath || "")) return false
@@ -1196,6 +1201,7 @@ Item {
                                 onRunRequested: root.runStep(nodeId)
                                 onNextRequested: root.runNextNode(nodeId)
                                 onFixRequested: translationFixDialog.openForAll()
+                                onArtifactUploadRequested: dubbingArtifactUploadDialog.openFor(nodeId)
                             }
                             Rectangle {
                                 id: dubbingTranslationInputPanel
@@ -1552,6 +1558,7 @@ Item {
                         onRunRequested: root.runStep(nodeId)
                         onNextRequested: root.runNextNode(nodeId)
                         onFixRequested: translationFixDialog.openForAll()
+                        onArtifactUploadRequested: dubbingArtifactUploadDialog.openFor(nodeId)
                     }
                     DubbingArtifactUploadPanel {
                         id: dubbingArtifactUploadPanelReview
@@ -2033,6 +2040,7 @@ Item {
                         onReloadRequested: dubbing.reloadWorkflowNodeModel(nodeId)
                         onRunRequested: root.runStep(nodeId)
                         onNextRequested: root.runNextNode(nodeId)
+                        onArtifactUploadRequested: dubbingArtifactUploadDialog.openFor(nodeId)
                     }
                     DubbingArtifactUploadPanel {
                         id: dubbingArtifactUploadPanel
@@ -2436,6 +2444,11 @@ Item {
 
     DubbingColabSetupDialog {
         id: dubbingColabSetupDialog
+        dubbing: root.dubbing
+    }
+
+    DubbingArtifactUploadDialog {
+        id: dubbingArtifactUploadDialog
         dubbing: root.dubbing
     }
 

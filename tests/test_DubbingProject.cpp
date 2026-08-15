@@ -2371,6 +2371,41 @@ void TestDubbingProject::dubbingManualArtifactSpecsExposeStrictColabContracts()
              expectedWavExtensions);
     QCOMPARE(isolation.value(QStringLiteral("multiple")).toBool(), true);
 
+    // Every Dubbing stage that produces a portable artifact exposes its own
+    // upload contract.  This is deliberately a controller contract rather
+    // than a QML-only list, so a visible upload action cannot accept a file
+    // which the next workflow step does not understand.
+    const auto oneArtifact = [&controller](const QString &stage,
+                                           const QString &artifactId,
+                                           const QString &fileName) {
+        const QVariantList specs = controller.workflowArtifactSpecsForStage(stage);
+        QCOMPARE(specs.size(), 1);
+        const QVariantMap spec = specs.constFirst().toMap();
+        QCOMPARE(spec.value(QStringLiteral("nodeId")).toString(), artifactId);
+        QVERIFY(spec.value(QStringLiteral("colabFolder")).toString().startsWith(
+            QStringLiteral("/content/la_studio_outputs/")));
+        QVERIFY(spec.value(QStringLiteral("workerPath")).toString().contains(fileName));
+        QVERIFY(spec.value(QStringLiteral("expectedFiles")).toStringList().constFirst().startsWith(fileName));
+    };
+    oneArtifact(QStringLiteral("normalize"), QStringLiteral("ingest"),
+                QStringLiteral("normalized.wav"));
+    oneArtifact(QStringLiteral("transcribe"), QStringLiteral("transcribe"),
+                QStringLiteral("transcript.srt"));
+    oneArtifact(QStringLiteral("alignment-subtitle"), QStringLiteral("fit-timing"),
+                QStringLiteral("timed-voice.wav"));
+    oneArtifact(QStringLiteral("translate"), QStringLiteral("translate"),
+                QStringLiteral("translated.srt"));
+    oneArtifact(QStringLiteral("tts"), QStringLiteral("synthesize"),
+                QStringLiteral("voice.wav"));
+
+    const QVariantList exportArtifacts = controller.workflowArtifactSpecsForStage(
+        QStringLiteral("export-output"));
+    QCOMPARE(exportArtifacts.size(), 2);
+    QCOMPARE(exportArtifacts.at(0).toMap().value(QStringLiteral("nodeId")).toString(),
+             QStringLiteral("mix"));
+    QCOMPARE(exportArtifacts.at(1).toMap().value(QStringLiteral("nodeId")).toString(),
+             QStringLiteral("export"));
+
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
     QVERIFY(controller.newProject(dir.filePath(QStringLiteral("artifact.ladub.json"))));
@@ -2650,6 +2685,22 @@ void TestDubbingProject::dubbingUiUsesExactModelWorkers()
     QVERIFY(artifactUploadSource.contains(QStringLiteral("importWorkflowArtifactFiles")));
     QVERIFY(artifactUploadSource.contains(QStringLiteral("Colab save folder")));
     QVERIFY(artifactUploadSource.contains(QStringLiteral("Allowed output")));
+
+    QFile artifactUploadDialog(
+        QStringLiteral(LASTUDIO_SOURCE_DIR)
+        + QStringLiteral("/qml/components/dubbing/DubbingArtifactUploadDialog.qml"));
+    QFile taskControls(
+        QStringLiteral(LASTUDIO_SOURCE_DIR)
+        + QStringLiteral("/qml/components/dubbing/DubbingNodeSettingsPanel.qml"));
+    QVERIFY(artifactUploadDialog.open(QIODevice::ReadOnly));
+    QVERIFY(taskControls.open(QIODevice::ReadOnly));
+    const QString artifactUploadDialogSource = QString::fromUtf8(artifactUploadDialog.readAll());
+    const QString taskControlsSource = QString::fromUtf8(taskControls.readAll());
+    QVERIFY(artifactUploadDialogSource.contains(QStringLiteral("workflowArtifactSpecsForStage")));
+    QVERIFY(artifactUploadDialogSource.contains(QStringLiteral("DubbingArtifactUploadPanel")));
+    QVERIFY(taskControlsSource.contains(QStringLiteral("Upload completed output")));
+    QVERIFY(taskControlsSource.contains(QStringLiteral("artifactUploadRequested")));
+    QVERIFY(dubbingPageSource.contains(QStringLiteral("dubbingArtifactUploadDialog.openFor(nodeId)")));
 
     QFile transcriptionRunner(
         QStringLiteral(LASTUDIO_SOURCE_DIR)
@@ -3571,6 +3622,22 @@ void TestDubbingProject::audioMixRunsAsynchronously()
     QCOMPARE(completedSpy.at(1).at(0).toString(), QStringLiteral("mix"));
     QVERIFY(QFileInfo::exists(previewPath));
     QVERIFY(!runner.processing());
+
+    // A completed TTS/voice-clone Colab artifact is one full voice bed, not a
+    // fake segment bundle.  It must remain usable by the real mixer, including
+    // a stereo WAV downloaded from Colab.
+    QVector<float> stereoVoice(48000 * 2, 0.25f);
+    const QString uploadedVoice = dir.filePath(QStringLiteral("voice.wav"));
+    QVERIFY(WavIO::saveFloat(uploadedVoice, stereoVoice.constData(), stereoVoice.size(), 48000, 2));
+    runner.setDubbedVocalPath(uploadedVoice);
+    const QString uploadedPreview = dir.filePath(QStringLiteral("uploaded-preview.wav"));
+    QVERIFY(runner.renderPreview({}, dir.filePath(QStringLiteral("project.ladub.json")), uploadedPreview));
+    QTRY_COMPARE_WITH_TIMEOUT(completedSpy.size(), 3, 3000);
+    const WavIO::WavData mixedUploadedVoice = WavIO::loadAsFloat(uploadedPreview);
+    QCOMPARE(mixedUploadedVoice.channels, 1);
+    QCOMPARE(mixedUploadedVoice.sampleRate, 48000);
+    QCOMPARE(mixedUploadedVoice.samples.size(), 48000);
+    QVERIFY(qAbs(mixedUploadedVoice.samples.constFirst() - 0.25f) < 0.01f);
 }
 
 void TestDubbingProject::audioMixCreatesIndependentVocalStem()

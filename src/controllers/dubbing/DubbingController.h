@@ -289,6 +289,11 @@ public:
     // project cache; QML must not be able to bypass validation with arbitrary
     // paths or extensions.
     Q_INVOKABLE QVariantMap workflowArtifactSpec(const QString &nodeId) const;
+    // A presentation task can aggregate durable production nodes (for
+    // example, Alignment includes fit-timing).  Expose every valid handoff
+    // for that active task so the operator never has to find a hidden result
+    // pane or guess which file belongs to the next step.
+    Q_INVOKABLE QVariantList workflowArtifactSpecsForStage(const QString &nodeId) const;
     Q_INVOKABLE bool importWorkflowArtifactFiles(const QString &nodeId,
                                                  const QVariantList &paths);
     Q_INVOKABLE bool setSubtitleStyle(const QVariantMap &style);

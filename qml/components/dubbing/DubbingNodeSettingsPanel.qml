@@ -20,6 +20,8 @@ Rectangle {
     // the left of the video.  Keep the normal wide form for dialogs and any
     // future full-width use instead of relying on a clipped RowLayout.
     property bool compact: false
+    readonly property bool artifactUploadAvailable: root.dubbing
+        && root.dubbing.workflowArtifactSpecsForStage(root.nodeId).length > 0
 
     signal configureRequested()
     signal loadRequested()
@@ -28,6 +30,7 @@ Rectangle {
     signal runRequested()
     signal nextRequested()
     signal fixRequested()
+    signal artifactUploadRequested()
 
     // Runtime geometry regression for the narrow task shelf.  QML Layout will
     // otherwise happily let a labelled control paint outside a parent whose
@@ -39,7 +42,7 @@ Rectangle {
                         compactReloadAction, compactUnloadAction,
                         compactRunAction, compactRerunAction,
                         compactFixAction, compactNextAction,
-                        compactRouteAction]
+                        compactRouteAction, compactArtifactUploadAction]
         for (var index = 0; index < controls.length; ++index) {
             var control = controls[index]
             if (!control.visible)
@@ -55,7 +58,8 @@ Rectangle {
 
     Layout.fillWidth: true
     Layout.preferredHeight: root.compact
-                            ? (root.remoteRouteConfigurable() ? 388 : 252)
+                            ? ((root.remoteRouteConfigurable() ? 430 : 294)
+                               + (root.artifactUploadAvailable ? 48 : 0))
                             : (root.remoteRouteConfigurable() ? 146 : 86)
     // Never permit a task-control child to render outside its owning pane.
     // Compact controls stack their primary actions below instead of relying on
@@ -110,6 +114,16 @@ Rectangle {
             enabled: root.setupEditable()
             toolTip: qsTr("Switch this inactive stage to Direct Colab GPU and connect its exact worker")
             onClicked: root.startColabSetup()
+        }
+        PrimaryButton {
+            visible: root.artifactUploadAvailable
+            text: qsTr("Upload output")
+            iconName: "folder"
+            quiet: true
+            Layout.preferredWidth: 126
+            enabled: !root.dubbing.processing
+            toolTip: qsTr("Upload the exact completed Colab output for this task")
+            onClicked: root.artifactUploadRequested()
         }
         PrimaryButton { iconName: "reload"; iconOnly: true; toolTip: qsTr("Reload model"); quiet: true; visible: root.canReload(); enabled: !root.lifecycleBusy(); onClicked: root.reloadRequested() }
         PrimaryButton { iconName: "power"; iconOnly: true; toolTip: qsTr("Unload model"); quiet: true; visible: root.canUnload(); enabled: !root.lifecycleBusy(); onClicked: root.unloadRequested() }
@@ -197,6 +211,17 @@ Rectangle {
                 enabled: root.setupEditable()
                 toolTip: qsTr("Configure this task to use its Direct Colab GPU worker")
                 onClicked: root.startColabSetup()
+            }
+            PrimaryButton {
+                id: compactArtifactUploadAction
+                visible: root.artifactUploadAvailable
+                text: qsTr("Upload completed output")
+                iconName: "folder"
+                quiet: true
+                Layout.fillWidth: true
+                enabled: !root.dubbing.processing
+                toolTip: qsTr("Upload the declared Colab output for this task")
+                onClicked: root.artifactUploadRequested()
             }
         }
         ColumnLayout {

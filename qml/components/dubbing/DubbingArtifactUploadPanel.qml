@@ -97,7 +97,9 @@ Rectangle {
         }
         Text {
             Layout.fillWidth: true
-            text: qsTr("Accepted: %1").arg(root.allowedFilePatterns().join(", "))
+            text: qsTr("Required name: %1\nAllowed format: %2")
+                  .arg((root.spec.expectedFiles || []).join(", "))
+                  .arg(root.allowedFilePatterns().join(", "))
             color: Theme.textSecondary
             font.pixelSize: 10
             wrapMode: Text.WordWrap

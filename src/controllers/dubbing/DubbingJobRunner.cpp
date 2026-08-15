@@ -8,6 +8,7 @@
 #include "controllers/dubbing/DubbingTranslationJob.h"
 #include "controllers/dubbing/DubbingTranslationFixService.h"
 #include "controllers/subtitles/SubtitleOcrController.h"
+#include "audio/WavIO.h"
 #include "translation/TranslationEngine.h"
 #include "dubbing/DubbingTimingService.h"
 #include "dubbing/DubbingTranscriptFusionService.h"
@@ -768,6 +769,9 @@ void DubbingJobRunner::startAudioGeneration(const QVariantList &segments, const 
         setBusyError(QStringLiteral("Speech synthesis is already running."));
         return;
     }
+    // A new synthesis run replaces a previously hand-uploaded full voice bed;
+    // it must not accidentally be mixed into the new segment clips.
+    m_dubbedVocalPath.clear();
     m_activeSegments = segments;
     m_projectPath = projectPath;
     m_run.ensureRun();
@@ -866,12 +870,39 @@ bool DubbingJobRunner::renderPreview(const QVariantList &segments, const QString
     }
     m_run.ensureRun();
     m_run.beginNode();
+    QVariantList mixSegments = segments;
+    bool hasSegmentClip = false;
+    for (const QVariant &entry : segments) {
+        const QString clipPath = entry.toMap().value(QStringLiteral("clipPath")).toString();
+        if (!clipPath.isEmpty() && QFileInfo::exists(clipPath)) {
+            hasSegmentClip = true;
+            break;
+        }
+    }
+    // Manual TTS/alignment handoff is a complete timed voice bed, not a
+    // fabricated per-segment bundle. Convert it to one explicit timeline clip
+    // only for the real mixer, so the next Export/Output task can continue.
+    const QFileInfo uploadedVoiceInfo(m_dubbedVocalPath);
+    if (!hasSegmentClip && uploadedVoiceInfo.isFile()) {
+        const WavIO::WavData voice = WavIO::loadAsFloat(m_dubbedVocalPath);
+        const int channels = qMax(1, voice.channels);
+        const qint64 durationMs = voice.sampleRate > 0
+            ? (static_cast<qint64>(voice.samples.size() / channels) * 1000 / voice.sampleRate)
+            : 0;
+        if (voice.samples.isEmpty() || durationMs <= 0) {
+            setError(QStringLiteral("The uploaded timed voice WAV cannot be decoded for mixing."));
+            return false;
+        }
+        mixSegments = QVariantList{QVariantMap{{QStringLiteral("clipPath"), m_dubbedVocalPath},
+                                                {QStringLiteral("startMs"), 0},
+                                                {QStringLiteral("endMs"), durationMs}}};
+    }
     Logger::info(QStringLiteral("DubbingPipeline"),
                  QStringLiteral("[mix] start run=%1 node=%2 segments=%3 background=%4")
-                     .arg(m_run.runId()).arg(m_run.nodeRunId()).arg(segments.size())
+                     .arg(m_run.runId()).arg(m_run.nodeRunId()).arg(mixSegments.size())
                      .arg(m_backgroundAudioPath));
     setProcessing(true, QStringLiteral("mix"), 0);
-    return m_exportJob && m_exportJob->renderPreview(segments, projectPath, m_backgroundAudioPath, path);
+    return m_exportJob && m_exportJob->renderPreview(mixSegments, projectPath, m_backgroundAudioPath, path);
 }
 
 bool DubbingJobRunner::startExport(const QString &sourceMediaPath, const QString &outputPath)

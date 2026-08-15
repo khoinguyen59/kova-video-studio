@@ -85,12 +85,25 @@ bool AudioTimelineMixer::mixSegments(const QVariantList &segments, const QString
         const QString clipPath = segment.value(QStringLiteral("clipPath")).toString();
         if (clipPath.isEmpty() || !QFileInfo::exists(clipPath)) continue;
         const WavIO::WavData clip = WavIO::loadAsFloat(clipPath);
-        if (clip.samples.isEmpty() || clip.sampleRate <= 0) continue;
+        if (clip.samples.isEmpty() || clip.sampleRate <= 0 || clip.channels <= 0) continue;
+        QVector<float> clipMono;
+        if (clip.channels == 1) {
+            clipMono = clip.samples;
+        } else {
+            const int frames = clip.samples.size() / clip.channels;
+            clipMono.resize(frames);
+            for (int frame = 0; frame < frames; ++frame) {
+                float sum = 0.0f;
+                for (int channel = 0; channel < clip.channels; ++channel)
+                    sum += clip.samples.at(frame * clip.channels + channel);
+                clipMono[frame] = sum / static_cast<float>(clip.channels);
+            }
+        }
         const qint64 startSample = qMax<qint64>(0, segment.value(QStringLiteral("startMs")).toLongLong() * outputRate / 1000);
-        for (int i = 0; i < clip.samples.size(); ++i) {
+        for (int i = 0; i < clipMono.size(); ++i) {
             const qint64 destination = startSample + static_cast<qint64>(i) * outputRate / clip.sampleRate;
             if (destination >= 0 && destination < mix.size()) {
-                mix[static_cast<int>(destination)] = qBound(-1.0f, mix[static_cast<int>(destination)] + clip.samples.at(i), 1.0f);
+                mix[static_cast<int>(destination)] = qBound(-1.0f, mix[static_cast<int>(destination)] + clipMono.at(i), 1.0f);
             }
         }
     }
@@ -103,15 +116,28 @@ bool AudioTimelineMixer::mixSegments(const QVariantList &segments, const QString
 
     if (!backgroundPath.isEmpty() && QFileInfo::exists(backgroundPath)) {
         const WavIO::WavData background = WavIO::loadAsFloat(backgroundPath);
-        if (!background.samples.isEmpty() && background.sampleRate > 0) {
+        if (!background.samples.isEmpty() && background.sampleRate > 0 && background.channels > 0) {
+            QVector<float> backgroundMono;
+            if (background.channels == 1) {
+                backgroundMono = background.samples;
+            } else {
+                const int frames = background.samples.size() / background.channels;
+                backgroundMono.resize(frames);
+                for (int frame = 0; frame < frames; ++frame) {
+                    float sum = 0.0f;
+                    for (int channel = 0; channel < background.channels; ++channel)
+                        sum += background.samples.at(frame * background.channels + channel);
+                    backgroundMono[frame] = sum / static_cast<float>(background.channels);
+                }
+            }
             for (int i = 0; i < mix.size(); ++i) {
                 if ((i & 0x3fff) == 0 && isCancelled()) {
                     if (error) *error = QStringLiteral("Audio mix cancelled.");
                     return false;
                 }
-                const int source = qMin(background.samples.size() - 1,
+                const int source = qMin(backgroundMono.size() - 1,
                                         static_cast<int>(static_cast<double>(i) * background.sampleRate / outputRate));
-                mix[i] = qBound(-1.0f, mix.at(i) + background.samples.at(source) * 0.35f, 1.0f);
+                mix[i] = qBound(-1.0f, mix.at(i) + backgroundMono.at(source) * 0.35f, 1.0f);
             }
         }
     }
