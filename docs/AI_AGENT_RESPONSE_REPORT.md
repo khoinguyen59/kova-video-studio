@@ -113,3 +113,39 @@ Dubbing/OCR implementation and verification, not a new release package.
 - The Isolator panel accepts exactly `vocals.wav` and `background.wav`; the
   upload button remains disabled while the task is processing.
 - Build and full CTest were rerun after the QML change: **39/39 passed**.
+
+## 2026-08-15 - completed: direct upload for all Dubbing task outputs
+
+### Delivered
+
+- Added **Upload completed output** directly to Task Controls for every
+  Dubbing result-producing task. It no longer requires the user to open
+  **Show task result**, and it is not limited to voice isolation.
+- The upload dialog lists the exact Colab folder, filename(s), and permitted
+  format before opening the file picker. The accepted handoffs are Normalize
+  (`normalized.wav`), Isolator (`vocals.wav` + `background.wav`), STT/OCR
+  (`transcript.srt`/`ocr.srt`), review (`reviewed-transcript.srt`), Translate
+  (`translated.srt`), TTS (`voice.wav`), Alignment (`timed-voice.wav`), Mix
+  (`mix.wav`), and Export (`final.mp4`).
+- Controller import follows the actual Dubbing state machine: files are placed
+  in the active project cache and become the working audio, cue list, dubbed
+  voice, preview, or final export consumed by the next real step. Names,
+  extension allow-lists, cue validity, and the two-stem Isolator pair are
+  validated before state advances.
+
+### Evidence
+
+- Rebuilt the MSVC test target with Qt 6.9.3 and ran full CTest:
+  **39/39 passed, 0 failed**. `TestDubbingProject` covers each direct stage
+  contract and verifies the hand-uploaded stereo voice bed passes through the
+  real mixer as mono output.
+- QML compilation/cache generation succeeded; QML lint exited 0 and reported
+  only pre-existing unused-import/callback-property warnings. `git diff
+  --check` and `graphify update .` were run.
+
+### Boundary
+
+No visible desktop GUI or live Colab worker was opened. This establishes the
+controller/QML and artifact-handoff contract, but a user still needs to test
+their own temporary Colab URL and files. No EXE was packaged for this
+source-only request.

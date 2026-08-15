@@ -856,3 +856,15 @@ Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de
   pane. Keeping it only in the left task shelf makes the feature effectively
   undiscoverable. The panel is now rendered beside the result for Isolator,
   STT/Translate, TTS, Mix and Export; processing still disables the action.
+
+### 2026-08-15 - Every result-producing Dubbing task has a direct handoff
+
+- Keep the upload entry point in the active task controls, not solely in a
+  result drawer. `workflowArtifactSpecsForStage()` maps every presentation
+  stage to its true production artifacts, including Normalize, OCR/review,
+  Alignment, Mix, and Export.
+- Artifact identity is a hard contract: exact output filename(s), declared
+  extension(s), and a `/content/la_studio_outputs/...` Colab source folder.
+  Import must copy into the project artifact cache, validate subtitles/cues,
+  and wire the real downstream artifact; never mark a stage complete merely
+  because a file picker was opened.

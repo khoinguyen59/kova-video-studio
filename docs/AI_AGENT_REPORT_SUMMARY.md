@@ -1218,3 +1218,23 @@ Cap nhat: 2026-08-14
   TTS, Mix and Export expose the same strict per-task upload contract where
   their result is reviewed.
 - Rebuilt after the layout fix; full CTest remains **39/39 passed**.
+
+### 2026-08-15 - Direct upload contract for every Dubbing output task
+
+- Upload is no longer an Isolator-only action nor hidden behind **Show task
+  result**. Every active Dubbing task that can produce a downstream artifact
+  now exposes **Upload completed output** directly in its Task Controls.
+- The visible contracts are: Normalize `normalized.wav`; Isolator
+  `vocals.wav` + `background.wav`; STT `transcript.srt`; OCR `ocr.srt`;
+  STT/OCR review `reviewed-transcript.srt`; Translate `translated.srt`; TTS
+  `voice.wav`; Alignment `timed-voice.wav`; Mix `mix.wav`; and Export
+  `final.mp4`. Each card prints its exact `/content/la_studio_outputs/...`
+  Colab folder and rejects an unlisted extension, count, or filename.
+- Imports are copied into the active project cache and passed to the normal
+  downstream state: audio becomes the working audio/vocal bed, subtitle files
+  are parsed as cues, and Mix/Export artifacts become the actual preview or
+  final output. No local fallback is invented.
+- Evidence: full CTest **39/39 passed**; `TestDubbingProject` covers each
+  visible stage contract and a real stereo handoff through the mixer; QML lint
+  exited 0 with only existing warnings. No visible GUI or live Colab worker
+  was opened, and no package was made in this source-only batch.
