@@ -1,5 +1,37 @@
 # AI agent response — local download and resumable Dubbing projects
 
+## 2026-08-17 — completed: independent Dubbing STT/OCR control (0.0.7.5)
+
+### What changed
+
+- **STT**, **Subtitle OCR**, and **Reconcile saved STT + OCR** are now explicit
+  Dubbing actions in the task shelf.
+- The selected next action no longer determines whether either Colab worker can
+  be selected, connected, or verified. STT and OCR retain independent model,
+  route, notebook, URL, token, and connection state.
+- Reconciliation is local-only. It never starts, configures, disconnects, or
+  disables either worker; it is the final action after both saved results exist.
+- A manual STT job no longer locks OCR setup. Only an Automatic Dubbing run
+  freezes shared OCR scan/route settings.
+
+### Verification and operator flow
+
+- Full CTest: **39/39 passed** in 61.13 seconds; Dubbing, OCR controller, and
+  offscreen QML-route regressions passed. `graphify update .` and
+  `git diff --check` passed.
+- Configure/connect STT and use **Run STT now**. Configure/connect Subtitle OCR
+  and use **Run Subtitle OCR now**. Once both results are saved, use
+  **Reconcile saved STT + OCR**. Manual media jobs remain serialized, but either
+  worker can be configured while the other runs.
+- Internal portable package: `out/LA-Studio-0.0.7.5/LA-Studio-0.0.7.5.exe`.
+  Source, FileVersion, and ProductVersion are all `0.0.7.5`; SHA-256:
+  `736983215DBCB18EF299BAD8B69BD7BBA4C4BFD0707E2A721DA66FF5745EB189`.
+  The package manifest verified 19 runtime and 18 license artifacts; staged
+  FFmpeg, FFprobe, yt-dlp, and the application's offscreen QML smoke exited
+  successfully.
+- No visible desktop window or live Colab session was opened. A fresh Colab
+  session remains the acceptance check for temporary worker URL/token.
+
 ## 2026-08-16 — completed: valid FLAC STT recovery and package 0.0.7.4
 
 ### Root cause and repair

@@ -2,6 +2,24 @@
 
 Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de agent khong lam lai viec cu. Khong chep patch hay log dai.
 
+## 2026-08-17 - STT/OCR independence is a hard Dubbing invariant
+
+- Never use `transcriptSource` (the next action: `stt`, `ocr`, or
+  `reconcile`) as a guard for a worker's model card, Colab URL/token fields, or
+  Connect/Check controls. STT and Subtitle OCR are independent workers.
+- `stageRequiredForCurrentTranscriptAction()` decides which selected worker is
+  required to execute the *current* action. It must not decide which worker may
+  be configured. Reconciliation has no remote dependency.
+- Reconciliation consumes saved STT and OCR results locally and must not start,
+  disconnect, lock, or hide either worker. The UI exposes **Run STT now**,
+  **Run Subtitle OCR now**, and **Reconcile saved STT + OCR**. Manual work is
+  serialized, but configuring the other worker remains permitted.
+- Evidence: full CTest **39/39** (61.13 s), Dubbing/OCR controller tests, and
+  offscreen QML route smoke passed. Package `0.0.7.5` passed its 19-runtime /
+  18-license staging manifests and offscreen smoke; EXE SHA-256
+  `736983215DBCB18EF299BAD8B69BD7BBA4C4BFD0707E2A721DA66FF5745EB189`.
+  No visible GUI or live Colab session ran.
+
 ## 2026-08-16 - STT FLAC decoder and transcript-source separation
 
 - A valid Direct Colab `vocals.flac` must never be treated as an empty WAV.

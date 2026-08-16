@@ -1,6 +1,23 @@
 # Bao cao tong hop LA Studio
 
-Cap nhat: 2026-08-16
+Cap nhat: 2026-08-17
+
+## 2026-08-17 - Dubbing STT/OCR independent controls
+
+- Fixed the setup coupling that made a configured STT route appear
+  “Unconfigured” and disabled OCR when the selected next action was
+  reconciliation.
+- Both workers are independently selectable, connectable, and verifiable; the
+  selected action only decides the dependency required on pressing its run
+  command.
+- Added explicit **Run STT now**, **Run Subtitle OCR now**, and
+  **Reconcile saved STT + OCR** actions. Reconciliation is local-only.
+- Validation: full CTest **39/39 passed**; Graphify updated. Internal portable
+  package: `out/LA-Studio-0.0.7.5/LA-Studio-0.0.7.5.exe`; File/ProductVersion
+  `0.0.7.5`; SHA-256
+  `736983215DBCB18EF299BAD8B69BD7BBA4C4BFD0707E2A721DA66FF5745EB189`.
+
+Cap nhat truoc do: 2026-08-16
 
 ## 2026-08-16 - STT FLAC recovery and independent transcript sources, package 0.0.7.4
 
