@@ -466,6 +466,10 @@ private:
     void captureNewAutomaticDownloads(const QSet<QString> &before);
     QVariantList automaticSetupDownloads() const;
     bool stageUsesDirectColab(const QString &stageId) const;
+    // Direct-Colab connection is an independent capability setting.  This
+    // predicate is used only when starting the currently selected transcript
+    // action, so preparing STT never disables Subtitle OCR (or vice versa).
+    bool stageRequiredForCurrentTranscriptAction(const QString &stageId) const;
     bool snapshotSelectedColabStagesForWorkflow();
     void observeColabSession(const QString &stageId, ColabSession *session);
     void refreshColabSetupSnapshot(const QString &stageId, bool verified);

@@ -104,7 +104,7 @@ private slots:
     void combinedTranscriptRunsSttAndSharedOcrWithoutFallback();
     void combinedTranscriptReportsOcrFailureWithoutSttFallback();
     void reviewerMustResolveFusionConflictExplicitly();
-    void transcriptModePersistsAndColabCardsUseOnlyActiveSourceAndRoute();
+    void transcriptModePersistsAndColabCardsKeepIndependentRoutes();
     void fusionPoliciesAndBulkResolutionPreserveOriginalEvidence();
     void unresolvedTranscriptConflictsBlockTranslationAndManualReviewPersists();
     void aiReconciliationCapabilityAndReviewDecisionsPreserveEvidence();

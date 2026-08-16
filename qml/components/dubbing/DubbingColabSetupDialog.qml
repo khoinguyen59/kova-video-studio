@@ -123,7 +123,7 @@ Dialog {
                 spacing: Theme.paddingSmall
 
                 Text {
-                    text: qsTr("Transcript source for this project")
+                    text: qsTr("Next transcript action")
                     color: Theme.textPrimary
                     font.bold: true
                 }
@@ -156,11 +156,7 @@ Dialog {
                     }
                     Text {
                         Layout.fillWidth: true
-                        text: (root.dubbing.transcriptConfiguration.transcriptSource || "stt") === "stt"
-                              ? qsTr("Subtitle OCR is not used. Its saved configuration remains available for a later mode change.")
-                              : ((root.dubbing.transcriptConfiguration.transcriptSource || "stt") === "ocr"
-                                 ? qsTr("Speech-to-text is not used. Its saved configuration remains available for a later mode change.")
-                                 : qsTr("Khớp lại dùng hai transcript đã hoàn tất; nó không khởi động STT hoặc OCR và không cần một worker mới."))
+                        text: qsTr("STT and Subtitle OCR can always be configured and run independently below. Reconcile only combines saved results locally; it starts neither worker.")
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fontSmall
                         wrapMode: Text.WordWrap
@@ -198,18 +194,15 @@ Dialog {
                         readonly property var setupDialog: stageRepeater.setupDialog
                         readonly property string stageId: modelData.id || ""
                         readonly property var stageSession: stageRepeater.setupDialog.sessionForStage(stageId)
-                        readonly property bool sourceActive: modelData.activeForTranscriptSource !== false
                         Layout.fillWidth: true
                         implicitHeight: stageLayout.implicitHeight + Theme.paddingMedium * 2
                         radius: Theme.radiusSmall
                         color: Qt.rgba(1, 1, 1, 0.025)
-                        border.color: !sourceActive
-                                      ? Qt.rgba(1, 1, 1, 0.10)
-                                      : (modelData.verified
-                                         ? Qt.rgba(Theme.success.r, Theme.success.g, Theme.success.b, 0.46)
-                                         : (modelData.selectedForDirectColab
-                                            ? Qt.rgba(Theme.warning.r, Theme.warning.g, Theme.warning.b, 0.42)
-                                            : Qt.rgba(1, 1, 1, 0.10)))
+                        border.color: modelData.verified
+                                      ? Qt.rgba(Theme.success.r, Theme.success.g, Theme.success.b, 0.46)
+                                      : (modelData.selectedForDirectColab
+                                         ? Qt.rgba(Theme.warning.r, Theme.warning.g, Theme.warning.b, 0.42)
+                                         : Qt.rgba(1, 1, 1, 0.10))
                         border.width: 1
 
                         ColumnLayout {
@@ -229,7 +222,6 @@ Dialog {
                                     font.bold: true
                                 }
                                 Text {
-                                    visible: stageCard.sourceActive
                                     text: stageCard.modelData.verified
                                           ? qsTr("Verified exact worker")
                                           : (stageCard.modelData.selectedForDirectColab
@@ -240,20 +232,14 @@ Dialog {
                                     font.pixelSize: 10
                                     font.bold: true
                                 }
-                                Text {
-                                    visible: !stageCard.sourceActive
-                                    text: qsTr("Không dùng")
-                                    color: Theme.textSecondary
-                                    font.pixelSize: 10
-                                    font.bold: true
-                                }
                             }
 
                             Text {
                                 Layout.fillWidth: true
-                                visible: !stageCard.sourceActive
-                                text: stageCard.modelData.notUsedReason
-                                      || qsTr("This source is not used by the current transcript mode. Saved configuration is preserved.")
+                                visible: stageCard.stageId === "transcribe" || stageCard.stageId === "subtitle-ocr"
+                                text: stageCard.modelData.requiredForCurrentTranscriptAction
+                                      ? qsTr("Required by the next transcript action.")
+                                      : qsTr("Available independently. Select its action when you are ready to run it.")
                                 color: Theme.textSecondary
                                 font.pixelSize: Theme.fontSmall
                                 wrapMode: Text.WordWrap
@@ -276,7 +262,7 @@ Dialog {
                                     onActivated: function(index) {
                                         stageCard.setupDialog.dubbing.selectWorkflowColabModel(stageCard.stageId, model[index].modelId)
                                     }
-                                    enabled: stageCard.sourceActive
+                                    enabled: true
                                 }
                                 Text {
                                     Layout.fillWidth: true
@@ -289,8 +275,8 @@ Dialog {
 
                             ColabNotebookLink {
                                 notebookFile: stageCard.modelData.notebookFile || ""
-                                enabled: stageCard.sourceActive
-                                opacity: stageCard.sourceActive ? 1.0 : 0.45
+                                enabled: true
+                                opacity: 1.0
                             }
 
                             RowLayout {
@@ -303,7 +289,7 @@ Dialog {
                                     text: stageCard.setupDialog.draftUrl(stageCard.stageId, stageCard.stageSession)
                                     selectByMouse: true
                                     onTextEdited: stageCard.setupDialog.setDraftUrl(stageCard.stageId, text)
-                                    enabled: stageCard.sourceActive
+                                    enabled: true
                                     color: Theme.textPrimary
                                     placeholderTextColor: Theme.textSecondary
                                     background: Rectangle { radius: Theme.radiusSmall; color: Theme.surface; border.color: workerUrlField.activeFocus ? Theme.accent : Theme.surfaceAlt; border.width: 1 }
@@ -316,7 +302,7 @@ Dialog {
                                     echoMode: TextInput.Password
                                     selectByMouse: true
                                     onTextEdited: stageCard.setupDialog.setDraftToken(stageCard.stageId, text)
-                                    enabled: stageCard.sourceActive
+                                    enabled: true
                                     color: Theme.textPrimary
                                     placeholderTextColor: Theme.textSecondary
                                     background: Rectangle { radius: Theme.radiusSmall; color: Theme.surface; border.color: tokenField.activeFocus ? Theme.accent : Theme.surfaceAlt; border.width: 1 }
@@ -325,7 +311,7 @@ Dialog {
                                     text: stageCard.stageSession && stageCard.stageSession.active ? qsTr("Replace") : qsTr("Connect")
                                     iconName: "link"
                                     implicitWidth: 104
-                                    enabled: stageCard.sourceActive && workerUrlField.text.trim() !== "" && tokenField.text !== "" && !stageCard.setupDialog.dubbing.colabSetupChecking
+                                    enabled: workerUrlField.text.trim() !== "" && tokenField.text !== "" && !stageCard.setupDialog.dubbing.colabSetupChecking
                                     onClicked: {
                                         if (stageCard.setupDialog.dubbing.connectWorkflowColabStage(stageCard.stageId,
                                                                                    stageCard.modelData.modelId,

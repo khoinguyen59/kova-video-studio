@@ -4756,7 +4756,7 @@ void TestDubbingProject::reviewerMustResolveFusionConflictExplicitly()
              QStringLiteral("ocr"));
 }
 
-void TestDubbingProject::transcriptModePersistsAndColabCardsUseOnlyActiveSourceAndRoute()
+void TestDubbingProject::transcriptModePersistsAndColabCardsKeepIndependentRoutes()
 {
     const auto stage = [](const QVariantList &stages, const QString &id) {
         for (const QVariant &entry : stages) {
@@ -4788,27 +4788,40 @@ void TestDubbingProject::transcriptModePersistsAndColabCardsUseOnlyActiveSourceA
              QStringLiteral("whisper.cpp"));
 
     QVariantList stages = controller.colabSetupStages();
-    QVERIFY(!stage(stages, QStringLiteral("transcribe")).value(QStringLiteral("activeForTranscriptSource")).toBool());
-    QVERIFY(!stage(stages, QStringLiteral("transcribe")).value(QStringLiteral("selectedForDirectColab")).toBool());
-    QVERIFY(!stage(stages, QStringLiteral("subtitle-ocr")).value(QStringLiteral("activeForTranscriptSource")).toBool());
-    QVERIFY(!stage(stages, QStringLiteral("subtitle-ocr")).value(QStringLiteral("selectedForDirectColab")).toBool());
+    QVERIFY(stage(stages, QStringLiteral("transcribe")).value(QStringLiteral("selectedForDirectColab")).toBool());
+    QVERIFY(stage(stages, QStringLiteral("subtitle-ocr")).value(QStringLiteral("selectedForDirectColab")).toBool());
+    QVERIFY(!stage(stages, QStringLiteral("transcribe")).value(
+                 QStringLiteral("requiredForCurrentTranscriptAction")).toBool());
+    QVERIFY(!stage(stages, QStringLiteral("subtitle-ocr")).value(
+                 QStringLiteral("requiredForCurrentTranscriptAction")).toBool());
+    QVERIFY(!stage(stages, QStringLiteral("transcribe")).contains(
+                 QStringLiteral("activeForTranscriptSource")));
+    QVERIFY(!stage(stages, QStringLiteral("subtitle-ocr")).contains(
+                 QStringLiteral("notUsedReason")));
 
     QVERIFY(controller.setWorkflowNodeParameters(QStringLiteral("transcribe"), {
         {QStringLiteral("transcriptSource"), QStringLiteral("ocr")}}));
     stages = controller.colabSetupStages();
-    QVERIFY(!stage(stages, QStringLiteral("transcribe")).value(QStringLiteral("activeForTranscriptSource")).toBool());
-    QVERIFY(!stage(stages, QStringLiteral("transcribe")).value(QStringLiteral("selectedForDirectColab")).toBool());
-    QVERIFY(stage(stages, QStringLiteral("subtitle-ocr")).value(QStringLiteral("activeForTranscriptSource")).toBool());
+    QVERIFY(stage(stages, QStringLiteral("transcribe")).value(QStringLiteral("selectedForDirectColab")).toBool());
     QVERIFY(stage(stages, QStringLiteral("subtitle-ocr")).value(QStringLiteral("selectedForDirectColab")).toBool());
+    QVERIFY(!stage(stages, QStringLiteral("transcribe")).value(
+                 QStringLiteral("requiredForCurrentTranscriptAction")).toBool());
+    QVERIFY(stage(stages, QStringLiteral("subtitle-ocr")).value(
+                QStringLiteral("requiredForCurrentTranscriptAction")).toBool());
 
     QVERIFY(controller.setWorkflowNodeParameters(QStringLiteral("transcribe"), {
         {QStringLiteral("executionProvider"), QStringLiteral("local-dev")},
         {QStringLiteral("transcriptSource"), QStringLiteral("stt")}}));
     stages = controller.colabSetupStages();
     QVERIFY(!stage(stages, QStringLiteral("transcribe")).value(QStringLiteral("selectedForDirectColab")).toBool());
-    QVERIFY(!stage(stages, QStringLiteral("subtitle-ocr")).value(QStringLiteral("activeForTranscriptSource")).toBool());
-    // An inactive OCR route is not allowed to make Check all selected fail.
-    QVERIFY(controller.validateAllWorkflowColabStages());
+    QVERIFY(stage(stages, QStringLiteral("subtitle-ocr")).value(QStringLiteral("selectedForDirectColab")).toBool());
+    QVERIFY(stage(stages, QStringLiteral("transcribe")).value(
+                 QStringLiteral("requiredForCurrentTranscriptAction")).toBool());
+    QVERIFY(!stage(stages, QStringLiteral("subtitle-ocr")).value(
+                 QStringLiteral("requiredForCurrentTranscriptAction")).toBool());
+    // Check all is intentionally an independent configuration diagnostic: a
+    // saved OCR Direct-Colab route must remain visible and report unverified.
+    QVERIFY(!controller.validateAllWorkflowColabStages());
 
     QVERIFY(controller.setWorkflowNodeParameters(QStringLiteral("transcribe"), {
         {QStringLiteral("transcriptSource"), QStringLiteral("ocr")}}));
@@ -5023,9 +5036,16 @@ void TestDubbingProject::transcriptConflictUiAndColabSetupWireProductionControll
     QVERIFY(pageSource.contains(QStringLiteral("resolveAllTranscriptConflicts")));
     QVERIFY(pageSource.contains(QStringLiteral("acceptTranscriptConflictAiSuggestion")));
     QVERIFY(setupSource.contains(QStringLiteral("dubbingColabTranscriptSourceMode")));
-    QVERIFY(setupSource.contains(QString::fromUtf8("Không dùng")));
-    QVERIFY(setupSource.contains(QStringLiteral("activeForTranscriptSource")));
-    QVERIFY(setupSource.contains(QStringLiteral("notUsedReason")));
+    QVERIFY(setupSource.contains(QStringLiteral("Next transcript action")));
+    QVERIFY(setupSource.contains(QStringLiteral("always be configured and run independently")));
+    QVERIFY(!setupSource.contains(QStringLiteral("activeForTranscriptSource")));
+    QVERIFY(!setupSource.contains(QStringLiteral("notUsedReason")));
+    QVERIFY(pageSource.contains(QStringLiteral("Run STT now")));
+    QVERIFY(pageSource.contains(QStringLiteral("Run Subtitle OCR now")));
+    QVERIFY(pageSource.contains(QStringLiteral("Reconcile saved STT + OCR")));
+    QVERIFY(controllerSource.contains(QStringLiteral("stageRequiredForCurrentTranscriptAction")));
+    QVERIFY(!controllerSource.contains(
+                QStringLiteral("This Direct Colab worker is not used by the selected transcript source.")));
     QVERIFY(controllerSource.contains(QStringLiteral("snapshotSelectedColabStagesForWorkflow")));
     QVERIFY(controllerSource.contains(QStringLiteral("Resolve %1 STT/OCR conflict")));
     QVERIFY(serviceSource.contains(QStringLiteral("supportsStructuredReconciliation")));

@@ -1204,21 +1204,11 @@ bool DubbingController::stageUsesDirectColab(const QString &stageId) const
         return rewriteRequired && adaptiveProvider() == QStringLiteral("colab-direct");
     }
     if (stageId == QStringLiteral("subtitle-ocr")) {
-        const QString source = normalizedTranscriptSource(
-            m_project.transcriptConfiguration.value(
-                QStringLiteral("transcriptSource"), QStringLiteral("stt")).toString());
         const QString persistedRoute = m_project.transcriptConfiguration.value(
             QStringLiteral("ocrExecutionRoute")).toString().trimmed().toLower();
-        const bool usesOcr = source == QStringLiteral("ocr");
         const bool routeSelected = persistedRoute == QStringLiteral("colab-gpu")
             || (m_subtitleOcr && m_subtitleOcr->executionRoute() == QStringLiteral("colab-gpu"));
-        return usesOcr && routeSelected;
-    }
-    if (stageId == QStringLiteral("transcribe")
-        && normalizedTranscriptSource(m_project.transcriptConfiguration.value(
-               QStringLiteral("transcriptSource"), QStringLiteral("stt")).toString())
-               != QStringLiteral("stt")) {
-        return false;
+        return routeSelected;
     }
     const QString configurationNode = stageId == QStringLiteral("alignment") ? QStringLiteral("transcribe") : stageId;
     const QVariantMap configuration = m_workflowNodeConfigurations.value(configurationNode).toMap();
@@ -1236,6 +1226,18 @@ bool DubbingController::stageUsesDirectColab(const QString &stageId) const
     return provider == QStringLiteral("colab-direct");
 }
 
+bool DubbingController::stageRequiredForCurrentTranscriptAction(const QString &stageId) const
+{
+    const QString transcriptSource = normalizedTranscriptSource(
+        m_project.transcriptConfiguration.value(
+            QStringLiteral("transcriptSource"), QStringLiteral("stt")).toString());
+    if (stageId == QStringLiteral("transcribe"))
+        return transcriptSource == QStringLiteral("stt");
+    if (stageId == QStringLiteral("subtitle-ocr"))
+        return transcriptSource == QStringLiteral("ocr");
+    return true;
+}
+
 bool DubbingController::snapshotSelectedColabStagesForWorkflow()
 {
     // A Direct Colab route may be configured from either the global Dubbing panel
@@ -1244,7 +1246,11 @@ bool DubbingController::snapshotSelectedColabStagesForWorkflow()
     // exclusively in ColabSession's process-memory state.
     for (const QVariant &entry : colabSetupStages()) {
         const QVariantMap stage = entry.toMap();
-        if (!stage.value(QStringLiteral("selectedForDirectColab")).toBool()) continue;
+        if (!stage.value(QStringLiteral("selectedForDirectColab")).toBool()
+            || !stageRequiredForCurrentTranscriptAction(
+                stage.value(QStringLiteral("id")).toString())) {
+            continue;
+        }
 
         const QString stageId = stage.value(QStringLiteral("id")).toString();
         const QString capability = stage.value(QStringLiteral("capability")).toString();
@@ -1326,9 +1332,6 @@ QVariantList DubbingController::colabSetupStages() const
         definitions.append({QStringLiteral("adaptive-llm"),
                             QStringLiteral("Translate (Adaptive LLM)")});
     }
-    const QString transcriptSource = normalizedTranscriptSource(
-        m_project.transcriptConfiguration.value(
-            QStringLiteral("transcriptSource"), QStringLiteral("stt")).toString());
     QVariantList result;
     for (const auto &definition : definitions) {
         const QString stageId = definition.first;
@@ -1342,17 +1345,6 @@ QVariantList DubbingController::colabSetupStages() const
                 ? session->lastError() : session->verificationMessage();
         if (diagnostic.isEmpty())
             diagnostic = QStringLiteral("Not connected for this exact model.");
-        const bool activeForTranscriptSource =
-            (stageId != QStringLiteral("transcribe")
-             || transcriptSource == QStringLiteral("stt"))
-            && (stageId != QStringLiteral("subtitle-ocr")
-                || transcriptSource == QStringLiteral("ocr"));
-        const QString notUsedReason = activeForTranscriptSource ? QString()
-            : (transcriptSource == QStringLiteral("reconcile")
-                   ? QStringLiteral("Not used: reconciliation consumes saved STT and OCR results locally.")
-                   : (stageId == QStringLiteral("transcribe")
-                          ? QStringLiteral("Not used: this project is set to OCR only.")
-                          : QStringLiteral("Not used: this project is set to STT only.")));
         result.append(QVariantMap{
             {QStringLiteral("id"), stageId},
             {QStringLiteral("title"), definition.second},
@@ -1364,9 +1356,9 @@ QVariantList DubbingController::colabSetupStages() const
             {QStringLiteral("variant"), session && !session->expectedVariant().isEmpty()
                 ? session->expectedVariant() : QStringLiteral("fixed")},
             {QStringLiteral("notebookFile"), DubbingColabModelRoutes::notebookForModel(stageId, model)},
-            {QStringLiteral("activeForTranscriptSource"), activeForTranscriptSource},
-            {QStringLiteral("notUsedReason"), notUsedReason},
             {QStringLiteral("selectedForDirectColab"), stageUsesDirectColab(stageId)},
+            {QStringLiteral("requiredForCurrentTranscriptAction"),
+                stageRequiredForCurrentTranscriptAction(stageId)},
             {QStringLiteral("active"), session && session->isActive()},
             {QStringLiteral("checking"), session && session->isChecking()},
             {QStringLiteral("verified"), verified},
@@ -1381,14 +1373,6 @@ bool DubbingController::connectWorkflowColabStage(const QString &stageId, const 
                                                    const QString &workerUrl, const QString &bearerToken)
 {
     const QString normalizedStage = stageId.trimmed().toLower();
-    const QString transcriptSource = normalizedTranscriptSource(
-        m_project.transcriptConfiguration.value(
-            QStringLiteral("transcriptSource"), QStringLiteral("stt")).toString());
-    if ((normalizedStage == QStringLiteral("transcribe") && transcriptSource != QStringLiteral("stt"))
-        || (normalizedStage == QStringLiteral("subtitle-ocr") && transcriptSource != QStringLiteral("ocr"))) {
-        setError(QStringLiteral("This Direct Colab worker is not used by the selected transcript source."));
-        return false;
-    }
     const QString normalizedModel = modelId.trimmed().toLower();
     const QString capability = colabCapabilityForStage(normalizedStage);
     ColabSession *session = colabSessionForStage(normalizedStage);
@@ -2777,7 +2761,8 @@ QVariantMap DubbingController::automaticPreflight() const
     for (const QVariant &value : colabSetupStages()) {
         const QVariantMap stage = value.toMap();
         if (!stage.value(QStringLiteral("selectedForDirectColab")).toBool()
-            || !stage.value(QStringLiteral("activeForTranscriptSource"), true).toBool()) {
+            || !stageRequiredForCurrentTranscriptAction(
+                stage.value(QStringLiteral("id")).toString())) {
             continue;
         }
         directWorkers.insert(stage.value(QStringLiteral("id")).toString(), stage);
@@ -3020,7 +3005,8 @@ QString DubbingController::automaticPreflightFingerprint() const
     for (const QVariant &value : colabSetupStages()) {
         const QVariantMap stage = value.toMap();
         if (!stage.value(QStringLiteral("selectedForDirectColab")).toBool()
-            || !stage.value(QStringLiteral("activeForTranscriptSource"), true).toBool()) {
+            || !stageRequiredForCurrentTranscriptAction(
+                stage.value(QStringLiteral("id")).toString())) {
             continue;
         }
         const QString stageId = stage.value(QStringLiteral("id")).toString();

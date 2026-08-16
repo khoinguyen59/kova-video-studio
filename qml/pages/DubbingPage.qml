@@ -287,11 +287,15 @@ Item {
     }
 
     function stepRunReady(stepId) {
+        // The selected "next transcript action" must never hide the manual
+        // Run task control.  STT, Subtitle OCR, and local reconciliation have
+        // separate controller-side readiness checks and give the operator an
+        // exact diagnostic after a click; only missing source media is a hard
+        // UI prerequisite shared by all three actions.
+        if (stepId === "transcribe")
+            return (dubbing.sourceMediaPath || "").length > 0
         var node = root.workflowNode(stepId)
         if (!node || node.state === "missing" || node.state === "blocked") return false
-        if (stepId === "transcribe"
-                && (dubbing.transcriptConfiguration.transcriptSource || "stt") === "ocr")
-            return node.state === "ready" || node.state === "completed"
         if (stepId === "synthesize" && !dubbing.ttsVoiceSelectionValid) return false
         if (node.configurable === true && node.selectedFamilyId
                 && node.providerState !== "ready") return false
@@ -756,9 +760,9 @@ Item {
     }
 
     function openOcrColabSetup() {
-        // A Direct Colab OCR worker can be prepared while a different manual
-        // stage runs.  Never mutate the OCR route after Transcribe itself has
-        // started, nor after an Automatic workflow has frozen its approval.
+        // STT and Subtitle OCR keep independent Direct Colab routes.  A user
+        // may prepare/check OCR while a manual STT job is active; only the
+        // frozen Automatic workflow settings prohibit a route mutation.
         if (!root.ocrSetupEditable()) return
         var selected = (dubbing.transcriptConfiguration || {}).ocrColabModelId || ""
         if (dubbing.colabNotebookForNode("subtitle-ocr", selected) === "")
@@ -769,8 +773,7 @@ Item {
     }
 
     function ocrSetupEditable() {
-        return !dubbing.processing
-               || (!dubbing.settingsLocked && dubbing.currentStepId !== "transcribe")
+        return !dubbing.settingsLocked
     }
 
     function generatedClipCount() {
@@ -1267,7 +1270,7 @@ Item {
                             spacing: Theme.paddingSmall
 
                             Text {
-                                text: qsTr("Transcript source")
+                                text: qsTr("Next transcript action")
                                 color: Theme.textPrimary
                                 font.bold: true
                             }
@@ -1303,6 +1306,50 @@ Item {
                                       : (dubbing.transcriptConfiguration.transcriptSource || "stt") === "reconcile"
                                         ? qsTr("Khớp hai kết quả đã hoàn thành; STT và OCR không chạy lại.")
                                         : qsTr("Uses speech-to-text only.")
+                                color: Theme.textSecondary
+                                font.pixelSize: 10
+                                wrapMode: Text.WordWrap
+                            }
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.paddingSmall
+                                PrimaryButton {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Run STT now")
+                                    iconName: "play"
+                                    enabled: !dubbing.processing
+                                    toolTip: qsTr("Run only Speech-to-Text with its own configured route. Subtitle OCR remains available separately.")
+                                    onClicked: {
+                                        dubbing.setWorkflowNodeParameters("transcribe", { transcriptSource: "stt" })
+                                        root.runStep("transcribe")
+                                    }
+                                }
+                                PrimaryButton {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Run Subtitle OCR now")
+                                    iconName: "play"
+                                    enabled: !dubbing.processing
+                                    toolTip: qsTr("Run only Subtitle OCR with its own selected Colab or Local route. Speech-to-Text remains available separately.")
+                                    onClicked: {
+                                        dubbing.setWorkflowNodeParameters("transcribe", { transcriptSource: "ocr" })
+                                        root.runStep("transcribe")
+                                    }
+                                }
+                                PrimaryButton {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Reconcile saved STT + OCR")
+                                    iconName: "play"
+                                    enabled: !dubbing.processing
+                                    toolTip: qsTr("Combine only the saved STT and OCR results locally. This does not start either worker.")
+                                    onClicked: {
+                                        dubbing.setWorkflowNodeParameters("transcribe", { transcriptSource: "reconcile" })
+                                        root.runStep("transcribe")
+                                    }
+                                }
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: qsTr("Each button runs only its named action. Configure and verify the STT and Subtitle OCR Colab routes separately; reconciliation becomes available after both saved results exist.")
                                 color: Theme.textSecondary
                                 font.pixelSize: 10
                                 wrapMode: Text.WordWrap
@@ -1801,7 +1848,7 @@ Item {
                                 Text {
                                     Layout.fillWidth: true
                                     text: !root.ocrSetupEditable()
-                                          ? qsTr("OCR route is locked while Transcribe runs.")
+                                          ? qsTr("OCR route is locked while an Automatic Dubbing run is active.")
                                           : (dubbing.processing
                                              ? qsTr("You may prepare OCR while this different manual task runs.")
                                              : qsTr("Choose and verify this before starting Transcribe."))
