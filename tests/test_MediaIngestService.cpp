@@ -1060,17 +1060,20 @@ void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
     QVERIFY(page.contains(QStringLiteral("mediaQueueItems")));
     QVERIFY(dubbingSource.contains(QStringLiteral("ColabMediaAcquisitionPanel")));
     QVERIFY(dubbingSource.contains(QStringLiteral("manualMediaFilesRequested")));
-    // Dubbing's two entry pickers intentionally use the in-app dialog.  On
-    // Windows the native picker can detach as an Explorer window and never
-    // deliver an accepted selection back to the packaged application.
+    // Dubbing retains the native Windows picker the user expects. Both paths
+    // must still funnel their accepted selections into the QML import methods.
     const int singleDialog = dubbingPage.indexOf(QStringLiteral("id: mediaFileDialog"));
     const int queueDialog = dubbingPage.indexOf(QStringLiteral("id: queuedMediaFilesDialog"));
     QVERIFY(singleDialog >= 0);
     QVERIFY(queueDialog > singleDialog);
     QVERIFY(dubbingPage.mid(singleDialog, queueDialog - singleDialog)
-                .contains(QStringLiteral("options: FileDialog.DontUseNativeDialog")));
+                .contains(QStringLiteral("root.acceptSelectedSourceMedia(selectedFile.toString())")));
     QVERIFY(dubbingPage.mid(queueDialog)
-                .contains(QStringLiteral("options: FileDialog.DontUseNativeDialog")));
+                .contains(QStringLiteral("root.dubbing.enqueueMediaFiles(paths)")));
+    QVERIFY(!dubbingPage.mid(singleDialog, queueDialog - singleDialog)
+                 .contains(QStringLiteral("FileDialog.DontUseNativeDialog")));
+    QVERIFY(!dubbingPage.mid(queueDialog)
+                 .contains(QStringLiteral("FileDialog.DontUseNativeDialog")));
     QVERIFY(dubbingSource.contains(QStringLiteral("mediaQueueDialog.open()")));
     QVERIFY(acquisition.contains(QStringLiteral("Download public links locally")));
     QVERIFY(dubbingSource.contains(QStringLiteral("DubbingMediaQueueDialog")));

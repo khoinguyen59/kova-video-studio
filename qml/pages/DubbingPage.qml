@@ -2452,11 +2452,8 @@ Item {
         id: mediaFileDialog
         title: qsTr("Select media file")
         fileMode: FileDialog.OpenFile
-        // The native Windows dialog can be opened as a detached Explorer window
-        // in packaged builds, which never returns an accepted file to QML.
-        // Keep this picker in the application so both Browse and the Dubbing
-        // media-library action complete through their accepted handlers.
-        options: FileDialog.DontUseNativeDialog
+        // Use the native Windows picker. It is the expected Explorer-style
+        // experience and `onAccepted` below remains the only import boundary.
         nameFilters: [qsTr("Media files (*.wav *.mp3 *.mp4 *.mkv *.mov *.webm)"), qsTr("All files (*)")]
         onAccepted: {
             root.acceptSelectedSourceMedia(selectedFile.toString())
@@ -2496,7 +2493,7 @@ Item {
         id: queuedMediaFilesDialog
         title: qsTr("Choose media files for the Dubbing library")
         fileMode: FileDialog.OpenFiles
-        options: FileDialog.DontUseNativeDialog
+        // Keep multi-select consistent with the native single-file picker.
         nameFilters: [qsTr("Media files (*.wav *.mp3 *.flac *.mp4 *.mkv *.mov *.webm *.avi)"), qsTr("All files (*)")]
         onAccepted: {
             var paths = []
