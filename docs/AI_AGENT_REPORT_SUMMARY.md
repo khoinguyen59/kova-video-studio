@@ -2,6 +2,29 @@
 
 Cap nhat: 2026-08-17
 
+## 2026-08-22 - Recheck lon Dubbing: ket thuc decode loi va STT/OCR chay doc lap
+
+- Loi "No audio data was decoded" da co ket thuc that: `SttSessionController`
+  phat `transcriptionFailed` khi decoder khong tao PCM; `DubbingTranscriptionJob`
+  chuyen no thanh failure ket thuc. Khong con duong im lang de job treo va giao
+  dien bi khoa, va worker Colab khong bi goi neu decode da that bai.
+- STT am thanh va Subtitle OCR da duoc tach thanh hai worker doc lap trong
+  Dubbing. Chi hai tac vu nay duoc phep chay song song trong manual mode; khop
+  lai la buoc local chi duoc bat sau khi ca hai nguon da xong. Automatic,
+  batch, translation-fix va cac node khac van serialized.
+- Sua remote acceptance gate cho Spleeter: notebook nay la bootstrap co kiem
+  tra SHA-256, con endpoint/capability nam trong worker template va tunnel nam
+  trong launcher template. Gate gio kiem tra day du don vi notebook + worker +
+  launcher thay vi bao false-negative vi tim `cloudflared` sai file.
+- Bang chung: build release (khong deploy) thanh cong; CTest day du **39/39**;
+  notebooks **32/32**; bindings controller/UI/notebook **31/31**; live-Colab
+  acceptance contracts **9/9**; remote surface **8/8**; `git diff --check`
+  sach. QML lint exit 0, con 5 warning baseline o cac file khong sua trong dot
+  nay.
+- Gioi han trung thuc: chua mo GUI va chua chay mot Colab session that trong
+  dot recheck nay; mot file media/URL/token moi van can acceptance test thu
+  cong. Khong dong goi EXE moi tu ket qua recheck nay.
+
 ## 2026-08-17 - Dubbing STT/OCR independent controls
 
 - Fixed the setup coupling that made a configured STT route appear

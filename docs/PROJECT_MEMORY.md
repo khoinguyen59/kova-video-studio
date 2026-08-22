@@ -2,6 +2,29 @@
 
 Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de agent khong lam lai viec cu. Khong chep patch hay log dai.
 
+## 2026-08-22 - Quy tac Dubbing: decode failure va manual STT/OCR concurrency
+
+- Neu STT input ket thuc voi zero decoded PCM, phai phat failure terminal;
+  khong duoc chi ghi warning/return vi se de `DubbingTranscriptionJob` treo.
+  Regression test dung FLAC khong hop le va xac nhan remote worker chua he
+  nhan request.
+- Audio STT va Subtitle OCR la hai worker doc lap. Manual STT co the chay
+  trong khi OCR dang chay va nguoc lai; day la ngoai le duy nhat cua busy gate.
+  Khong ap dung ngoai le nay cho automatic workflow, batch, translation-fix,
+  hay bat ky stage nao khac.
+- Reconcile doc `sttSegments` va `ocrSegments` da luu va chay local-only. No
+  phai doi ca hai worker idle va ca hai ket qua ton tai; khong khoi dong,
+  disconnect, hay doi cau hinh route cua hai worker.
+- Notebook Spleeter la bootstrap SHA-verified: static verifier phai kiem tra
+  notebook materializes worker/launcher, endpoint/capability trong worker va
+  Cloudflare URL/token trong launcher. Khong yeu cau tat ca chuoi nam trong
+  notebook monolithic.
+
+Evidence 2026-08-22: full CTest 39/39, notebook verification 32/32, exact
+binding 31/31, live acceptance contract 9/9, remote surface 8/8. Chua co
+visible-GUI hay live-Colab acceptance trong dot nay; khong duoc tuyen bo moi
+media/worker deu da xac nhan thuc te.
+
 ## 2026-08-17 - STT/OCR independence is a hard Dubbing invariant
 
 - Never use `transcriptSource` (the next action: `stt`, `ocr`, or

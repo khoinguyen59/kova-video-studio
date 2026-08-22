@@ -1,5 +1,30 @@
 # AI agent response — local download and resumable Dubbing projects
 
+## 2026-08-22 — completed: Dubbing recheck, no new package
+
+### Fixed in source
+
+- A zero-sample STT decode now ends the Dubbing job with a visible error and
+  does not contact the remote worker. This removes the previously possible
+  blocked task after "No audio data was decoded."
+- Manual **Run STT now** and **Run Subtitle OCR now** can operate independently
+  and concurrently because they use distinct workers. **Reconcile saved STT +
+  OCR** remains a local-only final action and requires both saved sources.
+- The static remote-feature verifier now follows Spleeter's real signed
+  notebook/worker/launcher architecture instead of falsely demanding the
+  launcher tunnel text in the bootstrap notebook itself.
+
+### Evidence and boundary
+
+- Release build without deployment succeeded; CTest **39/39**; generated
+  notebooks **32/32**; exact bindings **31/31**; live acceptance contracts
+  **9/9**; remote feature surface **8/8**; `git diff --check` clean. QML lint
+  completed with exit 0 and five existing warnings outside this change.
+- No visible GUI, no machine-control interaction, no fresh Colab worker, and
+  no EXE package were produced for this recheck. A fresh URL/token plus real
+  media is still required for external acceptance; this report does not claim
+  that unrun Colab infrastructure was tested live.
+
 ## 2026-08-17 — completed: independent Dubbing STT/OCR control (0.0.7.5)
 
 ### What changed
