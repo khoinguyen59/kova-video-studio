@@ -25,7 +25,7 @@ ARTIFACT_URL = (
 
 # This lock is updated only after the referenced worker templates have been
 # committed.  The notebook must never download a moving branch such as main.
-WORKER_COMMIT = "eaabb045efa718c614d8155b5976fccb2e925a6b"
+WORKER_COMMIT = "0982aadd001d91aae8c1c829bcfef7f85d5c6704"
 WORKERS = {
     "la_studio_separation_worker.py": (
         "notebooks/workers/LA_STUDIO_SEPARATION_SPLEETER_2STEMS_WORKER.py",
@@ -33,7 +33,7 @@ WORKERS = {
     ),
     "la_studio_separation_launcher.py": (
         "notebooks/workers/LA_STUDIO_SEPARATION_SPLEETER_2STEMS_LAUNCHER.py",
-        "d4c5d4756dd2d27ad2971c2ae338be1e92ae1ad790a6ef6d3ce07570bdfc8590",
+        "3a1fb3ecde9d6ddf299839291d24515a23934d29f6859bb86196529d722a16d1",
     ),
 }
 
