@@ -30,6 +30,7 @@ private slots:
     void legacyLinkHandoffIsDisabled();
     void manualMediaLibraryHasNoSourceUrls();
     void sharedVideoTextIsExtractedForLocalDownloader();
+    void singleImportedMediaBecomesTheActiveProject();
     void mediaLibraryRunsOnlyTheLaterSelectedActionSubset();
     void mediaBatchContinuesAfterARealWorkerFailure();
     void mediaBatchCanRunEachStageAcrossTheSelectedQueue();

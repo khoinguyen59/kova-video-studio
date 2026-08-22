@@ -908,6 +908,32 @@ void TestMediaIngestService::mediaLibraryRunsOnlyTheLaterSelectedActionSubset()
                       .value(QStringLiteral("project")).toString()).isFile());
 }
 
+void TestMediaIngestService::singleImportedMediaBecomesTheActiveProject()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString fixturePath = dir.filePath(QStringLiteral("single-active-project.wav"));
+    const QVector<float> samples(8000, 0.02F);
+    QVERIFY(WavIO::saveFloat(fixturePath, samples.constData(), samples.size(), 16000));
+
+    DubbingController controller(nullptr, nullptr);
+    const QString projectPath = dir.filePath(QStringLiteral("active-project.ladub.json"));
+    QVERIFY(controller.newProject(projectPath));
+    QCOMPARE(controller.enqueueMediaFiles({fixturePath}), 1);
+    QVERIFY(controller.startMediaQueue({{QStringLiteral("operation"), QStringLiteral("import")}}));
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.mediaQueueProcessing(), 20000);
+
+    const QVariantMap item = controller.mediaQueueItems().constFirst().toMap();
+    QCOMPARE(item.value(QStringLiteral("processState")).toString(), QStringLiteral("completed"));
+    QVERIFY(QFileInfo(item.value(QStringLiteral("outputs")).toMap()
+                      .value(QStringLiteral("project")).toString()).isFile());
+    QCOMPARE(QFileInfo(controller.sourceMediaPath()).absoluteFilePath(),
+             QFileInfo(fixturePath).absoluteFilePath());
+    QCOMPARE(QFileInfo(controller.projectPath()).absoluteFilePath(),
+             QFileInfo(projectPath).absoluteFilePath());
+    QVERIFY(QFileInfo(projectPath).isFile());
+}
+
 void TestMediaIngestService::mediaBatchContinuesAfterARealWorkerFailure()
 {
     QTemporaryDir dir;
@@ -1034,6 +1060,17 @@ void TestMediaIngestService::downloadRouteAndDubbingLinkControlAreWired()
     QVERIFY(page.contains(QStringLiteral("mediaQueueItems")));
     QVERIFY(dubbingSource.contains(QStringLiteral("ColabMediaAcquisitionPanel")));
     QVERIFY(dubbingSource.contains(QStringLiteral("manualMediaFilesRequested")));
+    // Dubbing's two entry pickers intentionally use the in-app dialog.  On
+    // Windows the native picker can detach as an Explorer window and never
+    // deliver an accepted selection back to the packaged application.
+    const int singleDialog = dubbingPage.indexOf(QStringLiteral("id: mediaFileDialog"));
+    const int queueDialog = dubbingPage.indexOf(QStringLiteral("id: queuedMediaFilesDialog"));
+    QVERIFY(singleDialog >= 0);
+    QVERIFY(queueDialog > singleDialog);
+    QVERIFY(dubbingPage.mid(singleDialog, queueDialog - singleDialog)
+                .contains(QStringLiteral("options: FileDialog.DontUseNativeDialog")));
+    QVERIFY(dubbingPage.mid(queueDialog)
+                .contains(QStringLiteral("options: FileDialog.DontUseNativeDialog")));
     QVERIFY(dubbingSource.contains(QStringLiteral("mediaQueueDialog.open()")));
     QVERIFY(acquisition.contains(QStringLiteral("Download public links locally")));
     QVERIFY(dubbingSource.contains(QStringLiteral("DubbingMediaQueueDialog")));

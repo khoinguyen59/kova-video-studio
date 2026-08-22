@@ -5909,6 +5909,14 @@ void DubbingController::completeCurrentMediaQueueItem(bool success, const QStrin
 
 void DubbingController::finishMediaQueueRun(const QString &message)
 {
+    // A one-item Import/Normalize run is not merely a background batch: it is
+    // the user's source-selection action for the active project.  The former
+    // unconditional restore below discarded the successfully ingested project
+    // and left DubbingPage on its original, empty project ("No media").
+    // Multi-item library work intentionally continues to restore the project,
+    // because there is no unambiguous single item to activate.
+    const bool promotedSingleImport = !m_mediaQueueCancelling
+        && promoteSingleImportedMediaQueueProject();
     m_mediaQueueProcessing = false;
     m_mediaQueueCancelling = false;
     m_activeMediaQueueItemId.clear();
@@ -5916,20 +5924,70 @@ void DubbingController::finishMediaQueueRun(const QString &message)
     m_mediaQueueStagePlan.clear();
     m_mediaQueueStagePlanIndex = 0;
     m_mediaQueueProjects.clear();
-    if (m_mediaQueueOriginalProjectCaptured) {
+    if (m_mediaQueueOriginalProjectCaptured && !promotedSingleImport) {
         m_project = m_mediaQueueOriginalProject;
         m_workflowNodeConfigurations = m_mediaQueueOriginalNodeConfigurations;
         m_runner->setBackgroundAudioPath(m_project.backgroundAudioPath);
         m_runner->setPreviewPath(m_mediaQueueOriginalPreviewPath);
         m_runner->setExportPath(m_mediaQueueOriginalExportPath);
-        m_mediaQueueOriginalProjectCaptured = false;
     }
+    m_mediaQueueOriginalProjectCaptured = false;
     m_mediaQueueStatus = message.isEmpty() ? QStringLiteral("Media batch finished") : message;
     emit projectChanged();
     emit segmentsChanged();
     emit workflowChanged();
     emit mediaQueueChanged();
     emit processingChanged();
+}
+
+bool DubbingController::promoteSingleImportedMediaQueueProject()
+{
+    if (m_mediaQueueTasks.value(QStringLiteral("operation")).toString() != QStringLiteral("import"))
+        return false;
+
+    QVariantMap importedItem;
+    int completedSelectedItems = 0;
+    for (const QVariant &value : std::as_const(m_mediaQueueItems)) {
+        const QVariantMap item = value.toMap();
+        if (!item.value(QStringLiteral("selected")).toBool()
+            || item.value(QStringLiteral("downloadState")).toString() != QStringLiteral("downloaded")
+            || item.value(QStringLiteral("processState")).toString() != QStringLiteral("completed")) {
+            continue;
+        }
+        importedItem = item;
+        ++completedSelectedItems;
+    }
+    if (completedSelectedItems != 1) return false;
+
+    DubbingProject importedProject;
+    QString loadError;
+    if (!loadMediaQueueProject(importedItem, &importedProject, &loadError)) {
+        Logger::warning(QStringLiteral("DubbingController"),
+                        QStringLiteral("Imported media could not become the active project: %1")
+                            .arg(loadError));
+        return false;
+    }
+
+    // Retain the path selected at the project gate.  The per-item copy remains
+    // in batch-output for later library actions, while Save/Resume continues
+    // to use the project the user actually opened.
+    if (!m_mediaQueueOriginalProject.projectPath.trimmed().isEmpty())
+        importedProject.projectPath = m_mediaQueueOriginalProject.projectPath;
+    m_project = std::move(importedProject);
+    m_workflowNodeConfigurations = m_project.workflowNodeConfigurations;
+    m_runner->setBackgroundAudioPath(m_project.backgroundAudioPath);
+    m_runner->setPreviewPath(QString());
+    m_runner->setExportPath(QString());
+    m_currentStepId = QStringLiteral("import");
+    m_lastCompletedStepId = QStringLiteral("ingest");
+
+    QString saveError;
+    if (!m_project.save(&saveError)) {
+        Logger::warning(QStringLiteral("DubbingController"),
+                        QStringLiteral("Imported media became active but could not be saved: %1")
+                            .arg(saveError));
+    }
+    return true;
 }
 
 void DubbingController::cancelMediaQueue()

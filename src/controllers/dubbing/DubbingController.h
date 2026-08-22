@@ -510,6 +510,10 @@ private:
     void completeCurrentMediaQueueStage(const QString &stage);
     void completeCurrentMediaQueueItem(bool success, const QString &message = QString());
     void finishMediaQueueRun(const QString &message = QString());
+    // Importing exactly one library item is also the normal "choose source for
+    // this project" flow.  Keep that imported project active instead of
+    // restoring the blank project which opened the media library.
+    bool promoteSingleImportedMediaQueueProject();
     void updateMediaQueueProgressFromRunner();
     QVariantMap normalizedMediaQueueTasks(const QVariantMap &tasks, QString *error) const;
     QStringList mediaQueueStagePlan() const;
