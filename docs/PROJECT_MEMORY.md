@@ -998,3 +998,13 @@ media/worker deu da xac nhan thuc te.
 - Never show invented percent progress. Only a real byte-counted transfer can
   expose a percentage. The OCR test runtime hashes via .NET so CTest does not
   depend on the PowerShell `Get-FileHash` cmdlet being auto-loaded.
+
+### 2026-08-22 - Unified Colab is opt-in and stage-exact
+
+- A one-URL/token Dubbing Colab setup is an explicit coordinator protocol,
+  not a fallback that may silently use Local or API Gateway. It expands to
+  `/v1/unified/<capability>/<model>` and verifies each stage independently.
+- The existing exact-model notebooks cannot be represented as a fake common
+  worker: several capabilities require incompatible runtime stacks. Do not
+  advertise Unified Colab as usable until its isolated-worker coordinator
+  notebook is implemented and live-tested.

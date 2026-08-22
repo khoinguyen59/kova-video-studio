@@ -71,6 +71,28 @@ QString automaticDefaultFamilyId(const QString &capabilityId,
     return {};
 }
 
+QString unifiedColabStageUrl(const QUrl &baseUrl, const QString &capability,
+                             const QString &model)
+{
+    // Keep the exact route boundary even when a single Colab coordinator owns
+    // the public tunnel. Each ColabSession therefore continues to verify its
+    // own health/capability document and every runner keeps its existing
+    // capability-specific endpoint contract.
+    QUrl endpoint = baseUrl;
+    QString basePath = endpoint.path();
+    while (basePath.endsWith(QLatin1Char('/')) && basePath.size() > 1)
+        basePath.chop(1);
+    if (basePath == QStringLiteral("/")) basePath.clear();
+    const QString encodedCapability = QString::fromLatin1(
+        QUrl::toPercentEncoding(capability.trimmed().toLower()));
+    const QString encodedModel = QString::fromLatin1(
+        QUrl::toPercentEncoding(model.trimmed().toLower()));
+    endpoint.setPath(basePath + QStringLiteral("/v1/unified/")
+                     + encodedCapability + QLatin1Char('/') + encodedModel);
+    return endpoint.toString(QUrl::RemoveUserInfo | QUrl::RemoveQuery
+                             | QUrl::RemoveFragment);
+}
+
 void unloadConflictingDubbingRuntime(ModelSessionRegistry *registry,
                                      const QString &capabilityId)
 {
@@ -1414,6 +1436,101 @@ bool DubbingController::connectWorkflowColabStage(const QString &stageId, const 
     m_colabSetupPendingChecks.insert(normalizedStage);
     m_colabSetupSummary = QStringLiteral("Checking %1 / %2 on Direct Colab.")
         .arg(capability, normalizedModel);
+    emit colabSetupChanged();
+    return true;
+}
+
+bool DubbingController::connectUnifiedWorkflowColab(const QString &workerUrl,
+                                                     const QString &bearerToken)
+{
+#if defined(LASTUDIO_UNIT_TESTS)
+    // Tests exercise the complete per-stage handshake against a loopback
+    // coordinator. Production always requires the public HTTPS tunnel.
+    constexpr bool allowInsecureLoopbackForTests = true;
+#else
+    constexpr bool allowInsecureLoopbackForTests = false;
+#endif
+    const RemoteEndpointValidation base = validateRemoteEndpoint(
+        workerUrl, RemoteEndpointKind::ColabWorker, allowInsecureLoopbackForTests);
+    const QString token = bearerToken.trimmed();
+    if (!base.isValid()) {
+        setError(base.error);
+        return false;
+    }
+    if (token.isEmpty()) {
+        setError(QStringLiteral("Unified Colab worker bearer token is required."));
+        return false;
+    }
+
+    struct SelectedStage {
+        QString id;
+        QString capability;
+        QString model;
+        ColabSession *session = nullptr;
+    };
+    QList<SelectedStage> selected;
+    for (const QVariant &entry : colabSetupStages()) {
+        const QVariantMap stage = entry.toMap();
+        if (!stage.value(QStringLiteral("selectedForDirectColab")).toBool()) continue;
+        const QString id = stage.value(QStringLiteral("id")).toString();
+        const QString capability = stage.value(QStringLiteral("capability")).toString();
+        const QString model = stage.value(QStringLiteral("modelId")).toString();
+        ColabSession *session = colabSessionForStage(id);
+        if (!session || capability.isEmpty() || model.isEmpty()
+            || !DubbingColabModelRoutes::supports(id, model)) {
+            setError(QStringLiteral("Unified Colab cannot configure the selected %1 stage.")
+                         .arg(stage.value(QStringLiteral("title")).toString()));
+            return false;
+        }
+        selected.append({id, capability, model, session});
+    }
+    if (selected.isEmpty()) {
+        setError(QStringLiteral("Select Direct Colab for at least one Dubbing stage before using Unified Colab."));
+        return false;
+    }
+
+    // All validation happened before mutating a session. From here each
+    // session gets a derived route with the same short-lived token. Neither
+    // m_project nor Settings receives the URL/token.
+    // Register every expected reply before submitting the first asynchronous
+    // verification request.  A fast coordinator on localhost/a LAN can reply
+    // before the loop reaches its final stage; registering incrementally used
+    // to let the UI briefly report a completed setup with stages still being
+    // submitted.
+    m_colabSetupPendingChecks.clear();
+    for (const SelectedStage &stage : selected)
+        m_colabSetupPendingChecks.insert(stage.id);
+    QList<SelectedStage> configured;
+    for (const SelectedStage &stage : selected) {
+        m_colabSetupSnapshots.remove(stage.id);
+        const QString endpoint = unifiedColabStageUrl(base.normalizedUrl,
+                                                       stage.capability, stage.model);
+        QString connectionError;
+        if (!stage.session->beginVerifiedSession(endpoint, token,
+                                                 stage.capability, stage.model,
+                                                 &connectionError,
+                                                 allowInsecureLoopbackForTests)) {
+            // beginVerifiedSession may have accepted the endpoint far enough
+            // to create a reply connection before a later validation error.
+            // Do not leave that half-configured stage active when the unified
+            // transaction is rolled back.
+            stage.session->disconnectTemporaryWorker();
+            for (const SelectedStage &previous : configured) {
+                previous.session->disconnectTemporaryWorker();
+                m_colabSetupSnapshots.remove(previous.id);
+            }
+            m_colabSetupPendingChecks.clear();
+            setError(connectionError.isEmpty()
+                         ? QStringLiteral("Could not start Unified Colab verification.")
+                         : connectionError);
+            emit colabSetupChanged();
+            return false;
+        }
+        configured.append(stage);
+        m_colabSetupPendingChecks.insert(stage.id);
+    }
+    m_colabSetupSummary = QStringLiteral("Checking %1 selected Direct Colab stage(s) through Unified Colab.")
+        .arg(selected.size());
     emit colabSetupChanged();
     return true;
 }

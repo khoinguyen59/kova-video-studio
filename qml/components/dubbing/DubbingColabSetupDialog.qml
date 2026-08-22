@@ -20,6 +20,8 @@ Dialog {
     property var stageIds: []
     property var draftUrls: ({})
     property var draftTokens: ({})
+    property string unifiedWorkerUrl: ""
+    property string unifiedToken: ""
 
     parent: Overlay.overlay
     anchors.centerIn: parent
@@ -57,6 +59,14 @@ Dialog {
         var next = Object.assign({}, draftTokens)
         next[stageId] = value
         draftTokens = next
+    }
+
+    function selectedDirectColabStageCount() {
+        var stages = dubbing ? dubbing.colabSetupStages : []
+        var count = 0
+        for (var i = 0; i < stages.length; ++i)
+            if (stages[i].selectedForDirectColab) ++count
+        return count
     }
 
     background: Rectangle {
@@ -160,6 +170,90 @@ Dialog {
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fontSmall
                         wrapMode: Text.WordWrap
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.leftMargin: Theme.paddingLarge
+            Layout.rightMargin: Theme.paddingLarge
+            implicitHeight: unifiedLayout.implicitHeight + Theme.paddingMedium * 2
+            radius: Theme.radiusSmall
+            color: Qt.rgba(Theme.success.r, Theme.success.g, Theme.success.b, 0.06)
+            border.color: Qt.rgba(Theme.success.r, Theme.success.g, Theme.success.b, 0.35)
+            border.width: 1
+
+            ColumnLayout {
+                id: unifiedLayout
+                anchors.fill: parent
+                anchors.margins: Theme.paddingMedium
+                spacing: Theme.paddingSmall
+
+                Text {
+                    text: qsTr("Optional system route: Unified Dubbing Colab")
+                    color: Theme.textPrimary
+                    font.bold: true
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("Run one Unified Colab coordinator, then enter its URL and token once. It connects only the %1 Dubbing stage(s) currently selected for Direct Colab. Existing individual Colab, API Gateway, and Local routes remain unchanged.")
+                        .arg(root.selectedDirectColabStageCount())
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSmall
+                    wrapMode: Text.WordWrap
+                }
+                Text {
+                    Layout.fillWidth: true
+                    // A unified URL is an explicit worker contract, not an
+                    // alias for any one of the exact-model notebooks below.
+                    // Keep the established per-model notebook links intact
+                    // until the coordinator itself is available as a tested
+                    // artifact.
+                    text: qsTr("The unified worker must expose the selected stage routes under /v1/unified/&lt;capability&gt;/&lt;model&gt;. Use the existing exact-model notebook cards below when you do not run such a coordinator.")
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSmall
+                    wrapMode: Text.WordWrap
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.paddingSmall
+                    TextField {
+                        id: unifiedUrlField
+                        Layout.fillWidth: true
+                        placeholderText: qsTr("Unified worker URL (https://…trycloudflare.com)")
+                        text: root.unifiedWorkerUrl
+                        selectByMouse: true
+                        onTextEdited: root.unifiedWorkerUrl = text
+                        color: Theme.textPrimary
+                        placeholderTextColor: Theme.textSecondary
+                        background: Rectangle { radius: Theme.radiusSmall; color: Theme.surface; border.color: unifiedUrlField.activeFocus ? Theme.accent : Theme.surfaceAlt; border.width: 1 }
+                    }
+                    TextField {
+                        id: unifiedTokenField
+                        Layout.preferredWidth: 220
+                        placeholderText: qsTr("Temporary bearer token")
+                        text: root.unifiedToken
+                        echoMode: TextInput.Password
+                        selectByMouse: true
+                        onTextEdited: root.unifiedToken = text
+                        color: Theme.textPrimary
+                        placeholderTextColor: Theme.textSecondary
+                        background: Rectangle { radius: Theme.radiusSmall; color: Theme.surface; border.color: unifiedTokenField.activeFocus ? Theme.accent : Theme.surfaceAlt; border.width: 1 }
+                    }
+                    PrimaryButton {
+                        text: qsTr("Connect selected stages")
+                        iconName: "link"
+                        implicitWidth: 180
+                        enabled: root.selectedDirectColabStageCount() > 0
+                                 && unifiedUrlField.text.trim() !== ""
+                                 && unifiedTokenField.text !== ""
+                                 && !root.dubbing.colabSetupChecking
+                        onClicked: {
+                            if (root.dubbing.connectUnifiedWorkflowColab(unifiedUrlField.text.trim(), unifiedTokenField.text))
+                                root.unifiedToken = ""
+                        }
                     }
                 }
             }

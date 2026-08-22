@@ -410,6 +410,11 @@ public:
                                                const QString &modelId,
                                                const QString &workerUrl,
                                                const QString &bearerToken);
+    // Opt-in convenience route for a Unified Dubbing Colab worker. The
+    // supplied base URL/token are expanded into one exact, capability/model
+    // endpoint per stage; Local and API Gateway selections are never touched.
+    Q_INVOKABLE bool connectUnifiedWorkflowColab(const QString &workerUrl,
+                                                 const QString &bearerToken);
     Q_INVOKABLE bool checkWorkflowColabStage(const QString &stageId);
     Q_INVOKABLE void disconnectWorkflowColabStage(const QString &stageId);
     Q_INVOKABLE bool validateAllWorkflowColabStages();

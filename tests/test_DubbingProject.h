@@ -107,6 +107,7 @@ private slots:
     void combinedTranscriptReportsOcrFailureWithoutSttFallback();
     void reviewerMustResolveFusionConflictExplicitly();
     void transcriptModePersistsAndColabCardsKeepIndependentRoutes();
+    void unifiedDubbingColabIsOptInAndKeepsIndependentRoutes();
     void fusionPoliciesAndBulkResolutionPreserveOriginalEvidence();
     void unresolvedTranscriptConflictsBlockTranslationAndManualReviewPersists();
     void aiReconciliationCapabilityAndReviewDecisionsPreserveEvidence();

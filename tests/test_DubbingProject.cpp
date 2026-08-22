@@ -285,6 +285,93 @@ private:
     QString m_model;
 };
 
+// A single coordinator endpoint must still expose one exact worker contract
+// per selected capability/model. This mock deliberately rejects any route
+// outside /v1/unified/... so the test cannot pass if the application silently
+// falls back to a generic or a different stage endpoint.
+class UnifiedRouteWorkerMock final : public QObject
+{
+public:
+    explicit UnifiedRouteWorkerMock(const QHash<QString, QString> &routes)
+        : m_routes(routes)
+    {
+        connect(&m_server, &QTcpServer::newConnection, this, [this] {
+            while (QTcpSocket *socket = m_server.nextPendingConnection()) {
+                connect(socket, &QTcpSocket::readyRead, this, [this, socket] {
+                    QByteArray &pending = m_pending[socket];
+                    pending += socket->readAll();
+                    const int headerEnd = pending.indexOf("\r\n\r\n");
+                    if (headerEnd < 0) return;
+                    const QByteArray request = pending.left(headerEnd + 4);
+                    const QByteArray firstLine = request.left(request.indexOf("\r\n"));
+                    const QRegularExpression routePattern(
+                        QStringLiteral(R"(^GET /v1/unified/([^/]+)/([^/]+)(/health|/v1/capabilities) HTTP/1\.1$)"));
+                    const QRegularExpressionMatch match = routePattern.match(
+                        QString::fromLatin1(firstLine));
+                    if (!match.hasMatch()) {
+                        socket->write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                        socket->disconnectFromHost();
+                        return;
+                    }
+                    const QString capability = QUrl::fromPercentEncoding(match.captured(1).toUtf8());
+                    const QString model = QUrl::fromPercentEncoding(match.captured(2).toUtf8());
+                    if (m_routes.value(capability) != model) {
+                        socket->write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                        socket->disconnectFromHost();
+                        return;
+                    }
+                    const QString revision = capability == QStringLiteral("stt")
+                        ? QStringLiteral("stt-2026-07-30.2")
+                        : QStringLiteral("translation-2026-07-30.3");
+                    const QString responseContract = capability == QStringLiteral("translation")
+                        ? QStringLiteral("translation-patches-v3") : QString();
+                    QByteArray body;
+                    if (match.captured(3) == QStringLiteral("/health")) {
+                        body = QStringLiteral(
+                            R"({"status":"ready","ready":true,"device":"cuda","model":"%1","variant":"fixed","worker_revision":"%2","response_contract":"%3","cpu_fallback":false})")
+                                   .arg(model, revision, responseContract).toUtf8();
+                    } else {
+                        body = QStringLiteral(
+                            R"({"contract_version":1,"device":"cuda","worker_revision":"%1","response_contract":"%2","capabilities":[{"id":"%3","models":[{"id":"%4","variant":"fixed","device":"cuda","loaded":true,"response_contract":"%2"}]}]})")
+                                   .arg(revision, responseContract, capability, model).toUtf8();
+                    }
+                    socket->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                                  + QByteArray::number(body.size())
+                                  + "\r\nConnection: close\r\n\r\n" + body);
+                    socket->disconnectFromHost();
+                });
+                connect(socket, &QTcpSocket::disconnected, this, [this, socket] {
+                    m_pending.remove(socket);
+                    socket->deleteLater();
+                });
+            }
+        });
+    }
+
+    ~UnifiedRouteWorkerMock() override
+    {
+        const auto sockets = m_pending.keys();
+        for (QTcpSocket *socket : sockets) {
+            QObject::disconnect(socket, nullptr, this, nullptr);
+            socket->abort();
+            delete socket;
+        }
+        m_pending.clear();
+        m_server.close();
+    }
+
+    bool start() { return m_server.listen(QHostAddress::LocalHost); }
+    QString workerUrl() const
+    {
+        return QStringLiteral("http://127.0.0.1:%1").arg(m_server.serverPort());
+    }
+
+private:
+    QTcpServer m_server;
+    QHash<QTcpSocket *, QByteArray> m_pending;
+    QHash<QString, QString> m_routes;
+};
+
 QByteArray loopbackVoiceWav()
 {
     constexpr quint32 frameCount = 24000;
@@ -4912,6 +4999,86 @@ void TestDubbingProject::transcriptModePersistsAndColabCardsKeepIndependentRoute
              QStringLiteral("whisper.cpp"));
     QCOMPARE(stage(reopened.colabSetupStages(), QStringLiteral("transcribe"))
                  .value(QStringLiteral("modelId")).toString(), QStringLiteral("whisper.cpp"));
+}
+
+void TestDubbingProject::unifiedDubbingColabIsOptInAndKeepsIndependentRoutes()
+{
+    // The unified coordinator is a convenience connection path, not a fourth
+    // execution provider. It must leave Local/API choices alone and must not
+    // mutate project configuration merely because it is opened or rejected.
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    AppController *app = AppController::instance();
+    QVERIFY(app != nullptr);
+    ColabSessionReset resetStt(app->colabSttSession());
+    ColabSessionReset resetTranslation(app->colabTranslationSession());
+    ColabSessionReset resetTts(app->colabTtsSession());
+    UnifiedRouteWorkerMock worker({
+        {QStringLiteral("stt"), QStringLiteral("whisper.cpp")},
+        {QStringLiteral("translation"), QStringLiteral("m2m100-418m")}
+    });
+    QVERIFY(worker.start());
+
+    DubbingController controller(app->sttSession(), app->tts(), app->translationEngine(),
+                                 app->models(), app->runtimes());
+    controller.setRemoteServices(app->settings(), app->colabTranslationSession(),
+                                 app->colabTtsSession(), app->colabVoiceCloneSession(),
+                                 app->colabSeparationSession(), app->colabAlignmentSession());
+    QVERIFY(controller.newProject(directory.filePath(QStringLiteral("unified-colab.ladub.json"))));
+    QVERIFY(controller.setWorkflowNodeParameters(QStringLiteral("transcribe"), {
+        {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+        {QStringLiteral("modelId"), QStringLiteral("whisper.cpp")}
+    }));
+    QVERIFY(controller.setWorkflowNodeParameters(QStringLiteral("translate"), {
+        {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+        {QStringLiteral("modelId"), QStringLiteral("m2m100-418m")}
+    }));
+    QVERIFY(controller.setWorkflowNodeParameters(QStringLiteral("synthesize"), {
+        {QStringLiteral("executionProvider"), QStringLiteral("api-gateway")}
+    }));
+    const auto stage = [](const QVariantList &stages, const QString &id) {
+        for (const QVariant &entry : stages) {
+            const QVariantMap value = entry.toMap();
+            if (value.value(QStringLiteral("id")).toString() == id) return value;
+        }
+        return QVariantMap{};
+    };
+    QVERIFY(!stage(controller.colabSetupStages(), QStringLiteral("synthesize"))
+                 .value(QStringLiteral("selectedForDirectColab")).toBool());
+    QVERIFY(!controller.connectUnifiedWorkflowColab(QString(), QStringLiteral("token")));
+    QVERIFY(!stage(controller.colabSetupStages(), QStringLiteral("synthesize"))
+                 .value(QStringLiteral("selectedForDirectColab")).toBool());
+
+    QVERIFY2(controller.connectUnifiedWorkflowColab(worker.workerUrl(), QStringLiteral("token")),
+             qPrintable(controller.lastError()));
+    QString routeError;
+    QTRY_VERIFY2(app->colabSttSession()->hasVerifiedRoute(
+                     QStringLiteral("stt"), QStringLiteral("whisper.cpp"), &routeError),
+                 qPrintable(routeError));
+    QTRY_VERIFY2(app->colabTranslationSession()->hasVerifiedRoute(
+                     QStringLiteral("translation"), QStringLiteral("m2m100-418m"), &routeError),
+                 qPrintable(routeError));
+    QCOMPARE(app->colabSttSession()->endpoint().path(),
+             QStringLiteral("/v1/unified/stt/whisper.cpp"));
+    QCOMPARE(app->colabTranslationSession()->endpoint().path(),
+             QStringLiteral("/v1/unified/translation/m2m100-418m"));
+    QVERIFY(!app->colabTtsSession()->isActive());
+
+    const QDir sourceRoot(QStringLiteral(LASTUDIO_SOURCE_DIR));
+    QFile setup(sourceRoot.filePath(QStringLiteral("qml/components/dubbing/DubbingColabSetupDialog.qml")));
+    QFile implementation(sourceRoot.filePath(QStringLiteral("src/controllers/dubbing/DubbingController.cpp")));
+    QVERIFY(setup.open(QIODevice::ReadOnly));
+    QVERIFY(implementation.open(QIODevice::ReadOnly));
+    const QString setupSource = QString::fromUtf8(setup.readAll());
+    const QString implementationSource = QString::fromUtf8(implementation.readAll());
+    QVERIFY(setupSource.contains(QStringLiteral("Optional system route: Unified Dubbing Colab")));
+    QVERIFY(setupSource.contains(QStringLiteral("connectUnifiedWorkflowColab")));
+    QVERIFY(setupSource.contains(QStringLiteral("/v1/unified/&lt;capability&gt;/&lt;model&gt;")));
+    QVERIFY(setupSource.contains(QStringLiteral("Existing individual Colab, API Gateway, and Local routes remain unchanged.")));
+    QVERIFY(implementationSource.contains(QStringLiteral("unifiedColabStageUrl")));
+    QVERIFY(implementationSource.contains(QStringLiteral("/v1/unified/")));
+    QVERIFY(implementationSource.contains(QStringLiteral("selectedForDirectColab")));
+    QVERIFY(implementationSource.contains(QStringLiteral("Neither\n    // m_project nor Settings receives the URL/token.")));
 }
 
 void TestDubbingProject::fusionPoliciesAndBulkResolutionPreserveOriginalEvidence()

@@ -364,3 +364,38 @@ only because its hash-verified eSpeak payload is unsigned.
 
 No visible GUI or live Colab worker was launched. This is controller/QML/test
 evidence; no EXE was packaged for the current source-only batch.
+
+## 2026-08-22 — implemented: opt-in Unified Dubbing Colab connection contract
+
+### Delivered
+
+- Added an opt-in **Unified Dubbing Colab** card in Direct Colab setup. A user
+  may enter one coordinator URL and one temporary bearer token once.
+- The controller expands that URL into a separate verified route for every
+  Dubbing stage currently selected as **Direct Colab**:
+  `/v1/unified/<capability>/<model>`. Each stage still receives its exact
+  capability/model handshake.
+- Existing individual Direct Colab workers, API Gateway routes, and Local
+  routes are unchanged. API or Local stages are deliberately excluded from the
+  unified connection transaction.
+- If any stage cannot start verification, the transaction rolls back every
+  earlier stage and clears its pending state rather than leaving a partially
+  connected workflow.
+
+### Evidence
+
+- `unifiedDubbingColabIsOptInAndKeepsIndependentRoutes` ran against a real
+  loopback HTTP coordinator fixture: it verified distinct STT and Translation
+  unified paths and confirmed a TTS API route was untouched. Exit code: `0`.
+- Rebuilt the production `LAStudio` MSVC target successfully (exit code `0`).
+- `git diff --check` passed and `graphify update .` was run.
+
+### Boundary
+
+This change intentionally does **not** pretend that the existing per-model
+notebooks are one combined worker. They are separate exact-model runtimes,
+including incompatible Torch/Paddle dependencies. The new app option is ready
+for a genuine coordinator that launches/proxies those isolated workers under
+the documented paths; such a notebook must be implemented and live-tested
+before this option can be advertised as a replacement for the individual
+notebooks.
