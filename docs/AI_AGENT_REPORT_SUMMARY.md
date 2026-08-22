@@ -2,6 +2,18 @@
 
 Cap nhat: 2026-08-17
 
+## 2026-08-22 - Dong goi internal portable 0.0.7.6
+
+- Da dong goi portable EXE sau dot recheck Dubbing truoc do:
+  `out/LA-Studio-0.0.7.6/LA-Studio-0.0.7.6.exe`.
+- `LASTUDIO_VERSION`, FileVersion va ProductVersion deu la `0.0.7.6`.
+  SHA-256 cua EXE: `2BBA1C68B321C47693FD9B60A3BAD73C070D17FC292D9AF34E1D41278EAB4A87`.
+- Packaging script da hoan tat staging portable va cac assertion runtime/license
+  cua package. Audit sau dong goi xac nhan `qwindows.dll`, `qoffscreen.dll`,
+  runtime OCR/Tesseract `5.5.1`, manifest OCR, va 176 file license duoc stage.
+- Gioi han trung thuc: khong mo GUI va khong chay session Colab moi trong dot
+  dong goi nay. Day la build internal portable, khong phai xac nhan live-GPU.
+
 ## 2026-08-22 - Recheck lon Dubbing: ket thuc decode loi va STT/OCR chay doc lap
 
 - Loi "No audio data was decoded" da co ket thuc that: `SttSessionController`

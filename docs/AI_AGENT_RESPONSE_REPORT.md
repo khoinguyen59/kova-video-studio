@@ -1,5 +1,23 @@
 # AI agent response — local download and resumable Dubbing projects
 
+## 2026-08-22 — completed: internal portable package 0.0.7.6
+
+### Delivered
+
+- Built the requested portable internal EXE at
+  `out/LA-Studio-0.0.7.6/LA-Studio-0.0.7.6.exe`.
+- Source version, FileVersion, and ProductVersion match `0.0.7.6`.
+  SHA-256: `2BBA1C68B321C47693FD9B60A3BAD73C070D17FC292D9AF34E1D41278EAB4A87`.
+- The portable staging checks completed. Post-package audit verified both
+  `qwindows.dll` and `qoffscreen.dll`, the bundled OCR manifest, Tesseract
+  `5.5.1`, and the staged license directory (176 files).
+
+### Boundary
+
+The app GUI was not opened and no new live Colab session was run for this
+package. This confirms the package layout and versioned binary, not a new
+remote-GPU acceptance run.
+
 ## 2026-08-22 — completed: Dubbing recheck, no new package
 
 ### Fixed in source

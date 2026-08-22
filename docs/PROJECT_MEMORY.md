@@ -2,6 +2,17 @@
 
 Muc dich: luu quyet dinh san pham, loi da khoanh vung va trang thai nhat quan de agent khong lam lai viec cu. Khong chep patch hay log dai.
 
+## 2026-08-22 - Internal package 0.0.7.6
+
+- Baseline portable hien tai la
+  `out/LA-Studio-0.0.7.6/LA-Studio-0.0.7.6.exe`; version trong source va
+  metadata Windows deu la `0.0.7.6`.
+- SHA-256: `2BBA1C68B321C47693FD9B60A3BAD73C070D17FC292D9AF34E1D41278EAB4A87`.
+  Package co Windows va offscreen Qt platform plugin, OCR runtime manifest va
+  Tesseract 5.5.1 da health-check; 176 file license duoc stage.
+- Day chi la internal portable package. Khong suy dien rang worker Colab moi
+  da duoc test live tu ket qua dong goi.
+
 ## 2026-08-22 - Quy tac Dubbing: decode failure va manual STT/OCR concurrency
 
 - Neu STT input ket thuc voi zero decoded PCM, phai phat failure terminal;
