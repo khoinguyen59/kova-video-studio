@@ -406,3 +406,35 @@ The optional Unified Dubbing route is no longer app-only. The repository now con
 It starts selected exact CUDA workers privately, verifies each actual authenticated `/health` result, and only then provides one Cloudflare URL/token. The coordinator proxies `/v1/unified/<capability>/<model>/<worker-route>` to the matching worker. It fails on an unavailable/unhealthy/mismatched worker rather than declaring a synthetic ready state. The default notebook configuration covers Spleeter, Whisper, PP-OCRv5, M2M100, Kokoro, and MMS alignment; change `UNIFIED_WORKERS` to match a different selected Dubbing model.
 
 Local validation passed: notebook regeneration and contract verification, Python compilation, and `TestDubbingProject` (1/1). This does not assert an unperformed live Colab GPU run. Detailed operational notes: `docs/UNIFIED_DUBBING_COLAB_COORDINATOR_2026-08-22.md`.
+
+## 2026-08-23 — completed: source-video picker recovery and package 0.0.7.7
+
+### Root cause and repair
+
+The Dubbing source picker used the native Windows `FileDialog`. In the
+packaged build this could appear as a detached Explorer window and never
+deliver the accepted file to the QML handler. Both the single-file picker and
+the media-library multi-file picker now force Qt's in-application dialog.
+
+The same path had a second state error: after a one-item Import/Normalize run,
+the controller restored the original blank project rather than retaining the
+newly imported project. The controller now promotes exactly one completed
+imported item to the active project and persists it; multi-item library runs
+remain unchanged.
+
+### Evidence
+
+- Added a regression that generates an actual WAV file, imports it via the
+  queue, and checks the active source path and saved project path.
+- Full CTest: **39/39 passed**; `git diff --check`: passed; Graphify updated.
+- Built and staged
+  `out/LA-Studio-0.0.7.7/LA-Studio-0.0.7.7.exe`.
+- File/product version: `0.0.7.7`.
+- SHA-256: `4316C09BAA2F21BA6555B824568532BAC9254B5B7572D309ECB8239B73DCE58B`.
+
+### Manual check left intentionally explicit
+
+Open the new executable, create/open a project, press **Open video** or
+**Browse**, select `1.mp4`, then confirm the preview/source path updates. The
+picker must stay inside LA Studio rather than opening a detached Explorer
+window. No GUI was controlled by the agent while producing this batch.

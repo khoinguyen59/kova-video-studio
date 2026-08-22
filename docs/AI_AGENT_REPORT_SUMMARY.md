@@ -1399,3 +1399,20 @@ remote GPU acceptance run.
   **39/39 PASS** in **57.70 s**, QML lint exit 0 with baseline warnings, and
   `git diff --check` PASS. Graphify update was attempted but its CLI is not
   installed/on PATH. No GUI, live Colab test, or package was performed.
+
+## 2026-08-23 - Dubbing source picker and active-project recovery
+
+- Fixed the Dubbing single-file and multi-file media pickers to use Qt's
+  in-app dialog (`FileDialog.DontUseNativeDialog`). This avoids the packaged
+  Windows build opening a detached Explorer picker that fails to return the
+  chosen file to QML.
+- Fixed the one-item Import/Normalize path: a successfully imported source
+  remains the active Dubbing project instead of restoring the original blank
+  project and displaying `No media`.
+- Regression coverage includes both picker contracts and a real generated WAV
+  imported into a persisted `.ladub.json` project. Full CTest: **39/39 PASS**.
+- Packaged portable candidate: `out/LA-Studio-0.0.7.7/LA-Studio-0.0.7.7.exe`.
+  The file/product versions are `0.0.7.7`; SHA-256:
+  `4316C09BAA2F21BA6555B824568532BAC9254B5B7572D309ECB8239B73DCE58B`.
+  This is automated source/package evidence; the visible click-through of the
+  new in-app picker remains a short manual acceptance check.

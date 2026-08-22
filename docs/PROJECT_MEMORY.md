@@ -1008,3 +1008,17 @@ media/worker deu da xac nhan thuc te.
   worker: several capabilities require incompatible runtime stacks. Do not
   advertise Unified Colab as usable until its isolated-worker coordinator
   notebook is implemented and live-tested.
+
+### 2026-08-23 - Package 0.0.7.7: Dubbing media picker is application-owned
+
+- The portable internal candidate is
+  `out/LA-Studio-0.0.7.7/LA-Studio-0.0.7.7.exe`; EXE file and product version
+  are both `0.0.7.7`, SHA-256
+  `4316C09BAA2F21BA6555B824568532BAC9254B5B7572D309ECB8239B73DCE58B`.
+- Dubbing media selection must use the two QML fallback `FileDialog`s, not a
+  native Explorer picker. It is intentional: `DontUseNativeDialog` prevents a
+  packaged-window selection from becoming detached and losing the accepted
+  callback.
+- A one-item Import/Normalize queue is source selection for the current
+  project. Keep the imported project active; only multi-item library work
+  restores the pre-queue project because no single item can be chosen safely.
