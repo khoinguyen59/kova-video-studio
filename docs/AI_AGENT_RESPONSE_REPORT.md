@@ -399,3 +399,10 @@ for a genuine coordinator that launches/proxies those isolated workers under
 the documented paths; such a notebook must be implemented and live-tested
 before this option can be advertised as a replacement for the individual
 notebooks.
+# Update — 2026-08-22: unified Dubbing Colab notebook now exists
+
+The optional Unified Dubbing route is no longer app-only. The repository now contains `notebooks/LA_STUDIO_UNIFIED_DUBBING_GPU.ipynb`, generated from `scripts/generate_unified_dubbing_colab_notebook.py`, plus its embedded coordinator source under `notebooks/workers/LA_STUDIO_UNIFIED_DUBBING_COORDINATOR.py`.
+
+It starts selected exact CUDA workers privately, verifies each actual authenticated `/health` result, and only then provides one Cloudflare URL/token. The coordinator proxies `/v1/unified/<capability>/<model>/<worker-route>` to the matching worker. It fails on an unavailable/unhealthy/mismatched worker rather than declaring a synthetic ready state. The default notebook configuration covers Spleeter, Whisper, PP-OCRv5, M2M100, Kokoro, and MMS alignment; change `UNIFIED_WORKERS` to match a different selected Dubbing model.
+
+Local validation passed: notebook regeneration and contract verification, Python compilation, and `TestDubbingProject` (1/1). This does not assert an unperformed live Colab GPU run. Detailed operational notes: `docs/UNIFIED_DUBBING_COLAB_COORDINATOR_2026-08-22.md`.
