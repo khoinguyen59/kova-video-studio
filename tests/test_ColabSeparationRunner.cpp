@@ -407,6 +407,10 @@ void TestColabSeparationRunner::separationNotebookMatchesDirectColabContract()
                      "A fresh Colab runtime must not crash with FileNotFoundError before cloudflared installs.");
             QVERIFY2(source.contains(QStringLiteral("or not cloudflared_ready()")),
                      "The launcher must verify cloudflared after installation before creating a tunnel.");
+            QVERIFY2(source.contains(QStringLiteral("def verify_public_tunnel(public_url: str, token: str)")),
+                     "The launcher must verify the public quick-tunnel endpoint before reporting its URL.");
+            QVERIFY2(source.contains(QStringLiteral("Verified the public Cloudflare tunnel against this exact CUDA worker.")),
+                     "The launcher must only announce readiness after the public authenticated CUDA health check passes.");
         }
         QVERIFY(source.contains(QStringLiteral("\"device\": \"cuda\"")));
         QVERIFY(source.contains(QStringLiteral("require_exact_model(model)")));

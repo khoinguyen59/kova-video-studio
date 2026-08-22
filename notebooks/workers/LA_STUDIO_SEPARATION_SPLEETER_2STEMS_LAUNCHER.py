@@ -24,6 +24,7 @@ WORKER_LOG = Path("/content/la_studio_separation_worker.log")
 TUNNEL_LOG = Path("/content/la_studio_separation_tunnel.log")
 STARTUP_TIMEOUT_SECONDS = 20 * 60
 TUNNEL_TIMEOUT_SECONDS = 90
+PUBLIC_TUNNEL_VERIFY_TIMEOUT_SECONDS = 120
 
 
 def port_is_occupied(port: int) -> bool:
@@ -80,6 +81,36 @@ def ensure_cloudflared() -> None:
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
     if install.returncode != 0 or not cloudflared_ready():
         raise RuntimeError("Could not install cloudflared: " + (install.stdout[-1200:] or "no output"))
+
+
+def verify_public_tunnel(public_url: str, token: str) -> tuple[bool, str]:
+    """Prove the public Cloudflare hostname reaches this exact CUDA worker.
+
+    cloudflared can emit a quick-tunnel hostname before its DNS record and
+    route are usable.  Do not hand that hostname to the desktop until the
+    authenticated public health endpoint has returned this worker's exact
+    model contract.
+    """
+    try:
+        request = urllib.request.Request(
+            public_url.rstrip("/") + "/health",
+            headers={"Authorization": "Bearer " + token},
+        )
+        with urllib.request.urlopen(request, timeout=12) as response:
+            health = json.loads(response.read().decode("utf-8"))
+        if (response.status == 200 and health.get("ready") is True
+                and str(health.get("device", "")).lower() == "cuda"
+                and str(health.get("model", "")).strip().lower() == MODEL_ID
+                and health.get("cpu_fallback") is False
+                and health.get("startup_probe") == "passed"):
+            return True, "verified"
+        return False, "unexpected public /health response: " + json.dumps(health, ensure_ascii=False)
+    except urllib.error.HTTPError as error:
+        return False, f"public /health returned HTTP {error.code}: " + error.read().decode(
+            "utf-8", errors="replace"
+        )[:1000]
+    except Exception as error:
+        return False, f"public /health is not reachable: {type(error).__name__}: {error}"
 
 
 if port_is_occupied(PORT):
@@ -142,25 +173,34 @@ with TUNNEL_LOG.open("w", encoding="utf-8", buffering=1) as tunnel_output:
     )
 
 public_url = ""
-deadline = time.monotonic() + TUNNEL_TIMEOUT_SECONDS
+candidate_url = ""
+last_tunnel_error = "cloudflared has not published a public URL yet"
+deadline = time.monotonic() + max(TUNNEL_TIMEOUT_SECONDS, PUBLIC_TUNNEL_VERIFY_TIMEOUT_SECONDS)
 while time.monotonic() < deadline and not public_url:
     if tunnel.poll() is not None:
+        last_tunnel_error = f"cloudflared exited with code {tunnel.returncode}"
         break
     match = re.search(r"https://[^\s\"']+\.trycloudflare\.com", tail(TUNNEL_LOG, 4000))
     if match:
-        public_url = match.group(0)
-        break
-    time.sleep(1)
+        candidate_url = match.group(0)
+        verified, last_tunnel_error = verify_public_tunnel(candidate_url, token)
+        if verified:
+            public_url = candidate_url
+            break
+    time.sleep(2)
 
 if not public_url:
     stop(tunnel)
     stop(worker)
     raise RuntimeError(
-        f"cloudflared did not publish a trycloudflare URL within {TUNNEL_TIMEOUT_SECONDS} seconds.\n"
+        "cloudflared did not create a verified public trycloudflare endpoint within "
+        f"{max(TUNNEL_TIMEOUT_SECONDS, PUBLIC_TUNNEL_VERIFY_TIMEOUT_SECONDS)} seconds. "
+        f"Last check: {last_tunnel_error}\n"
         "---- cloudflared log ----\n" + tail(TUNNEL_LOG, 4000)
     )
 
 print("\nLA Studio exact-model Colab worker is ready")
+print("Verified the public Cloudflare tunnel against this exact CUDA worker.")
 print(URL_ENV + "=" + public_url)
 print(TOKEN_ENV + "=" + token)
 print(MODEL_ENV + "=" + MODEL_ID)
