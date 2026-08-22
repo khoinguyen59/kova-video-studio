@@ -1317,7 +1317,7 @@ Item {
                                     Layout.fillWidth: true
                                     text: qsTr("Run STT now")
                                     iconName: "play"
-                                    enabled: !dubbing.processing
+                                    enabled: !dubbing.processing || dubbing.sttCanRunAlongsideSubtitleOcr
                                     toolTip: qsTr("Run only Speech-to-Text with its own configured route. Subtitle OCR remains available separately.")
                                     onClicked: {
                                         dubbing.setWorkflowNodeParameters("transcribe", { transcriptSource: "stt" })
@@ -1328,22 +1328,23 @@ Item {
                                     Layout.fillWidth: true
                                     text: qsTr("Run Subtitle OCR now")
                                     iconName: "play"
-                                    enabled: !dubbing.processing
+                                    // OCR has its own controller/worker and must remain
+                                    // launchable while the separate STT runner is busy.
+                                    enabled: root.ocrSetupEditable()
+                                             && (!dubbing.processing || dubbing.subtitleOcrCanRunAlongsideStt)
                                     toolTip: qsTr("Run only Subtitle OCR with its own selected Colab or Local route. Speech-to-Text remains available separately.")
                                     onClicked: {
-                                        dubbing.setWorkflowNodeParameters("transcribe", { transcriptSource: "ocr" })
-                                        root.runStep("transcribe")
+                                        dubbing.runSubtitleOcrIndependently()
                                     }
                                 }
                                 PrimaryButton {
                                     Layout.fillWidth: true
                                     text: qsTr("Reconcile saved STT + OCR")
                                     iconName: "play"
-                                    enabled: !dubbing.processing
+                                    enabled: !dubbing.processing && !dubbing.subtitleOcrProcessing
                                     toolTip: qsTr("Combine only the saved STT and OCR results locally. This does not start either worker.")
                                     onClicked: {
-                                        dubbing.setWorkflowNodeParameters("transcribe", { transcriptSource: "reconcile" })
-                                        root.runStep("transcribe")
+                                        dubbing.reconcileTranscriptSources()
                                     }
                                 }
                             }

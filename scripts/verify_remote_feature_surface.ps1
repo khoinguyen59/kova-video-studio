@@ -57,7 +57,11 @@ $features = @(
     @{ id = 'voice-cloning'; qml = 'qml/components/voicecloning/VoiceSettingsPanel.qml'; shell = 'qml/components/voicecloning/VoiceCloningStudioView.qml'; notebook = 'LA_STUDIO_VOICE_CLONE_OMNIVOICE_GPU.ipynb'; qmlNeedle = 'colabNotebookFile'; cudaGuard = 'torch.cuda.is_available()'; capability = '"capability": "voice-cloning"'; endpoint = '/v2/jobs/profile'; url = 'LA_STUDIO_COLAB_VOICE_CLONE_URL'; token = 'LA_STUDIO_COLAB_VOICE_CLONE_TOKEN' },
     @{ id = 'voice-design'; qml = 'qml/components/voicedesign/VoiceDesignSettingsPanel.qml'; shell = 'qml/components/voicedesign/VoiceDesignStudioView.qml'; notebook = 'LA_STUDIO_VOICE_DESIGN_QWEN3_1_7B_GPU.ipynb'; qmlNeedle = 'colabNotebookFile'; cudaGuard = 'torch.cuda.is_available()'; capability = '"capability": "voice-design"'; endpoint = '/v1/audio/voice_designs'; url = 'LA_STUDIO_COLAB_VOICE_DESIGN_URL'; token = 'LA_STUDIO_COLAB_VOICE_DESIGN_TOKEN' },
     @{ id = 'forced-alignment'; qml = 'qml/components/alignment/AlignmentSetupPanel.qml'; shell = 'qml/components/alignment/AlignmentStudioView.qml'; notebook = 'LA_STUDIO_ALIGNMENT_MMS_ONNX_GPU.ipynb'; qmlNeedle = 'colabNotebookFile'; cudaGuard = 'torch.cuda.is_available()'; capability = '"forced-alignment"'; endpoint = '/v1/audio/alignments'; url = 'LA_STUDIO_COLAB_ALIGNMENT_URL'; token = 'LA_STUDIO_COLAB_ALIGNMENT_TOKEN' },
-    @{ id = 'voice-isolation'; qml = 'qml/components/voiceisolator/VoiceIsolatorStudioView.qml'; shell = 'qml/components/voiceisolator/VoiceIsolatorStudioView.qml'; notebook = 'LA_STUDIO_SEPARATION_SPLEETER_2STEMS_GPU.ipynb'; qmlNeedle = 'colabNotebookFile'; cudaGuard = 'sherpa_onnx.__version__'; capability = '"voice-isolation"'; endpoint = '/v1/audio/separations'; url = 'LA_STUDIO_COLAB_SEPARATION_URL'; token = 'LA_STUDIO_COLAB_SEPARATION_TOKEN' },
+    # The notebook validates CUDA availability before it downloads the signed
+    # worker template.  sherpa_onnx is intentionally imported only inside
+    # that downloaded worker, so requiring its version string in the notebook
+    # made this surface verifier reject a valid GPU contract.
+    @{ id = 'voice-isolation'; qml = 'qml/components/voiceisolator/VoiceIsolatorStudioView.qml'; shell = 'qml/components/voiceisolator/VoiceIsolatorStudioView.qml'; notebook = 'LA_STUDIO_SEPARATION_SPLEETER_2STEMS_GPU.ipynb'; qmlNeedle = 'colabNotebookFile'; cudaGuard = 'torch.cuda.is_available()'; capability = '"voice-isolation"'; endpoint = '/v1/audio/separations'; url = 'LA_STUDIO_COLAB_SEPARATION_URL'; token = 'LA_STUDIO_COLAB_SEPARATION_TOKEN' },
     @{ id = 'translation'; qml = 'qml/components/translation/TranslationStudioView.qml'; shell = 'qml/components/translation/TranslationStudioView.qml'; notebook = 'LA_STUDIO_TRANSLATION_M2M100_418M_GPU.ipynb'; qmlNeedle = 'colabNotebookFile'; cudaGuard = 'torch.cuda.is_available()'; capability = '\"translation\"'; endpoint = '/v1/translations'; url = 'LA_STUDIO_COLAB_TRANSLATION_URL'; token = 'LA_STUDIO_COLAB_TRANSLATION_TOKEN' },
     @{ id = 'chat'; qml = 'qml/components/llm/LlmChatStudioView.qml'; shell = 'qml/components/llm/LlmChatStudioView.qml'; notebook = 'LA_STUDIO_LLM_QWEN3_5_2B_GPU.ipynb'; qmlNeedle = 'colabNotebookFile'; cudaGuard = 'torch.cuda.is_available()'; capability = '\"llm-chat\"'; endpoint = '/v1/chat/completions'; url = 'LA_STUDIO_COLAB_CHAT_URL'; token = 'LA_STUDIO_COLAB_CHAT_TOKEN' }
 )
@@ -138,11 +142,34 @@ foreach ($feature in $features) {
     Assert-Contains $panel 'Session token' "$($feature.id) panel"
     Assert-Contains $shell 'settingsRequiresReady: false' "$($feature.id) studio shell"
     Assert-Contains $notebook $feature.cudaGuard "$($feature.id) notebook"
-    Assert-Contains $notebook 'cloudflared' "$($feature.id) notebook"
-    Assert-Contains $notebook $feature.capability "$($feature.id) notebook"
-    Assert-Contains $notebook $feature.endpoint "$($feature.id) notebook"
-    Assert-Contains $notebook $feature.url "$($feature.id) notebook"
-    Assert-Contains $notebook $feature.token "$($feature.id) notebook"
+    if ($feature.id -eq 'voice-isolation') {
+        # The Spleeter notebook deliberately bootstraps two SHA-verified
+        # worker templates.  It must therefore be checked as a three-file
+        # delivery unit: notebook integrity/materialization, launcher tunnel
+        # and worker endpoint/capability.  Checking only the notebook for
+        # cloudflared produced a false negative even though the actual
+        # launched template owned that dependency.
+        $workerTemplatePath = 'notebooks/workers/LA_STUDIO_SEPARATION_SPLEETER_2STEMS_WORKER.py'
+        $launcherTemplatePath = 'notebooks/workers/LA_STUDIO_SEPARATION_SPLEETER_2STEMS_LAUNCHER.py'
+        Assert-Contains $notebook $workerTemplatePath "$($feature.id) notebook worker template"
+        Assert-Contains $notebook $launcherTemplatePath "$($feature.id) notebook launcher template"
+        Assert-Contains $notebook 'actual_sha256 != expected_sha256' "$($feature.id) notebook integrity check"
+        Assert-Contains $notebook "Path('/content', destination).write_bytes(payload)" "$($feature.id) notebook worker materialization"
+
+        $workerTemplate = Get-SourceText $workerTemplatePath
+        $launcherTemplate = Get-SourceText $launcherTemplatePath
+        Assert-Contains $launcherTemplate 'cloudflared' "$($feature.id) launcher template"
+        Assert-Contains $workerTemplate $feature.capability "$($feature.id) worker template"
+        Assert-Contains $workerTemplate $feature.endpoint "$($feature.id) worker template"
+        Assert-Contains $launcherTemplate $feature.url "$($feature.id) launcher template"
+        Assert-Contains $launcherTemplate $feature.token "$($feature.id) launcher template"
+    } else {
+        Assert-Contains $notebook 'cloudflared' "$($feature.id) notebook"
+        Assert-Contains $notebook $feature.capability "$($feature.id) notebook"
+        Assert-Contains $notebook $feature.endpoint "$($feature.id) notebook"
+        Assert-Contains $notebook $feature.url "$($feature.id) notebook"
+        Assert-Contains $notebook $feature.token "$($feature.id) notebook"
+    }
     $passed++
 }
 
@@ -240,9 +267,24 @@ foreach ($entry in $separationNotebooks) {
     if (-not (Test-Path -LiteralPath $path)) { throw "voice-isolation: notebook is missing: $($entry.file)" }
     $source = Get-Content -LiteralPath $path -Raw
     Assert-Contains $source $entry.model "voice-isolation notebook $($entry.file)"
-    Assert-Contains $source 'require_exact_model(model)' "voice-isolation notebook $($entry.file)"
-    Assert-Contains $source 'provider=\"cuda\"' "voice-isolation notebook $($entry.file)"
-    Assert-Contains $source 'LA_STUDIO_COLAB_SEPARATION_MODEL' "voice-isolation notebook $($entry.file)"
+    if ($entry.file -eq 'LA_STUDIO_SEPARATION_SPLEETER_2STEMS_GPU.ipynb') {
+        # Spleeter is intentionally a signed-template notebook.  The exact
+        # model binding and CUDA-only endpoint live in the downloaded worker,
+        # whose repository paths and SHA check are part of the notebook.
+        Assert-Contains $source 'torch.cuda.is_available()' "voice-isolation notebook $($entry.file)"
+        Assert-Contains $source 'LA_STUDIO_SEPARATION_SPLEETER_2STEMS_WORKER.py' "voice-isolation notebook $($entry.file)"
+        Assert-Contains $source 'LA_STUDIO_SEPARATION_SPLEETER_2STEMS_LAUNCHER.py' "voice-isolation notebook $($entry.file)"
+        Assert-Contains $source 'actual_sha256 != expected_sha256' "voice-isolation notebook $($entry.file)"
+        $workerTemplate = Get-SourceText 'notebooks/workers/LA_STUDIO_SEPARATION_SPLEETER_2STEMS_WORKER.py'
+        $launcherTemplate = Get-SourceText 'notebooks/workers/LA_STUDIO_SEPARATION_SPLEETER_2STEMS_LAUNCHER.py'
+        Assert-Contains $workerTemplate 'require_exact_model(model)' "voice-isolation Spleeter worker template"
+        Assert-Contains $workerTemplate 'CUDAExecutionProvider' "voice-isolation Spleeter worker template"
+        Assert-Contains $launcherTemplate 'LA_STUDIO_COLAB_SEPARATION_MODEL' "voice-isolation Spleeter launcher template"
+    } else {
+        Assert-Contains $source 'require_exact_model(model)' "voice-isolation notebook $($entry.file)"
+        Assert-Contains $source 'provider=\"cuda\"' "voice-isolation notebook $($entry.file)"
+        Assert-Contains $source 'LA_STUDIO_COLAB_SEPARATION_MODEL' "voice-isolation notebook $($entry.file)"
+    }
 }
 
 $translationNotebooks = @(

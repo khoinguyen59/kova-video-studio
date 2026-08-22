@@ -8,6 +8,8 @@
 #include <QVariantList>
 #include <QVariantMap>
 #include <QHash>
+#include <QList>
+#include <QMetaObject>
 #include <QSet>
 #include <QtQml/qqml.h>
 #include <memory>
@@ -77,6 +79,12 @@ class DubbingController : public QObject
     Q_PROPERTY(QVariantMap workflowNodeConfigurations READ workflowNodeConfigurations NOTIFY workflowChanged)
     Q_PROPERTY(QVariantMap transcriptConfiguration READ transcriptConfiguration NOTIFY projectChanged)
     Q_PROPERTY(int unresolvedTranscriptConflictCount READ unresolvedTranscriptConflictCount NOTIFY segmentsChanged)
+    // Subtitle OCR is intentionally independent from the audio STT runner.
+    // Exposing its state separately keeps a running STT job from disabling
+    // the OCR action (and the other way round).
+    Q_PROPERTY(bool subtitleOcrProcessing READ subtitleOcrProcessing NOTIFY subtitleOcrProcessingChanged)
+    Q_PROPERTY(bool sttCanRunAlongsideSubtitleOcr READ sttCanRunAlongsideSubtitleOcr NOTIFY workflowChanged)
+    Q_PROPERTY(bool subtitleOcrCanRunAlongsideStt READ subtitleOcrCanRunAlongsideStt NOTIFY workflowChanged)
     Q_PROPERTY(QVariantMap dubbingOcrRoi READ dubbingOcrRoi NOTIFY projectChanged)
     Q_PROPERTY(bool dubbingOcrRoiVisible READ dubbingOcrRoiVisible NOTIFY projectChanged)
     Q_PROPERTY(QVariantMap subtitleConfiguration READ subtitleConfiguration NOTIFY projectChanged)
@@ -185,6 +193,9 @@ public:
     QVariantMap workflowNodeConfigurations() const { return m_workflowNodeConfigurations; }
     QVariantMap transcriptConfiguration() const { return m_project.transcriptConfiguration; }
     int unresolvedTranscriptConflictCount() const;
+    bool subtitleOcrProcessing() const;
+    bool sttCanRunAlongsideSubtitleOcr() const;
+    bool subtitleOcrCanRunAlongsideStt() const;
     QVariantMap dubbingOcrRoi() const;
     bool dubbingOcrRoiVisible() const;
     QVariantMap subtitleConfiguration() const;
@@ -275,6 +286,10 @@ public:
     Q_INVOKABLE bool startMediaQueue(const QVariantMap &tasks);
     Q_INVOKABLE void cancelMediaQueue();
     Q_INVOKABLE void transcribeSource();
+    // Starts only the configured Subtitle OCR worker.  The completed OCR
+    // result is durable but is not promoted over an existing STT transcript;
+    // reconciliation remains the explicit local-only action.
+    Q_INVOKABLE bool runSubtitleOcrIndependently();
     // Reconciliation intentionally does not invoke STT or OCR. It combines
     // the two durable independent transcript results and leaves conflicts for
     // review before translation.
@@ -400,6 +415,7 @@ public:
     Q_INVOKABLE bool validateAllWorkflowColabStages();
 
 signals:
+    void subtitleOcrProcessingChanged();
     void projectChanged();
     void segmentsChanged();
     void processingChanged();
@@ -440,6 +456,11 @@ private:
     bool ensureAutomaticModel(const QString &nodeId, const QString &capabilityId,
                               bool loadSession);
     bool ensureAutomaticAdaptiveModel();
+    // Subtitle OCR owns a separate worker and may run beside an active STT
+    // transcription only.  It must never bypass a batch, automatic workflow,
+    // translation fix, or another non-STT production stage.
+    bool canRunIndependentSubtitleOcrAlongsideCurrentWork() const;
+    bool canRunIndependentAudioSttAlongsideCurrentWork() const;
     QVariantMap firstCustomSetupIssue() const;
     void resetStandardTranslationFixConfiguration();
     void advanceAutomaticSetup();
@@ -499,6 +520,10 @@ private:
     Settings *m_settings = nullptr;
     DubbingJobRunner *m_runner = nullptr;
     SubtitleOcrController *m_subtitleOcr = nullptr;
+    bool m_independentSubtitleOcrActive = false;
+    bool m_independentSubtitleOcrLoadingSource = false;
+    QString m_independentSubtitleOcrSourcePath;
+    QList<QMetaObject::Connection> m_independentSubtitleOcrConnections;
     NodeRegistry *m_workflowRegistry = nullptr;
     WorkflowGraphRunner *m_workflowRunner = nullptr;
     std::unique_ptr<WorkflowReviewStore> m_workflowReviewStore;

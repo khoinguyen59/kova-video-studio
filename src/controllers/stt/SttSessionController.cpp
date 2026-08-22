@@ -377,9 +377,14 @@ void SttSessionController::transcribeInputForProvider(ExecutionProvider provider
         return;
     }
     if (m_decodedSamples.isEmpty()) {
-        Logger::warning(QStringLiteral("SttSession"),
-                        QStringLiteral("Transcription skipped: samples=%1 inputError=%2")
-                            .arg(m_decodedSamples.size()).arg(m_inputError));
+        const QString message = m_inputError.trimmed().isEmpty()
+            ? QStringLiteral("No audio data was decoded from the selected input.")
+            : QStringLiteral("STT input audio could not be decoded: %1").arg(m_inputError);
+        Logger::warning(QStringLiteral("SttSession"), message);
+        // A DubbingTranscriptionJob is already waiting for this signal.  A
+        // silent return leaves its run active forever and makes the UI look
+        // blocked even though no decoder or remote worker is running.
+        emit transcriptionFailed(message);
         return;
     }
     QString availabilityError;

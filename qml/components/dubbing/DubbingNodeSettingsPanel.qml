@@ -22,6 +22,19 @@ Rectangle {
     property bool compact: false
     readonly property bool artifactUploadAvailable: root.dubbing
         && root.dubbing.workflowArtifactSpecsForStage(root.nodeId).length > 0
+    // Audio STT and Subtitle OCR use distinct workers.  The generic Run task
+    // button must remain usable for either one while the other is active, but
+    // no other Dubbing stage gets that exception.
+    readonly property string transcriptSource: root.dubbing.transcriptConfiguration.transcriptSource || "stt"
+    readonly property bool transcriptSttCanRunAlongsideOcr: root.nodeId === "transcribe"
+        && root.transcriptSource === "stt"
+        && root.dubbing.sttCanRunAlongsideSubtitleOcr
+    readonly property bool transcriptOcrCanRunAlongsideStt: root.nodeId === "transcribe"
+        && root.transcriptSource === "ocr"
+        && root.dubbing.subtitleOcrCanRunAlongsideStt
+    readonly property bool runActionEnabled: root.runReady
+        && (!root.dubbing.processing || root.transcriptSttCanRunAlongsideOcr
+            || root.transcriptOcrCanRunAlongsideStt)
 
     signal configureRequested()
     signal loadRequested()
@@ -132,8 +145,8 @@ Rectangle {
         }
         PrimaryButton { iconName: "reload"; iconOnly: true; toolTip: qsTr("Reload model"); quiet: true; visible: root.canReload(); enabled: !root.lifecycleBusy(); onClicked: root.reloadRequested() }
         PrimaryButton { iconName: "power"; iconOnly: true; toolTip: qsTr("Unload model"); quiet: true; visible: root.canUnload(); enabled: !root.lifecycleBusy(); onClicked: root.unloadRequested() }
-        PrimaryButton { visible: root.canRun; iconName: "play"; iconOnly: true; toolTip: qsTr("Run"); enabled: !root.dubbing.processing && root.runReady; onClicked: root.runRequested() }
-        PrimaryButton { visible: root.canRerun; iconName: "run-again"; iconOnly: true; toolTip: qsTr("Run again"); quiet: true; enabled: !root.dubbing.processing && root.runReady; onClicked: root.runRequested() }
+        PrimaryButton { visible: root.canRun; iconName: "play"; iconOnly: true; toolTip: qsTr("Run"); enabled: root.runActionEnabled; onClicked: root.runRequested() }
+        PrimaryButton { visible: root.canRerun; iconName: "run-again"; iconOnly: true; toolTip: qsTr("Run again"); quiet: true; enabled: root.runActionEnabled; onClicked: root.runRequested() }
         PrimaryButton {
             visible: root.nodeId === "translate"
                      && root.dubbing.dubbingQuality !== "fast"
@@ -176,7 +189,7 @@ Rectangle {
                 elide: Text.ElideRight
             }
             Text {
-                visible: root.node && root.node.configurable
+                visible: !!(root.node && root.node.configurable)
                 text: root.modelStateLabel()
                 color: root.modelStateColor()
                 font.pixelSize: 10
@@ -185,7 +198,7 @@ Rectangle {
         }
         Text {
             Layout.fillWidth: true
-            visible: root.node && root.node.roleDescription
+            visible: !!(root.node && root.node.roleDescription)
             text: root.node ? root.node.roleDescription : ""
             color: Theme.textSecondary
             font.pixelSize: 10
@@ -198,7 +211,7 @@ Rectangle {
             spacing: Theme.paddingSmall
             PrimaryButton {
                 id: compactModelAction
-                visible: root.node && root.node.configurable === true
+                visible: !!(root.node && root.node.configurable === true)
                 text: root.modelActionText()
                 iconName: root.modelActionIcon()
                 Layout.fillWidth: true
@@ -259,8 +272,8 @@ Rectangle {
             spacing: Theme.paddingSmall
             PrimaryButton { id: compactReloadAction; iconName: "reload"; text: qsTr("Reload model"); Layout.fillWidth: true; quiet: true; visible: root.canReload(); enabled: !root.lifecycleBusy(); onClicked: root.reloadRequested() }
             PrimaryButton { id: compactUnloadAction; iconName: "power"; text: qsTr("Unload model"); Layout.fillWidth: true; quiet: true; visible: root.canUnload(); enabled: !root.lifecycleBusy(); onClicked: root.unloadRequested() }
-            PrimaryButton { id: compactRunAction; visible: root.canRun; text: qsTr("Run task"); iconName: "play"; Layout.fillWidth: true; enabled: !root.dubbing.processing && root.runReady; onClicked: root.runRequested() }
-            PrimaryButton { id: compactRerunAction; visible: root.canRerun; text: qsTr("Run again"); iconName: "run-again"; Layout.fillWidth: true; quiet: true; enabled: !root.dubbing.processing && root.runReady; onClicked: root.runRequested() }
+            PrimaryButton { id: compactRunAction; visible: root.canRun; text: qsTr("Run task"); iconName: "play"; Layout.fillWidth: true; enabled: root.runActionEnabled; onClicked: root.runRequested() }
+            PrimaryButton { id: compactRerunAction; visible: root.canRerun; text: qsTr("Run again"); iconName: "run-again"; Layout.fillWidth: true; quiet: true; enabled: root.runActionEnabled; onClicked: root.runRequested() }
             PrimaryButton {
                 id: compactFixAction
                 visible: root.nodeId === "translate"

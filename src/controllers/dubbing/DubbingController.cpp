@@ -708,6 +708,7 @@ bool DubbingController::processing() const
         || m_mediaQueueProcessing
         || (m_translationFix && m_translationFix->busy())
         || m_runner->processing()
+        || subtitleOcrProcessing()
         || (m_workflowRunner && m_workflowRunner->running());
 }
 
@@ -719,7 +720,9 @@ QString DubbingController::stage() const
     if (m_workflowRunner && m_workflowRunner->running()
         && !m_workflowRunner->activeNodeId().isEmpty())
         return m_workflowRunner->activeNodeId();
-    return m_runner->stage();
+    if (m_runner && m_runner->processing()) return m_runner->stage();
+    if (subtitleOcrProcessing()) return QStringLiteral("subtitle-ocr");
+    return m_runner ? m_runner->stage() : QString();
 }
 
 QVariantMap DubbingController::activityStageInfo() const
@@ -731,6 +734,10 @@ QVariantMap DubbingController::activityStageInfo() const
         nodeId = QStringLiteral("translate");
     } else if (m_workflowRunner && m_workflowRunner->running()) {
         nodeId = m_workflowRunner->activeNodeId();
+    } else if (m_runner && m_runner->processing()) {
+        nodeId = activityNodeId(m_runner ? m_runner->stage() : QString());
+    } else if (subtitleOcrProcessing()) {
+        nodeId = QStringLiteral("subtitle-ocr");
     } else {
         nodeId = activityNodeId(m_runner ? m_runner->stage() : QString());
     }
@@ -760,7 +767,17 @@ QVariantMap DubbingController::activityStageInfo() const
                 QStringLiteral("executionProvider"))).toString().trimmed().toLower();
         const QString model = configuration.value(
             QStringLiteral("modelId"), parameters.value(QStringLiteral("modelId"))).toString().trimmed();
-        if (provider == QStringLiteral("colab-direct"))
+        if (nodeId == QStringLiteral("subtitle-ocr") && m_subtitleOcr) {
+            const QString ocrRoute = m_subtitleOcr->executionRoute().trimmed().toLower();
+            result.insert(QStringLiteral("route"),
+                          ocrRoute == QStringLiteral("colab-gpu")
+                              ? QStringLiteral("Direct Colab GPU")
+                              : QStringLiteral("Local CPU"));
+            result.insert(QStringLiteral("model"),
+                          ocrRoute == QStringLiteral("colab-gpu")
+                              ? m_subtitleOcr->colabModelId()
+                              : m_subtitleOcr->localEngineId());
+        } else if (provider == QStringLiteral("colab-direct"))
             result.insert(QStringLiteral("route"), QStringLiteral("Direct Colab GPU"));
         else if (provider == QStringLiteral("api-gateway"))
             result.insert(QStringLiteral("route"), QStringLiteral("API Gateway"));
@@ -768,7 +785,8 @@ QVariantMap DubbingController::activityStageInfo() const
                  || actionNodeId == QStringLiteral("ingest")
                  || actionNodeId == QStringLiteral("media-input"))
             result.insert(QStringLiteral("route"), QStringLiteral("Local CPU"));
-        result.insert(QStringLiteral("model"), model);
+        if (!result.contains(QStringLiteral("model")))
+            result.insert(QStringLiteral("model"), model);
         break;
     }
 
@@ -780,6 +798,10 @@ QVariantMap DubbingController::activityStageInfo() const
     }
     if (m_automaticSetupActive) {
         result.insert(QStringLiteral("status"), m_automaticStatusText);
+    } else if (subtitleOcrProcessing() && m_subtitleOcr) {
+        result.insert(QStringLiteral("status"), m_subtitleOcr->phase().trimmed().isEmpty()
+                                             ? QStringLiteral("Running Subtitle OCR")
+                                             : m_subtitleOcr->phase());
     } else if (m_runner) {
         const QString status = m_runner->activityStatus().trimmed();
         if (!status.isEmpty()) result.insert(QStringLiteral("status"), status);
@@ -1481,9 +1503,105 @@ void DubbingController::setVoiceClonePresetService(VoiceClonePresetService *serv
 
 void DubbingController::setSubtitleOcrController(SubtitleOcrController *controller)
 {
+    for (const QMetaObject::Connection &connection : std::as_const(m_independentSubtitleOcrConnections))
+        QObject::disconnect(connection);
+    m_independentSubtitleOcrConnections.clear();
+    m_independentSubtitleOcrActive = false;
+    m_independentSubtitleOcrLoadingSource = false;
+    m_independentSubtitleOcrSourcePath.clear();
     m_subtitleOcr = controller;
     applyStoredSubtitleOcrConfiguration();
     if (m_runner) m_runner->setSubtitleOcrController(controller);
+    if (!m_subtitleOcr) {
+        emit subtitleOcrProcessingChanged();
+        return;
+    }
+
+    // The production runner still owns its legacy OCR route for restored
+    // workflows.  These connections own only an explicitly requested OCR
+    // pass, so an audio STT run and OCR can proceed at the same time without
+    // either worker stealing the other's completion or failure event.
+    m_independentSubtitleOcrConnections = {
+        connect(m_subtitleOcr, &SubtitleOcrController::sourceChanged, this, [this]() {
+            if (!m_independentSubtitleOcrActive || !m_independentSubtitleOcrLoadingSource
+                || !m_subtitleOcr) return;
+            if (QFileInfo(m_subtitleOcr->sourcePath()).absoluteFilePath()
+                != QFileInfo(m_independentSubtitleOcrSourcePath).absoluteFilePath()) return;
+            m_independentSubtitleOcrLoadingSource = false;
+            if (!m_subtitleOcr->run()) {
+                const QString message = m_subtitleOcr->error().trimmed().isEmpty()
+                    ? QStringLiteral("The Subtitle OCR route could not be started.")
+                    : m_subtitleOcr->error();
+                m_independentSubtitleOcrActive = false;
+                setError(QStringLiteral("OCR transcript failed: %1").arg(message));
+                emit subtitleOcrProcessingChanged();
+                emit processingChanged();
+                emit workflowChanged();
+            }
+        }),
+        connect(m_subtitleOcr, &SubtitleOcrController::segmentsChanged, this, [this]() {
+            if (!m_independentSubtitleOcrActive || !m_subtitleOcr
+                || m_subtitleOcr->processing()
+                || m_subtitleOcr->phase() != QStringLiteral("completed")) return;
+            const QVariantList segments = DubbingTranscriptFusionService::normalizeOcrSegments(
+                m_subtitleOcr->segments());
+            m_independentSubtitleOcrActive = false;
+            m_independentSubtitleOcrLoadingSource = false;
+            if (segments.isEmpty()) {
+                setError(QStringLiteral("OCR completed without usable subtitle segments."));
+                emit subtitleOcrProcessingChanged();
+                emit processingChanged();
+                emit workflowChanged();
+                return;
+            }
+            m_project.transcriptConfiguration.insert(QStringLiteral("ocrSegments"), segments);
+            m_project.transcriptConfiguration.insert(QStringLiteral("ocrCompletedAt"),
+                                                      QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+            QVariantMap ocrOutput;
+            ocrOutput.insert(QStringLiteral("transcript"), segments);
+            ocrOutput.insert(QStringLiteral("transcriptSource"), QStringLiteral("ocr"));
+            m_stepOutputs.insert(QStringLiteral("subtitle-ocr"), ocrOutput);
+            m_lastCompletedStepId = QStringLiteral("subtitle-ocr");
+            clearError();
+            emit subtitleOcrProcessingChanged();
+            emit processingChanged();
+            emit projectChanged();
+            emit workflowChanged();
+            persistAfterEdit();
+        }),
+        connect(m_subtitleOcr, &SubtitleOcrController::errorChanged, this, [this]() {
+            if (!m_independentSubtitleOcrActive || !m_subtitleOcr
+                || m_subtitleOcr->error().trimmed().isEmpty()) return;
+            m_independentSubtitleOcrActive = false;
+            m_independentSubtitleOcrLoadingSource = false;
+            setError(QStringLiteral("OCR transcript failed: %1").arg(m_subtitleOcr->error()));
+            emit subtitleOcrProcessingChanged();
+            emit processingChanged();
+            emit workflowChanged();
+        }),
+        connect(m_subtitleOcr, &SubtitleOcrController::processingChanged, this, [this]() {
+            emit subtitleOcrProcessingChanged();
+            emit processingChanged();
+            emit workflowChanged();
+        })
+    };
+    emit subtitleOcrProcessingChanged();
+    emit processingChanged();
+}
+
+bool DubbingController::subtitleOcrProcessing() const
+{
+    return m_independentSubtitleOcrActive || (m_subtitleOcr && m_subtitleOcr->processing());
+}
+
+bool DubbingController::sttCanRunAlongsideSubtitleOcr() const
+{
+    return canRunIndependentAudioSttAlongsideCurrentWork();
+}
+
+bool DubbingController::subtitleOcrCanRunAlongsideStt() const
+{
+    return canRunIndependentSubtitleOcrAlongsideCurrentWork();
 }
 
 QVariantMap DubbingController::dubbingOcrRoi() const
@@ -1518,12 +1636,10 @@ bool DubbingController::hasUnresolvedTranscriptConflicts() const
 
 bool DubbingController::dubbingOcrRoiVisible() const
 {
-    const QString source = normalizedTranscriptSource(m_project.transcriptConfiguration.value(
-        QStringLiteral("transcriptSource"), QStringLiteral("stt")).toString());
-    // This is a mode capability, rather than a video-presence check.  The QML
-    // overlay additionally requires a video content rect, while its controls
-    // can explain why they are disabled before the user selects media.
-    return source == QStringLiteral("ocr");
+    // OCR is a separately runnable source. Its crop editor must remain
+    // available while STT is selected or running, otherwise the user cannot
+    // prepare OCR independently before reconciling the two saved results.
+    return m_subtitleOcr != nullptr;
 }
 
 bool DubbingController::setDubbingOcrRoi(const QVariantMap &roi)
@@ -3924,8 +4040,25 @@ bool DubbingController::runCurrentStep(const QString &outputPath)
         return false;
     }
     if (m_workflowMode != QStringLiteral("step")) startStepByStep();
-    if (processing()) return false;
     const QString step = m_currentStepId;
+    const QString transcriptSource = step == QStringLiteral("transcribe")
+        ? normalizedTranscriptSource(m_project.transcriptConfiguration.value(
+              QStringLiteral("transcriptSource"), QStringLiteral("stt")).toString())
+        : QString();
+    const bool independentOcr = step == QStringLiteral("transcribe")
+        && transcriptSource == QStringLiteral("ocr");
+    const bool independentStt = step == QStringLiteral("transcribe")
+        && transcriptSource == QStringLiteral("stt");
+    const bool canRunAlongsideCurrentWork = independentOcr
+        ? canRunIndependentSubtitleOcrAlongsideCurrentWork()
+        : (independentStt ? canRunIndependentAudioSttAlongsideCurrentWork() : false);
+    if (processing() && !canRunAlongsideCurrentWork) {
+        if (independentOcr)
+            setBusyError(QStringLiteral("Subtitle OCR can run beside STT only; wait for the current non-STT Dubbing task to finish."));
+        else if (independentStt)
+            setBusyError(QStringLiteral("Speech-to-Text can run beside Subtitle OCR only; wait for the current non-OCR Dubbing task to finish."));
+        return false;
+    }
     Logger::info(QStringLiteral("DubbingController"),
                  QStringLiteral("Run current step step=%1 mode=%2 output=%3 project=%4")
                      .arg(step, m_workflowMode, outputPath, m_project.projectPath));
@@ -3940,11 +4073,10 @@ bool DubbingController::runCurrentStep(const QString &outputPath)
         return m_runner->processing() || !m_project.masterAudioPath.isEmpty();
     }
     if (step == QStringLiteral("transcribe")) {
-        const QString transcriptSource = normalizedTranscriptSource(
-            m_project.transcriptConfiguration.value(QStringLiteral("transcriptSource"),
-                                                    QStringLiteral("stt")).toString());
         if (transcriptSource == QStringLiteral("reconcile"))
             return reconcileTranscriptSources();
+        if (transcriptSource == QStringLiteral("ocr"))
+            return runSubtitleOcrIndependently();
         transcribeSource();
         return m_runner->processing();
     }
@@ -3971,7 +4103,17 @@ bool DubbingController::rerunStep(const QString &stepId, const QString &outputPa
         setError(QStringLiteral("Choose an entry mode before running a Dubbing stage."));
         return false;
     }
-    if (processing()) {
+    const QString requestedStep = stepId.trimmed();
+    const bool independentOcr = requestedStep == QStringLiteral("transcribe")
+        && normalizedTranscriptSource(m_project.transcriptConfiguration.value(
+               QStringLiteral("transcriptSource"), QStringLiteral("stt")).toString())
+               == QStringLiteral("ocr");
+    const bool independentStt = requestedStep == QStringLiteral("transcribe")
+        && !independentOcr;
+    const bool canRunAlongsideCurrentWork = independentOcr
+        ? canRunIndependentSubtitleOcrAlongsideCurrentWork()
+        : (independentStt ? canRunIndependentAudioSttAlongsideCurrentWork() : false);
+    if (processing() && !canRunAlongsideCurrentWork) {
         Logger::warning(QStringLiteral("DubbingController"),
                         QStringLiteral("Run request rejected while busy requestedStep=%1 activeStep=%2 runnerStage=%3 progress=%4")
                             .arg(stepId, m_currentStepId, m_runner->stage())
@@ -3979,7 +4121,7 @@ bool DubbingController::rerunStep(const QString &stepId, const QString &outputPa
         return false;
     }
 
-    const QString step = stepId.trimmed();
+    const QString step = requestedStep;
     const bool supported = step == QStringLiteral("ingest")
         || step == QStringLiteral("source-separate")
         || step == QStringLiteral("transcribe")
@@ -5777,6 +5919,79 @@ void DubbingController::transcribeSource()
                      .arg(mode, m_project.sourceLanguage, audioPath));
     persistAfterEdit();
     m_runner->startTranscription(m_project.sourceLanguage, audioPath, QString(), configuration);
+}
+
+bool DubbingController::runSubtitleOcrIndependently()
+{
+    if (!m_subtitleOcr) {
+        setError(QStringLiteral("Subtitle OCR is unavailable in this application session."));
+        return false;
+    }
+    if (m_independentSubtitleOcrActive || m_subtitleOcr->processing()) {
+        setBusyError(QStringLiteral("Subtitle OCR is already preparing or running."));
+        return false;
+    }
+    if (!canRunIndependentSubtitleOcrAlongsideCurrentWork()) {
+        setBusyError(QStringLiteral("Subtitle OCR can run beside STT only; wait for the current non-STT Dubbing task to finish."));
+        return false;
+    }
+    const QFileInfo source(m_project.sourceMediaPath);
+    if (!source.isFile() || source.size() <= 0) {
+        setError(QStringLiteral("Import a readable video before running Subtitle OCR."));
+        return false;
+    }
+
+    applyStoredSubtitleOcrConfiguration();
+    m_independentSubtitleOcrActive = true;
+    m_independentSubtitleOcrLoadingSource = true;
+    m_independentSubtitleOcrSourcePath = source.absoluteFilePath();
+    clearError();
+    emit subtitleOcrProcessingChanged();
+    emit processingChanged();
+    emit workflowChanged();
+
+    if (!m_subtitleOcr->loadSource(m_independentSubtitleOcrSourcePath)) {
+        const QString message = m_subtitleOcr->error().trimmed().isEmpty()
+            ? QStringLiteral("The selected video could not be prepared for Subtitle OCR.")
+            : m_subtitleOcr->error();
+        m_independentSubtitleOcrActive = false;
+        m_independentSubtitleOcrLoadingSource = false;
+        m_independentSubtitleOcrSourcePath.clear();
+        setError(QStringLiteral("OCR transcript failed: %1").arg(message));
+        emit subtitleOcrProcessingChanged();
+        emit processingChanged();
+        emit workflowChanged();
+        return false;
+    }
+    return true;
+}
+
+bool DubbingController::canRunIndependentSubtitleOcrAlongsideCurrentWork() const
+{
+    if (m_independentSubtitleOcrActive || (m_subtitleOcr && m_subtitleOcr->processing()))
+        return false;
+    if (m_automaticSetupActive || m_mediaQueueProcessing
+        || (m_translationFix && m_translationFix->busy())
+        || (m_workflowRunner && m_workflowRunner->running())) {
+        return false;
+    }
+    // The only runner operation which is independent from OCR is audio STT.
+    return !m_runner || !m_runner->processing()
+        || m_runner->stage() == QStringLiteral("transcribe");
+}
+
+bool DubbingController::canRunIndependentAudioSttAlongsideCurrentWork() const
+{
+    if (m_automaticSetupActive || m_mediaQueueProcessing
+        || (m_translationFix && m_translationFix->busy())
+        || (m_workflowRunner && m_workflowRunner->running())) {
+        return false;
+    }
+    // The only controller-owned work that can coexist with audio STT is the
+    // independent Subtitle OCR pass. A second STT run remains rejected by the
+    // production runner itself.
+    return subtitleOcrProcessing()
+        && (!m_runner || !m_runner->processing());
 }
 
 bool DubbingController::reconcileTranscriptSources()

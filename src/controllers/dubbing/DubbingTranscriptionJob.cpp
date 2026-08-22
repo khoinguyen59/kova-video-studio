@@ -55,7 +55,10 @@ DubbingTranscriptionJob::DubbingTranscriptionJob(SttSessionController *stt,
         emit progressChanged(qBound(1, m_stt->progress(), 99));
     });
     connect(m_stt, &SttSessionController::inputErrorChanged, this, [this]() {
-        if (m_running && !m_stt->inputError().isEmpty()) fail(m_stt->inputError());
+        if (m_running && !m_stt->inputError().isEmpty()) {
+            fail(QStringLiteral("STT input audio could not be decoded: %1")
+                     .arg(m_stt->inputError()));
+        }
     });
     connect(m_stt, &SttSessionController::inputLoadingChanged, this, [this]() {
         beginTranscriptionAfterInputReady();

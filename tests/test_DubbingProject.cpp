@@ -2868,6 +2868,74 @@ void TestDubbingProject::dubbingTranscriptionWaitsForFreshDecodedAudio()
     stt->cancelProcessing();
 }
 
+void TestDubbingProject::dubbingTranscriptionDecodeFailureStopsWithoutContactingWorker()
+{
+    DubbingSttWorkerMock worker;
+    QVERIFY(worker.start());
+
+    AppController *app = AppController::instance();
+    QVERIFY(app != nullptr);
+    ColabSession *session = app->colabSttSession();
+    SttSessionController *stt = app->sttSession();
+    QVERIFY(session != nullptr);
+    QVERIFY(stt != nullptr);
+    ColabSessionReset resetSession(session);
+    stt->cancelProcessing();
+    QTRY_VERIFY_WITH_TIMEOUT(!stt->processing(), 2000);
+
+    QString sessionError;
+    QVERIFY2(session->setSession(worker.workerUrl(), QStringLiteral("decode-failure-token"),
+                                 &sessionError, true), qPrintable(sessionError));
+
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString invalidAudio = directory.filePath(QStringLiteral("invalid-source.flac"));
+    QFile invalidFile(invalidAudio);
+    QVERIFY(invalidFile.open(QIODevice::WriteOnly));
+    QVERIFY(invalidFile.write("not an audio stream") > 0);
+    invalidFile.close();
+
+    DubbingTranscriptionJob job(stt, nullptr, nullptr);
+    QSignalSpy failed(&job, &DubbingTranscriptionJob::failed);
+    const QVariantMap configuration{
+        {QStringLiteral("executionProvider"), QStringLiteral("colab-direct")},
+        {QStringLiteral("modelId"), QStringLiteral("whisper.cpp")}
+    };
+    QVERIFY(job.start(QStringLiteral("en"), invalidAudio, {}, configuration));
+
+    // A decoder failure must finish the Dubbing job and leave the remote STT
+    // worker untouched.  This is the regression that previously left the UI
+    // blocked after reporting “No audio data was decoded.”
+    QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 5000);
+    QVERIFY(failed.constFirst().constFirst().toString().contains(
+        QStringLiteral("could not be decoded"), Qt::CaseInsensitive));
+    QVERIFY(worker.request().isEmpty());
+    QVERIFY(!job.running());
+}
+
+void TestDubbingProject::transcriptOcrRunControlRemainsAvailableAlongsideStt()
+{
+    QFile panel(QStringLiteral(LASTUDIO_SOURCE_DIR)
+                + QStringLiteral("/qml/components/dubbing/DubbingNodeSettingsPanel.qml"));
+    QVERIFY(panel.open(QIODevice::ReadOnly));
+    const QString panelSource = QString::fromUtf8(panel.readAll());
+    QVERIFY(panelSource.contains(QStringLiteral("transcriptOcrCanRunAlongsideStt")));
+    QVERIFY(panelSource.contains(QStringLiteral("transcriptSttCanRunAlongsideOcr")));
+    QVERIFY(panelSource.contains(QStringLiteral("root.runActionEnabled")));
+    QVERIFY(panelSource.contains(QStringLiteral("root.transcriptSttCanRunAlongsideOcr")));
+    QVERIFY(panelSource.contains(QStringLiteral("root.transcriptOcrCanRunAlongsideStt")));
+
+    QFile controller(QStringLiteral(LASTUDIO_SOURCE_DIR)
+                     + QStringLiteral("/src/controllers/dubbing/DubbingController.cpp"));
+    QVERIFY(controller.open(QIODevice::ReadOnly));
+    const QString controllerSource = QString::fromUtf8(controller.readAll());
+    QVERIFY(controllerSource.contains(QStringLiteral("return runSubtitleOcrIndependently();")));
+    QVERIFY(controllerSource.contains(QStringLiteral("canRunIndependentAudioSttAlongsideCurrentWork")));
+    QVERIFY(controllerSource.contains(QStringLiteral("Subtitle OCR can run beside STT only")));
+    QVERIFY(controllerSource.contains(QStringLiteral("The only controller-owned work that can coexist with audio STT")));
+    QVERIFY(controllerSource.contains(QStringLiteral("m_runner->stage() == QStringLiteral(\"transcribe\")")));
+}
+
 void TestDubbingProject::targetLanguageUpdatesVoiceNodeLanguage()
 {
     DubbingController controller(nullptr, nullptr);

@@ -95,6 +95,8 @@ private slots:
     void dubbingUiUsesExactModelWorkers();
     void dubbingEntryAndAutomaticSetupCannotBypassConfiguration();
     void dubbingTranscriptionWaitsForFreshDecodedAudio();
+    void dubbingTranscriptionDecodeFailureStopsWithoutContactingWorker();
+    void transcriptOcrRunControlRemainsAvailableAlongsideStt();
     void normalizesOcrOnlyTranscriptWithProvenance();
     void fusesMatchingAndShiftedTranscriptWithoutDuplicates();
     void exposesConflictEvidenceWithoutSilentChoice();
