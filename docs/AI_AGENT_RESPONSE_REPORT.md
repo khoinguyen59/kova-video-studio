@@ -438,3 +438,19 @@ Open the new executable, create/open a project, press **Open video** or
 **Browse**, select `1.mp4`, then confirm the preview/source path updates. The
 picker must stay inside LA Studio rather than opening a detached Explorer
 window. No GUI was controlled by the agent while producing this batch.
+
+## Update — 2026-08-23: 0.0.7.8 restores the Windows file chooser
+
+The 0.0.7.7 fallback-picker decision was wrong for the reported UI: forcing
+`FileDialog.DontUseNativeDialog` created the black Qt file dialog. The
+single-file and multi-file Dubbing pickers now use the normal native Windows
+chooser again; the existing accepted-file import handlers are retained.
+
+Targeted media-ingest regression passed, full CTest **39/39 passed** in
+**63.33 s**, `git diff --check` passed, and Graphify was updated. The internal
+portable artifact is `out/LA-Studio-0.0.7.8/LA-Studio-0.0.7.8.exe`, with
+file/product version `0.0.7.8` and SHA-256
+`510FE11BE60AB581CA0BEB89A77C4549D96D5F1274C06F7D20234B30A189A69B`.
+
+The remaining manual visual check is simple: **Open video** or **Browse** must
+open the expected native Windows file chooser rather than the dark Qt dialog.

@@ -1416,3 +1416,21 @@ remote GPU acceptance run.
   `4316C09BAA2F21BA6555B824568532BAC9254B5B7572D309ECB8239B73DCE58B`.
   This is automated source/package evidence; the visible click-through of the
   new in-app picker remains a short manual acceptance check.
+
+## 2026-08-23 - Corrected Dubbing media picker: native Windows dialog restored
+
+- The prior `0.0.7.7` change forcing `FileDialog.DontUseNativeDialog` was
+  reverted. It produced Qt's dark in-app file picker, not the normal Windows
+  file-selection experience requested by the user.
+- Both Dubbing dialogs now use the native Windows picker again: the one-file
+  source picker and the multi-file media-library picker. Their `onAccepted`
+  handlers remain unchanged.
+- Regression coverage asserts that neither picker forces
+  `DontUseNativeDialog`, while preserving both accepted-file routes.
+- Targeted `TestMediaIngestService` passed; full CTest **39/39 passed** in
+  **63.33 s**. Portable internal package:
+  `out/LA-Studio-0.0.7.8/LA-Studio-0.0.7.8.exe`; file/product version
+  `0.0.7.8`; SHA-256
+  `510FE11BE60AB581CA0BEB89A77C4549D96D5F1274C06F7D20234B30A189A69B`.
+- Manual acceptance remains a short click-through: **Open video** or
+  **Browse** must open the native Windows chooser, not the dark Qt chooser.

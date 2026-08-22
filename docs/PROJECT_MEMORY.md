@@ -1022,3 +1022,16 @@ media/worker deu da xac nhan thuc te.
 - A one-item Import/Normalize queue is source selection for the current
   project. Keep the imported project active; only multi-item library work
   restores the pre-queue project because no single item can be chosen safely.
+
+### 2026-08-23 - Superseded picker policy: package 0.0.7.8 uses native Windows
+
+- The `0.0.7.7` application-owned/QML picker policy above is superseded: its
+  dark fallback dialog was visibly wrong for this app.
+- `mediaFileDialog` and `queuedMediaFilesDialog` no longer set
+  `FileDialog.DontUseNativeDialog`; both use the native Windows picker while
+  retaining their accepted-file handlers.
+- Portable internal package: `out/LA-Studio-0.0.7.8/LA-Studio-0.0.7.8.exe`;
+  file/product version `0.0.7.8`; SHA-256
+  `510FE11BE60AB581CA0BEB89A77C4549D96D5F1274C06F7D20234B30A189A69B`.
+- Evidence: targeted media-ingest PASS and full CTest **39/39 PASS**. The
+  native chooser requires a normal visual Windows click-through to accept.
